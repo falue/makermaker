@@ -74,6 +74,10 @@ export class AreaTool implements Tool {
     this.update();
   }
 
+  clicks() {
+    return !this.pull;
+  }
+
   key(e: KeyboardEvent) {
     const p = this.pull;
     if (p) {

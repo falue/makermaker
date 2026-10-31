@@ -44,6 +44,10 @@ let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; sa
 };
 let status = '';
 let toolHint: string | null = null;
+/** A face pick running for the extrude tool (E, then a face). */
+let extrudePick = false;
+/** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
+let pending: { tool: 'boolean' | 'delete' | 'duplicate'; pick(id: string): void; apply?(): void } | null = null;
 let autosave = localStorage.getItem('makermaker.autosave') === 'on';
 let autosaveTimer = 0;
 /** The body shown alone, and what was visible before (bodies and sketches by id). */
@@ -274,6 +278,7 @@ function picked(sel: string[], list: string[], id: string, how: Pick) {
  * (unless adding). Selecting something else leaves sketch mode.
  */
 function select(id: string | null, how: Pick = false) {
+  if (pending && id && history.current.bodies.some((b) => b.id === id)) return pending.pick(id);
   // while picking areas, a sketch chosen in the list gets all its areas picked
   if (toolMode === 'pull' && sketching && id && history.current.sketches.some((s) => s.id === id)) {
     if (id !== sketching) enterSketch(id);
@@ -368,7 +373,23 @@ function duplicateShapes(offset = 10) {
 function applyBoolean(op: BooleanOp) {
   const doc = history.current;
   const ids = selected.filter((id) => doc.bodies.some((b) => b.id === id));
-  if (ids.length < 2) return notify('Select two or more bodies: the first one keeps the result');
+  if (ids.length < 2) {
+    // tool first: clicked bodies join the selection, Enter applies
+    [selected, shapeSel] = [ids, []];
+    pending = {
+      tool: 'boolean',
+      pick(id) {
+        selected = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
+        showSelection();
+      },
+      apply() {
+        cancelPending();
+        applyBoolean(op);
+      },
+    };
+    toolHint = `Click the body that keeps the result, then the ones to ${{ union: 'join', subtract: 'cut it', intersect: 'intersect' }[op]} · [Enter] applies · [Esc] cancels`;
+    return showSelection();
+  }
   const [target, ...tools] = ids;
   const bodies = doc.bodies.map((b) => {
     if (tools.includes(b.id)) return { ...b, visible: op === 'subtract' }; // cutters show as red outlines
@@ -432,7 +453,27 @@ function nudge(by: Vec3) {
 }
 
 /** Deletes the selected shapes of the selected sketch, else the selected bodies and sketches. */
+/** Tool first: the next clicked body gets `act`. */
+function pickFor(tool: 'delete' | 'duplicate', act: () => void) {
+  pending = {
+    tool,
+    pick(id) {
+      cancelPending();
+      selected = [id];
+      act();
+    },
+  };
+  toolHint = `Click a body to ${tool} it · [Esc] cancels`;
+  render();
+}
+
+function cancelPending() {
+  pending = null;
+  toolHint = null;
+}
+
 function remove() {
+  if (!selected.length) return pickFor('delete', remove);
   const doc = history.current;
   const sketch = activeSketch();
   if (sketch && shapeSel.length) {
@@ -719,9 +760,11 @@ function extrude() {
     const last = viewer.lastFace;
     if (last?.body && selected.includes(last.body)) return pullFace(last);
     toolHint = 'Click a face of an extrusion to push or pull it · [Esc] cancels';
+    extrudePick = true;
     render();
     return viewer.pickFace((face) => {
       toolHint = null;
+      extrudePick = false;
       if (face) pullFace(face);
       else render();
     });
@@ -820,7 +863,7 @@ function render() {
     dirty: doc !== file.saved,
     status,
     shapes: shapeSel,
-    tool: viewer.activeTool,
+    active: pending?.tool ?? (extrudePick || (toolMode === 'pull' && !viewer.activeTool) ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
     hint: toolHint,
     autosave,
     notify,
@@ -877,7 +920,7 @@ function render() {
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
     },
     toggleAutosave: () => run(toggleAutosave),
-    duplicate: () => (shapeSel.length ? duplicateShapes() : duplicate()),
+    duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
       load({ schema: 4, units: history.current.units, params: {}, bodies: [], sketches: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
@@ -949,6 +992,8 @@ addEventListener('keydown', (e) => {
   if (mod && key === 's') run(save);
   else if (mod && key === 'o') run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+  else if (pending && e.key === 'Enter') pending.apply?.();
+  else if (pending && e.key === 'Escape') cancelPending(), render();
   else if (mod && key === 'z') undo(e.shiftKey);
   else if (mod && key === 'y') undo(true);
   else if (plain && key === 'f') viewer.fit();

@@ -157,6 +157,8 @@ export class Viewer implements ToolView {
   private deadPx = 24; // dead zone radius: no axis until the pointer leaves it
   private moveLabel = Object.assign(document.createElement('div'), { className: 'size-label active', hidden: true });
   private facePick: ((face: PickedFace | null) => void) | null = null;
+  /** Where a picking press started (see `clicked`). */
+  private clickAt: { x: number; y: number } | null = null;
   private faceMark: THREE.Mesh | null = null;
   /** A tool locked the pointer; the browser freeing it (its Esc) counts as Esc for the tool. */
   private locked = false;
@@ -222,9 +224,11 @@ export class Viewer implements ToolView {
       'pointerdown',
       (e) => {
         if (e.target !== canvas) return;
-        if (this.facePick && e.button === 0) {
-          e.stopPropagation();
-          return this.pickFaceAt(e);
+        if (e.button === 0 && (this.facePick || this.tool?.clicks?.())) {
+          // picking: a drag turns the view (the orbit controls get this press), a click picks on release
+          this.clickAt = { x: e.clientX, y: e.clientY };
+          this.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+          return;
         }
         if (this.tool?.down(e)) {
           this.toolPress = true;
@@ -240,6 +244,7 @@ export class Viewer implements ToolView {
       if (!this.toolPress) this.move(e); // a drag that belongs to a tool is no orbit
     });
     canvas.addEventListener('pointerup', (e) => {
+      if (this.clickAt) return this.clicked(e);
       if (!this.toolPress) return this.up(e);
       this.toolPress = false;
       this.tool?.up();
@@ -833,6 +838,17 @@ export class Viewer implements ToolView {
     return out;
   }
 
+  /** A picking press ended: without dragging it picks a face or goes to the tool as a click. */
+  private clicked(e: PointerEvent, px = 4) {
+    const { x, y } = this.clickAt!;
+    this.clickAt = null;
+    if (this.tool) this.toolButtons(true);
+    if (Math.hypot(e.clientX - x, e.clientY - y) > px) return;
+    if (this.facePick) return this.pickFaceAt(e);
+    const t = this.tool;
+    if (t?.down(e) && t === this.tool) t.up(); // not to a tool that replaced it
+  }
+
   /** Lights the whole B-rep face of `hit` (none: clears it). */
   markFace(hit?: THREE.Intersection, color = 0xff8c1a) {
     if (this.faceMark) {
@@ -1090,6 +1106,7 @@ export class Viewer implements ToolView {
     if (e.shiftKey || e.metaKey || e.ctrlKey) return this.host.select(id, true);
     const member = this.selection.includes(id);
     if (!member) this.host.select(id, false);
+    if (!this.selection.includes(id)) return; // the click went to a tool (deleted it, say)
     const start = hit.point.clone();
     const group = this.withOwned(this.selection).map((g) => ({ id: g, from: this.group(g).position.clone() }));
     this.startDrag(e, ray.ray, start, {

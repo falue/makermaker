@@ -105,6 +105,8 @@ export interface Tool {
   /** The camera moved: redraw labels and markers. */
   refresh(): void;
   dispose(): void;
+  /** True while the tool only waits for clicks: a left drag then turns the view, a click without dragging goes to `down`. */
+  clicks?(): boolean;
 }
 
 /** A pull's depth before snapping (mm), summed from pointer movement. */
@@ -252,6 +254,10 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     if (ph.kind === 'shape' && ph.dragged) this.shapeDone();
     this.update();
+  }
+
+  clicks() {
+    return this.mode?.kind === 'plane';
   }
 
   dblclick() {

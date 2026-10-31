@@ -16,8 +16,8 @@ export interface UIContext {
   status: string;
   /** Selected shapes of the selected sketch. */
   shapes: string[];
-  /** The running sketching tool. */
-  tool: ToolKind | null;
+  /** The active tool, as named in the toolbar (a shape kind, 'extrude', 'sketch', 'boolean', ...). */
+  active: string | null;
   /** Replaces the hint bar text while a tool runs. */
   hint: string | null;
   autosave: boolean;
@@ -243,32 +243,32 @@ function toolbar(ctx: UIContext): Node[] {
     ['ngon', 'Regular polygon (N)'],
     ['polygon', 'Polygon (P)'],
   ] as const;
-  const none = !ctx.selected.length;
+  const on = (name: string) => ctx.active === name;
   if (ctx.sketching)
     return [
-      tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.tool),
-      ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), ctx.tool === kind)),
+      tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.active),
+      ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), on(kind))),
       h('hr'),
-      tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude),
+      tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude, on('extrude')),
       tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
     ];
   return [
-    tool('sketch', 'New sketch (S): click a top face or empty space, then draw shapes on it', ctx.newSketch),
-    ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), ctx.tool === kind)),
-    tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), ctx.tool === 'sphere'),
-    tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a clicked end face', ctx.extrude),
+    tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
+    ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), on(kind))),
+    tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), on('sphere')),
+    tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a face (clicked before or after)', ctx.extrude, on('extrude')),
     h(
       'div',
       { className: 'flyout-at' },
-      tool('boolean', 'Boolean: join, cut or intersect the selected bodies (the first keeps the result)', () => {
+      tool('boolean', 'Boolean: join, cut or intersect bodies (selected before or clicked after; the first keeps the result)', () => {
         flyout = !flyout;
         renderUI(ctx);
-      }, flyout, ctx.selected.filter((id) => ctx.doc.bodies.some((b) => b.id === id)).length < 2),
+      }, flyout || on('boolean')),
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
     h('hr'),
-    tool('duplicate', 'Duplicate (⌘D)', ctx.duplicate, false, none),
-    tool('delete', 'Delete (Del)', ctx.remove, false, none),
+    tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
+    tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
   ];
 }
 
