@@ -406,8 +406,17 @@ function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (
       const src = step.source;
       if (src.kind === 'sketch') {
         const sketch = ctx.doc.sketches.find((k) => k.id === src.sketch);
-        const from = sketch ? `${sketch.name}: ${src.shapes.length} of ${sketch.shapes.length} shapes` : 'its sketch was deleted';
-        return h('section', {}, h('h4', {}, name(step), mode, remove), h('p', { className: 'hint' }, `Linked to ${from}`), h('div', { className: 'row' }, ...reach));
+        const shapes = sketch ? src.shapes.flatMap((id) => sketch.shapes.filter((q) => q.id === id)) : [];
+        // unlinking copies the shapes and the plane into the step: the sketch no longer changes the part
+        const unlink = () => {
+          if (!sketch) return;
+          const p = sketch.plane;
+          setStep({ ...step, source: { kind: 'own', plane: p.kind === 'base' ? p : { kind: 'cap', step: p.step }, profiles: structuredClone(shapes) } });
+        };
+        const link = sketch
+          ? [h('button', { className: 'item', onclick: () => ctx.select(sketch.id), title: 'Select the sketch' }, `${sketch.name}: ${shapes.length} of ${sketch.shapes.length} shapes`), tool('unlink', 'Unlink: copy the shapes into this step, so the sketch no longer changes it', unlink)]
+          : [h('span', { className: 'error' }, 'its sketch was deleted')];
+        return h('section', {}, h('h4', {}, name(step), mode, remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'From'), ...link), h('div', { className: 'row' }, ...reach));
       }
       const planes: Record<string, string> = { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' };
       for (const t of extrudes.slice(0, extrudes.indexOf(step))) if (!t.through) planes[`cap:${t.id}`] = `On top of ${name(t)}`;
