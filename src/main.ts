@@ -401,8 +401,10 @@ function select(id: string | null, how: Pick = false) {
   }
   if (sketching && id !== sketching) exitSketch();
   const doc = history.current;
+  // ranges run within the object list or within the sketch list
+  const list = doc.sketches.some((s) => s.id === id) ? doc.sketches.map((s) => s.id) : tree(doc, folded).map((r) => r.id);
   if (id === null) selected = how ? selected : [];
-  else selected = picked(selected, tree(doc, toggled).map((r) => r.id), id, how);
+  else selected = picked(selected, list, id, how);
   shapeSel = [];
   showSelection();
 }
@@ -539,11 +541,6 @@ function isolate(id: string) {
 }
 
 function showSelection() {
-  // a selected sketch shows in the list: its body unfolds
-  for (const id of selected) {
-    const owner = ownerOf(history.current, id);
-    if (owner) toggled.add(owner);
-  }
   viewer.select(contents(history.current, selected));
   viewer.setSketches(viewer.sketches, activeSketch(), shapeSel);
   render();
@@ -621,8 +618,8 @@ function remove() {
   commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)) });
 }
 
-/** Object list rows switched from how they start: groups folded, bodies unfolded. */
-const toggled = new Set<string>();
+/** Folded groups in the object list. */
+const folded = new Set<string>();
 
 /**
  * `doc` with objects put into a group (null: the top level) whose origin is at `target` (world mm). Bodies keep their
@@ -1075,9 +1072,9 @@ function render() {
       return { x, y, w, h, centred: centred(p, ref) };
     },
     transformShape,
-    toggled,
+    folded,
     toggleFold(id) {
-      if (!toggled.delete(id)) toggled.add(id);
+      if (!folded.delete(id)) folded.add(id);
       render();
     },
     moveInto: (ids, group) => commit(movedInto(history.current, ids, group)),

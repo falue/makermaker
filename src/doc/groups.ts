@@ -1,10 +1,13 @@
 import type { Doc } from './types';
 
-/** A row of the object list; `open`: it has children, shown (true) or folded (false). */
-export type Row = { id: string; kind: 'group' | 'body' | 'sketch'; depth: number; open?: boolean };
+/** A row of the object list; `open`: a group shown unfolded (true) or folded (false). */
+export type Row = { id: string; kind: 'group' | 'body'; depth: number; open?: boolean };
 
 /** The group an object is in, if that group exists (else none: the object shows at the top level). */
 export const parentOf = (doc: Doc, group: string | null) => (group && doc.groups.some((g) => g.id === group) ? group : null);
+
+/** Sketches that belong to a body: those it extrudes, and those lying on its faces. */
+export const sketchesOf = (doc: Doc, body: string) => doc.sketches.filter((s) => ownerOf(doc, s.id) === body);
 
 /** The body a sketch belongs to: the first that extrudes it, else the one whose face it lies on. */
 export function ownerOf(doc: Doc, sketch: string): string | null {
@@ -14,28 +17,17 @@ export function ownerOf(doc: Doc, sketch: string): string | null {
   return user?.id ?? on;
 }
 
-/**
- * The object list in order: per level its groups (each followed by its contents), bodies (each followed by its
- * sketches), and sketches no body owns. `toggled`: groups folded, bodies unfolded (groups start open, bodies closed).
- */
-export function tree(doc: Doc, toggled: Set<string>): Row[] {
+/** The object list in order (sketches have their own list): per level its groups, each followed by its contents unless folded, then its bodies. */
+export function tree(doc: Doc, folded: Set<string>): Row[] {
   const out: Row[] = [];
-  const owned = new Map(doc.sketches.map((s) => [s.id, ownerOf(doc, s.id)]));
   const walk = (parent: string | null, depth: number) => {
     for (const g of doc.groups)
       if (parentOf(doc, g.parent) === parent) {
-        const open = !toggled.has(g.id);
+        const open = !folded.has(g.id);
         out.push({ id: g.id, kind: 'group', depth, open });
         if (open) walk(g.id, depth + 1);
       }
-    for (const b of doc.bodies)
-      if (parentOf(doc, b.group) === parent) {
-        const sketches = doc.sketches.filter((s) => owned.get(s.id) === b.id);
-        const open = toggled.has(b.id);
-        out.push({ id: b.id, kind: 'body', depth, open: sketches.length ? open : undefined });
-        if (open) for (const s of sketches) out.push({ id: s.id, kind: 'sketch', depth: depth + 1 });
-      }
-    for (const s of doc.sketches) if (!owned.get(s.id) && parentOf(doc, s.group) === parent) out.push({ id: s.id, kind: 'sketch', depth });
+    for (const b of doc.bodies) if (parentOf(doc, b.group) === parent) out.push({ id: b.id, kind: 'body', depth });
   };
   walk(null, 0);
   return out;

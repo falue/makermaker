@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contents, tree } from './groups';
+import { contents, sketchesOf, tree } from './groups';
 import { sampleDoc } from './sample';
 import type { Doc } from './types';
 
@@ -22,13 +22,10 @@ describe('groups', () => {
     expect(tree(doc(), new Set(['a'])).map((r) => r.id).slice(0, 2)).toEqual(['a', 'p0']);
   });
 
-  it('shows sketches under the body that uses them, when unfolded', () => {
+  it('keeps sketches out of the object list; a body knows its sketches', () => {
     const d = sampleDoc();
-    const plate = d.bodies[0].id;
-    const ids = (t: Set<string>) => tree(d, t).map((r) => r.id);
-    expect(ids(new Set())).not.toContain(d.sketches[0].id); // Plate outline: folded under the Plate
-    expect(ids(new Set([plate]))).toContain(d.sketches[0].id);
-    expect(tree(d, new Set()).find((r) => r.id === plate)?.open).toBe(false);
+    expect(tree(d, new Set()).some((r) => d.sketches.some((s) => s.id === r.id))).toBe(false);
+    expect(sketchesOf(d, d.bodies[0].id).map((s) => s.name)).toEqual(['Plate outline']);
   });
 
   it('expands groups into what is inside', () => {

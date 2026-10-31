@@ -1,7 +1,7 @@
 import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
-import { tree, type Row } from '../doc/groups';
+import { ownerOf, sketchesOf, tree, type Row } from '../doc/groups';
 import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
@@ -29,9 +29,9 @@ export interface UIContext {
   setValue(path: string[], value: unknown, live?: boolean): void;
   /** `how`: true toggles the object, 'range' selects from the last selected one in its list to it. */
   select(id: string | null, how?: Pick): void;
-  /** Object list rows switched from how they start: groups folded, bodies unfolded (showing their sketches). */
-  toggled: Set<string>;
-  toggleFold(id: string): void;
+  /** Folded groups in the object list. */
+  folded: Set<string>;
+  toggleFold(group: string): void;
   /** Puts objects into a group (null: the top level). */
   moveInto(ids: string[], group: string | null): void;
   /** A new group around the selection. */
@@ -375,8 +375,9 @@ function left(ctx: UIContext): Node[] {
     return el;
   };
   const fold = ({ id, open }: Row) => (open === undefined ? h('span', { className: 'fold-space' }) : button(open ? '▾' : '▸', () => ctx.toggleFold(id), open ? 'Fold' : 'Unfold'));
+  const sketchIcon = () => h('span', { className: 'kind', innerHTML: icon('sketch') });
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
-  const rows = tree(doc, ctx.toggled).map((r) => {
+  const rows = tree(doc, ctx.folded).map((r) => {
     const { id, kind, depth } = r;
     if (kind === 'group') {
       const i = doc.groups.findIndex((g) => g.id === id);
@@ -384,11 +385,6 @@ function left(ctx: UIContext): Node[] {
       const el = row(id, depth, fold(r), listItem(`${selectedClass(id)} group`, (how) => ctx.select(id, how), g.name), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
       dropOn(el, id);
       return el;
-    }
-    if (kind === 'sketch') {
-      const i = doc.sketches.findIndex((q) => q.id === id);
-      const sk = doc.sketches[i];
-      return row(id, depth, fold(r), listItem(selectedClass(id), (how) => ctx.select(id, how), h('span', { className: 'kind', innerHTML: icon('sketch') }), sk.name), eye(['sketches', String(i), 'visible'], sk.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -401,7 +397,18 @@ function left(ctx: UIContext): Node[] {
     look.oncontextmenu = isolate;
     look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : ctx.commit(setIn(doc, ['bodies', String(i), 'visible'], !p.visible)));
     if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again', innerHTML: icon('isolate') });
-    return row(id, depth, fold(r), listItem(selectedClass(id), (how) => ctx.select(id, how), swatch, p.name), look);
+    // its sketches have their own list: this button picks the (first) one
+    const own = sketchesOf(doc, p.id);
+    const sketch = own.length
+      ? h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.select(own[0].id) })
+      : h('span', { className: 'fold-space' });
+    return row(id, depth, fold(r), listItem(selectedClass(id), (how) => ctx.select(id, how), swatch, p.name), sketch, look);
+  });
+  // sketches: their own list, each with the body it belongs to
+  const sketchRows = doc.sketches.map((sk, i) => {
+    const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
+    const item = listItem(selectedClass(sk.id), (how) => ctx.select(sk.id, how), sketchIcon(), sk.name, ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
+    return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye(['sketches', String(i), 'visible'], sk.visible));
   });
   const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'), button('+ Group', ctx.group, 'New group (⌘G): around the selected objects, or empty'));
   dropOn(head, null);
@@ -428,7 +435,7 @@ function left(ctx: UIContext): Node[] {
   addParam.placeholder = 'name = expression';
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
-  return [head, ...rows, ...none, h('h3', {}, 'Parameters'), ...params, addParam];
+  return [head, ...rows, ...none, h('h3', {}, 'Sketches'), ...sketchRows, h('h3', {}, 'Parameters'), ...params, addParam];
 }
 
 function right(ctx: UIContext): Node[] {
