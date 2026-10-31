@@ -6,6 +6,7 @@ import { backdropCss, twoColours } from '../viewer/sky';
 import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
+import { axisHtml } from './axes';
 import { icon, tool } from './icons';
 
 export interface UIContext {
@@ -149,7 +150,7 @@ export function renderUI(ctx: UIContext) {
   $('custom-sections').replaceChildren(...customSections(ctx));
   $('left').replaceChildren(...left(ctx));
   $('right').replaceChildren(...right(ctx));
-  $('hint').innerHTML = (ctx.hint ?? (ctx.sketching ? SKETCH_HINT : hint(ctx.selected.length, ctx.shapes.length))).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
+  $('hint').innerHTML = axisHtml(ctx.hint ?? (ctx.sketching ? SKETCH_HINT : hint(ctx.selected.length, ctx.shapes.length))).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   rendering = false;
   const el = path && document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
   if (!el) return;
@@ -199,7 +200,7 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
   const shown = raw ? x.e : displayText(x, u);
   const el = input(path, shown, (e) => set({ e, u }, false), own ? own.error : ctx.exprErrors.get(path));
   if (!el.title && !isPlain(x.e) && x.u !== u) el.title = `plain numbers in ${x.u}`;
-  const name = h('span', {}, label);
+  const name = h('span', { innerHTML: axisHtml(label) });
   // a number with an optional unit (`12`, `4mm`) keeps its unit while scrubbed
   const num = /^\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*([a-z]*)\s*$/i.exec(shown);
   const unit = (num?.[2] || u) as Unit;

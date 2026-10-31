@@ -20,6 +20,7 @@ import { icon } from '../ui/icons';
 import { marks } from './marks';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { drawSky, SKIES, twoColours } from './sky';
+import { axisHtml } from '../ui/axes';
 import type { Settings } from '../ui/settings';
 import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
@@ -1573,7 +1574,7 @@ export class Viewer implements ToolView {
 
   private label(text: string, at: THREE.Vector3) {
     const [x, y] = this.toScreen(at);
-    Object.assign(this.moveLabel, { hidden: false, textContent: text });
+    Object.assign(this.moveLabel, { hidden: false, innerHTML: axisHtml(text) });
     this.moveLabel.style.cssText = `left:${x + 60}px;top:${y + 40}px`;
   }
 

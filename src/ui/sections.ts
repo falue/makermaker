@@ -74,7 +74,7 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
     slider.ondblclick = reset;
     const tools = document.createElement('span');
     tools.append(button('↺', 'Show the whole range again', reset), invert);
-    panel.append(Object.assign(document.createElement('span'), { textContent: axis.toUpperCase(), title: tips[axis][0] }), tools, slider);
+    panel.append(Object.assign(document.createElement('span'), { textContent: axis.toUpperCase(), title: tips[axis][0], className: `axis-${axis}` }), tools, slider);
   }
   const custom = Object.assign(document.createElement('div'), { id: 'custom-sections' });
   const more = Object.assign(document.createElement('button'), { textContent: '+ Section', title: 'A section parallel to a face you click: slanted planes too', onclick: add });

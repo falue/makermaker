@@ -11,6 +11,10 @@
   --selected: #e8efff;
   --accent-text: #ffffff;
   color-scheme: light dark;
+  /* axis letters, as on the origin and the move gizmo (darker, to read on white) */
+  --axis-x: #d92d20;
+  --axis-y: #1f9d3a;
+  --axis-z: #2563eb;
   font: 13px/1.4 system-ui, sans-serif;
   color: var(--text);
 }
@@ -18,6 +22,9 @@
 /* dark: by the system unless the theme button set light; or set dark */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    --axis-x: #ff6b5e;
+    --axis-y: #4cd36b;
+    --axis-z: #5b9bff;
     --bg: #18191b;
     --panel: #222326;
     --line: #3a3b3f;
@@ -32,6 +39,9 @@
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
+  --axis-x: #ff6b5e;
+  --axis-y: #4cd36b;
+  --axis-z: #5b9bff;
   --bg: #18191b;
   --panel: #222326;
   --line: #3a3b3f;
@@ -975,4 +985,20 @@ button.primary.wide {
 .settings .sky.on {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.axis-x,
+.field span.axis-x {
+  color: var(--axis-x);
+  font-weight: 600;
+}
+.axis-y,
+.field span.axis-y {
+  color: var(--axis-y);
+  font-weight: 600;
+}
+.axis-z,
+.field span.axis-z {
+  color: var(--axis-z);
+  font-weight: 600;
 }
