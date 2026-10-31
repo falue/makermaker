@@ -11,7 +11,7 @@ const doc = (): Doc => {
       { id: 'a', name: 'A', parent: null, visible: true, origin: { kind: 'parent' } },
       { id: 'b', name: 'B', parent: 'a', visible: true, origin: { kind: 'parent' } },
     ],
-    bodies: d.bodies.map((b, i) => ({ ...b, id: `p${i}`, group: i ? 'b' : 'gone' })),
+    bodies: d.bodies.slice(0, 2).map((b, i) => ({ ...b, id: `p${i}`, group: i ? 'b' : 'gone' })),
   };
 };
 
