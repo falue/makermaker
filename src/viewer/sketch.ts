@@ -75,6 +75,8 @@ export interface ToolView {
   toScreen(p: THREE.Vector3): [number, number];
   /** Screen pixels per mm at `at`. */
   pixelsPerMm(at: THREE.Vector3): number;
+  /** In a flat view along `n`, turns back to the last angled view. */
+  unflatten(n: THREE.Vector3): void;
   /** Hides and locks the pointer while pulling (movement then has no end), and frees it. */
   lockPointer(): void;
   unlockPointer(): void;
@@ -462,6 +464,7 @@ export class SketchTool implements Tool {
 
   private enterPull(target: Target, shapes: DrawnProfile[], drawn?: Drawn, ids?: string[]) {
     this.phase = { kind: 'pull', target, drawn, shapes, ids, raw: 0, depth: 0, typed: undefined };
+    this.view.unflatten(v3(target.frame.n));
     this.view.lockPointer();
     const keep = drawn ? ' · click without pulling or [Esc]: keep it flat' : ' · [Esc] cancels';
     this.host.hint(PULL_HINT + keep);

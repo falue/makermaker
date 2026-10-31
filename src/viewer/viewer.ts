@@ -171,6 +171,8 @@ export class Viewer implements ToolView {
 
   /** Set when a view cube click switched to orthographic; the next rotation switches back to perspective. */
   private autoOrtho = false;
+  /** The camera direction before the last flat view (cube side, look at a face or sketch). */
+  private angledView: THREE.Vector3 | null = null;
   private cube = document.createElement('div');
   private cubeWrap = document.createElement('div');
 
@@ -228,7 +230,7 @@ export class Viewer implements ToolView {
     canvas.addEventListener('pointermove', (e) => {
       if (this.facePick) return this.markFace(this.frontHit(e));
       this.tool?.move(e);
-      this.move(e);
+      if (!this.toolPress) this.move(e); // a drag that belongs to a tool is no orbit
     });
     canvas.addEventListener('pointerup', (e) => {
       if (!this.toolPress) return this.up(e);
@@ -374,6 +376,12 @@ export class Viewer implements ToolView {
   lookAlong(n: THREE.Vector3) {
     // straight up/down is a pole for the orbit controls: tilt a hair towards the front
     this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone());
+  }
+
+  /** Looking straight along `n` (a flat view), turns back to the last angled view: pulling along `n` needs depth to see. */
+  unflatten(n: THREE.Vector3) {
+    const look = this.camera.getWorldDirection(new THREE.Vector3());
+    if (this.angledView && this.cubeWrap.classList.contains('aligned') && Math.abs(look.dot(n)) > 0.95) this.viewFrom(this.angledView, false);
   }
 
   lockPointer() {
@@ -1275,6 +1283,8 @@ export class Viewer implements ToolView {
 
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
   private viewFrom(dir: THREE.Vector3, side = true, ms = 300) {
+    // leaving an angled view for a flat one: remember it, so pulling can return to it
+    if (side && !this.cubeWrap.classList.contains('aligned')) this.angledView = this.camera.position.clone().sub(this.controls.target).normalize();
     if (!side) this.leaveSideView();
     else this.cubeWrap.classList.add('aligned');
     if (side && !this.isOrthographic) {
@@ -1287,13 +1297,13 @@ export class Viewer implements ToolView {
     const from = cam.position.clone().sub(target).normalize();
     const turn = new THREE.Quaternion().setFromUnitVectors(from, dir.clone().normalize());
     const start = performance.now();
-    const feature = (now: number) => {
+    const animate = (now: number) => {
       const t = Math.min(1, (now - start) / ms);
       const k = t * t * (3 - 2 * t);
       cam.position.copy(target).addScaledVector(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, k)), dist);
       this.controls.update();
-      if (t < 1) requestAnimationFrame(feature);
+      if (t < 1) requestAnimationFrame(animate);
     };
-    requestAnimationFrame(feature);
+    requestAnimationFrame(animate);
   }
 }

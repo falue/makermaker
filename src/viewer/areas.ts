@@ -72,6 +72,7 @@ export class AreaTool implements Tool {
     } else if (e.key === 'Escape') return this.host.done(null), true;
     else if ((e.key === 'Enter' || e.key.toLowerCase() === 'e') && this.picked.size) {
       this.pull = { raw: 0, depth: 0, typed: undefined };
+      this.view.unflatten(v3(this.target.frame.n));
       this.view.lockPointer();
       this.host.hint(PULL_HINT);
     } else return false;
