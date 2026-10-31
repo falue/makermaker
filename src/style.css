@@ -650,3 +650,21 @@ input.color {
   width: 16px;
   height: 16px;
 }
+
+.flyout-at {
+  position: relative;
+}
+.flyout {
+  position: absolute;
+  z-index: 5;
+  left: 100%;
+  top: 0;
+  display: flex;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}

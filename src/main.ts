@@ -7,7 +7,7 @@ import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
 import { paramLookup, resolve, setIn, UNITLESS } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
-import type { Doc, ExtrudeSource, Body, Profile, Sketch, SketchPlacement, Feature } from './doc/types';
+import type { Body, BooleanOp, Doc, ExtrudeSource, Feature, Profile, Sketch, SketchPlacement } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildFeature } from './kernel/build';
@@ -101,7 +101,8 @@ function update() {
     }),
   );
   linkErrors = new Map();
-  // bodies whose sketches lie on other bodies' faces wait until those bodies are built
+  // 1: own features (sketches on other bodies' faces wait for those faces; faces never depend on booleans)
+  const own = new Map<string, Map<string, BuildFeature>>();
   let pending = doc.bodies.flatMap((p, i) => {
     const position = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
     if (position.every(Number.isFinite)) {
@@ -112,6 +113,7 @@ function update() {
     const resolved = resolve(p.features, lookup, `bodies.${i}.features`, exprErrors);
     return exprErrors.size === before ? [{ id: p.id, resolved, at: positions.get(p.id) ?? ([0, 0, 0] as Vec3) }] : [];
   });
+  const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
   for (let progress = true; pending.length && progress; ) {
     progress = false;
     pending = pending.filter(({ id, resolved, at }) => {
@@ -119,24 +121,54 @@ function update() {
         const c = caps.find((q) => q.body === body && q.feature === feature);
         return c && moved(c.frame, scale(at, -1));
       };
-      const features: BuildFeature[] = [];
+      const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
-        const built = toBuild(s, id, sketches, faceOf);
-        if (built === null) return true; // wait for the other body
-        if (typeof built === 'string') return (progress = true), linkErrors.set(id, { featureId: s.id, error: `Cannot build: ${built}` }), false;
-        features.push(built);
+        if (s.type === 'boolean') continue;
+        const b = toBuild(s, id, sketches, faceOf);
+        if (b === null) return true; // wait for the other body
+        if (typeof b === 'string') return (progress = true), linkErrors.set(id, { featureId: s.id, error: `Cannot build: ${b}` }), false;
+        built.set(s.id, b);
       }
       progress = true;
-      builds.push({ id, features });
-      const plan = frames(features);
-      for (const s of features) {
+      own.set(id, built);
+      const list = [...built.values()].filter((f) => f.type !== 'boolean');
+      const plan = frames(list);
+      for (const s of list) {
         const f = plan.get(s.id);
         if (s.type === 'extrude' && f && !s.through) caps.push({ body: id, feature: s.id, frame: moved(capFrame(f, s.depth), at) });
       }
       return false;
     });
   }
-  for (const { id, resolved } of pending) linkErrors.set(id, { featureId: resolved[0]?.id ?? '', error: "Cannot build: its sketch's face is gone, or bodies depend on each other in a circle" });
+  for (const { id, resolved } of pending) linkErrors.set(id, { featureId: resolved[0]?.id ?? '', error: "Cannot build: its sketch's face is gone, or sketches lie on each other's faces in a circle" });
+  // 2: booleans take their tool bodies' full features, moved by the positions
+  const full = new Map<string, BuildFeature[] | string>();
+  const fullOf = (id: string, path: string[] = []): BuildFeature[] | string => {
+    const done = full.get(id);
+    if (done) return done;
+    if (path.includes(id)) return 'bodies cut or join each other in a circle';
+    const parts = own.get(id);
+    if (!parts) return 'its tool body cannot be built';
+    const out: BuildFeature[] = [];
+    for (const s of resolvedOf.get(id)!) {
+      if (s.type !== 'boolean') {
+        out.push(parts.get(s.id)!);
+        continue;
+      }
+      if (!doc.bodies.some((b) => b.id === s.body)) return 'its tool body was deleted';
+      const tool = fullOf(s.body, [...path, id]);
+      if (typeof tool === 'string') return tool;
+      const offset = (positions.get(s.body) ?? [0, 0, 0]).map((v, k) => v - (positions.get(id) ?? [0, 0, 0])[k]) as Vec3;
+      out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, offset });
+    }
+    full.set(id, out);
+    return out;
+  };
+  for (const id of own.keys()) {
+    const features = fullOf(id);
+    if (typeof features === 'string') linkErrors.set(id, { featureId: resolvedOf.get(id)?.find((f) => f.type === 'boolean')?.id ?? '', error: `Cannot build: ${features}` });
+    else builds.push({ id, features });
+  }
   viewer.caps = caps;
   // sketches in the world: base planes as they are, face sketches with their body
   const palette = [0x3b6fd8, 0x9b4dca, 0x0f9d8a, 0x5a8f29, 0xc2417a, 0x8a6d3b];
@@ -267,6 +299,23 @@ function duplicateShapes(offset = 10) {
   const doc = history.current;
   shapeSel = copies.map((c) => c.id);
   commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sel.id ? { ...s, shapes: [...s.shapes, ...copies] } : s)) });
+}
+
+/** Joins, cuts or intersects: the first selected body keeps the result, the others become its tool bodies (hidden, editable). */
+function applyBoolean(op: BooleanOp) {
+  const doc = history.current;
+  const ids = selected.filter((id) => doc.bodies.some((b) => b.id === id));
+  if (ids.length < 2) return notify('Select two or more bodies: the first one keeps the result');
+  const [target, ...tools] = ids;
+  const bodies = doc.bodies.map((b) => {
+    if (tools.includes(b.id)) return { ...b, visible: false };
+    if (b.id !== target) return b;
+    const at = b.features.findIndex((f) => f.type === 'finish'); // finishing stays the last layer
+    const ops: Feature[] = tools.map((body) => ({ id: newId(), type: 'boolean', op, body }));
+    return { ...b, features: at < 0 ? [...b.features, ...ops] : b.features.toSpliced(at, 0, ...ops) };
+  });
+  [selected, shapeSel] = [[target], []];
+  commit({ ...doc, bodies });
 }
 
 /** Switches the selected shapes between help lines and real shapes. */
@@ -647,6 +696,7 @@ function render() {
     stopTool: () => (stopTool(), render()),
     align: alignShapes,
     toggleHelp,
+    boolean: applyBoolean,
     pickShape,
     lookAt(sketch) {
       const s = viewer.sketches.find((v) => v.id === sketch);

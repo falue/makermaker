@@ -1,7 +1,7 @@
 import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
-import type { BasePlane, Doc, EdgeRule, Expr, Body, Profile, Feature, Unit } from '../doc/types';
+import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { icon, tool } from './icons';
@@ -44,6 +44,8 @@ export interface UIContext {
   align(how: Align): void;
   /** Switches the selected shapes between help lines and real shapes. */
   toggleHelp(): void;
+  /** Joins, cuts or intersects the selected bodies: the first keeps the result. */
+  boolean(op: BooleanOp): void;
   toggleAutosave(): void;
   duplicate(): void;
   remove(): void;
@@ -224,10 +226,31 @@ function toolbar(ctx: UIContext): Node[] {
     ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), ctx.tool === kind)),
     tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), ctx.tool === 'sphere'),
     tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a clicked end face', ctx.extrude),
+    h(
+      'div',
+      { className: 'flyout-at' },
+      tool('boolean', 'Boolean: join, cut or intersect the selected bodies (the first keeps the result)', () => {
+        flyout = !flyout;
+        renderUI(ctx);
+      }, flyout, ctx.selected.filter((id) => ctx.doc.bodies.some((b) => b.id === id)).length < 2),
+      ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
+    ),
     h('hr'),
     tool('duplicate', 'Duplicate (⌘D)', ctx.duplicate, false, none),
     tool('delete', 'Delete (Del)', ctx.remove, false, none),
   ];
+}
+
+/** The boolean flyout of the toolbar is open. */
+let flyout = false;
+
+function booleanTools(ctx: UIContext, picked = () => {}) {
+  const ops: [BooleanOp, string][] = [
+    ['union', 'Join: one body from all of them'],
+    ['subtract', 'Cut: the others cut the first'],
+    ['intersect', 'Intersect: only where all of them overlap'],
+  ];
+  return ops.map(([op, title]) => tool(op, title, () => (picked(), ctx.boolean(op))));
 }
 
 /** Rows of the custom sections, in the section panel: on/off, name, offset, flip, delete. */
@@ -293,7 +316,12 @@ function left(ctx: UIContext): Node[] {
 function right(ctx: UIContext): Node[] {
   const n = ctx.selected.length;
   if (n > 1)
-    return [h('p', { className: 'hint' }, `${n} bodies selected: drag, nudge, duplicate or delete them together; select one to edit it.`)];
+    return [
+      h('p', { className: 'hint' }, `${n} bodies selected: drag, nudge, duplicate or delete them together; select one to edit it.`),
+      h('h3', {}, 'Boolean'),
+      h('p', { className: 'hint' }, 'The first selected body keeps the result; the others become its tool bodies (hidden, still editable).'),
+      h('div', { className: 'aligns' }, ...booleanTools(ctx)),
+    ];
   const k = ctx.doc.sketches.findIndex((s) => s.id === ctx.selected[0]);
   if (k >= 0) return sketchPanel(ctx, k);
   const i = ctx.doc.bodies.findIndex((p) => p.id === ctx.selected[0]);
@@ -471,6 +499,12 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         ...profiles,
         h('div', { className: 'row' }, ...reach),
       );
+    }
+    case 'boolean': {
+      const other = ctx.doc.bodies.find((b) => b.id === feature.body);
+      const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
+      const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error' }, 'its tool body was deleted');
+      return h('section', {}, h('h4', {}, op, remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'with'), tool));
     }
     case 'sphere':
       return h('section', {}, h('h4', {}, 'Sphere', remove), h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('z', 'Z'), f('d', 'Ø')));

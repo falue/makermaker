@@ -2,9 +2,11 @@ import { draw, drawCircle, drawRoundedRectangle, makeSphere, Plane, type Drawing
 import { add, frames, scale, toWorld, type Frame } from '../doc/frames';
 import { centre, corners, nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
-import type { Area, BuildIn, EdgeRule, Profile } from '../doc/types';
+import type { Area, BooleanOp, BuildIn, EdgeRule, Profile } from '../doc/types';
 
-export type BuildFeature = Resolved<BuildIn>;
+/** A boolean with its tool body's features at hand, moved by `offset` (tool position minus this body's). */
+export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; offset: [number, number, number] };
+export type BuildFeature = Resolved<BuildIn> | BooleanBuild;
 type Of<T extends BuildFeature['type']> = Extract<BuildFeature, { type: T }>;
 
 export interface BodyMesh {
@@ -36,7 +38,7 @@ const EPS = 1e-3;
 
 /** Extrusions run in order; finishing features always run last, as the final layer. */
 export function buildBody(features: BuildFeature[]): Shape3D {
-  const plan = frames(features);
+  const plan = frames(features.filter((f) => f.type !== 'boolean'));
   const circles: Circle[] = [];
   let shape: Shape3D | null = null;
   const apply = (id: string, fn: (s: Shape3D | null) => Shape3D) => {
@@ -48,6 +50,7 @@ export function buildBody(features: BuildFeature[]): Shape3D {
     for (const s of features) {
       if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
       if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
+      if (s.type === 'boolean') apply(s.id, (cur) => boolean(cur, s));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
     for (const s of features) if (s.type === 'finish' && s.enabled) apply(s.id, (cur) => finish(cur!, s, circles));
@@ -193,6 +196,22 @@ function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
   if (p.kind === 'circle') at(p.x, p.y, p.d / 2);
   if (p.kind === 'rect' && p.r > 0)
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) at(p.x + sx * (p.w / 2 - p.r), p.y + sy * (p.h / 2 - p.r), p.r);
+}
+
+/** Joins, cuts or intersects with the tool body (built here from its features). */
+function boolean(shape: Shape3D | null, s: Of<'boolean'>): Shape3D {
+  const built = buildBody(s.features);
+  const tool = built.translate(...s.offset);
+  built.delete();
+  try {
+    if (!shape) {
+      if (s.op !== 'union') throw new Error('nothing to cut or intersect yet');
+      return tool.clone();
+    }
+    return s.op === 'union' ? shape.fuse(tool) : s.op === 'subtract' ? shape.cut(tool) : shape.intersect(tool);
+  } finally {
+    tool.delete();
+  }
 }
 
 function sphere(shape: Shape3D | null, s: Of<'sphere'>): Shape3D {

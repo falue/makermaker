@@ -1,6 +1,6 @@
 import type { Frame } from './frames';
 import type { Resolved } from './resolve';
-import type { BuildIn, Feature, Sketch } from './types';
+import type { BooleanFeature, BuildIn, Feature, Sketch } from './types';
 
 /**
  * A feature as the kernel builds it: an own extrusion as it is, a linked one with its sketch's plane and chosen
@@ -8,7 +8,7 @@ import type { BuildIn, Feature, Sketch } from './types';
  * while that body is not built yet: then null, try again later). A string says why it cannot be built.
  */
 export function toBuild(
-  feature: Resolved<Feature>,
+  feature: Resolved<Exclude<Feature, BooleanFeature>>,
   body: string,
   sketches: Map<string, Resolved<Sketch>>,
   faceOf: (body: string, feature: string) => Frame | undefined,

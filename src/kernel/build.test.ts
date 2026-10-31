@@ -129,6 +129,18 @@ describe('buildBody', () => {
     b.done();
   });
 
+  it('joins, cuts and intersects with a tool body', () => {
+    const pin: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false }];
+    const slab = base(100); // 100 x 60 x 4 at the origin
+    const cut = built([slab, { id: 'b', type: 'boolean', op: 'subtract', features: pin, offset: [0, 0, -5] }]);
+    const plain = built([slab]);
+    expect(cut.faces).toBeGreaterThan(plain.faces); // the hole wall
+    const both = built([slab, { id: 'b', type: 'boolean', op: 'intersect', features: pin, offset: [0, 0, -5] }]);
+    expect(both.box.width).toBeCloseTo(10, 2); // only the overlap: a 10 mm disc, 4 mm thick
+    expect(both.box.depth).toBeCloseTo(4, 2);
+    [cut, plain, both].forEach((x) => x.done());
+  });
+
   it('builds regular polygons and spheres', () => {
     const hex: BuildFeature = { id: 'h', type: 'extrude', plane: ground, profiles: [{ id: 'n', kind: 'ngon', x: 0, y: 0, d: 20, sides: 6, rot: 0 }], depth: 5, mode: 'add', through: false };
     const prism = built([hex]);

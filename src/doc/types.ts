@@ -59,10 +59,15 @@ export type FinishFeature = { id: string; type: 'finish'; mode: 'fillet' | 'cham
 /** A ball with diameter `d` centred on x, y, z (body coordinates). */
 export type SphereFeature = { id: string; type: 'sphere'; x: Expr; y: Expr; z: Expr; d: Expr };
 
+/** Joins, cuts or intersects with another body (the tool body: stays editable, normally hidden). */
+export type BooleanFeature = { id: string; type: 'boolean'; op: BooleanOp; body: string };
+export type BooleanOp = 'union' | 'subtract' | 'intersect';
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; mode: 'add' | 'cut'; through: boolean }
   | SphereFeature
+  | BooleanFeature
   | FinishFeature;
 
 /** A plane given directly (body-local): a sketch on another body's face. */
