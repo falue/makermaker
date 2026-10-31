@@ -221,9 +221,9 @@ function startSketch(edit?: { part: string; step: string }) {
   render();
 }
 
-/** Picks a face; a section parallel to it cuts through the middle of its part, removing the side towards the camera. */
+/** Picks a face; a section lies on it, removing the side towards the camera. */
 function newSection() {
-  toolHint = 'Click a face: the new section runs parallel to it · [Esc] cancels';
+  toolHint = 'Click a face: the new section lies on it and removes what is in front · [Esc] cancels';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
@@ -234,7 +234,7 @@ function newSection() {
       name: `Section ${doc.sections.length + 1}`,
       origin: face.point.toArray(),
       normal: face.normal.toArray(),
-      offset: len(face.depth / 2),
+      offset: len(0),
       enabled: true,
     };
     commit({ ...doc, sections: [...doc.sections, section] });

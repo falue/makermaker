@@ -12,6 +12,8 @@ export interface PartMesh {
   normals: Float32Array;
   indices: Uint32Array;
   edges: Float32Array;
+  /** Per B-rep face: start and count in `indices`. */
+  faces: Uint32Array;
 }
 
 export class StepError extends Error {
@@ -57,6 +59,7 @@ export function meshPart(shape: Shape3D): PartMesh {
     normals: new Float32Array(m.normals),
     indices: new Uint32Array(m.triangles),
     edges: new Float32Array(shape.meshEdges(opts).lines),
+    faces: new Uint32Array(m.faceGroups.flatMap((g) => [g.start, g.count])),
   };
 }
 

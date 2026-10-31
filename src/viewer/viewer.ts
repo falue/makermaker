@@ -22,11 +22,10 @@ export interface ViewerHost {
   format(mm: number): string;
 }
 
-/** A face picked for a section: a point on it, the normal pointing away from the camera, and how deep its part reaches along that. */
+/** A face picked for a section: a point on it and the normal pointing away from the camera. */
 export interface PickedFace {
   point: THREE.Vector3;
   normal: THREE.Vector3;
-  depth: number;
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -110,6 +109,7 @@ export class Viewer implements ToolView {
   private deadPx = 24; // dead zone radius: no axis until the pointer leaves it
   private moveLabel = Object.assign(document.createElement('div'), { className: 'size-label active', hidden: true });
   private facePick: ((face: PickedFace | null) => void) | null = null;
+  private faceMark: THREE.Mesh | null = null;
   /** Custom section planes; each keeps its positive side. */
   private custom: THREE.Plane[] = [];
   private axes = new THREE.AxesHelper(30);
@@ -178,7 +178,11 @@ export class Viewer implements ToolView {
       },
       { capture: true },
     );
-    canvas.addEventListener('pointermove', (e) => (this.tool?.move(e), this.move(e)));
+    canvas.addEventListener('pointermove', (e) => {
+      if (this.facePick) return this.markFace(this.frontHit(e));
+      this.tool?.move(e);
+      this.move(e);
+    });
     canvas.addEventListener('pointerup', (e) => {
       if (!this.toolPress) return this.up(e);
       this.toolPress = false;
@@ -246,6 +250,7 @@ export class Viewer implements ToolView {
   }
 
   stopTool() {
+    this.markFace();
     this.tool?.dispose();
     this.tool = null;
     this.toolPress = false;
@@ -288,7 +293,7 @@ export class Viewer implements ToolView {
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     const solid = new THREE.Mesh(geometry, this.selection.includes(id) ? this.selectedMaterial : this.material);
-    solid.userData.partId = id;
+    Object.assign(solid.userData, { partId: id, faces: mesh.faces });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
     group.add(solid, new THREE.LineSegments(edges, this.edgeMaterial));
@@ -515,22 +520,53 @@ export class Viewer implements ToolView {
     return hits;
   }
 
-  private pickFaceAt(e: PointerEvent) {
+  /** Lights the whole B-rep face of `hit` (none: clears it). */
+  markFace(hit?: THREE.Intersection, color = 0xff8c1a) {
+    if (this.faceMark) {
+      this.faceMark.removeFromParent();
+      this.faceMark.geometry.dispose();
+      (this.faceMark.material as THREE.Material).dispose();
+      this.faceMark = null;
+    }
+    const mesh = hit?.object as THREE.Mesh | undefined;
+    const faces = mesh?.userData.faces as Uint32Array | undefined;
+    if (mesh && faces && hit!.faceIndex != null) {
+      const at = hit!.faceIndex * 3;
+      let k = 0;
+      while (k < faces.length && !(at >= faces[k] && at < faces[k] + faces[k + 1])) k += 2;
+      const index = mesh.geometry.index!.array.subarray(faces[k], faces[k] + faces[k + 1]);
+      const pos = mesh.geometry.attributes.position;
+      const points = new Float32Array(index.length * 3);
+      index.forEach((v, i) => points.set([pos.getX(v), pos.getY(v), pos.getZ(v)], i * 3));
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
+      this.faceMark = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      );
+      mesh.parent!.add(this.faceMark);
+    }
+    this.render();
+  }
+
+  /** The part face under the pointer, if it faces the camera (not a back face seen through a cut). */
+  private frontHit(e: MouseEvent) {
     const ray = this.raycaster(e);
     const hit = this.intersect(ray)[0];
-    if (!hit?.face || hit.face.normal.dot(ray.ray.direction) > 0) return;
-    const normal = hit.face.normal.clone().negate(); // faces point at the camera: keep the side behind the face
-    const box = new THREE.Box3().setFromObject(hit.object);
-    let depth = 0;
-    for (const x of [box.min.x, box.max.x])
-      for (const y of [box.min.y, box.max.y])
-        for (const z of [box.min.z, box.max.z]) depth = Math.max(depth, normal.dot(new THREE.Vector3(x, y, z).sub(hit.point)));
-    this.endFacePick({ point: hit.point.clone(), normal, depth });
+    return hit?.face && hit.face.normal.dot(ray.ray.direction) < 0 ? hit : undefined;
+  }
+
+  private pickFaceAt(e: PointerEvent) {
+    const hit = this.frontHit(e);
+    if (!hit) return;
+    // faces point at the camera: keep the side behind the face
+    this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate() });
   }
 
   private endFacePick(face: PickedFace | null) {
     const done = this.facePick;
     this.facePick = null;
+    this.markFace();
     if (!this.tool) this.renderer.domElement.classList.remove('drawing');
     done?.(face);
   }

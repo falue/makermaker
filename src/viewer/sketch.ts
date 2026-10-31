@@ -59,6 +59,8 @@ export interface ToolView {
   pixelsPerMm(at: THREE.Vector3): number;
   /** Turns the camera to look straight at a plane with normal `n`. */
   lookAlong(n: THREE.Vector3): void;
+  /** Lights the whole face of a hit (none: clears it). */
+  markFace(hit?: THREE.Intersection): void;
   render(): void;
 }
 
@@ -203,10 +205,12 @@ export class SketchTool {
     if (ph.kind === 'hover') {
       if (!this.session?.target) {
         const target = this.target(e);
+        this.view.markFace(target?.part ? this.view.hit(e) : undefined);
         this.host.hint(target ? this.hoverHint(target) : 'Only the top faces of extrusions take sketches for now · [Esc] stops');
       }
       return;
     }
+    this.view.markFace();
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const at = this.point(e, ph.target.frame, e.ctrlKey);
       if (at) ph.cur = at;
@@ -287,6 +291,7 @@ export class SketchTool {
   }
 
   private choosePlane(target: Target) {
+    this.view.markFace();
     this.session!.target = target;
     this.view.lookAlong(v3(target.frame.n));
     this.host.hint(this.hoverHint());
