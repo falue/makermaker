@@ -14,6 +14,8 @@ export interface PartMesh {
   edges: Float32Array;
   /** Per B-rep face: start and count in `indices`. */
   faces: Uint32Array;
+  /** B-rep vertices (edge ends), xyz, each once: snap points. */
+  corners: Float32Array;
 }
 
 export class StepError extends Error {
@@ -54,12 +56,21 @@ export function buildPart(steps: BuildStep[]): Shape3D {
 export function meshPart(shape: Shape3D): PartMesh {
   const opts = { tolerance: 0.02, angularTolerance: 0.1 };
   const m = shape.mesh(opts);
+  const e = shape.meshEdges(opts);
+  // edge groups count points: an edge's ends are its group's first and last point
+  const ends = new Map<string, number[]>();
+  for (const g of e.edgeGroups)
+    for (const i of [g.start, g.start + g.count - 1]) {
+      const p = e.lines.slice(i * 3, i * 3 + 3);
+      ends.set(p.map((v) => v.toFixed(3)).join(), p);
+    }
   return {
     vertices: new Float32Array(m.vertices),
     normals: new Float32Array(m.normals),
     indices: new Uint32Array(m.triangles),
-    edges: new Float32Array(shape.meshEdges(opts).lines),
+    edges: new Float32Array(e.lines),
     faces: new Uint32Array(m.faceGroups.flatMap((g) => [g.start, g.count])),
+    corners: new Float32Array([...ends.values()].flat()),
   };
 }
 

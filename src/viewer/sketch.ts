@@ -68,6 +68,8 @@ export interface ToolView {
   pixelsPerMm(at: THREE.Vector3): number;
   /** Lights the whole face of a hit (none: clears it). */
   markFace(hit?: THREE.Intersection): void;
+  /** Part corners in the world, to snap to. */
+  corners(): THREE.Vector3[];
   render(): void;
 }
 
@@ -103,6 +105,8 @@ const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle
  */
 export class SketchTool {
   private phase: Phase = { kind: 'hover' };
+  /** The point the pointer snapped to (world), shown as a dot. */
+  private snapped: THREE.Vector3 | null = null;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -164,7 +168,8 @@ export class SketchTool {
       const target = this.target(e);
       this.view.markFace(target?.part && !target.sketch ? this.view.hit(e) : undefined);
       this.host.hint(target ? this.hoverHint(target) : 'Only the top faces of extrusions take sketches for now · [Esc] stops');
-      return;
+      if (target) this.point(e, target, e.ctrlKey); // shows a snap dot
+      return this.update();
     }
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const at = this.point(e, ph.target, e.ctrlKey);
@@ -275,13 +280,19 @@ export class SketchTool {
     return Math.round(v / step) * step;
   }
 
-  /** Corners and centres of the target sketch's shapes and the plane origin, where the pointer snaps. */
+  /**
+   * Where the pointer snaps, in the target's plane coordinates: the plane origin, corners and centres of the shapes of
+   * every visible sketch, and part corners (from other planes: projected onto this one).
+   */
   private snapPoints(t: Target): UV[] {
     const pts: UV[] = [[0, 0]];
-    for (const p of this.view.sketches.find((s) => s.id === t.sketch)?.shapes ?? []) {
-      pts.push(centre(p), ...corners(p));
-      if (p.kind === 'circle') for (const [cx, cy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) pts.push([p.x + (cx * p.d) / 2, p.y + (cy * p.d) / 2]);
-    }
+    for (const s of this.view.sketches)
+      for (const p of s.shapes) {
+        const own: UV[] = [centre(p), ...corners(p)];
+        if (p.kind === 'circle') for (const [cx, cy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) own.push([p.x + (cx * p.d) / 2, p.y + (cy * p.d) / 2]);
+        pts.push(...(s.id === t.sketch ? own : own.map((q) => uvOf(t.frame, v3(toWorld(s.frame, ...q))))));
+      }
+    pts.push(...this.view.corners().map((c) => uvOf(t.frame, c)));
     return pts;
   }
 
@@ -294,6 +305,7 @@ export class SketchTool {
       const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...q)));
       return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < px;
     });
+    this.snapped = near ? v3(toWorld(t.frame, ...near)) : null;
     if (near) return near;
     const [u, v] = uvOf(t.frame, p);
     return [this.snap(u, grid), this.snap(v, grid)];
@@ -400,6 +412,8 @@ export class SketchTool {
       }
       if (profile.kind === 'circle' && ph.kind === 'shape') label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
     }
+    if (this.snapped && ph.kind !== 'pull')
+      this.view.overlay.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints([this.snapped]), new THREE.PointsMaterial({ color: 0xff8c1a, size: 10, sizeAttenuation: false, depthTest: false })));
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
       const depth = this.typed(ph.typed) ?? ph.depth;

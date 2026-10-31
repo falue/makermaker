@@ -399,7 +399,7 @@ export class Viewer implements ToolView {
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     const solid = new THREE.Mesh(geometry, this.selection.includes(id) ? this.selectedMaterial : this.material);
-    Object.assign(solid.userData, { partId: id, faces: mesh.faces });
+    Object.assign(solid.userData, { partId: id, faces: mesh.faces, corners: mesh.corners });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
     group.add(solid, new THREE.LineSegments(edges, this.edgeMaterial));
@@ -630,6 +630,16 @@ export class Viewer implements ToolView {
     const hits = ray.intersectObjects(this.meshes()).filter((h) => this.shown(h.point));
     this.material.side = this.selectedMaterial.side = THREE.FrontSide;
     return hits;
+  }
+
+  corners() {
+    const out: THREE.Vector3[] = [];
+    for (const g of this.parts.values())
+      for (const c of g.children) {
+        const xyz = c.userData.corners as Float32Array | undefined;
+        for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).add(g.position));
+      }
+    return out;
   }
 
   /** Lights the whole B-rep face of `hit` (none: clears it). */

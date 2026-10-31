@@ -50,6 +50,13 @@ describe('buildPart', () => {
     }
   });
 
+  it('lists each part corner once', async () => {
+    const { meshPart } = await import('./build');
+    const shape = buildPart([base(100)]);
+    expect(meshPart(shape).corners.length).toBe(8 * 3);
+    shape.delete();
+  });
+
   it('skips disabled finishes', () => {
     const raw = built(plate(100));
     const off = built(plate(100, { ...corners, enabled: false }));
