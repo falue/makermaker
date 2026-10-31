@@ -591,3 +591,14 @@ canvas.drawing {
   width: 30px;
   height: 30px;
 }
+
+.viewcube .look-at {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 28px;
+  background: var(--panel);
+  border-radius: 6px;
+}

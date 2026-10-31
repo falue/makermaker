@@ -8,6 +8,7 @@ import { centre, inside, type DrawnProfile } from '../doc/profiles';
 import { angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import type { AreaMesh } from '../kernel/build';
 import { AreaTool } from './areas';
+import { icon } from '../ui/icons';
 import { marks } from './marks';
 import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
@@ -1244,8 +1245,15 @@ export class Viewer implements ToolView {
     const arrows = (['up', 'down', 'left', 'right'] as const).map((side) =>
       Object.assign(document.createElement('button'), { className: `turn ${side}`, onclick: () => this.turn(side) }),
     );
+    // below the cube: click it, then a face, and the camera looks straight at that face
+    const look = Object.assign(document.createElement('button'), {
+      className: 'tool look-at',
+      title: 'Look at a face: click this, then a face (Esc cancels)',
+      innerHTML: icon('look'),
+      onclick: () => this.pickFace((face) => face && this.lookAlong(face.normal.clone().negate())),
+    });
     this.cubeWrap.className = 'viewcube';
-    this.cubeWrap.append(this.cube, ...arrows);
+    this.cubeWrap.append(this.cube, ...arrows, look);
     return this.cubeWrap;
   }
 
