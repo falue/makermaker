@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { BasePlane } from '../doc/types';
 import type { PartMesh } from '../kernel/build';
+import { along, highlight, moveGizmo, type Handle } from './gizmo';
 import { SketchTool, type Cap, type ToolHost, type ToolKind, type ToolView } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -43,6 +44,9 @@ function hatchTexture(px = 16) {
 }
 
 interface Drag {
+  /** Along one axis (from `t0` on the line through `start`), else in `plane`. */
+  axis: THREE.Vector3 | null;
+  t0: number;
   plane: THREE.Plane;
   start: THREE.Vector3;
   group: { id: string; from: THREE.Vector3 }[];
@@ -52,8 +56,8 @@ interface Drag {
 }
 
 /**
- * Z-up viewport. Drag a part to move it in the base plane facing the camera (Ctrl snaps to `snapStep`), drag the
- * background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
+ * Z-up viewport. Selected parts get a move gizmo: drag an arrow to move along that axis, the ball or the part itself to
+ * move in the base plane facing the camera (Ctrl snaps to `snapStep`); selecting never moves. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
  * to orthographic until the next rotation. Top left: Ortho / Persp and Fit. A sketch tool takes the pointer while active.
  */
 export class Viewer implements ToolView {
@@ -76,11 +80,14 @@ export class Viewer implements ToolView {
   private dark = matchMedia('(prefers-color-scheme: dark)');
   private pick: THREE.Ray | null = null; // last click, for Tab cycling
   private downAt = { x: 0, y: 0 };
+  private downOnPart = false; // the last press hit a part or the gizmo: its release is no click on empty space
   private drag: Drag | null = null;
   private fitted = false;
   private tool: SketchTool | null = null;
   private toolPress = false;
   private projection = document.createElement('span');
+  private gizmo = moveGizmo();
+  private axes = new THREE.AxesHelper(30);
 
   /** Visible range per axis as fractions of the parts' bounding box (0..1); inverted shows only what is outside. */
   private sections: Record<Axis, Span> = { x: [0, 1], y: [0, 1], z: [0, 1] };
@@ -117,7 +124,10 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, new THREE.AxesHelper(30), this.sectionView, this.overlay);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.overlay, this.gizmo);
+    // grid first, then the origin lines over it; neither hides parts
+    (this.axes.material as THREE.Material).depthTest = false;
+    this.axes.renderOrder = -1;
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
 
@@ -356,6 +366,7 @@ export class Viewer implements ToolView {
   render = () => {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
+      this.placeGizmo();
       this.renderer.render(this.scene, this.camera);
       // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
       const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.camera.quaternion)).invert().elements;
@@ -385,10 +396,30 @@ export class Viewer implements ToolView {
     this.scene.background = new THREE.Color(dark ? 0x1c1d20 : 0xeeeeec);
     const grid = new THREE.GridHelper(1000, 100, dark ? 0x45474d : 0xbbbbbb, dark ? 0x2c2e32 : 0xd6d6d4);
     grid.rotation.x = Math.PI / 2;
+    grid.material.depthWrite = false;
+    grid.renderOrder = -2;
     this.grid.children.forEach((c) => (c as THREE.GridHelper).dispose());
     this.grid.clear().add(grid);
     this.render();
   };
+
+  /** On the selection's centre, a constant `px` long on screen; hidden while drawing. */
+  private placeGizmo(px = 90) {
+    const box = new THREE.Box3();
+    for (const id of this.selection) {
+      const g = this.parts.get(id);
+      if (g) box.expandByObject(g);
+    }
+    this.gizmo.visible = !box.isEmpty() && !this.tool;
+    if (!this.gizmo.visible) return;
+    box.getCenter(this.gizmo.position);
+    this.gizmo.scale.setScalar(px / this.pixelsPerMm(this.gizmo.position));
+  }
+
+  private gizmoHandle(ray: THREE.Raycaster): Handle | null {
+    if (!this.gizmo.visible) return null;
+    return ray.intersectObject(this.gizmo)[0]?.object.userData.handle ?? null;
+  }
 
   /** Hit points in a cut-away region do not count. */
   private shown(p: THREE.Vector3) {
@@ -557,46 +588,70 @@ export class Viewer implements ToolView {
     return ray;
   }
 
-  /** Grabbing a part selects it (Shift: adds or removes) and starts moving the selection on a plane through the grab point. */
+  /**
+   * A gizmo handle starts a move along its axis or in the plane facing the camera; so does grabbing a selected part
+   * (plane). Clicking an unselected part only selects it (Shift: adds or removes), so the gizmo shows before anything moves.
+   */
   private down(e: PointerEvent) {
     if (e.button !== 0) return;
     this.downAt = { x: e.clientX, y: e.clientY };
     const ray = this.raycaster(e);
     this.pick = ray.ray.clone();
-    const hit = ray.intersectObjects(this.meshes()).find((h) => this.shown(h.point));
-    if (!hit) return;
-    const id = hit.object.userData.partId as string;
-    const member = this.selection.includes(id);
-    if (e.shiftKey || !member) this.host.select(id, e.shiftKey);
-    if (!this.selection.includes(id)) return; // Shift-click removed it
+    const handle = this.gizmoHandle(ray);
+    this.downOnPart = handle !== null;
+    let grab: THREE.Vector3 | null = null;
+    let only: string | null = null;
+    if (handle === null) {
+      const hit = ray.intersectObjects(this.meshes()).find((h) => this.shown(h.point));
+      if (!hit) return;
+      this.downOnPart = true;
+      const id = hit.object.userData.partId as string;
+      if (e.shiftKey || !this.selection.includes(id)) return this.host.select(id, e.shiftKey);
+      grab = hit.point;
+      only = this.selection.length > 1 ? id : null;
+    }
+    const centre = this.gizmo.position.clone();
+    const axis = typeof handle === 'number' ? new THREE.Vector3().setComponent(handle, 1) : null;
+    // the plane: the base plane facing the camera most (top view: XY, front: XZ, side: YZ)
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3().setComponent(this.facingAxis(), 1), grab ?? centre);
+    const start = axis ? centre : (grab ?? ray.ray.intersectPlane(plane, new THREE.Vector3()));
+    if (!start) return;
     this.controls.enabled = false;
-    // one base plane: the one facing the camera most (top view: XY, front: XZ, side: YZ)
-    const normal = new THREE.Vector3().setComponent(this.facingAxis(), 1);
     this.drag = {
-      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.point),
-      start: hit.point.clone(),
+      axis,
+      t0: axis ? along(ray.ray, centre, axis) : 0,
+      plane,
+      start,
       group: this.selection.map((g) => ({ id: g, from: this.group(g).position.clone() })),
       moved: false,
-      only: !e.shiftKey && member && this.selection.length > 1 ? id : null,
+      only,
     };
     this.renderer.domElement.setPointerCapture(e.pointerId);
   }
 
-  /** Moves the dragged parts together; the first one lands on the snap step (Ctrl). */
+  /** Moves the dragged parts together; the first one lands on the snap step (Ctrl). Without a drag, lights the hovered handle. */
   private move(e: PointerEvent) {
     const d = this.drag;
     if (!d) {
       // a left drag without modifiers rotates: that leaves the side view the cube set up
       if (e.buttons === 1 && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.dragged(e)) this.leaveSideView();
+      if (!e.buttons && !this.tool) {
+        const handle = this.gizmoHandle(this.raycaster(e));
+        highlight(this.gizmo, handle);
+        this.renderer.domElement.style.cursor = handle === null ? '' : 'move';
+        this.render();
+      }
       return;
     }
     if (!d.moved && !this.dragged(e)) return;
-    const p = this.raycaster(e).ray.intersectPlane(d.plane, new THREE.Vector3());
-    if (!p) return;
+    const ray = this.raycaster(e).ray;
+    const delta = d.axis
+      ? d.axis.clone().multiplyScalar(along(ray, d.start, d.axis) - d.t0)
+      : ray.intersectPlane(d.plane, new THREE.Vector3())?.sub(d.start);
+    if (!delta) return;
     d.moved = true;
     const step = e.ctrlKey ? this.snapStep : 0.1;
     const lead = d.group[0].from;
-    const delta = p.sub(d.start);
     const by = new THREE.Vector3(
       round(lead.x + delta.x, step) - lead.x,
       round(lead.y + delta.y, step) - lead.y,
@@ -613,7 +668,7 @@ export class Viewer implements ToolView {
     this.controls.enabled = true;
     if (d?.moved) return this.host.move(d.group.map((g) => ({ id: g.id, position: this.group(g.id).position.toArray() })));
     if (d?.only) return this.host.select(d.only, false);
-    if (!d && e.button === 0 && !e.shiftKey && !this.dragged(e)) this.host.select(null, false);
+    if (!d && !this.downOnPart && e.button === 0 && !e.shiftKey && !this.dragged(e)) this.host.select(null, false);
   }
 
   private dragged(e: PointerEvent) {
@@ -674,27 +729,32 @@ export class Viewer implements ToolView {
         return face;
       }),
     );
-    // dragging the cube orbits the camera; the capture makes the release no click on a face
-    let last = { x: 0, y: 0 };
-    this.cube.onpointerdown = (e) => (last = { x: e.clientX, y: e.clientY });
+    // dragging the cube orbits the camera without end: the pointer is hidden and locked, so the screen edge does not stop it;
+    // the capture makes the release no click on a face
+    let start = { x: 0, y: 0 };
+    let turning = false;
+    this.cube.onpointerdown = (e) => {
+      start = { x: e.clientX, y: e.clientY };
+      turning = false;
+    };
     this.cube.onpointermove = (e) => {
       if (e.buttons !== 1) return;
-      const dx = e.clientX - last.x;
-      const dy = e.clientY - last.y;
-      if (!this.cube.hasPointerCapture(e.pointerId)) {
-        if (Math.hypot(dx, dy) <= 4) return;
+      if (!turning) {
+        if (Math.hypot(e.clientX - start.x, e.clientY - start.y) <= 4) return;
+        turning = true;
         this.cube.setPointerCapture(e.pointerId);
+        Promise.resolve(this.cube.requestPointerLock()).catch(() => {}); // without the lock it still turns, up to the screen edge
         this.leaveSideView();
       }
-      last = { x: e.clientX, y: e.clientY };
       const target = this.controls.target;
       const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(target).applyQuaternion(toCube));
-      s.theta -= dx * dragSpeed;
-      s.phi -= dy * dragSpeed;
+      s.theta -= e.movementX * dragSpeed;
+      s.phi -= e.movementY * dragSpeed;
       const offset = new THREE.Vector3().setFromSpherical(s.makeSafe()).applyQuaternion(toCube.clone().invert());
       this.camera.position.copy(target).add(offset);
       this.controls.update();
     };
+    this.cube.onpointerup = () => document.pointerLockElement === this.cube && document.exitPointerLock();
     // after a side was chosen, arrows turn the view by 90° to the neighbouring side
     const arrows = (['up', 'down', 'left', 'right'] as const).map((side) =>
       Object.assign(document.createElement('button'), { className: `turn ${side}`, onclick: () => this.turn(side) }),

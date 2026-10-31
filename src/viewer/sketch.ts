@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BASE, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Resolved } from '../doc/resolve';
 import type { BasePlane, Profile, SketchPlane } from '../doc/types';
+import { along } from './gizmo';
 
 export type ToolKind = 'rect' | 'circle' | 'polygon';
 export type DrawnProfile = Resolved<Profile> extends infer P ? (P extends unknown ? Omit<P, 'id'> : never) : never;
@@ -233,13 +234,7 @@ export class SketchTool {
 
   /** Parameter along the plane normal through the profile centre closest to the pointer ray. */
   private along(e: MouseEvent, ph: Extract<Phase, { kind: 'pull' }>) {
-    const ray = this.view.ray(e);
-    const c = v3(toWorld(ph.target.frame, ...centre(ph.profile)));
-    const n = v3(ph.target.frame.n);
-    const w = c.clone().sub(ray.origin);
-    const b = n.dot(ray.direction);
-    const denom = 1 - b * b;
-    return denom < 1e-6 ? 0 : (b * w.dot(ray.direction) - w.dot(n)) / denom;
+    return along(this.view.ray(e), v3(toWorld(ph.target.frame, ...centre(ph.profile))), v3(ph.target.frame.n));
   }
 
   private typed(text: string | undefined) {

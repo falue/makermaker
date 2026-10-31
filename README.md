@@ -30,6 +30,6 @@ Chromium-based browsers only.
 - Fillets/chamfers select edges by rule (all/top/bottom/vertical) and survive dimension changes; failures name the step and keep the last valid geometry.
 - Every numeric field accepts numbers, units (`3in`) and expressions with parameters (`2*ply + 10`); display units switch without changing geometry.
 - Save in place (File System Access), open, drag & drop, undo/redo, offline startup; v1 files migrate to v2.
-- Viewport and editing follow incase: view cube, per-view Ortho/Persp and Fit, drag parts to move in the base plane facing the camera (Ctrl snaps 5 mm), Shift-click multi-select, Tab through parts under the click, arrows nudge (Shift ×10), Del, ⌘D duplicate, Esc, drag a field or its label to scrub.
+- Viewport and editing follow incase: view cube, per-view Ortho/Persp and Fit, move gizmo on selected parts (arrows: along X / Y / Z; ball or the part: in the base plane facing the camera; Ctrl snaps 5 mm; selecting never moves), cube drag with locked hidden pointer, Shift-click multi-select, Tab through parts under the click, arrows nudge (Shift ×10), Del, ⌘D duplicate, Esc, drag a field or its label to scrub.
 - Section viewer (from incase, plus Z): two-handle range per axis, invert, reset / double-click, hatched caps on cut faces; picking ignores cut-away parts.
 - Not yet: sketches on side faces, face edits, editing profiles by dragging, instances, groups, quad view, imports/exports.
