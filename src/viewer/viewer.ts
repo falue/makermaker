@@ -11,7 +11,7 @@ import { AreaTool } from './areas';
 import { FacePullTool } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
-import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
+import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -30,6 +30,8 @@ export interface ViewerHost {
   setShapes(sketch: string, shapes: { id: string; profile: DrawnProfile }[], typed?: Partial<Record<'w' | 'h' | 'd', string>>): void;
   /** A typed distance in mm, or null if invalid. */
   length(text: string): number | null;
+  /** Where shapes drawn on a body face go (`flat`: the face is planar). */
+  placeOn(face: PickedFace, flat: boolean): Omit<Target, 'sketch'> | null;
   /** A clicked part of a finish (null: a click elsewhere on a body). */
   pickFinish(sel: FinishPick | null): void;
   /** A length in mm, as shown to the user. */
@@ -146,7 +148,6 @@ interface ShapeEdit {
 export class Viewer implements ToolView {
   snapStep = 5; // mm
   /** End faces of extrusions, where sketches can start. */
-  caps: Cap[] = [];
   /** Visible sketches (world frames) and the selected one with its selected shapes. */
   sketches: ViewSketch[] = [];
   activeSketch: string | null = null;
@@ -356,8 +357,27 @@ export class Viewer implements ToolView {
       : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   }
 
-  /** The last face clicked on a body (front side), for E after clicking a face. */
+  /** The last face clicked on a body (front side), for tools picked after it. */
   lastFace: PickedFace | null = null;
+  private lastHit: THREE.Intersection | null = null;
+
+  placeOn(hit: THREE.Intersection) {
+    // flat: all normals of the B-rep face agree
+    const k = faceOf(hit);
+    const groups = hit.object.userData.faces as Uint32Array;
+    const geo = (hit.object as THREE.Mesh).geometry;
+    const index = geo.index!.array.subarray(groups[k * 2], groups[k * 2] + groups[k * 2 + 1]);
+    const normal = (v: number) => new THREE.Vector3().fromBufferAttribute(geo.attributes.normal, v);
+    const n0 = normal(index[0]);
+    const flat = index.every((v) => normal(v).dot(n0) > 0.9999);
+    return this.host.placeOn({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId }, flat);
+  }
+
+  /** Where shapes go on the face last clicked on a selected body (a face first, then the sketch tool). */
+  lastTarget() {
+    const hit = this.lastHit;
+    return hit && this.selection.includes(hit.object.userData.bodyId) ? this.placeOn(hit) : null;
+  }
 
   /** Pushes or pulls a face along its outward normal `n` from `at` (E on a face). */
   startFacePull(host: ToolHost, n: Vec3, at: THREE.Vector3, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void) {
@@ -1184,8 +1204,10 @@ export class Viewer implements ToolView {
     const hit = this.intersect(ray)[0];
     const shape = this.shapeAt(ray.ray, hit?.distance);
     this.downOnPart = !!hit || !!shape;
-    if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0)
+    if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0) {
       this.lastFace = { point: hit.point.clone(), normal: hit.face.normal.clone().negate(), body: hit.object.userData.bodyId };
+      this.lastHit = hit;
+    }
     if (shape) {
       if (e.shiftKey || e.metaKey || e.ctrlKey) return this.host.pickShape(shape.sketch, shape.shape, true);
       const member = this.activeSketch === shape.sketch && this.selectedShapes.includes(shape.shape);

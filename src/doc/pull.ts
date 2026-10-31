@@ -1,5 +1,5 @@
 import type { BuildFeature } from '../kernel/build';
-import { frames, toPlane, type Frame, type V3 } from './frames';
+import { frames, toPlane, toWorld, type Frame, type V3 } from './frames';
 import { centre, corners, inside, type DrawnProfile } from './profiles';
 import type { Resolved } from './resolve';
 import type { ExtrudeIn } from './types';
@@ -48,6 +48,29 @@ function extrudeFace(s: Resolved<ExtrudeIn>, f: Frame, p: V3, out: V3, eps: numb
     if (side) return { kind: 'side', feature: s.id, shape: q.id, ...side };
   }
   return null;
+}
+
+/**
+ * Frame of the side face made by straight side `edge` of shape `shape` in extrusion `feature` (body coordinates):
+ * origin at the side's first corner on the sketch plane, x along the side, n out of the shape (`flip`: into it, for
+ * hole walls), y = n × x.
+ */
+export function sideFrame(features: BuildFeature[], feature: string, shape: string, edge: number, flip = false): Frame | undefined {
+  const s = features.find((f) => f.id === feature);
+  const f = frames(features.filter((t) => t.type !== 'boolean')).get(feature);
+  const p = s?.type === 'extrude' ? s.profiles.find((q) => q.id === shape) : undefined;
+  if (!f || !p || p.kind === 'circle') return undefined;
+  const pts = corners(p);
+  if (edge >= pts.length) return undefined;
+  const m = normalOf(pts, edge, counterClockwise(pts));
+  const [a, b] = [pts[edge], pts[(edge + 1) % pts.length]];
+  const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const along = (u: number, v: number): V3 => [f.x[0] * u + f.y[0] * v, f.x[1] * u + f.y[1] * v, f.x[2] * u + f.y[2] * v];
+  const k = flip ? -1 : 1;
+  const x = along((k * (b[0] - a[0])) / l, (k * (b[1] - a[1])) / l);
+  const n = along(k * m[0], k * m[1]);
+  const y: V3 = [n[1] * x[2] - n[2] * x[1], n[2] * x[0] - n[0] * x[2], n[0] * x[1] - n[1] * x[0]];
+  return { o: toWorld(f, ...a), x, y, n };
 }
 
 /** Outward unit normal of the side from corner `i` to the next (`ccw`: corners run counter-clockwise). */

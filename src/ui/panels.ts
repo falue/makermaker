@@ -426,7 +426,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
   const where =
     p.kind === 'base'
       ? [select(p.axis, { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' }, (axis) => set({ plane: { ...p, axis } })), exprField(ctx, `${at}.plane.offset`, 'Offset')]
-      : [h('span', { className: 'hint' }, `On a face of ${doc.bodies.find((q) => q.id === p.body)?.name ?? 'a deleted body'}`)];
+      : [h('span', { className: 'hint' }, p.kind === 'plane' ? 'On a fixed plane (where a face was)' : `On a face of ${doc.bodies.find((q) => q.id === p.body)?.name ?? 'a deleted body'}`)];
   const show = h('input', { type: 'checkbox', checked: s.visible });
   show.onchange = () => set({ visible: show.checked });
   const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon' };
@@ -529,15 +529,14 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         const sketch = ctx.doc.sketches.find((k) => k.id === src.sketch);
         const shapes = sketch ? src.shapes.flatMap((id) => sketch.shapes.filter((q) => q.id === id)) : [];
         // unlinking copies the shapes and the plane into the feature: the sketch no longer changes the body
-        const unlink = () => {
-          if (!sketch) return;
-          const p = sketch.plane;
-          setFeature({ ...feature, source: { kind: 'own', plane: p.kind === 'base' ? p : { kind: 'cap', feature: p.feature }, profiles: structuredClone(shapes), areas: src.areas } });
-        };
+        // (only planes a feature can hold: a base plane or this body's own end face)
+        const p = sketch?.plane;
+        const plane = p?.kind === 'base' ? p : p?.kind === 'cap' && p.body === body.id ? ({ kind: 'cap', feature: p.feature } as const) : null;
+        const unlink = () => plane && setFeature({ ...feature, source: { kind: 'own', plane, profiles: structuredClone(shapes), areas: src.areas } });
         const link = sketch
           ? [
               h('button', { className: 'item', onclick: () => ctx.select(sketch.id), title: 'Select the sketch' }, `${sketch.name}: ${src.areas ? `${src.areas.length} areas` : `${shapes.length} of ${sketch.shapes.length} shapes`}`),
-              tool('unlink', 'Unlink: copy the shapes into this feature, so the sketch no longer changes it', unlink),
+              ...(plane ? [tool('unlink', 'Unlink: copy the shapes into this feature, so the sketch no longer changes it', unlink)] : []),
             ]
           : [h('span', { className: 'error' }, 'its sketch was deleted')];
         return h('section', {}, h('h4', {}, name(feature), mode, remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'From'), ...link), h('div', { className: 'row' }, ...reach));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildFeature } from '../kernel/build';
-import { faceAt, pushed } from './pull';
+import { faceAt, pushed, sideFrame } from './pull';
 
 const ground = { kind: 'base', axis: 'xy', offset: 0 } as const;
 const plate: BuildFeature = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: 0, rot: 0 }], depth: 4, mode: 'add', through: false };
@@ -30,5 +30,13 @@ describe('pushed', () => {
   it('moves both corners of a polygon side', () => {
     const p = pushed({ kind: 'polygon', pts: [[0, 0], [10, 0], [0, 10]], r: 0, rot: 0 }, 0, 2);
     expect(p.kind === 'polygon' && p.pts).toEqual([[0, -2], [10, -2], [0, 10]]);
+  });
+});
+
+describe('sideFrame', () => {
+  it('stands on a rect side, pointing out', () => {
+    const f = sideFrame([plate], 'p', 'r', 0); // the bottom side (y = -10), from (-20, -10) to (20, -10)
+    const clean = (v: number[]) => v.map((k) => k + 0); // no -0
+    expect([f!.o, f!.x, f!.y, f!.n].map(clean)).toEqual([[-20, -10, 0], [1, 0, 0], [0, 0, 1], [0, -1, 0]]);
   });
 });

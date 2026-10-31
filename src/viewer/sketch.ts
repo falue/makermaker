@@ -63,7 +63,8 @@ export interface ToolView {
   el: HTMLElement;
   overlay: THREE.Group;
   snapStep: number;
-  caps: Cap[];
+  /** Where shapes drawn on the face of a body hit go (null: nowhere: a curved face no feature made). */
+  placeOn(hit: THREE.Intersection): Omit<Target, 'sketch'> | null;
   sketches: ViewSketch[];
   /** The selected sketch, drawn into when the pointer is on no other target. */
   activeSketch: string | null;
@@ -315,18 +316,16 @@ export class SketchTool implements Tool {
     });
     if (onSketch) return this.sketchTarget(onSketch);
     if (hit) {
-      const n = hit.face!.normal;
-      if (n.dot(ray.direction) > 0) return null; // a back face seen through a section cut
-      const id = hit.object.userData.bodyId as string;
-      const cap = [...this.view.caps].reverse().find((c) => {
-        const o = v3(c.frame.o);
-        return c.body === id && Math.abs(n.dot(v3(c.frame.n))) > 0.999 && Math.abs(hit.point.clone().sub(o).dot(n)) < 1e-3;
-      });
-      if (!cap) return null;
-      const existing = this.view.sketches.find((s) => s.placement.kind === 'cap' && s.placement.body === id && s.placement.feature === cap.feature);
-      return existing
-        ? this.sketchTarget(existing)
-        : { sketch: null, placement: { kind: 'cap', body: id, feature: cap.feature }, frame: cap.frame, body: id, name: 'this face' };
+      if (hit.face!.normal.dot(ray.direction) > 0) return null; // a back face seen through a section cut
+      const placed = this.view.placeOn(hit);
+      if (!placed) return null;
+      // a sketch already there takes the shapes
+      const same = (s: ViewSketch) =>
+        placed.placement.kind === 'plane'
+          ? Math.abs(v3(s.frame.n).dot(v3(placed.frame.n)) - 1) < 1e-6 && Math.abs(v3(s.frame.o).sub(v3(placed.frame.o)).dot(v3(placed.frame.n))) < 1e-3
+          : JSON.stringify(s.placement) === JSON.stringify(placed.placement);
+      const existing = this.view.sketches.find(same);
+      return existing ? this.sketchTarget(existing) : { sketch: null, ...placed };
     }
     const axis = this.view.facing();
     const active = this.view.sketches.find((s) => s.id === this.view.activeSketch);

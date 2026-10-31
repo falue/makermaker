@@ -2,12 +2,12 @@ import { Vector3 } from 'three';
 import './style.css';
 import { evalLength, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
-import { BASE, capFrame, frames, moved, scale } from './doc/frames';
+import { BASE, capFrame, frames, moved, scale, type Frame } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
-import { getIn, paramLookup, resolve, setIn, UNITLESS } from './doc/resolve';
+import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
-import { faceAt, pushed } from './doc/pull';
+import { faceAt, pushed, sideFrame } from './doc/pull';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Profile, Sketch, SketchPlacement } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
@@ -37,6 +37,31 @@ let linkErrors = new Map<string, { featureId: string; error: string }>();
 const positions = new Map<string, Vec3>();
 /** Build features per body (tool bodies inside), from the last update. */
 const built = new Map<string, BuildFeature[]>();
+/** A sketch placement's world frame, as of the last update. */
+let frameOf: (p: Resolved<SketchPlacement>) => Frame | undefined = () => undefined;
+
+/**
+ * Where shapes drawn on a body face go: an extrusion's end face or straight side face (they follow it), else, if the
+ * face is flat, a fixed plane on it (x as level as possible).
+ */
+function placeOn(face: PickedFace, flat: boolean): Omit<Target, 'sketch'> | null {
+  const at = positions.get(face.body ?? '');
+  const features = built.get(face.body ?? '');
+  const out = face.normal.clone().negate().toArray();
+  const hit = at && features && faceAt(features, face.point.toArray().map((v, k) => v - at[k]) as Vec3, out);
+  const owner = hit && history.current.bodies.find((b) => b.features.some((f) => f.id === hit.feature))?.id;
+  const placement: Resolved<SketchPlacement> | null =
+    !hit || !owner ? null : hit.kind === 'cap' ? { kind: 'cap', body: owner, feature: hit.feature } : hit.edge >= 0 ? { kind: 'side', body: owner, feature: hit.feature, shape: hit.shape, edge: hit.edge, flip: hit.rate < 0 } : null;
+  const frame = placement && frameOf(placement);
+  if (placement && frame) return { placement, frame, body: face.body ?? null, name: 'this face' };
+  if (!flat) return null;
+  const n = new Vector3(...out);
+  const x = new Vector3(0, 0, 1).cross(n);
+  if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+  x.normalize();
+  const plane = { o: face.point.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: out };
+  return { placement: { kind: 'plane', ...plane }, frame: plane, body: face.body ?? null, name: 'this face' };
+}
 let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; saved: Doc } = {
   name: `untitled${EXTENSION}`,
   versions: [],
@@ -72,6 +97,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   pickShape,
   setShapes,
   length,
+  placeOn,
   pickFinish(sel) {
     finishSel = sel;
     viewer.setFinishMark(sel);
@@ -131,12 +157,22 @@ function update() {
     return exprErrors.size === before ? [{ id: p.id, resolved, at: positions.get(p.id) ?? ([0, 0, 0] as Vec3) }] : [];
   });
   const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
+  /** A placement's frame in the world; undefined while its body is not built (or its face is gone). */
+  const worldFrame = (p: Resolved<SketchPlacement>): Frame | undefined => {
+    if (p.kind === 'base') return { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) };
+    if (p.kind === 'plane') return { o: p.o, x: p.x, y: p.y, n: p.n };
+    if (p.kind === 'cap') return caps.find((c) => c.body === p.body && c.feature === p.feature)?.frame;
+    const parts = own.get(p.body);
+    const f = parts && sideFrame([...parts.values()], p.feature, p.shape, p.edge, p.flip);
+    return f && moved(f, positions.get(p.body) ?? [0, 0, 0]);
+  };
+  frameOf = worldFrame;
   for (let progress = true; pending.length && progress; ) {
     progress = false;
     pending = pending.filter(({ id, resolved, at }) => {
-      const faceOf = (body: string, feature: string) => {
-        const c = caps.find((q) => q.body === body && q.feature === feature);
-        return c && moved(c.frame, scale(at, -1));
+      const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
+        const f = worldFrame(p);
+        return f && moved(f, scale(at, -1));
       };
       const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
@@ -187,14 +223,13 @@ function update() {
     if (typeof features === 'string') linkErrors.set(id, { featureId: resolvedOf.get(id)?.find((f) => f.type === 'boolean')?.id ?? '', error: `Cannot build: ${features}` });
     else builds.push({ id, features }), built.set(id, features);
   }
-  viewer.caps = caps;
   // sketches in the world: base planes as they are, face sketches with their body
   const palette = [0x3b6fd8, 0x9b4dca, 0x0f9d8a, 0x5a8f29, 0xc2417a, 0x8a6d3b];
   const shown: ViewSketch[] = doc.sketches.flatMap((s, i) => {
     const r = sketches.get(s.id);
     const p = r?.plane;
     if (!r || !p || !s.visible) return [];
-    const frame = p.kind === 'base' ? { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) } : caps.find((c) => c.body === p.body && c.feature === p.feature)?.frame;
+    const frame = worldFrame(p);
     return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes }] : [];
   });
   viewer.setCustomSections(
@@ -751,9 +786,11 @@ function exitSketch() {
   render();
 }
 
-/** New sketch: pick a top face or empty space (the base plane facing the camera). */
+/** New sketch: on the face clicked before (on a selected body), else pick a face or empty space (the base plane facing the camera). */
 function startNewSketch() {
   if (sketching) exitSketch();
+  const placed = viewer.lastTarget();
+  if (placed) return newSketch({ sketch: null, ...placed });
   viewer.startTool(null, toolHost, { kind: 'plane' });
   toolMode = 'plane';
   render();

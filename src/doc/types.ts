@@ -11,8 +11,17 @@ export type BasePlane = 'xy' | 'xz' | 'yz';
 /** Where an extrusion's shapes lie (body-local): a base plane of the body, or the end face of an earlier extrude feature. */
 export type SketchPlane = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; feature: string };
 
-/** Where a sketch object lies: a base plane (world), or the end face of a body's extrude feature (moves with the body). */
-export type SketchPlacement = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; body: string; feature: string };
+/**
+ * Where a sketch object lies: a base plane (world); the end face of a body's extrude feature, or the side face made by
+ * straight side `edge` of one of its shapes (`flip`: the face looks into the shape, a hole wall; both move with the
+ * body and follow the feature); or a fixed plane in the
+ * world (any other flat face; x, y in the plane, n = x × y).
+ */
+export type SketchPlacement =
+  | { kind: 'base'; axis: BasePlane; offset: Expr }
+  | { kind: 'cap'; body: string; feature: string }
+  | { kind: 'side'; body: string; feature: string; shape: string; edge: number; flip: boolean }
+  | { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] };
 
 /**
  * A shape in sketch plane coordinates: rect, circle and regular polygon (`ngon`: `sides` corners on diameter `d`)
