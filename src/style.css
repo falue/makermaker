@@ -6,8 +6,27 @@
   --muted: #777;
   --accent: #3b6fd8;
   --error: #c62828;
+  --field: #ffffff;
+  --field-invalid: #fff4f4;
+  --selected: #e8efff;
+  color-scheme: light dark;
   font: 13px/1.4 system-ui, sans-serif;
   color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18191b;
+    --panel: #222326;
+    --line: #3a3b3f;
+    --text: #e4e4e2;
+    --muted: #9a9a98;
+    --accent: #6f9bff;
+    --error: #ff6b6b;
+    --field: #1a1b1d;
+    --field-invalid: #3a1f1f;
+    --selected: #2a3550;
+  }
 }
 
 * {
@@ -113,7 +132,7 @@ select {
   padding: 3px 5px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: #fff;
+  background: var(--field);
 }
 input:focus {
   outline: 2px solid var(--accent);
@@ -121,7 +140,7 @@ input:focus {
 }
 input.invalid {
   border-color: var(--error);
-  background: #fff4f4;
+  background: var(--field-invalid);
 }
 
 .item {
@@ -132,7 +151,7 @@ input.invalid {
 }
 .item.selected {
   border-color: var(--accent);
-  background: #e8efff;
+  background: var(--selected);
 }
 
 .param {

@@ -13,6 +13,8 @@ export class Viewer {
   private parts = new Map<string, THREE.Group>();
   private selected: string | null = null;
   private frame = 0;
+  private grid = new THREE.Group();
+  private dark = matchMedia('(prefers-color-scheme: dark)');
 
   private material = new THREE.MeshStandardMaterial({
     color: 0xd8c3a0,
@@ -29,14 +31,13 @@ export class Viewer {
     this.renderer.setPixelRatio(devicePixelRatio);
     el.append(this.renderer.domElement);
 
-    this.scene.background = new THREE.Color(0xeeeeec);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2));
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
     this.scene.add(sun);
-    const grid = new THREE.GridHelper(1000, 100, 0xbbbbbb, 0xd6d6d4);
-    grid.rotation.x = Math.PI / 2;
-    this.scene.add(grid, new THREE.AxesHelper(30));
+    this.scene.add(this.grid, new THREE.AxesHelper(30));
+    this.applyTheme();
+    this.dark.addEventListener('change', this.applyTheme);
 
     THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
     this.camera.up.set(0, 0, 1);
@@ -93,6 +94,16 @@ export class Viewer {
       group.children.forEach((c) => c instanceof THREE.Mesh && (c.material = pid === id ? this.selectedMaterial : this.material));
     this.render();
   }
+
+  private applyTheme = () => {
+    const dark = this.dark.matches;
+    this.scene.background = new THREE.Color(dark ? 0x1c1d20 : 0xeeeeec);
+    const grid = new THREE.GridHelper(1000, 100, dark ? 0x45474d : 0xbbbbbb, dark ? 0x2c2e32 : 0xd6d6d4);
+    grid.rotation.x = Math.PI / 2;
+    this.grid.children.forEach((c) => (c as THREE.GridHelper).dispose());
+    this.grid.clear().add(grid);
+    this.render();
+  };
 
   private group(id: string) {
     let group = this.parts.get(id);
