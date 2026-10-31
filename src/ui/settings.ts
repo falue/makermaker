@@ -65,7 +65,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         };
         return [
           make('h3', {}, 'Ambient occlusion'),
-          make('label', { className: 'check' }, ao, 'Soft shadows in corners and creases (off while a section cuts)'),
+          make('label', { className: 'check' }, ao, 'Soft shadows in corners and creases'),
           make('h3', {}, 'Background'),
           make('p', { className: 'hint' }, 'Of the 3D view, and of new renders (each render keeps its own).'),
           make('div', { className: 'row' }, mode('solid', 'Solid (the theme grey)'), mode('colours', 'Two colours'), mode('sky', 'Sky')),

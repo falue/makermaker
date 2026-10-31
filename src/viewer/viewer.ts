@@ -85,6 +85,13 @@ function originLines(size = 30, px = 3) {
   return lines;
 }
 
+/** A normals material (for the AO pass) that keeps `m`'s clipping, side and stencil. */
+function normalsLike(m: THREE.Material) {
+  const n = new THREE.MeshNormalMaterial({ clippingPlanes: m.clippingPlanes, side: m.side });
+  for (const k of ['stencilWrite', 'stencilRef', 'stencilFunc', 'stencilFail', 'stencilZFail', 'stencilZPass', 'depthTest', 'depthWrite'] as const) (n as unknown as Record<string, unknown>)[k] = m[k];
+  return n;
+}
+
 /** Faint (20 % black) diagonal stripes on white, one per tile; tiles seamlessly. */
 function hatchTexture(px = 16) {
   const c = Object.assign(document.createElement('canvas'), { width: px, height: px });
@@ -236,7 +243,15 @@ export class Viewer implements ToolView {
   private cutterEdges = [0xe5484d, 0xff8c1a].map((color) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
   private ghost = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   /** Ambient occlusion (three's GTAO pass) on or off; its composer is made for the current camera when needed. */
-  private ao = { on: false, composer: null as EffectComposer | null };
+  private ao = {
+    on: false,
+    composer: null as EffectComposer | null,
+    gtao: null as GTAOPass | null,
+    /** While sectioned: depth and normals of the cut view, for the AO pass (its own picture would see uncut bodies). */
+    gbuffer: null as THREE.WebGLRenderTarget | null,
+    /** The pass reads `gbuffer` (else its own picture). */
+    external: false,
+  };
   /** The view's background (settings): the theme grey, or a gradient from the top to the bottom of the view. */
   private backdrop: Settings['background'] = { mode: 'solid', top: '#ffffff', bottom: '#ffffff', sky: 0 };
   /** The gradient background: a column redrawn when the camera tilts (`drawn`: for which tilt and view). */
@@ -828,11 +843,10 @@ export class Viewer implements ToolView {
     this.scene.background = null;
     this.renderer.setPixelRatio(ratio * scale);
     this.renderer.setSize(size.x, size.y, false);
-    if (this.ao.on && !this.boxes.length) {
+    if (this.ao.on) {
       // with ambient occlusion: a composer at this size, twice (its first frame has no occlusion yet)
       this.dropComposer();
-      this.aoComposer().render();
-      this.aoComposer().render();
+      for (let i = 0; i < 2; i++) this.renderAO();
     } else this.renderer.render(this.scene, this.camera);
     // read back right after drawing: the buffer is cleared later
     const blob = await new Promise<Blob | null>((done) => this.renderer.domElement.toBlob(done, 'image/png'));
@@ -931,16 +945,56 @@ export class Viewer implements ToolView {
     const gtao = new GTAOPass(this.scene, this.camera, size.x, size.y);
     gtao.updateGtaoMaterial({ radius: 15, thickness: 15, scale: 1.6, samples: 16 }); // three's defaults are for metres: mm here
     composer.addPass(gtao);
+    this.ao.gtao = gtao;
+    this.ao.external = false;
+    // the cut view's depth and normals, at the composer's size
+    const depthTexture = new THREE.DepthTexture(size.x, size.y, THREE.UnsignedInt248Type);
+    depthTexture.format = THREE.DepthStencilFormat;
+    this.ao.gbuffer = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, stencilBuffer: true, depthTexture });
     composer.addPass(new OutputPass());
     this.render(); // its first frame has no occlusion yet: draw one more
     return (this.ao.composer = composer);
+  }
+
+  /**
+   * A frame with ambient occlusion. While a section cuts, the AO pass reads the cut view's depth and normals: the
+   * section view drawn again with normal materials that keep its clipping and stencil (cut faces included).
+   */
+  private renderAO() {
+    const composer = this.aoComposer();
+    const { gtao, gbuffer } = this.ao;
+    const cut = this.boxes.length > 0;
+    if (cut !== this.ao.external) {
+      gtao!.setGBuffer(cut ? gbuffer!.depthTexture! : undefined, cut ? gbuffer!.texture : undefined);
+      this.ao.external = cut;
+    }
+    if (cut) {
+      const swapped: [THREE.Object3D, THREE.Material | THREE.Material[]][] = [];
+      this.sectionView.traverse((o) => {
+        if (o instanceof THREE.LineSegments) return swapped.push([o, o.material]), (o.visible = false);
+        if (!(o instanceof THREE.Mesh) || (o.material as THREE.Material).colorWrite === false) return; // stencil helpers stay
+        swapped.push([o, o.material]);
+        o.material = normalsLike(o.material as THREE.Material);
+      });
+      this.renderer.setRenderTarget(gbuffer);
+      this.renderer.clear();
+      this.renderer.render(this.sectionView, this.camera);
+      this.renderer.setRenderTarget(null);
+      for (const [o, m] of swapped) {
+        if (o instanceof THREE.LineSegments) o.visible = true;
+        else ((o as THREE.Mesh).material as THREE.Material).dispose(), ((o as THREE.Mesh).material = m);
+      }
+    }
+    composer.render();
   }
 
   /** Drops the ambient occlusion composer (camera or size changed): the next frame makes a new one. */
   private dropComposer() {
     this.ao.composer?.passes.forEach((p) => p.dispose());
     this.ao.composer?.dispose();
-    this.ao.composer = null;
+    this.ao.gbuffer?.depthTexture?.dispose();
+    this.ao.gbuffer?.dispose();
+    Object.assign(this.ao, { composer: null, gtao: null, gbuffer: null, external: false });
   }
 
   render = () => {
@@ -948,8 +1002,7 @@ export class Viewer implements ToolView {
       this.frame = 0;
       this.placeWheel();
       this.drawSky();
-      // three's AO pass ignores the section clipping (and sees the stencil helpers): no AO while a section cuts
-      if (this.ao.on && !this.boxes.length) this.aoComposer().render();
+      if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
       // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
       const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.camera.quaternion)).invert().elements;
