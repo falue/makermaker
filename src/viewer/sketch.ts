@@ -4,6 +4,9 @@ import { centre, corners, inside, nesting, type DrawnProfile } from '../doc/prof
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 
 export type ToolKind = 'rect' | 'circle' | 'polygon';
 export type { DrawnProfile };
@@ -77,6 +80,8 @@ export interface ToolView {
   markFace(hit?: THREE.Intersection): void;
   /** Body corners in the world, to snap to. */
   corners(): THREE.Vector3[];
+  /** Body edges in the world (each as segments), to snap to. */
+  edges(): [THREE.Vector3, THREE.Vector3][][];
   render(): void;
 }
 
@@ -125,6 +130,7 @@ export interface ToolHost {
 }
 
 type UV = [number, number];
+type Segment = [THREE.Vector3, THREE.Vector3];
 
 type Phase =
   | { kind: 'hover' }
@@ -147,8 +153,9 @@ const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle
  */
 export class SketchTool implements Tool {
   private phase: Phase = { kind: 'hover' };
-  /** The point the pointer snapped to (world), shown as a dot. */
+  /** The point the pointer snapped to (world), shown as a squircle; on a line, that line is lit too. */
   private snapped: THREE.Vector3 | null = null;
+  private snapLine: Segment[] | null = null;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -338,17 +345,49 @@ export class SketchTool implements Tool {
     return pts;
   }
 
-  /** Pointer on the target plane, in plane coordinates: on a snap point within `px` pixels, else on the grid (Ctrl) or 0.1 mm. */
-  private point(e: MouseEvent, t: Target, grid: boolean, px = 10): UV | null {
+  /** Lines to snap to, each as segments (world): outlines of every visible sketch's shapes, and body edges. */
+  private snapLines(): Segment[][] {
+    const outlines = this.view.sketches.flatMap((s) =>
+      s.shapes.map((p) => {
+        const pts = shape2d(p).getPoints(48).map((q) => v3(toWorld(s.frame, q.x, q.y)));
+        return pts.map((a, i): Segment => [a, pts[(i + 1) % pts.length]]);
+      }),
+    );
+    return [...outlines, ...this.view.edges()];
+  }
+
+  /**
+   * Pointer on the target plane, in plane coordinates: on a corner or centre within `px` pixels, else on the nearest
+   * line within `linePx` (sketch outlines, body edges; projected onto the plane), else on the grid (Ctrl) or 0.1 mm.
+   */
+  private point(e: MouseEvent, t: Target, grid: boolean, px = 10, linePx = 8): UV | null {
     const p = planeHit(this.view.ray(e), t.frame);
     if (!p) return null;
     const r = this.view.el.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
     const near = this.snapPoints(t).find((q) => {
       const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...q)));
-      return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < px;
+      return Math.hypot(mx - x, my - y) < px;
     });
+    this.snapLine = null;
     this.snapped = near ? v3(toWorld(t.frame, ...near)) : null;
     if (near) return near;
+    let best: { at: THREE.Vector3; line: Segment[]; d: number } | null = null;
+    for (const line of this.snapLines())
+      for (const [a, b] of line) {
+        const [ax, ay] = this.view.toScreen(a);
+        const [bx, by] = this.view.toScreen(b);
+        const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+        const k = len2 ? Math.max(0, Math.min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)) : 0;
+        const d = Math.hypot(mx - ax - k * (bx - ax), my - ay - k * (by - ay));
+        if (d < linePx && (!best || d < best.d)) best = { at: a.clone().lerp(b, k), line, d };
+      }
+    if (best) {
+      const uv = uvOf(t.frame, best.at);
+      this.snapped = v3(toWorld(t.frame, ...uv));
+      this.snapLine = best.line;
+      return uv;
+    }
     const [u, v] = uvOf(t.frame, p);
     return [this.snap(u, grid), this.snap(v, grid)];
   }
@@ -464,8 +503,14 @@ export class SketchTool implements Tool {
       }
       if (profile.kind === 'circle' && ph.kind === 'shape') label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
     }
-    if (this.snapped && ph.kind !== 'pull')
-      this.view.overlay.add(marks([this.snapped], 0xff8c1a, 12));
+    if (this.snapped && ph.kind !== 'pull') {
+      if (this.snapLine) {
+        const lit = new LineMaterial({ color: 0xff8c1a, linewidth: 3, depthTest: false });
+        lit.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
+        this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(this.snapLine.flat().flatMap((v) => v.toArray())), lit));
+      }
+      this.view.overlay.add(marks([this.snapped], 0xff8c1a, this.snapLine ? 8 : 12));
+    }
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
       const depth = this.typed(ph.typed) ?? ph.depth;

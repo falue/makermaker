@@ -447,7 +447,9 @@ export class Viewer implements ToolView {
     Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
-    group.add(solid, new THREE.LineSegments(edges, this.edgeMaterial));
+    const lines = new THREE.LineSegments(edges, this.edgeMaterial);
+    lines.userData.edgeGroups = mesh.edgeGroups;
+    group.add(solid, lines);
     if (!this.fitted) {
       this.fitted = true;
       requestAnimationFrame(() => this.fit()); // after the other bodies of this batch
@@ -675,6 +677,24 @@ export class Viewer implements ToolView {
     const hits = ray.intersectObjects(this.meshes()).filter((h) => this.shown(h.point));
     this.material.side = this.selectedMaterial.side = THREE.FrontSide;
     return hits;
+  }
+
+  /** Body edges in the world, each as its segments. */
+  edges() {
+    const out: [THREE.Vector3, THREE.Vector3][][] = [];
+    for (const g of this.bodies.values())
+      for (const c of g.children) {
+        const groups = c.userData.edgeGroups as Uint32Array | undefined;
+        if (!groups) continue;
+        const pos = (c as THREE.LineSegments).geometry.attributes.position;
+        const at = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, i).add(g.position);
+        for (let k = 0; k < groups.length; k += 2) {
+          const segs: [THREE.Vector3, THREE.Vector3][] = [];
+          for (let i = groups[k]; i + 1 < groups[k] + groups[k + 1]; i += 2) segs.push([at(i), at(i + 1)]);
+          out.push(segs);
+        }
+      }
+    return out;
   }
 
   corners() {

@@ -16,6 +16,8 @@ export interface BodyMesh {
   faces: Uint32Array;
   /** B-rep vertices (edge ends), xyz, each once: snap points. */
   corners: Float32Array;
+  /** Per B-rep edge: start and count of its points in `edges` (segment pairs). */
+  edgeGroups: Uint32Array;
 }
 
 export class FeatureError extends Error {
@@ -71,6 +73,7 @@ export function meshBody(shape: Shape3D): BodyMesh {
     edges: new Float32Array(e.lines),
     faces: new Uint32Array(m.faceGroups.flatMap((g) => [g.start, g.count])),
     corners: new Float32Array([...ends.values()].flat()),
+    edgeGroups: new Uint32Array(e.edgeGroups.flatMap((g) => [g.start, g.count])),
   };
 }
 
