@@ -14,7 +14,9 @@
     "fflate": "^0.8.3",
     "replicad": "^1.2.0",
     "replicad-opencascadejs": "^1.1.0",
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "three-gpu-pathtracer": "^0.0.27",
+    "three-mesh-bvh": "^0.9.17"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

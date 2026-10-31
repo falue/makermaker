@@ -63,8 +63,9 @@ export interface UIContext {
   toggleTheme(): void;
   /** Downloads STL files of the selected (else shown) bodies. */
   exportPrint(): void;
-  /** Downloads the view as a PNG. */
+  /** Downloads the view as a PNG; nice: path traced. */
   renderImage(): void;
+  renderNice(): void;
   /** Reference point of a shape's fields (-1, 0, 1 per own axis): X / Y measure it, sizes and turns keep it. */
   shapeRef(shape: string): [number, number];
   setShapeRef(shape: string, ref: [number, number]): void;
@@ -249,6 +250,7 @@ function topbar(ctx: UIContext): Node[] {
     h('span', { className: 'status' }, ctx.status),
     tool('print', 'Export for 3D print: one STL per selected body (else all shown ones), as placed in the world; several come zipped', ctx.exportPrint),
     tool('render', 'Render: download the view as a PNG (twice the screen resolution)', ctx.renderImage),
+    tool('renderNice', 'Render nice: path traced (soft light, shadows), twice the screen resolution; takes a while', ctx.renderNice),
     tool('theme', 'Light / dark', ctx.toggleTheme),
     h('a', { className: 'link', href: 'https://github.com/falue/makermaker', target: '_blank', rel: 'noopener', title: 'Source code on GitHub', innerHTML: GITHUB }),
     h('a', { className: 'link', href: 'https://buymeacoffee.com/falue', target: '_blank', rel: 'noopener', title: 'Support MAKERMAKER' }, '☕ Buy me a coffee'),

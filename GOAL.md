@@ -209,7 +209,7 @@ Deferred, ask again later:
 
 1. **Laser export rule details (decision 15):** must the biggest flat face itself have a parallel opposite face, or is any parallel pair enough? Are imported meshes eligible (polyline output) or always refused?
 2. **Laser export of several objects:** one SVG with all outlines (as positioned in the model, or laid out without overlap) or one SVG per object?
-3. **Mitsuba helper process:** how it is installed and started, and whether the in-browser path tracer (three-gpu-pathtracer) stays as a fallback.
+3. **Mitsuba helper process** (2026-10-31: the in-browser path tracer three-gpu-pathtracer was chosen for "render nice" for now; Mitsuba stays a later option): how it is installed and started, and whether the in-browser path tracer (three-gpu-pathtracer) stays as a fallback.
 
 Decide after first measurements or usability trials:
 

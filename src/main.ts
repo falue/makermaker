@@ -1094,6 +1094,16 @@ function render() {
       localStorage.setItem('makermaker.theme', theme);
       viewer.applyTheme();
     },
+    renderNice: () =>
+      run(async () => {
+        let shown = -1;
+        const blob = await viewer.renderNice(256, (done) => {
+          const pct = Math.floor(done * 10) * 10; // the status every 10 %: the panels rebuild with it
+          if (pct !== shown) notify(`Rendering nice… ${(shown = pct)} %`);
+        });
+        download(blob, file.name.replace(/\.[^.]*$/, '') + '-nice.png');
+        notify('Rendered');
+      }),
     renderImage: () => run(async () => download(await viewer.snapshot(2), file.name.replace(/\.[^.]*$/, '') + '.png')),
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,

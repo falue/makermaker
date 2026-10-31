@@ -14,6 +14,7 @@ import { AreaTool } from './areas';
 import { FacePullTool } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
+import { pathTraced } from './render';
 import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -796,6 +797,19 @@ export class Viewer implements ToolView {
     this.renderer.setSize(size.x, size.y, false);
     this.render();
     return blob!;
+  }
+
+  /** The view path traced (`samples` passes) at `scale` times the screen size: shown bodies only, cutters and overlays left out. */
+  renderNice(samples: number, progress: (done: number) => void, scale = 2) {
+    const meshes = [...this.bodies].flatMap(([id, g]) => {
+      const solid = g.children[0] as THREE.Mesh | undefined;
+      if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];
+      const m = new THREE.Mesh(solid.geometry, new THREE.MeshStandardMaterial({ color: this.materialOf(id).color, roughness: 0.55 }));
+      m.applyMatrix4(g.matrixWorld);
+      return [m];
+    });
+    const size = this.renderer.getSize(new THREE.Vector2()).multiplyScalar(scale);
+    return pathTraced(meshes, this.camera, Math.round(size.x), Math.round(size.y), samples, progress);
   }
 
   render = () => {
