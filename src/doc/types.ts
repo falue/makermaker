@@ -78,12 +78,19 @@ export type SphereFeature = { id: string; type: 'sphere'; x: Expr; y: Expr; z: E
 export type BooleanFeature = { id: string; type: 'boolean'; op: BooleanOp; body: string };
 export type BooleanOp = 'union' | 'subtract' | 'intersect';
 
+/**
+ * An imported mesh (stays a mesh: no CAD operations on it yet): triangles as base64 data, `vertices` float32 xyz and
+ * `triangles` uint32 corner indices (z up), times `scale`; `source`: the file it came from.
+ */
+export type MeshFeature = { id: string; type: 'mesh'; source: string; vertices: string; triangles: string; scale: Expr };
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; mode: 'add' | 'cut'; through: boolean }
   | SphereFeature
   | BooleanFeature
-  | FinishFeature;
+  | FinishFeature
+  | MeshFeature;
 
 /** A plane given directly (body-local): a sketch on another body's face. */
 export type FramePlane = { kind: 'frame'; o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] };

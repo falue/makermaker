@@ -1,6 +1,6 @@
 import type { Frame } from './frames';
 import type { Resolved } from './resolve';
-import type { BooleanFeature, BuildIn, Feature, Sketch, SketchPlacement } from './types';
+import type { BooleanFeature, BuildIn, Feature, MeshFeature, Sketch, SketchPlacement } from './types';
 
 /**
  * A feature as the kernel builds it: an own extrusion as it is, a linked one with its sketch's plane and chosen
@@ -9,7 +9,7 @@ import type { BooleanFeature, BuildIn, Feature, Sketch, SketchPlacement } from '
  * feature directly. A string says why it cannot be built.
  */
 export function toBuild(
-  feature: Resolved<Exclude<Feature, BooleanFeature>>,
+  feature: Resolved<Exclude<Feature, BooleanFeature | MeshFeature>>,
   body: string,
   sketches: Map<string, Resolved<Sketch>>,
   faceOf: (placement: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => Frame | undefined,

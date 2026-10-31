@@ -67,6 +67,8 @@ export interface UIContext {
   boolean(op: BooleanOp): void;
   toggleAutosave(): void;
   toggleTheme(): void;
+  /** Imports a mesh file (OBJ) as a body. */
+  importMesh(): void;
   /** Downloads STL files (3D print) or SVG outlines (laser) of the selected (else shown) bodies. */
   exportPrint(): void;
   exportLaser(): void;
@@ -271,6 +273,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
+    tool('import', 'Import a mesh (OBJ, or drop the file): it becomes a body that stays a mesh', ctx.importMesh),
     tool('autosave', `Autosave ${ctx.autosave ? 'on' : 'off'}: saves into the file a moment after each change`, ctx.toggleAutosave, ctx.autosave),
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
@@ -786,6 +789,16 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       // without the boolean the tool body is a body of its own again: shown
       const drop = button('×', () => ctx.commit({ ...ctx.doc, bodies: ctx.doc.bodies.map((b) => (b.id === body.id ? { ...b, features: b.features.filter((s) => s !== feature) } : b.id === feature.body ? { ...b, visible: true } : b)) }), 'Remove: the tool body becomes a body of its own');
       return h('section', {}, h('h4', {}, op, drop), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'with'), tool));
+    }
+    case 'mesh': {
+      const triangles = Math.floor((feature.triangles.length * 3) / 4 / 12); // base64 → bytes → 3 uint32 per triangle
+      return h(
+        'section',
+        {},
+        h('h4', {}, 'Mesh', remove),
+        h('p', { className: 'hint' }, `Imported from ${feature.source} · ${triangles} triangles · a mesh: no CAD operations on it yet`),
+        h('div', { className: 'row' }, exprField(ctx, `${at}.scale`, 'Scale', true)),
+      );
     }
     case 'sphere':
       return h('section', {}, h('h4', {}, 'Sphere', remove), h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('z', 'Z'), f('d', 'Ø')));

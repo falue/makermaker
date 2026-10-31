@@ -13,6 +13,7 @@ import { contents, ownerOf, tree, within } from './doc/groups';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
+import { meshBody, parseObj, toBase64 } from './io/mesh';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
@@ -58,6 +59,8 @@ function toPlace(m: Matrix4): Place {
 
 /** Where body `id` sits in the world. */
 const bodyPlace = (id: string) => toPlace(bodyPlaces.get(id) ?? new Matrix4());
+/** Imported meshes shown in the viewer, per body: which feature at which scale. */
+const shownMeshes = new Map<string, string>();
 /** Build features per body (tool bodies inside), from the last update. */
 const built = new Map<string, BuildFeature[]>();
 /** A sketch placement's world frame, as of the last update. */
@@ -247,7 +250,7 @@ function update() {
       };
       const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
-        if (s.type === 'boolean') continue;
+        if (s.type === 'boolean' || s.type === 'mesh') continue; // meshes are shown as they are
         const b = toBuild(s, id, sketches, faceOf);
         if (b === null) return true; // wait for the other body
         if (typeof b === 'string') return (progress = true), linkErrors.set(id, { featureId: s.id, error: `Cannot build: ${b}` }), false;
@@ -276,11 +279,13 @@ function update() {
     if (!parts) return 'its tool body cannot be built';
     const out: BuildFeature[] = [];
     for (const s of resolvedOf.get(id)!) {
+      if (s.type === 'mesh') continue;
       if (s.type !== 'boolean') {
         out.push(parts.get(s.id)!);
         continue;
       }
       if (!doc.bodies.some((b) => b.id === s.body)) return 'its tool body was deleted';
+      if (resolvedOf.get(s.body)?.some((f) => f.type === 'mesh')) return 'a mesh body cannot be a tool body yet';
       const tool = fullOf(s.body, [...path, id]);
       if (typeof tool === 'string') return tool;
       const relative = (bodyPlaces.get(id) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
@@ -290,6 +295,13 @@ function update() {
     return out;
   };
   for (const id of own.keys()) {
+    // an imported mesh skips the kernel: the viewer shows it as it is (again when it or its scale changed)
+    const mesh = resolvedOf.get(id)?.find((f) => f.type === 'mesh');
+    if (mesh) {
+      const key = `${mesh.id} ${mesh.scale}`;
+      if (shownMeshes.get(id) !== key && mesh.scale > 0) viewer.setBody(id, meshBody(mesh.vertices, mesh.triangles, mesh.scale)), shownMeshes.set(id, key);
+      continue;
+    }
     const features = fullOf(id);
     if (typeof features === 'string') linkErrors.set(id, { featureId: resolvedOf.get(id)?.find((f) => f.type === 'boolean')?.id ?? '', error: `Cannot build: ${features}` });
     else builds.push({ id, features }), built.set(id, features);
@@ -1176,6 +1188,7 @@ function render() {
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
     },
     toggleAutosave: () => run(toggleAutosave),
+    importMesh: pickMesh,
     exportPrint: () => run(() => exportBodies('stl')),
     exportLaser: () => run(() => exportBodies('svg')),
     toggleTheme() {
@@ -1352,6 +1365,37 @@ async function previewOf(image: Blob, width = 320, type = 'image/jpeg') {
   return canvas.toDataURL(type, 0.8);
 }
 
+/**
+ * Imports an OBJ file as a mesh body at the origin (proof of concept: it stays a mesh). OBJ files have no unit: 1 is
+ * taken as 1 mm, but something under 10 mm big is scaled to about 100 mm (the scale is in its card).
+ */
+function importMesh(name: string, text: string) {
+  const { vertices, triangles } = parseObj(text);
+  let size = 0;
+  for (let k = 0; k < 3; k++) {
+    let [lo, hi] = [Infinity, -Infinity];
+    for (let i = k; i < vertices.length; i += 3) [lo, hi] = [Math.min(lo, vertices[i]), Math.max(hi, vertices[i])];
+    size = Math.max(size, hi - lo);
+  }
+  const scale = size < 10 ? +(100 / size).toPrecision(2) : 1;
+  const doc = history.current;
+  const mesh: Feature = { id: newId(), type: 'mesh', source: name, vertices: toBase64(vertices), triangles: toBase64(triangles), scale: ex(fmt(scale)) };
+  const body = { ...newBody(doc.bodies.length, [mesh]), name: name.replace(/\.[^.]*$/, '') };
+  [selected, shapeSel] = [[body.id], []];
+  commit({ ...doc, bodies: [...doc.bodies, body] });
+  notify(`Imported ${name}: ${triangles.length / 3} triangles${scale !== 1 ? `, scaled ×${fmt(scale)} (OBJ has no unit)` : ''}`);
+}
+
+/** Asks for an OBJ file and imports it. */
+function pickMesh() {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.obj' });
+  input.onchange = () => {
+    const f = input.files?.[0];
+    if (f) run(async () => importMesh(f.name, await f.text()));
+  };
+  input.click();
+}
+
 /** The open file's name without its extension. */
 const project = () => file.name.replace(/\.[^.]*$/, '');
 
@@ -1456,6 +1500,8 @@ addEventListener('drop', (e) => {
   // DataTransfer items are only readable during the event, so request both now.
   const pending = item.getAsFileSystemHandle?.();
   const f = item.getAsFile();
+  // an OBJ file is imported into the design
+  if (f?.name.toLowerCase().endsWith('.obj')) return run(async () => importMesh(f.name, await f.text()));
   run(async () => {
     const handle = await pending;
     if (handle instanceof FileSystemFileHandle) loadFile(await readHandle(handle));

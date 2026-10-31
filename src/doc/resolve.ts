@@ -28,7 +28,7 @@ export function paramLookup(params: Doc['params']): Lookup {
 }
 
 /** Fields that are plain numbers, not lengths: turns (degrees) and counts. */
-export const UNITLESS = ['rot', 'sides', 'rx', 'ry', 'rz'];
+export const UNITLESS = ['rot', 'sides', 'rx', 'ry', 'rz', 'scale'];
 
 function evalNumber(x: Expr, lookup: Lookup) {
   const q = evalQuantity(x, lookup);
