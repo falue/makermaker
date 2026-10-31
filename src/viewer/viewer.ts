@@ -5,7 +5,7 @@ import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { area, centre, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
-import { angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
+import { anchorAt, angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import type { AreaMesh } from '../kernel/build';
 import { AreaTool } from './areas';
 import { FacePullTool } from './faces';
@@ -122,6 +122,8 @@ export class Viewer implements ToolView {
   /** Visible sketches (world frames) and the selected one with its selected shapes. */
   sketches: ViewSketch[] = [];
   activeSketch: string | null = null;
+  /** Reference points of shapes (by id; none: the centre), shown on the active sketch's shapes. */
+  shapeRefs = new Map<string, [number, number]>();
   overlay = new THREE.Group();
   private sketchView = new THREE.Group();
   private sketchGrid = new THREE.Group();
@@ -369,6 +371,7 @@ export class Viewer implements ToolView {
         const color = s.id === this.activeSketch && this.selectedShapes.includes(p.id) ? 0xff8c1a : s.color;
         this.sketchView.add(outline(this.overrides.get(p.id) ?? p, s.frame, color, lift));
       }
+    const refs = this.tool ? [] : this.refMarks();
     const handles = this.tool || this.drag?.moved ? [] : this.handles();
     const resize = handles.filter((h) => h.handle.kind === 'resize').map((h) => h.world);
     const turn = handles.filter((h) => h.handle.kind === 'rotate').map((h) => h.world);
@@ -378,7 +381,43 @@ export class Viewer implements ToolView {
       this.sketchView.add(marks(turn, 0x1d4ed8), new THREE.Line(new THREE.BufferGeometry().setFromPoints([top, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
     }
     this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' ? 1e6 : 0));
+    this.sketchView.add(...refs); // under the handles: a handle on the reference point gets a blue ring
+    for (const o of refs) o.renderOrder = 1e6 - 1;
     this.render();
+  }
+
+  /**
+   * Blue marks on the reference points of the active sketch's selected shapes (and of shapes measured from
+   * elsewhere than their centre), each with an arrow in the direction the shape grows.
+   */
+  private refMarks(arrowPx = 36, headPx = 10) {
+    const s = this.sketches.find((v) => v.id === this.activeSketch);
+    if (!s) return [];
+    const points: THREE.Vector3[] = [];
+    const lines: THREE.Vector3[] = [];
+    for (const q of s.shapes) {
+      const ref = this.shapeRefs.get(q.id) ?? [0, 0];
+      if (!this.selectedShapes.includes(q.id) && !ref[0] && !ref[1]) continue;
+      const p = this.overrides.get(q.id) ?? q;
+      const [u, v] = anchorAt(p, ref);
+      const at = new THREE.Vector3(...toWorld(s.frame, u, v));
+      points.push(at);
+      if (!ref[0] && !ref[1]) continue;
+      const [cu, cv] = anchorAt(p, [0, 0]);
+      const dir = new THREE.Vector3(...toWorld(s.frame, cu, cv)).sub(at).normalize();
+      const side = dir.clone().cross(new THREE.Vector3(...s.frame.n));
+      // mm per screen px along a direction in the (tilted) plane
+      const mm = (d: THREE.Vector3) => {
+        const [[x0, y0], [x1, y1]] = [this.toScreen(at), this.toScreen(at.clone().add(d))];
+        return 1 / (Math.hypot(x1 - x0, y1 - y0) || 1);
+      };
+      const tip = at.clone().addScaledVector(dir, arrowPx * mm(dir));
+      const back = tip.clone().addScaledVector(dir, -headPx * mm(dir));
+      const wing = (headPx / 2) * mm(side);
+      lines.push(at, tip, tip, back.clone().addScaledVector(side, wing), tip, back.addScaledVector(side, -wing));
+    }
+    const arrows = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lines), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false }));
+    return points.length ? [marks(points, 0x1d4ed8, 16), arrows] : [];
   }
 
   /**

@@ -574,6 +574,7 @@ function rewrite(shape: Profile, old: DrawnProfile, next: DrawnProfile, keep: Re
 
 /** Per shape (by id): the reference point of its fields (-1, 0, 1 per own axis; default the centre), and whether its width and height change together. */
 const shapeRefs = new Map<string, [number, number]>();
+viewer.shapeRefs = shapeRefs;
 const linkedSizes = new Set<string>();
 const refOf = (id: string) => shapeRefs.get(id) ?? [0, 0];
 
@@ -842,7 +843,7 @@ function render() {
     linkSize: (id) => linkedSizes.has(id),
     setShapeRef(id, r) {
       shapeRefs.set(id, r);
-      render();
+      showSelection(); // the viewer marks it
     },
     toggleLinkSize(id) {
       if (!linkedSizes.delete(id)) linkedSizes.add(id);
