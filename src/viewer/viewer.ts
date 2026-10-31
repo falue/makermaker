@@ -822,7 +822,7 @@ export class Viewer implements ToolView {
     this.scene.background = null;
     this.renderer.setPixelRatio(ratio * scale);
     this.renderer.setSize(size.x, size.y, false);
-    if (this.ao.on) {
+    if (this.ao.on && !this.boxes.length) {
       // with ambient occlusion: a composer at this size, twice (its first frame has no occlusion yet)
       this.dropComposer();
       this.aoComposer().render();
@@ -923,7 +923,8 @@ export class Viewer implements ToolView {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
       this.placeWheel();
-      if (this.ao.on) this.aoComposer().render();
+      // three's AO pass ignores the section clipping (and sees the stencil helpers): no AO while a section cuts
+      if (this.ao.on && !this.boxes.length) this.aoComposer().render();
       else this.renderer.render(this.scene, this.camera);
       // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
       const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.camera.quaternion)).invert().elements;
