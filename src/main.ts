@@ -19,7 +19,7 @@ import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind
 import { moved as shifted } from './viewer/shapes';
 import { Viewer, type Vec3 } from './viewer/viewer';
 
-installTooltips();
+const tips = installTooltips();
 const history = new History<Doc>(sampleDoc());
 /** Selected objects (bodies and sketches) and, inside a single selected sketch, its selected shapes. */
 let selected: string[] = history.current.bodies.slice(0, 1).map((p) => p.id);
@@ -183,6 +183,11 @@ function activeSketch() {
 
 /** `add`: toggles the object (body or sketch) in the selection; null clears it (unless adding). Selecting something else leaves sketch mode. */
 function select(id: string | null, add = false) {
+  // while picking areas, a sketch chosen in the list gets all its areas picked
+  if (toolMode === 'pull' && sketching && id && history.current.sketches.some((s) => s.id === id)) {
+    if (id !== sketching) enterSketch(id);
+    return void extrudeAreas(true);
+  }
   if (sketching && id !== sketching) exitSketch();
   if (id === null) selected = add ? selected : [];
   else if (!add) selected = [id];
@@ -391,6 +396,7 @@ const toolHost: ToolHost = {
     toolHint = text;
     render();
   },
+  cursorTip: (text) => tips.cursorTip(text),
 };
 
 /** The `count`-th body at the origin, with a colour from a small palette. */
@@ -417,13 +423,14 @@ function startTool(kind: ToolKind) {
   render();
 }
 
-async function extrudeAreas() {
+/** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already. */
+async function extrudeAreas(all = false) {
   const s = viewer.sketches.find((v) => v.id === sketching);
   if (!s) return;
   stopTool();
   const areas = await kernel.areas(s.shapes.filter((q) => !q.help));
   if (!areas.length) return notify('Nothing to extrude yet: draw a shape first');
-  viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas);
+  viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas, all);
   toolMode = 'pull';
   render();
 }

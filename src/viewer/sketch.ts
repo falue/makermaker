@@ -131,6 +131,8 @@ export interface ToolHost {
   /** A finished action (null: cancelled or stopped). After a flat shape the tool goes on. */
   done(result: SketchResult | null): void;
   hint(text: string): void;
+  /** A note that follows the pointer (null: none). */
+  cursorTip(text: string | null): void;
 }
 
 type UV = [number, number];

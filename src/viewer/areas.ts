@@ -21,13 +21,16 @@ export class AreaTool implements Tool {
     private host: ToolHost,
     private target: Target,
     private areas: AreaMesh[],
+    all = false,
   ) {
     view.el.append(this.labels);
     host.hint(PICK_HINT);
+    if (all) this.areas.forEach((_, i) => this.picked.add(i));
     this.update();
   }
 
   dispose() {
+    this.host.cursorTip(null);
     this.view.unlockPointer();
     this.clear();
     this.labels.remove();
@@ -195,6 +198,7 @@ export class AreaTool implements Tool {
       else this.fill(a, 0x3b6fd8, i === this.hover && !this.pull ? 0.35 : 0.08);
     });
     if (depth) this.prism([...this.picked].map((i) => this.areas[i].tris), depth);
+    this.host.cursorTip(this.picked.size && !this.pull ? 'Hit Enter to start extruding' : null);
     this.labels.replaceChildren();
     if (this.pull) {
       const at = this.middle().addScaledVector(v3(this.target.frame.n), depth);

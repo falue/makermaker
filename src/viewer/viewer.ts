@@ -280,9 +280,10 @@ export class Viewer implements ToolView {
   }
 
   /** Picks areas of a sketch and pulls them (E in sketch mode). */
-  startAreas(host: ToolHost, target: Target, areas: AreaMesh[]) {
+  /** `all`: everything picked already (a sketch chosen from the list). */
+  startAreas(host: ToolHost, target: Target, areas: AreaMesh[], all = false) {
     this.stopTool();
-    this.tool = new AreaTool(this, host, target, areas);
+    this.tool = new AreaTool(this, host, target, areas, all);
     this.renderSketches();
   }
 
