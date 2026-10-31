@@ -158,6 +158,8 @@ Materials and HDRI lighting, scale references, screenshot export, turntable and 
 
 Broader direct editing; robust modifier references through more edits; relationships between parts; sketch constraint solver if needed; printable drawings; richer laser preparation; desktop wrapper; additional interchange formats and browser/platform coverage.
 
+Undo history list: pressing ⌘Z twice in a row shows a list of the latest steps; dragging a line up and down through that log moves through the history.
+
 Expose operations through a shared command layer so mouse, shortcuts, and potential future automation can use the same behavior. Python/LLM integration is not an MVP deliverable.
 
 ## Performance and sample files

@@ -230,6 +230,8 @@ function topbar(ctx: UIContext): Node[] {
     ),
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
     h('span', { className: 'status' }, ctx.status),
+    h('a', { className: 'link', href: 'https://github.com/falue/makermaker', target: '_blank', rel: 'noopener', title: 'Source code on GitHub' }, 'GitHub'),
+    h('a', { className: 'link', href: 'https://buymeacoffee.com/falue', target: '_blank', rel: 'noopener', title: 'Support MAKERMAKER' }, '☕ Buy me a coffee'),
   ];
 }
 
