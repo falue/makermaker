@@ -8,7 +8,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 
-export type ToolKind = 'rect' | 'circle' | 'polygon';
+export type ToolKind = 'rect' | 'circle' | 'ngon' | 'polygon' | 'sphere';
 export type { DrawnProfile };
 
 /** End face of an extrude feature, in world coordinates. */
@@ -51,6 +51,8 @@ export interface SketchResult {
   shapes?: string[];
   /** Only these areas of the shapes. */
   areas?: Area[];
+  /** A ball resting on the plane (world centre), instead of shapes. */
+  sphere?: { center: V3; d: number; typed?: string };
   depth: number;
   depthTyped?: string;
   mode: 'add' | 'cut';
@@ -141,7 +143,7 @@ type Phase =
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const AXIS_NAME: Record<BasePlane, string> = { xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
-const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle', polygon: 'a polygon' };
+const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle', ngon: 'a regular polygon', polygon: 'a polygon', sphere: 'a sphere' };
 
 /**
  * Draws rectangles, circles and polygons into sketches and pulls them into extrusions. A shape goes into the sketch
@@ -263,7 +265,7 @@ export class SketchTool implements Tool {
     } else if (ph.kind === 'shape') {
       if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
       else if (e.key === 'Backspace') ph.typed[ph.axis] = ph.typed[ph.axis]?.slice(0, -1) || undefined;
-      else if (e.key === 'Tab' && this.kind === 'rect') ph.axis = 1 - ph.axis;
+      else if (e.key === 'Tab' && (this.kind === 'rect' || this.kind === 'ngon')) ph.axis = 1 - ph.axis;
       else if (e.key === 'Enter') this.shapeDone();
       else return false;
     } else if (ph.kind === 'polygon') {
@@ -401,9 +403,15 @@ export class SketchTool implements Tool {
     const [au, av] = ph.anchor;
     let du = ph.cur[0] - au;
     let dv = ph.cur[1] - av;
-    if (this.kind === 'circle') {
+    if (this.kind === 'circle' || this.kind === 'sphere') {
       const d = this.typed(ph.typed[0]) ?? 2 * Math.hypot(du, dv);
       return { kind: 'circle', x: au, y: av, d };
+    }
+    if (this.kind === 'ngon') {
+      // the first corner points at the pointer (Shift: turns in 15° steps); typed: diameter, then the number of sides
+      const deg = (Math.atan2(dv, du) * 180) / Math.PI - 90;
+      const sides = Math.round(Number(ph.typed[1]) || 6);
+      return { kind: 'ngon', x: au, y: av, d: this.typed(ph.typed[0]) ?? 2 * Math.hypot(du, dv), sides: Math.max(3, sides), rot: ph.shift ? Math.round(deg / 15) * 15 : deg };
     }
     const k = ph.alt ? 2 : 1; // from the centre, the pointer sets half the size
     if (ph.shift) {
@@ -422,10 +430,17 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     if (ph.kind !== 'shape') return;
     const profile = this.shape(ph);
-    const size = profile.kind === 'rect' ? Math.min(profile.w, profile.h) : profile.kind === 'circle' ? profile.d : 1;
+    const size = profile.kind === 'rect' ? Math.min(profile.w, profile.h) : profile.kind === 'polygon' ? 1 : profile.d;
     if (!(size > 0)) return this.host.hint('Too small: drag further or type a size · [Esc] cancels');
     const [a, b] = ph.typed.map((t) => (this.typed(t) === undefined ? undefined : t));
-    this.drawn(ph.target, { profile, typed: this.kind === 'circle' ? { d: a } : { w: a, h: b } });
+    if (this.kind === 'sphere' && profile.kind === 'circle') {
+      // the ball rests on the plane: its centre a radius above where it was drawn
+      const f = ph.target.frame;
+      const center = v3(toWorld(f, profile.x, profile.y)).addScaledVector(v3(f.n), profile.d / 2).toArray();
+      this.phase = { kind: 'hover' };
+      return this.host.done({ target: ph.target, sphere: { center, d: profile.d, typed: a }, depth: 0, mode: 'add' });
+    }
+    this.drawn(ph.target, { profile, typed: profile.kind === 'rect' ? { w: a, h: b } : { d: a } });
   }
 
   private closePolygon() {
@@ -502,6 +517,10 @@ export class SketchTool implements Tool {
         label('H', ph.typed[1], profile.h, v3(toWorld(f, profile.x + profile.w / 2, profile.y)), ph.axis === 1);
       }
       if (profile.kind === 'circle' && ph.kind === 'shape') label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
+      if (profile.kind === 'ngon' && ph.kind === 'shape') {
+        label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), ph.axis === 0);
+        labels.push([`Sides ${ph.typed[1] === undefined ? profile.sides : `${ph.typed[1]}▏`}`, v3(toWorld(f, profile.x, profile.y - profile.d / 2)), ph.axis === 1]);
+      }
     }
     if (this.snapped && ph.kind !== 'pull') {
       if (this.snapLine) {
@@ -550,7 +569,7 @@ export class SketchTool implements Tool {
   }
 }
 
-const SHAPE_HINT = '[Alt] from the centre · [Shift] square · [Ctrl] snaps · type a size, [Tab] other side · [Enter] or click: done · [Esc] cancels';
+const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] snaps · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
 const POLYGON_HINT = 'Click corners · click the first one, double-click or [Enter] to finish · [Backspace] removes the last · [Esc] cancels';
 const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done';
 

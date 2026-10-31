@@ -204,6 +204,7 @@ function toolbar(ctx: UIContext): Node[] {
   const shapes = [
     ['rect', 'Rectangle (R)'],
     ['circle', 'Circle (C)'],
+    ['ngon', 'Regular polygon (N)'],
     ['polygon', 'Polygon (P)'],
   ] as const;
   const none = !ctx.selected.length;
@@ -219,6 +220,7 @@ function toolbar(ctx: UIContext): Node[] {
   return [
     tool('sketch', 'New sketch (S): click a top face or empty space, then draw shapes on it', ctx.newSketch),
     ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), ctx.tool === kind)),
+    tool('sphere', 'Sphere (O): drag its size on a face or the ground; it rests there', () => ctx.startTool('sphere'), ctx.tool === 'sphere'),
     tool('extrude', 'Extrude (E): pull the selected shapes, or the whole selected sketch', ctx.extrude, false, !sketch),
     h('hr'),
     tool('duplicate', 'Duplicate (⌘D)', ctx.duplicate, false, none),
@@ -352,7 +354,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       : [h('span', { className: 'hint' }, `On a face of ${doc.bodies.find((q) => q.id === p.body)?.name ?? 'a deleted body'}`)];
   const show = h('input', { type: 'checkbox', checked: s.visible });
   show.onchange = () => set({ visible: show.checked });
-  const kinds = { rect: 'Rectangle', circle: 'Circle', polygon: 'Polygon' };
+  const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon' };
   const shapes = s.shapes.map((q, j) => {
     const name = h('button', { className: `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, onclick: (e) => ctx.pickShape(s.id, q.id, e.shiftKey) }, kinds[q.kind]);
     const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
@@ -403,6 +405,7 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   const pf = (key: string, label: string) => exprField(ctx, `${path}.${key}`, label);
   if (p.kind === 'circle') return [pf('x', 'X'), pf('y', 'Y'), pf('d', 'Ø')];
   const rot = exprField(ctx, `${path}.rot`, '°', true); // degrees: shown as typed, never unit-converted
+  if (p.kind === 'ngon') return [pf('x', 'X'), pf('y', 'Y'), pf('d', 'Ø'), exprField(ctx, `${path}.sides`, 'Sides', true), rot];
   if (p.kind === 'rect') return [pf('x', 'X'), pf('y', 'Y'), pf('w', 'W'), pf('h', 'H'), pf('r', 'R'), rot];
   return [h('span', { className: 'hint' }, `${p.pts.length} corners`), pf('r', 'R'), rot];
 }
@@ -463,6 +466,8 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         h('div', { className: 'row' }, ...reach),
       );
     }
+    case 'sphere':
+      return h('section', {}, h('h4', {}, 'Sphere', remove), h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('z', 'Z'), f('d', 'Ø')));
     case 'finish': {
       const enabled = h('input', { type: 'checkbox', checked: feature.enabled, title: 'Enabled' });
       enabled.onchange = () => setFeature({ ...feature, enabled: enabled.checked });

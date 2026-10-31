@@ -18,7 +18,7 @@ function local(p: DrawnProfile, [u, v]: UV): UV {
 /** Half sizes of the shape in its own frame, and the offset of that box from the centre (polygons are not centred). */
 function box(p: DrawnProfile): { half: UV; mid: UV } {
   if (p.kind === 'rect') return { half: [p.w / 2, p.h / 2], mid: [0, 0] };
-  if (p.kind === 'circle') return { half: [p.d / 2, p.d / 2], mid: [0, 0] };
+  if (p.kind === 'circle' || p.kind === 'ngon') return { half: [p.d / 2, p.d / 2], mid: [0, 0] };
   const [cx, cy] = centre(p);
   const xs = p.pts.map(([x]) => x - cx);
   const ys = p.pts.map(([, y]) => y - cy);
@@ -34,7 +34,8 @@ export function handlesOf(p: DrawnProfile, reach: number): { at: UV; handle: Han
     const [x, y] = turn([mid[0] + lx, mid[1] + ly], rotOf(p));
     return [cx + x, cy + y];
   };
-  const dirs = p.kind === 'circle' ? [[1, 0], [0, 1], [-1, 0], [0, -1]] : [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+  const round = p.kind === 'circle' || p.kind === 'ngon'; // resized evenly: edge handles only
+  const dirs = round ? [[1, 0], [0, 1], [-1, 0], [0, -1]] : [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
   const out: { at: UV; handle: Handle }[] = dirs.map(([sx, sy]) => ({ at: at(sx * half[0], sy * half[1]), handle: { kind: 'resize', sx, sy } }));
   if (p.kind !== 'circle') out.push({ at: at(0, half[1] + reach), handle: { kind: 'rotate' } });
   return out;
@@ -63,7 +64,7 @@ export function resized(p: DrawnProfile, h: { sx: number; sy: number }, q0: UV, 
   const raw = (k: number) => full[k] + (o.alt ? 2 : 1) * dir[k] * (a[k] - a0[k]);
   const sized = (k: number) => o.typed[k] ?? (dir[k] ? Math.max(o.step, Math.round(raw(k) / o.step) * o.step) : full[k]);
   let size: UV = [sized(0), sized(1)];
-  const round = p.kind === 'circle';
+  const round = p.kind === 'circle' || p.kind === 'ngon';
   if (o.shift || round) {
     const change = (k: number) => (dir[k] ? Math.abs(raw(k) / (full[k] || 1) - 1) : -1);
     const lead = o.typed[0] !== undefined ? 0 : o.typed[1] !== undefined ? 1 : change(0) >= change(1) ? 0 : 1;
@@ -75,7 +76,7 @@ export function resized(p: DrawnProfile, h: { sx: number; sy: number }, q0: UV, 
   const [gx, gy] = turn([grow(0), grow(1)], rotOf(p));
   const [cx, cy] = centre(p);
   if (p.kind === 'rect') return { ...p, x: cx + gx, y: cy + gy, w: size[0], h: size[1] };
-  if (p.kind === 'circle') return { ...p, x: cx + gx, y: cy + gy, d: size[dir[0] ? 0 : 1] };
+  if (p.kind === 'circle' || p.kind === 'ngon') return { ...p, x: cx + gx, y: cy + gy, d: size[dir[0] ? 0 : 1] };
   // polygon: scale its corners in its own frame around the anchor, then store them unturned around their new centre
   const anchor = (k: number) => mid[k] - (o.alt ? 0 : dir[k] * half[k]);
   const scaled = p.pts.map((pt) => {

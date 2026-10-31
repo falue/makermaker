@@ -6,6 +6,8 @@ const ICONS = {
   autosave: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4h-4"/><path d="M12 8v4l3 2"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+  ngon: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/>',
+  sphere: '<circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="8" ry="3"/>',
   rect: '<rect x="4" y="6" width="16" height="12" rx="1"/><path d="M12 4v-2M12 22v-2" stroke-dasharray="1 2"/>',
   circle: '<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>',
   polygon: '<path d="M4 18l3-12 9-2 4 9-7 7z"/>',

@@ -5,7 +5,7 @@ import { toBuild } from './doc/expand';
 import { BASE, capFrame, frames, moved, scale } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
-import { paramLookup, resolve, setIn } from './doc/resolve';
+import { paramLookup, resolve, setIn, UNITLESS } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
 import type { Doc, ExtrudeSource, Body, Profile, Sketch, SketchPlacement, Feature } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
@@ -212,7 +212,7 @@ function setShapes(sketch: string, updates: { id: string; profile: DrawnProfile 
     const next = { ...q } as Record<string, unknown>;
     for (const [key, v] of Object.entries(u.profile)) {
       if (key === 'pts') next.pts = (v as [number, number][]).map(([x, y]) => [+fmt(x), +fmt(y)]);
-      else if (typeof v === 'number' && Math.abs(v - (old[key] as number)) > 1e-9) next[key] = key === 'rot' ? ex(fmt(v)) : len(v, typed[key as 'w']);
+      else if (typeof v === 'number' && Math.abs(v - (old[key] as number)) > 1e-9) next[key] = UNITLESS.includes(key) ? ex(fmt(v)) : len(v, typed[key as 'w']);
     }
     return next as Profile;
   });
@@ -341,6 +341,7 @@ function profileOf({ profile: p, typed: t }: Drawn): Profile {
   const id = newId();
   if (p.kind === 'rect') return { id, kind: 'rect', x: len(p.x), y: len(p.y), w: len(p.w, t.w), h: len(p.h, t.h), r: len(p.r), rot: ex(fmt(p.rot)) };
   if (p.kind === 'circle') return { id, kind: 'circle', x: len(p.x), y: len(p.y), d: len(p.d, t.d) };
+  if (p.kind === 'ngon') return { id, kind: 'ngon', x: len(p.x), y: len(p.y), d: len(p.d, t.d), sides: ex(fmt(p.sides)), rot: ex(fmt(p.rot)) };
   return { id, kind: 'polygon', pts: p.pts.map(([x, y]) => [+fmt(x), +fmt(y)]), r: len(p.r), rot: ex(fmt(p.rot)) };
 }
 
@@ -359,6 +360,10 @@ const toolHost: ToolHost = {
   done(result) {
     const [was, kind] = [toolMode, viewer.activeTool];
     if (!result) return stopTool(), render();
+    if (result.sphere) {
+      stopTool();
+      return addSphere(result.sphere);
+    }
     if (was === 'plane') {
       stopTool();
       return newSketch(result.target);
@@ -376,8 +381,18 @@ const toolHost: ToolHost = {
   },
 };
 
-/** R / C / P: in sketch mode into its sketch (flat), else one shape that is pulled right away. */
+/** A sphere body resting where it was drawn. */
+function addSphere({ center, d, typed }: NonNullable<SketchResult['sphere']>) {
+  const doc = history.current;
+  const sphere: Feature = { id: newId(), type: 'sphere', x: len(center[0]), y: len(center[1]), z: len(center[2]), d: len(d, typed) };
+  const body: Body = { id: newId(), name: `Body ${doc.bodies.length + 1}`, position: [len(0), len(0), len(0)], features: [sphere] };
+  [selected, shapeSel] = [[body.id], []];
+  commit({ ...doc, bodies: [...doc.bodies, body] });
+}
+
+/** R / C / N / P: in sketch mode into its sketch (flat), else one shape that is pulled right away. O: a sphere (not in sketch mode). */
 function startTool(kind: ToolKind) {
+  if (kind === 'sphere' && sketching) exitSketch();
   const s = viewer.sketches.find((v) => v.id === sketching);
   if (s) viewer.startTool(kind, toolHost, { kind: 'draw', target: { sketch: s.id, placement: s.placement, frame: s.frame, body: null, name: 'the sketch' } });
   else viewer.startTool(kind, toolHost);
@@ -620,7 +635,7 @@ async function save() {
   notify(`Saved ${new Date().toLocaleTimeString()}`);
 }
 
-const TOOL_KEYS: Record<string, ToolKind> = { r: 'rect', c: 'circle', p: 'polygon' };
+const TOOL_KEYS: Record<string, ToolKind> = { r: 'rect', c: 'circle', n: 'ngon', p: 'polygon', o: 'sphere' };
 
 addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();

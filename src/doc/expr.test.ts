@@ -52,6 +52,6 @@ describe('resolve', () => {
     const out = resolve({ rot: ex('45', 'in'), w: ex('1', 'in') }, params, 'p', errors);
     expect(out).toEqual({ rot: 45, w: 25.4 });
     resolve({ rot: ex('3mm') }, params, 'q', errors);
-    expect(errors.get('q.rot')).toMatch('angle');
+    expect(errors.get('q.rot')).toMatch('no unit');
   });
 });

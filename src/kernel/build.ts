@@ -1,6 +1,6 @@
-import { draw, drawCircle, drawRoundedRectangle, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
+import { draw, drawCircle, drawRoundedRectangle, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
 import { add, frames, scale, toWorld, type Frame } from '../doc/frames';
-import { centre, nesting } from '../doc/profiles';
+import { centre, corners, nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BuildIn, EdgeRule, Profile } from '../doc/types';
 
@@ -45,7 +45,10 @@ export function buildBody(features: BuildFeature[]): Shape3D {
     shape = next;
   };
   try {
-    for (const s of features) if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
+    for (const s of features) {
+      if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
+      if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
+    }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
     for (const s of features) if (s.type === 'finish' && s.enabled) apply(s.id, (cur) => finish(cur!, s, circles));
   } catch (err) {
@@ -99,6 +102,10 @@ function drawing(p: Resolved<Profile>): Drawing {
     case 'circle':
       positive(p.d, 'diameter');
       return drawCircle(p.d / 2).translate(p.x, p.y);
+    case 'ngon':
+      positive(p.d, 'diameter');
+      if (!(p.sides >= 3)) throw new Error('a regular polygon needs 3 sides');
+      return corners(p).slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(corners(p)[0])).close();
     case 'polygon': {
       if (p.pts.length < 3) throw new Error('a polygon needs 3 corners');
       if (p.r < 0) throw new Error('corner radius must not be negative');
@@ -186,6 +193,17 @@ function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
   if (p.kind === 'circle') at(p.x, p.y, p.d / 2);
   if (p.kind === 'rect' && p.r > 0)
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) at(p.x + sx * (p.w / 2 - p.r), p.y + sy * (p.h / 2 - p.r), p.r);
+}
+
+function sphere(shape: Shape3D | null, s: Of<'sphere'>): Shape3D {
+  positive(s.d, 'diameter');
+  const ball = makeSphere(s.d / 2).translate(s.x, s.y, s.z);
+  if (!shape) return ball;
+  try {
+    return shape.fuse(ball);
+  } finally {
+    ball.delete();
+  }
 }
 
 function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, circles: Circle[]): Shape3D {

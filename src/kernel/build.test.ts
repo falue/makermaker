@@ -129,6 +129,17 @@ describe('buildBody', () => {
     b.done();
   });
 
+  it('builds regular polygons and spheres', () => {
+    const hex: BuildFeature = { id: 'h', type: 'extrude', plane: ground, profiles: [{ id: 'n', kind: 'ngon', x: 0, y: 0, d: 20, sides: 6, rot: 0 }], depth: 5, mode: 'add', through: false };
+    const prism = built([hex]);
+    expect(prism.faces).toBe(8);
+    expect(prism.box.height).toBeCloseTo(20, 3); // a corner points up (+y)
+    prism.done();
+    const ball = built([{ id: 's', type: 'sphere', x: 0, y: 0, z: 7, d: 14 }]);
+    expect(ball.box.depth).toBeCloseTo(14, 2);
+    ball.done();
+  });
+
   it('reports a sketch plane whose feature is gone', () => {
     const orphan: BuildFeature = { ...hole, id: 'o', plane: { kind: 'cap', feature: 'gone' } };
     expect(() => buildBody([base(100), orphan])).toThrow(/sketch plane lost/);

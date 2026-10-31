@@ -8,6 +8,14 @@ type P = DrawnProfile;
 /** The rect's or polygon's corners, turned by `rot`; a circle has none. */
 export function corners(p: P): [number, number][] {
   if (p.kind === 'circle') return [];
+  if (p.kind === 'ngon') {
+    const n = Math.max(3, Math.round(p.sides));
+    // the first corner points up (before turning)
+    return Array.from({ length: n }, (_, k) => {
+      const a = ((p.rot + 90 + (k * 360) / n) * Math.PI) / 180;
+      return [p.x + (p.d / 2) * Math.cos(a), p.y + (p.d / 2) * Math.sin(a)] as [number, number];
+    });
+  }
   const pts: [number, number][] =
     p.kind === 'rect'
       ? [
@@ -63,7 +71,8 @@ export type Align = 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom' 
 export function area(p: P): number {
   if (p.kind === 'rect') return p.w * p.h;
   if (p.kind === 'circle') return (Math.PI * p.d * p.d) / 4;
-  return Math.abs(p.pts.reduce((s, [x, y], i) => s + x * p.pts[(i + 1) % p.pts.length][1] - p.pts[(i + 1) % p.pts.length][0] * y, 0)) / 2;
+  const pts = corners(p);
+  return Math.abs(pts.reduce((s, [x, y], i) => s + x * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * y, 0)) / 2;
 }
 
 /** Rect and circle: their centre; polygon: the centre of its corners (unchanged by turning). */

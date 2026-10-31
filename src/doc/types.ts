@@ -15,12 +15,14 @@ export type SketchPlane = { kind: 'base'; axis: BasePlane; offset: Expr } | { ki
 export type SketchPlacement = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; body: string; feature: string };
 
 /**
- * A shape in sketch plane coordinates: rect and circle centred on x, y; polygon corners in mm. `rot` (degrees) turns a
- * rect around its centre and a polygon around the centre of its corners.
+ * A shape in sketch plane coordinates: rect, circle and regular polygon (`ngon`: `sides` corners on diameter `d`)
+ * centred on x, y; polygon corners in mm. `rot` (degrees) turns rect and ngon around their centre and a polygon around
+ * the centre of its corners.
  */
 export type Profile =
   | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr; rot: Expr }
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
+  | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr }
   | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr; rot: Expr };
 
 /** Editable 2D geometry: shapes on one plane. Extrusions can use its shapes and follow their changes. */
@@ -50,9 +52,13 @@ export type ExtrudeSource =
 
 export type FinishFeature = { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean };
 
+/** A ball with diameter `d` centred on x, y, z (body coordinates). */
+export type SphereFeature = { id: string; type: 'sphere'; x: Expr; y: Expr; z: Expr; d: Expr };
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; mode: 'add' | 'cut'; through: boolean }
+  | SphereFeature
   | FinishFeature;
 
 /** A plane given directly (body-local): a sketch on another body's face. */
@@ -69,7 +75,7 @@ export type ExtrudeIn = {
   mode: 'add' | 'cut';
   through: boolean;
 };
-export type BuildIn = ExtrudeIn | FinishFeature;
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature;
 
 export interface Body {
   id: string;
