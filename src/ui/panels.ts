@@ -68,7 +68,7 @@ export function renderUI(ctx: UIContext) {
   $('custom-sections').replaceChildren(...customSections(ctx));
   $('left').replaceChildren(...left(ctx));
   $('right').replaceChildren(...right(ctx));
-  $('hint').innerHTML = (ctx.hint ?? hint(ctx.selected.length)).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
+  $('hint').innerHTML = (ctx.hint ?? hint(ctx.selected.length, ctx.shapes.length)).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   rendering = false;
   const el = path && document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
   if (!el) return;
@@ -307,7 +307,9 @@ function right(ctx: UIContext): Node[] {
   ];
 }
 
-function hint(selected: number) {
+function hint(selected: number, shapes: number) {
+  if (shapes)
+    return 'Drag to move in the sketch plane (the direction picks the axis) · handles resize: [Alt] from the middle, [Shift] keep proportions, type a size, [Tab] other side · round handle turns ([Shift] 15°) · [E] extrude · [Del] delete';
   if (selected > 1)
     return 'Drag a part to move them all: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Shift]-click adds or removes · [Ctrl] snaps · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect · [⌘Z] undo';
   if (selected)

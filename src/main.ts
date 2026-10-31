@@ -13,7 +13,7 @@ import type { BuildStep } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
-import type { Cap, Drawn, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
+import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
 import { Viewer, type Vec3 } from './viewer/viewer';
 
 const history = new History<Doc>(sampleDoc());
@@ -51,6 +51,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   select,
   move: place,
   pickShape,
+  setShapes,
   length,
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
 });
@@ -167,6 +168,29 @@ function pickShape(sketch: string, shape: string, add: boolean) {
   if (activeSketch() !== sketch) [selected, shapeSel] = [[sketch], []];
   shapeSel = !add ? [shape] : shapeSel.includes(shape) ? shapeSel.filter((s) => s !== shape) : [...shapeSel, shape];
   showSelection();
+}
+
+/**
+ * Dragged shapes: writes only the values that changed, as plain numbers in the display unit (typed sizes as typed,
+ * turns in degrees); the other values keep their expressions. One undo step.
+ */
+function setShapes(sketch: string, updates: { id: string; profile: DrawnProfile }[], typed: Partial<Record<'w' | 'h' | 'd', string>> = {}) {
+  const doc = history.current;
+  const k = doc.sketches.findIndex((s) => s.id === sketch);
+  if (k < 0) return;
+  const lookup = paramLookup(doc.params);
+  const shapes = doc.sketches[k].shapes.map((q) => {
+    const u = updates.find((x) => x.id === q.id);
+    if (!u) return q;
+    const old = resolve(q, lookup, '', new Map()) as Record<string, unknown>;
+    const next = { ...q } as Record<string, unknown>;
+    for (const [key, v] of Object.entries(u.profile)) {
+      if (key === 'pts') next.pts = (v as [number, number][]).map(([x, y]) => [+fmt(x), +fmt(y)]);
+      else if (typeof v === 'number' && Math.abs(v - (old[key] as number)) > 1e-9) next[key] = key === 'rot' ? ex(fmt(v)) : len(v, typed[key as 'w']);
+    }
+    return next as Profile;
+  });
+  commit(setIn(doc, ['sketches', String(k), 'shapes'], shapes));
 }
 
 function showSelection() {

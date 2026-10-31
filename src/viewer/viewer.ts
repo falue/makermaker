@@ -3,7 +3,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { BasePlane } from '../doc/types';
 import type { PartMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
-import { inside } from '../doc/profiles';
+import { toWorld } from '../doc/frames';
+import { centre, inside, type DrawnProfile } from '../doc/profiles';
+import { angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type ToolHost, type ToolKind, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -19,6 +21,8 @@ export interface ViewerHost {
   move(moves: { id: string; position: Vec3 }[]): void;
   /** A sketch shape was clicked; `add`: Shift, toggles it in the selection. */
   pickShape(sketch: string, shape: string, add: boolean): void;
+  /** Shapes of a sketch were moved, resized or turned (mm, degrees); sizes typed as text are kept as expressions. */
+  setShapes(sketch: string, shapes: { id: string; profile: DrawnProfile }[], typed?: Partial<Record<'w' | 'h' | 'd', string>>): void;
   /** A typed distance in mm, or null if invalid. */
   length(text: string): number | null;
   /** A length in mm, as shown to the user. */
@@ -57,22 +61,46 @@ function hatchTexture(px = 16) {
   return t;
 }
 
+/** A move of parts or sketch shapes. */
 interface Drag {
-  /** Press point on the part: the wheel's centre. */
+  /** Press point: the wheel's centre. */
   start: THREE.Vector3;
+  /** World axes the move may take (parts: all three; shapes: their plane's two). */
+  axes: number[];
+  /** Where the first moved item starts: it lands on the snap step. */
+  lead: THREE.Vector3;
+  /** Shows the items moved by `by` (world). */
+  apply(by: THREE.Vector3): void;
+  /** Hands the move over (null: puts the items back). */
+  end(by: THREE.Vector3 | null): void;
+  by: THREE.Vector3;
   /** Per axis, where the press ray passes closest to the axis line through `start`; axis moves count from there. */
   t0: number[];
-  /** Alt: free in the base plane facing the camera, through `start`. */
+  /** Alt: free in this plane (parts: the base plane facing the camera; shapes: their sketch plane). */
   plane: THREE.Plane;
   /** Picked by the drag direction when leaving the wheel's dead zone; null inside it or in the plane. */
   axis: number | null;
   /** A distance typed while dragging, moved exactly along the axis. */
   typed: string | undefined;
   last: PointerEvent | null;
-  group: { id: string; from: THREE.Vector3 }[];
   moved: boolean;
   /** A click on a member of a multi-selection that does not move selects just that one. */
   only: string | null;
+}
+
+/** A resize or turn of one sketch shape by its handle. */
+interface ShapeEdit {
+  sketch: ViewSketch;
+  start: DrawnProfile & { id: string };
+  handle: Handle;
+  q0: [number, number];
+  /** Angle of the press around the shape's centre (turning). */
+  a0: number;
+  /** Sizes typed for the shape's own x / y axis; `axis` takes the digits. */
+  typed: (string | undefined)[];
+  axis: number;
+  last: PointerEvent | null;
+  next: DrawnProfile | null;
 }
 
 /**
@@ -90,6 +118,10 @@ export class Viewer implements ToolView {
   activeSketch: string | null = null;
   overlay = new THREE.Group();
   private sketchView = new THREE.Group();
+  private selectedShapes: string[] = [];
+  /** Shapes shown changed while they are dragged, before the change is handed over. */
+  private overrides = new Map<string, DrawnProfile>();
+  private edit: ShapeEdit | null = null;
 
   private renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
   private scene = new THREE.Scene();
@@ -202,7 +234,13 @@ export class Viewer implements ToolView {
       'keydown',
       (e) => {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-        const used = this.drag?.moved ? this.dragKey(e) : this.facePick ? e.key === 'Escape' && (this.endFacePick(null), true) : this.tool?.key(e);
+        const used = this.drag?.moved
+          ? this.dragKey(e)
+          : this.edit?.next
+            ? this.editKey(e)
+            : this.facePick
+              ? e.key === 'Escape' && (this.endFacePick(null), true)
+              : this.tool?.key(e);
         if (!used) return;
         e.preventDefault();
         e.stopPropagation();
@@ -229,19 +267,54 @@ export class Viewer implements ToolView {
   }
 
   /** Shows the sketches; `active`: the selected sketch, `shapes`: its selected shapes. */
-  setSketches(sketches: ViewSketch[], active: string | null, shapes: string[], lift = 0.05) {
+  setSketches(sketches: ViewSketch[], active: string | null, shapes: string[]) {
     this.sketches = sketches;
     this.activeSketch = active;
+    this.selectedShapes = shapes;
+    this.overrides.clear();
+    this.renderSketches();
+  }
+
+  /** The single selected shape (with its sketch), which gets handles. */
+  private handled() {
+    const s = this.sketches.find((v) => v.id === this.activeSketch);
+    const p = this.selectedShapes.length === 1 ? s?.shapes.find((q) => q.id === this.selectedShapes[0]) : undefined;
+    return s && p ? { sketch: s, shape: { ...p, ...this.overrides.get(p.id) } as DrawnProfile & { id: string } } : null;
+  }
+
+  /** Handles of the single selected shape: plane coordinates, screen position, kind. */
+  private handles(reachPx = 26) {
+    const h = this.handled();
+    if (!h) return [];
+    const f = h.sketch.frame;
+    const reach = reachPx / this.pixelsPerMm(new THREE.Vector3(...toWorld(f, ...centre(h.shape))));
+    return handlesOf(h.shape, reach).map(({ at, handle }) => ({ at, handle, world: new THREE.Vector3(...toWorld(f, ...at)) }));
+  }
+
+  /** Sketch outlines (the selected sketch darker, its selected shapes orange) and the handles of a single selected shape. */
+  private renderSketches(lift = 0.05) {
     for (const o of this.sketchView.children) {
       (o as THREE.Line).geometry.dispose();
       ((o as THREE.Line).material as THREE.Material).dispose();
     }
     this.sketchView.clear();
-    for (const s of sketches)
+    for (const s of this.sketches)
       for (const p of s.shapes) {
-        const color = shapes.includes(p.id) && s.id === active ? 0xff8c1a : s.id === active ? 0x1d4ed8 : 0x5b7fc7;
-        this.sketchView.add(outline(p, s.frame, color, lift));
+        const active = s.id === this.activeSketch;
+        const color = active && this.selectedShapes.includes(p.id) ? 0xff8c1a : active ? 0x1d4ed8 : 0x5b7fc7;
+        this.sketchView.add(outline(this.overrides.get(p.id) ?? p, s.frame, color, lift));
       }
+    const handles = this.tool || this.drag?.moved ? [] : this.handles();
+    const dots = (points: THREE.Vector3[], color: number) =>
+      new THREE.Points(new THREE.BufferGeometry().setFromPoints(points), new THREE.PointsMaterial({ color, size: 9, sizeAttenuation: false, depthTest: false }));
+    const resize = handles.filter((h) => h.handle.kind === 'resize').map((h) => h.world);
+    const turn = handles.filter((h) => h.handle.kind === 'rotate').map((h) => h.world);
+    if (resize.length) this.sketchView.add(dots(resize, 0xff8c1a));
+    if (turn.length) {
+      const top = resize[2]; // the handle at (0, 1): the middle of the top edge
+      this.sketchView.add(dots(turn, 0x1d4ed8), new THREE.Line(new THREE.BufferGeometry().setFromPoints([top, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
+    }
+    this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' ? 1e6 : 0));
     this.render();
   }
 
@@ -287,6 +360,7 @@ export class Viewer implements ToolView {
     this.tool = null;
     this.toolPress = false;
     this.renderer.domElement.classList.remove('drawing');
+    this.renderSketches(); // handles come back
   }
 
   ray(e: MouseEvent) {
@@ -337,7 +411,7 @@ export class Viewer implements ToolView {
   }
 
   setPosition(id: string, [x, y, z]: number[]) {
-    if (this.drag?.group.some((g) => g.id === id)) return;
+    if (this.drag?.moved && this.selection.includes(id)) return; // being dragged
     this.group(id).position.set(x, y, z);
     this.applySection();
   }
@@ -512,6 +586,7 @@ export class Viewer implements ToolView {
     const ring = this.wheel.getObjectByName('dead')!;
     ring.quaternion.copy(this.camera.quaternion);
     ring.scale.setScalar(this.deadPx / this.wheelPx);
+    for (const spoke of this.wheel.children) if (spoke.userData.axis !== undefined) spoke.visible = d.axes.includes(spoke.userData.axis);
   }
 
   /** The axis whose spoke points most along the drag on screen; spokes pointing at the camera (short on screen) are skipped. */
@@ -524,12 +599,12 @@ export class Viewer implements ToolView {
     const longest = Math.max(...spokes.map(([x, y]) => Math.hypot(x, y)));
     const dx = e.clientX - this.downAt.x;
     const dy = e.clientY - this.downAt.y;
-    let best = 0;
+    let best = this.drag!.axes[0];
     let score = -1;
     spokes.forEach(([x, y], k) => {
       const len = Math.hypot(x, y);
       const fit = Math.abs(x * dx + y * dy) / (len * Math.hypot(dx, dy));
-      if (len >= short * longest && fit > score) [best, score] = [k, fit];
+      if (this.drag!.axes.includes(k) && len >= short * longest && fit > score) [best, score] = [k, fit];
     });
     return best;
   }
@@ -766,39 +841,100 @@ export class Viewer implements ToolView {
     return ray;
   }
 
-  /** Pressing a part selects it (Shift: adds or removes, no move) and readies a move of the selection. */
+  /**
+   * A handle of the single selected shape starts resizing or turning it. Pressing a shape or a part selects it (Shift:
+   * adds or removes, no move) and readies a move of the selection.
+   */
   private down(e: PointerEvent) {
     if (e.button !== 0) return;
     this.downAt = { x: e.clientX, y: e.clientY };
     const ray = this.raycaster(e);
     this.pick = ray.ray.clone();
+    const r = this.el.getBoundingClientRect();
+    const grab = this.handles().find((h) => {
+      const [x, y] = this.toScreen(h.world);
+      return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
+    });
+    const held = this.handled();
+    if (grab && held) {
+      const q0 = uvOf(held.sketch.frame, planeHit(ray.ray, held.sketch.frame) ?? grab.world);
+      const h = grab.handle;
+      this.edit = { sketch: held.sketch, start: held.shape, handle: h, q0, a0: angleAt(held.shape, q0), typed: [], axis: h.kind === 'resize' && !h.sx ? 1 : 0, last: null, next: null };
+      this.downOnPart = true;
+      this.controls.enabled = false;
+      return this.renderer.domElement.setPointerCapture(e.pointerId);
+    }
     const hit = this.intersect(ray)[0];
     const shape = this.shapeAt(ray.ray, hit?.distance);
     this.downOnPart = !!hit || !!shape;
-    if (shape) return this.host.pickShape(shape.sketch, shape.shape, e.shiftKey);
+    if (shape) {
+      if (e.shiftKey) return this.host.pickShape(shape.sketch, shape.shape, true);
+      const member = this.activeSketch === shape.sketch && this.selectedShapes.includes(shape.shape);
+      if (!member) this.host.pickShape(shape.sketch, shape.shape, false);
+      return this.startShapeMove(ray.ray, shape.sketch, member && this.selectedShapes.length > 1 ? shape.shape : null, e);
+    }
     if (!hit) return;
     const id = hit.object.userData.partId as string;
     if (e.shiftKey) return this.host.select(id, true);
     const member = this.selection.includes(id);
     if (!member) this.host.select(id, false);
     const start = hit.point.clone();
-    this.controls.enabled = false;
-    this.drag = {
-      typed: undefined,
-      last: null,
-      start,
-      t0: [0, 1, 2].map((k) => along(ray.ray, start, unit(k))),
+    const group = this.selection.map((g) => ({ id: g, from: this.group(g).position.clone() }));
+    this.startDrag(e, ray.ray, start, {
+      axes: [0, 1, 2],
+      lead: group[0].from,
       // the base plane facing the camera most (top view: XY, front: XZ, side: YZ)
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(unit(this.facingAxis()), start),
-      axis: null,
-      group: this.selection.map((g) => ({ id: g, from: this.group(g).position.clone() })),
-      moved: false,
       only: member && this.selection.length > 1 ? id : null,
-    };
+      apply: (by) => {
+        for (const g of group) this.group(g.id).position.copy(g.from).add(by);
+        this.applySection(false);
+      },
+      end: (by) => {
+        if (by) return this.host.move(group.map((g) => ({ id: g.id, position: this.group(g.id).position.toArray() })));
+        for (const g of group) this.group(g.id).position.copy(g.from);
+        this.applySection();
+      },
+    });
+  }
+
+  /** Readies a move of the selected shapes of `sketch` within its plane (along its two axes). */
+  private startShapeMove(ray: THREE.Ray, sketch: string, only: string | null, e: PointerEvent) {
+    const s = this.sketches.find((v) => v.id === sketch)!;
+    const f = s.frame;
+    const [fx, fy] = [new THREE.Vector3(...f.x), new THREE.Vector3(...f.y)];
+    const from = s.shapes.filter((q) => this.selectedShapes.includes(q.id));
+    const start = planeHit(ray, f) ?? new THREE.Vector3(...f.o);
+    const shifted = (by: THREE.Vector3) => from.map((q) => ({ id: q.id, profile: moved(q, by.dot(fx), by.dot(fy)) }));
+    const strongest = (v: THREE.Vector3) => [v.x, v.y, v.z].map(Math.abs).reduce((best, c, k, a) => (c > a[best] ? k : best), 0);
+    this.startDrag(e, ray, start, {
+      axes: [strongest(fx), strongest(fy)],
+      lead: new THREE.Vector3(...toWorld(f, ...centre(from[0]))),
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(...f.n), start),
+      only,
+      apply: (by) => {
+        for (const { id, profile } of shifted(by)) this.overrides.set(id, profile);
+        this.renderSketches();
+      },
+      end: (by) => {
+        if (by) return this.host.setShapes(sketch, shifted(by));
+        this.overrides.clear();
+        this.renderSketches();
+      },
+    });
+  }
+
+  private startDrag(e: PointerEvent, ray: THREE.Ray, start: THREE.Vector3, o: Pick<Drag, 'axes' | 'lead' | 'plane' | 'only' | 'apply' | 'end'>) {
+    this.controls.enabled = false;
+    this.drag = { ...o, start, t0: [0, 1, 2].map((k) => along(ray, start, unit(k))), axis: null, typed: undefined, last: null, moved: false, by: new THREE.Vector3() };
     this.renderer.domElement.setPointerCapture(e.pointerId);
   }
 
   private move(e: PointerEvent) {
+    if (this.edit) {
+      this.edit.last = e;
+      return this.applyEdit(this.edit);
+    }
     const d = this.drag;
     if (!d) {
       // a left drag without modifiers rotates: that leaves the side view the cube set up
@@ -839,18 +975,73 @@ export class Viewer implements ToolView {
     choose(this.wheel, d.axis);
     if (delta) {
       const step = e.ctrlKey ? this.snapStep : 0.1;
-      const lead = d.group[0].from;
-      const by =
+      const lead = d.lead;
+      d.by =
         (typed !== null && d.axis !== null) || !delta.lengthSq()
           ? delta
           : new THREE.Vector3(round(lead.x + delta.x, step) - lead.x, round(lead.y + delta.y, step) - lead.y, round(lead.z + delta.z, step) - lead.z);
-      for (const g of d.group) this.group(g.id).position.copy(g.from).add(by);
-      if (d.axis !== null) text += ` ${d.typed === undefined ? this.host.format(by.getComponent(d.axis)) : `${d.typed}▏`}`;
+      d.apply(d.by);
+      if (d.axis !== null) text += ` ${d.typed === undefined ? this.host.format(d.by.getComponent(d.axis)) : `${d.typed}▏`}`;
     }
-    const [x, y] = this.toScreen(d.start);
+    this.label(text, d.start);
+  }
+
+  private label(text: string, at: THREE.Vector3) {
+    const [x, y] = this.toScreen(at);
     Object.assign(this.moveLabel, { hidden: false, textContent: text });
     this.moveLabel.style.cssText = `left:${x + 60}px;top:${y + 40}px`;
-    this.applySection(false);
+  }
+
+  /** Resizes (incase-style: Alt from the middle, Shift proportional, Ctrl snaps, typed sizes) or turns (Shift: 15°) the shape. */
+  private applyEdit(ed: ShapeEdit) {
+    const e = ed.last;
+    const f = ed.sketch.frame;
+    const p = e && planeHit(this.raycaster(e).ray, f);
+    const q = p ? uvOf(f, p) : ed.q0;
+    const st = ed.start;
+    const world = new THREE.Vector3(...toWorld(f, ...centre(st)));
+    if (ed.handle.kind === 'rotate') {
+      const deg = angleAt(st, q) - ed.a0;
+      ed.next = rotated(st, e?.shiftKey ? Math.round(deg / 15) * 15 : Math.round(deg * 10) / 10);
+      this.label(`${(ed.next.kind === 'circle' ? 0 : ed.next.rot).toFixed(1)}°`, world);
+    } else {
+      const typed = ed.typed.map((t) => (t === undefined ? undefined : (this.host.length(t) ?? undefined))) as [number | undefined, number | undefined];
+      ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e?.altKey, shift: !!e?.shiftKey, step: e?.ctrlKey ? this.snapStep : 0.1, typed });
+      const [w, h] = sizeOf(ed.next);
+      const part = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : `${ed.typed[k]}▏`}`;
+      this.label(st.kind === 'circle' ? part(ed.axis, 'Ø', w) : `${part(0, 'W', w)}   ${part(1, 'H', h)}`, world);
+    }
+    this.overrides.set(st.id, ed.next);
+    this.renderSketches();
+  }
+
+  /** Keys while resizing: typing sets the size of the marked axis, Tab the other one, Enter keeps, Esc undoes. */
+  private editKey(e: KeyboardEvent): boolean {
+    const ed = this.edit!;
+    if (e.key === 'Enter' || e.key === 'Escape') return this.endEdit(e.key === 'Enter'), true;
+    if (ed.handle.kind !== 'resize') return false;
+    if (e.key === 'Tab') ed.axis = 1 - ed.axis;
+    else if (e.key === 'Backspace') ed.typed[ed.axis] = ed.typed[ed.axis]?.slice(0, -1) || undefined;
+    else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) ed.typed[ed.axis] = (ed.typed[ed.axis] ?? '') + e.key;
+    else return false;
+    this.applyEdit(ed);
+    return true;
+  }
+
+  /** Ends a resize or turn: hands the shape over (with typed sizes), or shows it as before. */
+  private endEdit(keep: boolean) {
+    const ed = this.edit;
+    this.edit = null;
+    this.controls.enabled = true;
+    this.moveLabel.hidden = true;
+    if (!ed) return;
+    if (keep && ed.next) {
+      const [a, b] = ed.typed;
+      const typed = ed.start.kind === 'circle' ? { d: a ?? b } : { w: a, h: b };
+      return this.host.setShapes(ed.sketch.id, [{ id: ed.start.id, profile: ed.next }], typed);
+    }
+    this.overrides.clear();
+    this.renderSketches();
   }
 
   /** Keys during a move: typing sets the distance, Enter keeps the move, Esc undoes it. */
@@ -871,18 +1062,17 @@ export class Viewer implements ToolView {
     this.controls.enabled = true;
     this.moveLabel.hidden = true;
     if (!d) return;
-    if (keep && d.moved) this.host.move(d.group.map((g) => ({ id: g.id, position: this.group(g.id).position.toArray() })));
-    else for (const g of d.group) this.group(g.id).position.copy(g.from);
-    this.applySection();
+    d.end(keep && d.moved ? d.by : null);
   }
 
   /** Ends a move, or handles a click: on empty space it deselects (unless Shift). */
   private up(e: PointerEvent) {
+    if (this.edit) return this.endEdit(true);
     const d = this.drag;
     if (d?.moved) return this.endDrag(true);
     this.drag = null;
     this.controls.enabled = true;
-    if (d?.only) return this.host.select(d.only, false);
+    if (d?.only) return this.sketches.some((s) => s.shapes.some((q) => q.id === d.only)) ? this.host.pickShape(this.activeSketch!, d.only, false) : this.host.select(d.only, false);
     if (!d && !this.downOnPart && e.button === 0 && !e.shiftKey && !this.dragged(e)) this.host.select(null, false);
   }
 
