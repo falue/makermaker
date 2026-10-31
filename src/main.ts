@@ -13,7 +13,7 @@ import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, type UIContext } from './ui/panels';
+import { renderUI, type Pick, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
@@ -259,26 +259,39 @@ function activeSketch() {
   return selected.length === 1 && history.current.sketches.some((s) => s.id === selected[0]) ? selected[0] : null;
 }
 
-/** `add`: toggles the object (body or sketch) in the selection; null clears it (unless adding). Selecting something else leaves sketch mode. */
-function select(id: string | null, add = false) {
+/** Ranges (and toggles) run from the last selected item of `list` to `id`, the first one staying first. */
+function picked(sel: string[], list: string[], id: string, how: Pick) {
+  if (!how) return [id];
+  const anchor = how === 'range' ? sel.findLast((x) => list.includes(x)) : undefined;
+  if (!anchor) return sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id];
+  const [a, b] = [list.indexOf(anchor), list.indexOf(id)];
+  const range = list.slice(Math.min(a, b), Math.max(a, b) + 1);
+  return [...sel.filter((x) => !range.includes(x)), ...(a <= b ? range : range.reverse())];
+}
+
+/**
+ * `how`: true toggles the object (body or sketch), 'range' selects a range of its list; null clears the selection
+ * (unless adding). Selecting something else leaves sketch mode.
+ */
+function select(id: string | null, how: Pick = false) {
   // while picking areas, a sketch chosen in the list gets all its areas picked
   if (toolMode === 'pull' && sketching && id && history.current.sketches.some((s) => s.id === id)) {
     if (id !== sketching) enterSketch(id);
     return void extrudeAreas(true);
   }
   if (sketching && id !== sketching) exitSketch();
-  if (id === null) selected = add ? selected : [];
-  else if (!add) selected = [id];
-  else selected = selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id];
+  const doc = history.current;
+  if (id === null) selected = how ? selected : [];
+  else selected = picked(selected, (doc.bodies.some((b) => b.id === id) ? doc.bodies : doc.sketches).map((o) => o.id), id, how);
   shapeSel = [];
   showSelection();
 }
 
-/** A clicked sketch shape: selects its sketch and the shape (`add`: toggles it). */
-function pickShape(sketch: string, shape: string, add: boolean) {
+/** A clicked sketch shape: selects its sketch and the shape (`how`: toggles it, or a range of the sketch's shapes). */
+function pickShape(sketch: string, shape: string, how: Pick) {
   if (sketching && sketch !== sketching) exitSketch();
   if (activeSketch() !== sketch) [selected, shapeSel] = [[sketch], []];
-  shapeSel = !add ? [shape] : shapeSel.includes(shape) ? shapeSel.filter((s) => s !== shape) : [...shapeSel, shape];
+  shapeSel = picked(shapeSel, history.current.sketches.find((s) => s.id === sketch)?.shapes.map((q) => q.id) ?? [], shape, how);
   showSelection();
 }
 

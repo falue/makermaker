@@ -26,7 +26,8 @@ export interface UIContext {
   commit(doc: Doc): void;
   /** `live`: replaces the current undo step (scrubbing). */
   setValue(path: string[], value: unknown, live?: boolean): void;
-  select(id: string | null, add?: boolean): void;
+  /** `how`: true toggles the object, 'range' selects from the last selected one in its list to it. */
+  select(id: string | null, how?: Pick): void;
   /** The body shown alone (its eye was Ctrl-clicked), if any. */
   isolated: string | null;
   /** Shows only this body; again (or for the isolated body) shows what was shown before. */
@@ -43,7 +44,7 @@ export interface UIContext {
   editSketch(sketch: string): void;
   exitSketch(): void;
   stopTool(): void;
-  pickShape(sketch: string, shape: string, add: boolean): void;
+  pickShape(sketch: string, shape: string, how: Pick): void;
   /** Turns the camera to look straight at a sketch. */
   lookAt(sketch: string): void;
   /** Lines up (or spaces evenly) the selected shapes of the selected sketch. */
@@ -61,6 +62,17 @@ export interface UIContext {
 }
 
 const $ = (id: string) => document.getElementById(id)!;
+
+export type Pick = boolean | 'range';
+
+/** A list click as in file lists: Shift a range, ⌘ / Ctrl toggles. Ctrl-click on macOS (a context menu click) toggles too. */
+function listItem(className: string, pick: (how: Pick) => void, ...children: (Node | string)[]) {
+  return h('button', {
+    className,
+    onclick: (e) => pick(e.shiftKey ? 'range' : e.metaKey || e.ctrlKey),
+    oncontextmenu: (e) => (e.preventDefault(), pick(true)),
+  }, ...children);
+}
 
 function h<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -283,7 +295,7 @@ function left(ctx: UIContext): Node[] {
   const bodies = doc.bodies.map((p, i) => {
     const swatch = h('span', { className: 'swatch' });
     swatch.style.background = p.color;
-    const item = h('button', { className: `item${ctx.selected.includes(p.id) ? ' selected' : ''}`, onclick: (e) => ctx.select(p.id, e.shiftKey) }, swatch, p.name);
+    const item = listItem(`item${ctx.selected.includes(p.id) ? ' selected' : ''}`, (how) => ctx.select(p.id, how), swatch, p.name);
     const look = eye(['bodies', String(i), 'visible'], p.visible);
     look.title += ' (Ctrl-click: show only this body)';
     // Ctrl-click on macOS is a context menu click: both isolate
@@ -317,7 +329,7 @@ function left(ctx: UIContext): Node[] {
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
   const sketches = doc.sketches.map((s, i) => {
-    const item = h('button', { className: `item${ctx.selected.includes(s.id) ? ' selected' : ''}`, onclick: (e) => ctx.select(s.id, e.shiftKey) }, s.name);
+    const item = listItem(`item${ctx.selected.includes(s.id) ? ' selected' : ''}`, (how) => ctx.select(s.id, how), s.name);
     return h('div', { className: 'listed' }, item, eye(['sketches', String(i), 'visible'], s.visible));
   });
   return [h('h3', {}, 'Bodies'), ...bodies, ...none, h('h3', {}, 'Sketches'), ...sketches, h('h3', {}, 'Parameters'), ...params, addParam];
@@ -380,13 +392,13 @@ function hint(selected: number, shapes: number) {
   if (shapes)
     return 'Drag to move in the sketch plane (the direction picks the axis) · handles resize: [Alt] from the middle, [Shift] keep proportions, type a size, [Tab] other side · round handle turns ([Shift] 15°) · [E] extrude · [Del] delete';
   if (selected > 1)
-    return 'Drag a body to move them all: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Shift]-click adds or removes · [Ctrl] snaps · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect · [⌘Z] undo';
+    return 'Drag a body to move them all: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Shift] / [⌘]-click adds or removes · [Ctrl] snaps · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect · [⌘Z] undo';
   if (selected)
-    return 'Drag to move: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Ctrl] snaps · [Shift]-click selects more · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect';
+    return 'Drag to move: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Ctrl] snaps · [Shift] / [⌘]-click selects more · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect';
   return 'Drag a body to move it: the direction picks X, Y or Z · [Tab] next body under the click · [F] fit · drag to orbit, right-drag to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
-/** A sketch: its plane, visibility, and shapes (click a label to select it, Shift to add). */
+/** A sketch: its plane, visibility, and shapes (click a label to select it, ⌘ / Ctrl toggles, Shift a range). */
 function sketchPanel(ctx: UIContext, k: number): Node[] {
   const { doc } = ctx;
   const s = doc.sketches[k];
@@ -401,7 +413,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
   show.onchange = () => set({ visible: show.checked });
   const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon' };
   const shapes = s.shapes.map((q, j) => {
-    const name = h('button', { className: `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, onclick: (e) => ctx.pickShape(s.id, q.id, e.shiftKey) }, kinds[q.kind]);
+    const name = listItem(`item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
     const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
     const box = h('input', { type: 'checkbox', checked: !!q.help });
     box.onchange = () => set({ shapes: s.shapes.map((r) => (r === q ? { ...r, help: box.checked } : r)) });

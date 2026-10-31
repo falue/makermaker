@@ -20,11 +20,11 @@ export type Axis = 'x' | 'y' | 'z';
 type Span = [number, number];
 
 export interface ViewerHost {
-  /** `add`: Shift-click, adds the body to the selection or removes it. */
+  /** `add`: Shift- or ⌘ / Ctrl-click, adds the body to the selection or removes it. */
   select(id: string | null, add: boolean): void;
   /** Bodies were dragged to new positions (mm). */
   move(moves: { id: string; position: Vec3 }[]): void;
-  /** A sketch shape was clicked; `add`: Shift, toggles it in the selection. */
+  /** A sketch shape was clicked; `add`: Shift or ⌘ / Ctrl, toggles it in the selection. */
   pickShape(sketch: string, shape: string, add: boolean): void;
   /** Shapes of a sketch were moved, resized or turned (mm, degrees); sizes typed as text are kept as expressions. */
   setShapes(sketch: string, shapes: { id: string; profile: DrawnProfile }[], typed?: Partial<Record<'w' | 'h' | 'd', string>>): void;
@@ -1033,14 +1033,14 @@ export class Viewer implements ToolView {
     if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0)
       this.lastFace = { point: hit.point.clone(), normal: hit.face.normal.clone().negate(), body: hit.object.userData.bodyId };
     if (shape) {
-      if (e.shiftKey) return this.host.pickShape(shape.sketch, shape.shape, true);
+      if (e.shiftKey || e.metaKey || e.ctrlKey) return this.host.pickShape(shape.sketch, shape.shape, true);
       const member = this.activeSketch === shape.sketch && this.selectedShapes.includes(shape.shape);
       if (!member) this.host.pickShape(shape.sketch, shape.shape, false);
       return this.startShapeMove(ray.ray, shape.sketch, member && this.selectedShapes.length > 1 ? shape.shape : null, e);
     }
     if (!hit) return;
     const id = hit.object.userData.bodyId as string;
-    if (e.shiftKey) return this.host.select(id, true);
+    if (e.shiftKey || e.metaKey || e.ctrlKey) return this.host.select(id, true);
     const member = this.selection.includes(id);
     if (!member) this.host.select(id, false);
     const start = hit.point.clone();
@@ -1238,7 +1238,7 @@ export class Viewer implements ToolView {
     this.drag = null;
     this.controls.enabled = true;
     if (d?.only) return this.sketches.some((s) => s.shapes.some((q) => q.id === d.only)) ? this.host.pickShape(this.activeSketch!, d.only, false) : this.host.select(d.only, false);
-    if (!d && !this.downOnPart && e.button === 0 && !e.shiftKey && !this.dragged(e)) this.host.select(null, false);
+    if (!d && !this.downOnPart && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !this.dragged(e)) this.host.select(null, false);
   }
 
   private dragged(e: PointerEvent, px = 4) {
