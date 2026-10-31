@@ -460,9 +460,14 @@ export class Viewer implements ToolView {
     this.host.select(ids[(i + step + ids.length) % ids.length], false);
   }
 
+  /** The screen direction (`x` right, `y` up) in the world. */
+  screenDir(x: number, y: number) {
+    return new THREE.Vector3(x, y, 0).applyQuaternion(this.camera.quaternion);
+  }
+
   /** The world axis nearest to the screen direction (`x` right, `y` up), e.g. for arrow-key nudging. */
   screenAxis(x: number, y: number) {
-    const v = new THREE.Vector3(x, y, 0).applyQuaternion(this.camera.quaternion);
+    const v = this.screenDir(x, y);
     const parts = [v.x, v.y, v.z];
     const i = parts.reduce((best, c, k) => (Math.abs(c) > Math.abs(parts[best]) ? k : best), 0);
     return new THREE.Vector3().setComponent(i, Math.sign(parts[i]));

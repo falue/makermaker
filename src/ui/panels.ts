@@ -2,6 +2,7 @@ import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
 import type { BasePlane, Doc, EdgeRule, Expr, Part, Profile, Step, Unit } from '../doc/types';
+import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { icon, tool } from './icons';
 
@@ -32,6 +33,8 @@ export interface UIContext {
   pickShape(sketch: string, shape: string, add: boolean): void;
   /** Turns the camera to look straight at a sketch. */
   lookAt(sketch: string): void;
+  /** Lines up (or spaces evenly) the selected shapes of the selected sketch. */
+  align(how: Align): void;
   toggleAutosave(): void;
   duplicate(): void;
   remove(): void;
@@ -354,9 +357,25 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       tool('look', 'Look straight at the sketch', () => ctx.lookAt(s.id)),
       tool('extrude', 'Extrude (E): the selected shapes, or all', ctx.extrude),
     ),
+    ...(ctx.shapes.length > 1 ? [alignRow(ctx)] : []),
     h('h3', {}, `Shapes (${s.shapes.length})`),
     ...shapes,
   ];
+}
+
+/** incase's align tools for two or more selected shapes (distribute: three or more). */
+function alignRow(ctx: UIContext) {
+  const aligns: [Align, string][] = [
+    ['left', 'Align left'],
+    ['centerX', 'Align centres horizontally'],
+    ['right', 'Align right'],
+    ['top', 'Align top'],
+    ['centerY', 'Align centres vertically'],
+    ['bottom', 'Align bottom'],
+    ['distributeX', 'Space evenly horizontally'],
+    ['distributeY', 'Space evenly vertically'],
+  ];
+  return h('div', { className: 'aligns' }, ...aligns.map(([how, title]) => tool(how, title, () => ctx.align(how), false, how.startsWith('distribute') && ctx.shapes.length < 3)));
 }
 
 /** Fields of one shape at `path`: position, size, corner radius, rotation (degrees). */

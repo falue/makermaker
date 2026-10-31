@@ -4,6 +4,7 @@ import { evalLength, fmt, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
 import { BASE, capFrame, frames, moved, scale } from './doc/frames';
 import { History } from './doc/history';
+import { alignment, bounds, type Align } from './doc/profiles';
 import { paramLookup, resolve, setIn } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
 import type { Doc, Part, Profile, Sketch, SketchPlacement, Step } from './doc/types';
@@ -14,6 +15,7 @@ import { Kernel } from './kernel/client';
 import { renderUI, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
+import { moved as shifted } from './viewer/shapes';
 import { Viewer, type Vec3 } from './viewer/viewer';
 
 const history = new History<Doc>(sampleDoc());
@@ -191,6 +193,48 @@ function setShapes(sketch: string, updates: { id: string; profile: DrawnProfile 
     return next as Profile;
   });
   commit(setIn(doc, ['sketches', String(k), 'shapes'], shapes));
+}
+
+/** The selected sketch with its selected shapes resolved (mm), if any. */
+function selectedShapes() {
+  const doc = history.current;
+  const s = doc.sketches.find((x) => x.id === activeSketch());
+  if (!s || !shapeSel.length) return null;
+  const r = resolve(s, paramLookup(doc.params), '', new Map());
+  return { id: s.id, source: s, shapes: r.shapes.filter((q) => shapeSel.includes(q.id)) };
+}
+
+function alignShapes(how: Align) {
+  const sel = selectedShapes();
+  if (!sel || sel.shapes.length < 2) return;
+  const by = alignment(sel.shapes.map(bounds), how);
+  setShapes(sel.id, sel.shapes.map((q, i) => ({ id: q.id, profile: shifted(q, ...by[i]) })));
+}
+
+/** Arrow keys on shapes: `step` mm along the sketch axis nearest to the arrow's screen direction (`dir`, world). */
+function nudgeShapes(dir: Vector3, step: number) {
+  const sel = selectedShapes();
+  const f = viewer.sketches.find((v) => v.id === sel?.id)?.frame;
+  if (!sel || !f) return;
+  const [a, b] = [f.x, f.y].map((v) => dir.dot(new Vector3(...v)));
+  const [du, dv] = Math.abs(a) >= Math.abs(b) ? [Math.sign(a) * step, 0] : [0, Math.sign(b) * step];
+  setShapes(sel.id, sel.shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })));
+}
+
+/** Copies the selected shapes `offset` mm right and down in their sketch, keeping their expressions, and selects the copies. */
+function duplicateShapes(offset = 10) {
+  const sel = selectedShapes();
+  if (!sel) return;
+  const copies = sel.shapes.map((q): Profile => {
+    const src = sel.source.shapes.find((x) => x.id === q.id)!;
+    const m = shifted(q, offset, -offset);
+    const copy = { ...structuredClone(src), id: newId() };
+    if (copy.kind === 'polygon' && m.kind === 'polygon') return { ...copy, pts: m.pts.map(([x, y]) => [+fmt(x), +fmt(y)]) };
+    return m.kind === 'polygon' || copy.kind === 'polygon' ? copy : { ...copy, x: len(m.x), y: len(m.y) };
+  });
+  const doc = history.current;
+  shapeSel = copies.map((c) => c.id);
+  commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sel.id ? { ...s, shapes: [...s.shapes, ...copies] } : s)) });
 }
 
 function showSelection() {
@@ -419,13 +463,14 @@ function render() {
     select,
     startTool,
     extrude,
+    align: alignShapes,
     pickShape,
     lookAt(sketch) {
       const s = viewer.sketches.find((v) => v.id === sketch);
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
     },
     toggleAutosave: () => run(toggleAutosave),
-    duplicate: () => duplicate(),
+    duplicate: () => (shapeSel.length ? duplicateShapes() : duplicate()),
     remove,
     newDoc() {
       load({ schema: 3, units: history.current.units, params: {}, parts: [], sketches: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
@@ -501,12 +546,16 @@ addEventListener('keydown', (e) => {
   else if (plain && TOOL_KEYS[key]) startTool(TOOL_KEYS[key]);
   else if (plain && key === 'e') extrude();
   else if (e.key === 'Tab') viewer.cycle(e.shiftKey ? -1 : 1);
-  else if (selected.length && arrows[e.key]) {
+  else if (shapeSel.length && arrows[e.key]) {
+    const [x, y] = arrows[e.key];
+    nudgeShapes(viewer.screenDir(x, y), e.shiftKey ? 10 : 1);
+  } else if (selected.length && arrows[e.key]) {
     // nudges along the world axis nearest to the arrow's screen direction
     const [x, y] = arrows[e.key];
     nudge(viewer.screenAxis(x, y).multiplyScalar(e.shiftKey ? 10 : 1).toArray());
   } else if (selected.length && (e.key === 'Delete' || e.key === 'Backspace')) remove();
   else if (selected.length && e.key === 'Escape') select(null);
+  else if (shapeSel.length && mod && key === 'd') duplicateShapes();
   else if (selected.length && mod && key === 'd') duplicate();
   else return;
   e.preventDefault();

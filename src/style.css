@@ -580,3 +580,14 @@ canvas.drawing {
 .shape {
   margin-top: 6px;
 }
+
+.aligns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 6px 0;
+}
+.aligns .tool {
+  width: 30px;
+  height: 30px;
+}
