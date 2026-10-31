@@ -590,9 +590,12 @@ export function shape2d(p: DrawnProfile): THREE.Shape {
   return new THREE.Shape(corners(p).map(([x, y]) => new THREE.Vector2(x, y)));
 }
 
-/** The shape's outline on the frame's plane, lifted `lift` mm along the normal (0: drawn over everything, for previews). */
-export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0) {
+/** The shape's outline on the frame's plane, lifted `lift` mm along the normal (0: drawn over everything, for previews); help lines dashed. */
+export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0, dashMm = 1.5) {
   const n = v3(f.n).multiplyScalar(lift);
   const pts = shape2d(p).getPoints(48).map((q) => v3(toWorld(f, q.x, q.y)).add(n));
-  return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, depthTest: lift !== 0 }));
+  const material = p.help
+    ? new THREE.LineDashedMaterial({ color, dashSize: dashMm, gapSize: dashMm, depthTest: lift !== 0 })
+    : new THREE.LineBasicMaterial({ color, depthTest: lift !== 0 });
+  return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material).computeLineDistances();
 }

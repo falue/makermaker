@@ -19,11 +19,15 @@ export type SketchPlacement = { kind: 'base'; axis: BasePlane; offset: Expr } | 
  * centred on x, y; polygon corners in mm. `rot` (degrees) turns rect and ngon around their centre and a polygon around
  * the centre of its corners.
  */
-export type Profile =
+export type Profile = (
   | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr; rot: Expr }
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
   | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr }
-  | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr; rot: Expr };
+  | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr; rot: Expr }
+) & {
+  /** A help line: drawn dashed, snapped to, never extruded. */
+  help?: boolean;
+};
 
 /** Editable 2D geometry: shapes on one plane. Extrusions can use its shapes and follow their changes. */
 export interface Sketch {

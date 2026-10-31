@@ -18,8 +18,11 @@ export function toBuild(
   if (source.kind === 'own') return { ...rest, plane: source.plane, profiles: source.profiles, areas: source.areas };
   const sketch = sketches.get(source.sketch);
   if (!sketch) return 'its sketch was deleted';
-  const profiles = source.shapes.map((id) => sketch.shapes.find((s) => s.id === id));
-  if (!profiles.length || profiles.some((s) => !s)) return 'a shape of its sketch was deleted';
+  const found = source.shapes.map((id) => sketch.shapes.find((s) => s.id === id));
+  if (!found.length || found.some((s) => !s)) return 'a shape of its sketch was deleted';
+  // help lines never extrude, also when a shape became one later
+  const profiles = found.filter((s) => !s!.help);
+  if (!profiles.length) return 'its shapes are all help lines';
   const p = sketch.plane;
   const plane = p.kind === 'base' ? p : p.body === body ? ({ kind: 'cap', feature: p.feature } as const) : faceOf(p.body, p.feature);
   if (!plane) return null;

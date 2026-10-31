@@ -641,3 +641,12 @@ input.color {
   border: 0;
   background: none;
 }
+
+.listed .tool {
+  width: 26px;
+  height: 26px;
+}
+.listed .tool svg {
+  width: 16px;
+  height: 16px;
+}

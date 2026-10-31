@@ -264,6 +264,15 @@ function duplicateShapes(offset = 10) {
   commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sel.id ? { ...s, shapes: [...s.shapes, ...copies] } : s)) });
 }
 
+/** Switches the selected shapes between help lines and real shapes. */
+function toggleHelp() {
+  const doc = history.current;
+  const k = doc.sketches.findIndex((s) => s.id === activeSketch());
+  if (k < 0 || !shapeSel.length) return;
+  const on = !doc.sketches[k].shapes.find((q) => shapeSel.includes(q.id))?.help;
+  commit(setIn(doc, ['sketches', String(k), 'shapes'], doc.sketches[k].shapes.map((q) => (shapeSel.includes(q.id) ? { ...q, help: on } : q))));
+}
+
 function showSelection() {
   viewer.select(selected);
   viewer.setSketches(viewer.sketches, activeSketch(), shapeSel);
@@ -412,7 +421,7 @@ async function extrudeAreas() {
   const s = viewer.sketches.find((v) => v.id === sketching);
   if (!s) return;
   stopTool();
-  const areas = await kernel.areas(s.shapes);
+  const areas = await kernel.areas(s.shapes.filter((q) => !q.help));
   if (!areas.length) return notify('Nothing to extrude yet: draw a shape first');
   viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas);
   toolMode = 'pull';
@@ -462,7 +471,9 @@ function extrude() {
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return notify(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
   const target: Target = { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'its sketch' };
-  viewer.startPull(toolHost, target, shapeSel.length ? shapeSel : s.shapes.map((q) => q.id));
+  const ids = (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.help).map((q) => q.id);
+  if (!ids.length) return notify('Help lines are not extruded: pick other shapes');
+  viewer.startPull(toolHost, target, ids);
   toolMode = 'pull';
   render();
 }
@@ -578,6 +589,7 @@ function render() {
     exitSketch,
     stopTool: () => (stopTool(), render()),
     align: alignShapes,
+    toggleHelp,
     pickShape,
     lookAt(sketch) {
       const s = viewer.sketches.find((v) => v.id === sketch);
