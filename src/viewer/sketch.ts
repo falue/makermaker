@@ -17,6 +17,8 @@ export interface Cap {
 /** A sketch as the viewer shows it: world frame, shapes in mm (with ids). */
 export interface ViewSketch {
   id: string;
+  /** All shapes of a sketch share its colour. */
+  color: number;
   frame: Frame;
   placement: Resolved<SketchPlacement>;
   shapes: (DrawnProfile & { id: string })[];

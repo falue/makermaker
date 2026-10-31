@@ -337,8 +337,7 @@ export class Viewer implements ToolView {
     this.sketchView.clear();
     for (const s of this.sketches)
       for (const p of s.shapes) {
-        const active = s.id === this.activeSketch;
-        const color = active && this.selectedShapes.includes(p.id) ? 0xff8c1a : active ? 0x1d4ed8 : 0x5b7fc7;
+        const color = s.id === this.activeSketch && this.selectedShapes.includes(p.id) ? 0xff8c1a : s.color;
         this.sketchView.add(outline(this.overrides.get(p.id) ?? p, s.frame, color, lift));
       }
     const handles = this.tool || this.drag?.moved ? [] : this.handles();

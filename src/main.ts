@@ -137,12 +137,13 @@ function update() {
   for (const { id, resolved } of pending) linkErrors.set(id, { featureId: resolved[0]?.id ?? '', error: "Cannot build: its sketch's face is gone, or bodies depend on each other in a circle" });
   viewer.caps = caps;
   // sketches in the world: base planes as they are, face sketches with their body
-  const shown: ViewSketch[] = doc.sketches.flatMap((s) => {
+  const palette = [0x3b6fd8, 0x9b4dca, 0x0f9d8a, 0x5a8f29, 0xc2417a, 0x8a6d3b];
+  const shown: ViewSketch[] = doc.sketches.flatMap((s, i) => {
     const r = sketches.get(s.id);
     const p = r?.plane;
     if (!r || !p || !s.visible) return [];
     const frame = p.kind === 'base' ? { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) } : caps.find((c) => c.body === p.body && c.feature === p.feature)?.frame;
-    return frame ? [{ id: s.id, frame, placement: p, shapes: r.shapes }] : [];
+    return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes }] : [];
   });
   viewer.setCustomSections(
     doc.sections.flatMap((c, i) => {
