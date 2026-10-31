@@ -85,6 +85,8 @@ export class Viewer {
 
     this.controls.addEventListener('change', this.render);
     new ResizeObserver(() => this.resize()).observe(el);
+    // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
+    this.fit();
 
     // capture: runs before the orbit controls, so grabbing a part does not orbit
     el.addEventListener('pointerdown', (e) => e.target === canvas && this.down(e), { capture: true });

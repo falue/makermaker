@@ -311,7 +311,7 @@ body.scrubbing * {
   font-weight: 600;
   color: var(--muted);
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--muted) 70%, transparent);
   backface-visibility: hidden;
   cursor: pointer;
   user-select: none;
