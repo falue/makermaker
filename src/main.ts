@@ -7,10 +7,10 @@ import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
 import { paramLookup, resolve, setIn } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
-import type { Doc, ExtrudeSource, Part, Profile, Sketch, SketchPlacement, Step } from './doc/types';
+import type { Doc, ExtrudeSource, Body, Profile, Sketch, SketchPlacement, Feature } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
-import type { BuildStep } from './kernel/build';
+import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
@@ -19,18 +19,18 @@ import { moved as shifted } from './viewer/shapes';
 import { Viewer, type Vec3 } from './viewer/viewer';
 
 const history = new History<Doc>(sampleDoc());
-/** Selected objects (parts and sketches) and, inside a single selected sketch, its selected shapes. */
-let selected: string[] = history.current.parts.slice(0, 1).map((p) => p.id);
+/** Selected objects (bodies and sketches) and, inside a single selected sketch, its selected shapes. */
+let selected: string[] = history.current.bodies.slice(0, 1).map((p) => p.id);
 let shapeSel: string[] = [];
-/** The sketch in drawing mode: shapes drawn into it stay flat. */
-let drawing: string | null = null;
-/** What the running tool does: one shape then pull, drawing mode, pulling shapes, or picking a plane for a new drawing. */
+/** The sketch in sketch mode: shapes drawn into it stay flat. */
+let sketching: string | null = null;
+/** What the running tool does: one shape then pull, sketch mode, pulling shapes, or picking a plane for a new sketch. */
 let toolMode: 'direct' | 'draw' | 'pull' | 'plane' | null = null;
 let exprErrors = new Map<string, string>();
-const kernelErrors = new Map<string, { stepId: string; error: string }>();
-/** Parts that cannot be built because of a linked sketch, from the last update. */
-let linkErrors = new Map<string, { stepId: string; error: string }>();
-/** Resolved part positions in mm, from the last update. */
+const kernelErrors = new Map<string, { featureId: string; error: string }>();
+/** Bodies that cannot be built because of a linked sketch, from the last update. */
+let linkErrors = new Map<string, { featureId: string; error: string }>();
+/** Resolved body positions in mm, from the last update. */
 const positions = new Map<string, Vec3>();
 let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; saved: Doc } = {
   name: `untitled${EXTENSION}`,
@@ -69,15 +69,15 @@ sectionControls(
 );
 
 const kernel = new Kernel((r) => {
-  if (!history.current.parts.some((p) => p.id === r.id)) return; // deleted while it was built
+  if (!history.current.bodies.some((p) => p.id === r.id)) return; // deleted while it was built
   if ('mesh' in r) {
     kernelErrors.delete(r.id);
-    viewer.setPart(r.id, r.mesh);
+    viewer.setBody(r.id, r.mesh);
   } else kernelErrors.set(r.id, r); // the viewer keeps the last valid geometry
   render();
 });
 
-/** Resolves expressions, moves parts, and rebuilds parts whose steps changed and resolved cleanly. */
+/** Resolves expressions, moves bodies, and rebuilds bodies whose features changed and resolved cleanly. */
 function update() {
   const doc = history.current;
   const lookup = paramLookup(doc.params);
@@ -88,9 +88,9 @@ function update() {
     } catch (err) {
       exprErrors.set(`params.${name}`, (err as Error).message);
     }
-  const builds: { id: string; steps: BuildStep[] }[] = [];
+  const builds: { id: string; features: BuildFeature[] }[] = [];
   const caps: Cap[] = [];
-  // sketches with an invalid value are left out, so their extrusions wait like parts with one
+  // sketches with an invalid value are left out, so their extrusions wait like bodies with one
   const sketches = new Map(
     doc.sketches.flatMap((s, i) => {
       const before = exprErrors.size;
@@ -99,35 +99,35 @@ function update() {
     }),
   );
   linkErrors = new Map();
-  doc.parts.forEach((p, i) => {
-    const position = resolve(p.position, lookup, `parts.${i}.position`, exprErrors);
+  doc.bodies.forEach((p, i) => {
+    const position = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
     if (position.every(Number.isFinite)) {
       positions.set(p.id, position);
       viewer.setPosition(p.id, position);
     }
     const before = exprErrors.size;
-    const resolved = resolve(p.steps, lookup, `parts.${i}.steps`, exprErrors);
+    const resolved = resolve(p.features, lookup, `bodies.${i}.features`, exprErrors);
     if (exprErrors.size !== before) return;
-    const steps: BuildStep[] = [];
+    const features: BuildFeature[] = [];
     for (const s of resolved) {
       const built = toBuild(s, p.id, sketches);
-      if (typeof built === 'string') return linkErrors.set(p.id, { stepId: s.id, error: `Cannot build: ${built}` });
-      steps.push(built);
+      if (typeof built === 'string') return linkErrors.set(p.id, { featureId: s.id, error: `Cannot build: ${built}` });
+      features.push(built);
     }
-    builds.push({ id: p.id, steps });
-    const plan = frames(steps);
-    for (const s of steps) {
+    builds.push({ id: p.id, features });
+    const plan = frames(features);
+    for (const s of features) {
       const f = plan.get(s.id);
-      if (s.type === 'extrude' && f && !s.through) caps.push({ part: p.id, step: s.id, frame: moved(capFrame(f, s.depth), positions.get(p.id) ?? [0, 0, 0]) });
+      if (s.type === 'extrude' && f && !s.through) caps.push({ body: p.id, feature: s.id, frame: moved(capFrame(f, s.depth), positions.get(p.id) ?? [0, 0, 0]) });
     }
   });
   viewer.caps = caps;
-  // sketches in the world: base planes as they are, face sketches with their part
+  // sketches in the world: base planes as they are, face sketches with their body
   const shown: ViewSketch[] = doc.sketches.flatMap((s) => {
     const r = sketches.get(s.id);
     const p = r?.plane;
     if (!r || !p || !s.visible) return [];
-    const frame = p.kind === 'base' ? { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) } : caps.find((c) => c.part === p.part && c.step === p.step)?.frame;
+    const frame = p.kind === 'base' ? { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) } : caps.find((c) => c.body === p.body && c.feature === p.feature)?.frame;
     return frame ? [{ id: s.id, frame, placement: p, shapes: r.shapes }] : [];
   });
   viewer.setCustomSections(
@@ -136,7 +136,7 @@ function update() {
       return c.enabled && Number.isFinite(offset) ? [{ point: c.origin.map((v, k) => v + c.normal[k] * offset) as Vec3, normal: c.normal }] : [];
     }),
   );
-  const ids = new Set(doc.parts.map((p) => p.id));
+  const ids = new Set(doc.bodies.map((p) => p.id));
   for (const id of kernelErrors.keys()) if (!ids.has(id)) kernelErrors.delete(id);
   for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id);
   selected = selected.filter((id) => ids.has(id) || doc.sketches.some((s) => s.id === id));
@@ -144,9 +144,9 @@ function update() {
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
   viewer.select(selected);
   viewer.setSketches(shown, activeSketch(), shapeSel);
-  const drawn = shown.find((s) => s.id === drawing);
-  if (drawing && !drawn) exitDrawing();
-  else viewer.setDrawing(drawn?.frame ?? null);
+  const drawn = shown.find((s) => s.id === sketching);
+  if (sketching && !drawn) exitSketch();
+  else viewer.setSketchGrid(drawn?.frame ?? null);
   viewer.retain(ids);
   kernel.build(builds);
   scheduleAutosave();
@@ -163,9 +163,9 @@ function activeSketch() {
   return selected.length === 1 && history.current.sketches.some((s) => s.id === selected[0]) ? selected[0] : null;
 }
 
-/** `add`: toggles the object (part or sketch) in the selection; null clears it (unless adding). Selecting something else leaves drawing mode. */
+/** `add`: toggles the object (body or sketch) in the selection; null clears it (unless adding). Selecting something else leaves sketch mode. */
 function select(id: string | null, add = false) {
-  if (drawing && id !== drawing) exitDrawing();
+  if (sketching && id !== sketching) exitSketch();
   if (id === null) selected = add ? selected : [];
   else if (!add) selected = [id];
   else selected = selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id];
@@ -175,7 +175,7 @@ function select(id: string | null, add = false) {
 
 /** A clicked sketch shape: selects its sketch and the shape (`add`: toggles it). */
 function pickShape(sketch: string, shape: string, add: boolean) {
-  if (drawing && sketch !== drawing) exitDrawing();
+  if (sketching && sketch !== sketching) exitSketch();
   if (activeSketch() !== sketch) [selected, shapeSel] = [[sketch], []];
   shapeSel = !add ? [shape] : shapeSel.includes(shape) ? shapeSel.filter((s) => s !== shape) : [...shapeSel, shape];
   showSelection();
@@ -257,12 +257,12 @@ function place(moves: { id: string; position: Vec3 }[]) {
   const doc = history.current;
   let next = doc;
   for (const { id, position } of moves) {
-    const i = doc.parts.findIndex((p) => p.id === id);
+    const i = doc.bodies.findIndex((p) => p.id === id);
     const before = positions.get(id);
     if (i < 0 || !before) continue;
     position.forEach((v, k) => {
       if (Math.abs(v - before[k]) > 1e-9)
-        next = setIn(next, ['parts', String(i), 'position', String(k)], ex(fmt(v / UNITS[doc.units]), doc.units));
+        next = setIn(next, ['bodies', String(i), 'position', String(k)], ex(fmt(v / UNITS[doc.units]), doc.units));
     });
   }
   commit(next);
@@ -275,7 +275,7 @@ function nudge(by: Vec3) {
   }));
 }
 
-/** Deletes the selected shapes of the selected sketch, else the selected parts and sketches. */
+/** Deletes the selected shapes of the selected sketch, else the selected bodies and sketches. */
 function remove() {
   const doc = history.current;
   const sketch = activeSketch();
@@ -284,24 +284,24 @@ function remove() {
     shapeSel = [];
     return commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sketch ? { ...s, shapes: s.shapes.filter((q) => !gone.includes(q.id)) } : s)) });
   }
-  commit({ ...doc, parts: doc.parts.filter((p) => !selected.includes(p.id)), sketches: doc.sketches.filter((s) => !selected.includes(s.id)) });
+  commit({ ...doc, bodies: doc.bodies.filter((p) => !selected.includes(p.id)), sketches: doc.sketches.filter((s) => !selected.includes(s.id)) });
 }
 
-/** Before the finishing steps, so the list reads in build order. */
-const beforeFinish = (steps: Step[], step: Step) => {
-  const at = steps.findIndex((s) => s.type === 'finish');
-  return at < 0 ? [...steps, step] : steps.toSpliced(at, 0, step);
+/** Before the finishing features, so the list reads in build order. */
+const beforeFinish = (features: Feature[], feature: Feature) => {
+  const at = features.findIndex((s) => s.type === 'finish');
+  return at < 0 ? [...features, feature] : features.toSpliced(at, 0, feature);
 };
 
 /**
  * A tool result: a drawn shape joins its sketch (a new sketch if needed); pulled shapes become an extrusion linked to
- * them, on the part whose face the sketch lies on, else as a new part. One undo step.
+ * them, on the body whose face the sketch lies on, else as a new body. One undo step.
  */
 function sketched(r: SketchResult): string {
   const doc = history.current;
   const t = r.target;
   let sketches = doc.sketches;
-  let parts = doc.parts;
+  let bodies = doc.bodies;
   let id = t.sketch;
   if (!id) {
     const plane: SketchPlacement = t.placement.kind === 'base' ? { ...t.placement, offset: len(t.placement.offset) } : t.placement;
@@ -317,18 +317,18 @@ function sketched(r: SketchResult): string {
   }
   if (r.depth) {
     const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, areas: r.areas };
-    const step: Step = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), mode: r.mode, through: false };
-    if (t.part) {
-      parts = parts.map((p) => (p.id === t.part ? { ...p, steps: beforeFinish(p.steps, step) } : p));
-      selected = [t.part];
+    const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), mode: r.mode, through: false };
+    if (t.body) {
+      bodies = bodies.map((p) => (p.id === t.body ? { ...p, features: beforeFinish(p.features, feature) } : p));
+      selected = [t.body];
     } else {
-      const part: Part = { id: newId(), name: `Part ${parts.length + 1}`, position: [len(0), len(0), len(0)], steps: [step] };
-      parts = [...parts, part];
-      selected = [part.id];
+      const body: Body = { id: newId(), name: `Body ${bodies.length + 1}`, position: [len(0), len(0), len(0)], features: [feature] };
+      bodies = [...bodies, body];
+      selected = [body.id];
     }
     shapeSel = [];
   } else [selected, shapeSel] = [[id], ids];
-  commit({ ...doc, sketches, parts });
+  commit({ ...doc, sketches, bodies });
   return id;
 }
 
@@ -348,21 +348,21 @@ function stopTool() {
 const toolHost: ToolHost = {
   length,
   /**
-   * In drawing mode a shape stays flat and the tool goes on. A direct shape left flat enters drawing mode on its
-   * sketch; a picked plane gets a new drawing. Esc in drawing mode only stops the tool.
+   * In sketch mode a shape stays flat and the tool goes on. A direct shape left flat enters sketch mode on its
+   * sketch; a picked plane gets a new sketch. Esc in sketch mode only stops the tool.
    */
   done(result) {
     const [was, kind] = [toolMode, viewer.activeTool];
     if (!result) return stopTool(), render();
     if (was === 'plane') {
       stopTool();
-      return newDrawing(result.target);
+      return newSketch(result.target);
     }
     const id = sketched(result);
     if (was === 'draw') return;
     stopTool();
-    if (was === 'direct' && !result.depth) enterDrawing(id, kind);
-    else if (drawing) exitDrawing(); // an extrusion finishes the drawing
+    if (was === 'direct' && !result.depth) enterSketch(id, kind);
+    else if (sketching) exitSketch(); // an extrusion finishes the sketch
     else render();
   },
   hint(text) {
@@ -371,69 +371,69 @@ const toolHost: ToolHost = {
   },
 };
 
-/** R / C / P: in drawing mode into its sketch (flat), else one shape that is pulled right away. */
+/** R / C / P: in sketch mode into its sketch (flat), else one shape that is pulled right away. */
 function startTool(kind: ToolKind) {
-  const s = viewer.sketches.find((v) => v.id === drawing);
-  if (s) viewer.startTool(kind, toolHost, { kind: 'draw', target: { sketch: s.id, placement: s.placement, frame: s.frame, part: null, name: 'the drawing' } });
+  const s = viewer.sketches.find((v) => v.id === sketching);
+  if (s) viewer.startTool(kind, toolHost, { kind: 'draw', target: { sketch: s.id, placement: s.placement, frame: s.frame, body: null, name: 'the sketch' } });
   else viewer.startTool(kind, toolHost);
   toolMode = s ? 'draw' : 'direct';
   render();
 }
 
 async function extrudeAreas() {
-  const s = viewer.sketches.find((v) => v.id === drawing);
+  const s = viewer.sketches.find((v) => v.id === sketching);
   if (!s) return;
   stopTool();
   const areas = await kernel.areas(s.shapes);
   if (!areas.length) return notify('Nothing to extrude yet: draw a shape first');
-  viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, part: s.placement.kind === 'cap' ? s.placement.part : null, name: 'the drawing' }, areas);
+  viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas);
   toolMode = 'pull';
   render();
 }
 
-/** Drawing mode on a sketch: R / C / P draw flat into it (`kind` starts one); `look` turns the camera to its plane. */
-function enterDrawing(id: string, kind: ToolKind | null = null, look = false) {
+/** Sketch mode on a sketch: R / C / P draw flat into it (`kind` starts one); `look` turns the camera to its plane. */
+function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return notify('Show the sketch to draw on it');
-  drawing = id;
+  sketching = id;
   [selected, shapeSel] = [[id], shapeSel];
   if (look) viewer.lookAlong(new Vector3(...s.frame.n));
-  viewer.setDrawing(s.frame);
+  viewer.setSketchGrid(s.frame);
   showSelection();
   if (kind) startTool(kind);
 }
 
-function exitDrawing() {
-  drawing = null;
+function exitSketch() {
+  sketching = null;
   stopTool();
-  viewer.setDrawing(null);
+  viewer.setSketchGrid(null);
   render();
 }
 
-/** New drawing: pick a top face or empty space (the base plane facing the camera). */
-function startNewDrawing() {
-  if (drawing) exitDrawing();
+/** New sketch: pick a top face or empty space (the base plane facing the camera). */
+function startNewSketch() {
+  if (sketching) exitSketch();
   viewer.startTool(null, toolHost, { kind: 'plane' });
   toolMode = 'plane';
   render();
 }
 
-/** An empty sketch where the plane was picked, in drawing mode, the camera looking at it. */
-function newDrawing(t: Target) {
+/** An empty sketch where the plane was picked, in sketch mode, the camera looking at it. */
+function newSketch(t: Target) {
   const doc = history.current;
   const plane: SketchPlacement = t.placement.kind === 'base' ? { ...t.placement, offset: len(t.placement.offset) } : t.placement;
   const sketch: Sketch = { id: newId(), name: `Sketch ${doc.sketches.length + 1}`, plane, shapes: [], visible: true };
   commit({ ...doc, sketches: [...doc.sketches, sketch] });
-  enterDrawing(sketch.id, 'rect', true);
+  enterSketch(sketch.id, 'rect', true);
 }
 
-/** E: in drawing mode picks areas of the drawing to pull; else pulls the selected shapes of the selected sketch, or all of them. */
+/** E: in sketch mode picks areas of the sketch to pull; else pulls the selected shapes of the selected sketch, or all of them. */
 function extrude() {
-  if (drawing) return void extrudeAreas();
+  if (sketching) return void extrudeAreas();
   const id = activeSketch();
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return notify(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
-  const target: Target = { sketch: s.id, placement: s.placement, frame: s.frame, part: s.placement.kind === 'cap' ? s.placement.part : null, name: 'its sketch' };
+  const target: Target = { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'its sketch' };
   viewer.startPull(toolHost, target, shapeSel.length ? shapeSel : s.shapes.map((q) => q.id));
   toolMode = 'pull';
   render();
@@ -488,12 +488,12 @@ async function toggleAutosave() {
   render();
 }
 
-/** Copies the selected parts 10 mm to the right and back and selects the copies. */
+/** Copies the selected bodies 10 mm to the right and back and selects the copies. */
 function duplicate(offset = 10) {
   const doc = history.current;
-  const copies = doc.parts
+  const copies = doc.bodies
     .filter((p) => selected.includes(p.id))
-    .map((p): Part => {
+    .map((p): Body => {
       const [x, y] = positions.get(p.id) ?? [0, 0];
       const at = (v: number) => ex(fmt((v + offset) / UNITS[doc.units]), doc.units);
       return {
@@ -501,11 +501,11 @@ function duplicate(offset = 10) {
         id: newId(),
         name: `${p.name} copy`,
         position: [at(x), at(y), p.position[2]],
-        steps: p.steps.map((s) => ({ ...structuredClone(s), id: newId() })),
+        features: p.features.map((s) => ({ ...structuredClone(s), id: newId() })),
       };
     });
   selected = copies.map((c) => c.id);
-  commit({ ...doc, parts: [...doc.parts, ...copies] });
+  commit({ ...doc, bodies: [...doc.bodies, ...copies] });
 }
 
 function render() {
@@ -542,10 +542,10 @@ function render() {
     select,
     startTool,
     extrude,
-    drawing,
-    newDrawing: startNewDrawing,
-    editDrawing: (id) => enterDrawing(id, null, true),
-    exitDrawing,
+    sketching,
+    newSketch: startNewSketch,
+    editSketch: (id) => enterSketch(id, null, true),
+    exitSketch,
     stopTool: () => (stopTool(), render()),
     align: alignShapes,
     pickShape,
@@ -557,7 +557,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : duplicate()),
     remove,
     newDoc() {
-      load({ schema: 3, units: history.current.units, params: {}, parts: [], sketches: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 4, units: history.current.units, params: {}, bodies: [], sketches: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -585,9 +585,9 @@ function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   file = { ...f, saved: doc };
   selected = [];
   status = '';
-  drawing = null;
+  sketching = null;
   stopTool();
-  viewer.setDrawing(null);
+  viewer.setSketchGrid(null);
   viewer.fitNext();
   update();
 }
@@ -630,8 +630,8 @@ addEventListener('keydown', (e) => {
   else if (plain && key === 'f') viewer.fit();
   else if (plain && TOOL_KEYS[key]) startTool(TOOL_KEYS[key]);
   else if (plain && key === 'e') extrude();
-  else if (plain && key === 's') startNewDrawing();
-  else if (drawing && e.key === 'Escape') exitDrawing();
+  else if (plain && key === 's') startNewSketch();
+  else if (sketching && e.key === 'Escape') exitSketch();
   else if (e.key === 'Tab') viewer.cycle(e.shiftKey ? -1 : 1);
   else if (shapeSel.length && arrows[e.key]) {
     const [x, y] = arrows[e.key];

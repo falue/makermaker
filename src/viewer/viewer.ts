@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { BasePlane } from '../doc/types';
-import type { PartMesh } from '../kernel/build';
+import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { centre, inside, type DrawnProfile } from '../doc/profiles';
@@ -17,9 +17,9 @@ export type Axis = 'x' | 'y' | 'z';
 type Span = [number, number];
 
 export interface ViewerHost {
-  /** `add`: Shift-click, adds the part to the selection or removes it. */
+  /** `add`: Shift-click, adds the body to the selection or removes it. */
   select(id: string | null, add: boolean): void;
-  /** Parts were dragged to new positions (mm). */
+  /** Bodies were dragged to new positions (mm). */
   move(moves: { id: string; position: Vec3 }[]): void;
   /** A sketch shape was clicked; `add`: Shift, toggles it in the selection. */
   pickShape(sketch: string, shape: string, add: boolean): void;
@@ -63,11 +63,11 @@ function hatchTexture(px = 16) {
   return t;
 }
 
-/** A move of parts or sketch shapes. */
+/** A move of bodies or sketch shapes. */
 interface Drag {
   /** Press point: the wheel's centre. */
   start: THREE.Vector3;
-  /** World axes the move may take (parts: all three; shapes: their plane's two). */
+  /** World axes the move may take (bodies: all three; shapes: their plane's two). */
   axes: number[];
   /** Where the first moved item starts: it lands on the snap step. */
   lead: THREE.Vector3;
@@ -78,7 +78,7 @@ interface Drag {
   by: THREE.Vector3;
   /** Per axis, where the press ray passes closest to the axis line through `start`; axis moves count from there. */
   t0: number[];
-  /** Alt: free in this plane (parts: the base plane facing the camera; shapes: their sketch plane). */
+  /** Alt: free in this plane (bodies: the base plane facing the camera; shapes: their sketch plane). */
   plane: THREE.Plane;
   /** Picked by the drag direction when leaving the wheel's dead zone; null inside it or in the plane. */
   axis: number | null;
@@ -106,9 +106,9 @@ interface ShapeEdit {
 }
 
 /**
- * Z-up viewport. Dragging a part moves it along one axis, picked by the drag direction like a weapon wheel (shown at
+ * Z-up viewport. Dragging a body moves it along one axis, picked by the drag direction like a weapon wheel (shown at
  * the press point; leaving its dead zone picks the axis, going back through it frees it; typing sets the distance;
- * Alt: free in the base plane facing the camera; Ctrl snaps to `snapStep`). Clicking a cut face picks its part. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
+ * Alt: free in the base plane facing the camera; Ctrl snaps to `snapStep`). Clicking a cut face picks its body. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
  * to orthographic until the next rotation. Top left: Ortho / Persp and Fit. A sketch tool takes the pointer while active.
  */
 export class Viewer implements ToolView {
@@ -120,7 +120,7 @@ export class Viewer implements ToolView {
   activeSketch: string | null = null;
   overlay = new THREE.Group();
   private sketchView = new THREE.Group();
-  private drawingGrid = new THREE.Group();
+  private sketchGrid = new THREE.Group();
   private selectedShapes: string[] = [];
   /** Shapes shown changed while they are dragged, before the change is handed over. */
   private overrides = new Map<string, DrawnProfile>();
@@ -133,14 +133,14 @@ export class Viewer implements ToolView {
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = this.orthographic;
   private controls = new OrbitControls(this.camera, this.renderer.domElement);
   private viewHeight = 400; // orthographic frustum height in mm at zoom 1
-  private parts = new Map<string, THREE.Group>();
+  private bodies = new Map<string, THREE.Group>();
   private selection: string[] = [];
   private frame = 0;
   private grid = new THREE.Group();
   private dark = matchMedia('(prefers-color-scheme: dark)');
   private pick: THREE.Ray | null = null; // last click, for Tab cycling
   private downAt = { x: 0, y: 0 };
-  private downOnPart = false; // the last press hit a part: its release is no click on empty space
+  private downOnPart = false; // the last press hit a body: its release is no click on empty space
   private drag: Drag | null = null;
   private fitted = false;
   private tool: Tool | null = null;
@@ -159,7 +159,7 @@ export class Viewer implements ToolView {
   private custom: THREE.Plane[] = [];
   private axes = new THREE.AxesHelper(30);
 
-  /** Visible range per axis as fractions of the parts' bounding box (0..1); inverted shows only what is outside. */
+  /** Visible range per axis as fractions of the bodies' bounding box (0..1); inverted shows only what is outside. */
   private sections: Record<Axis, Span> = { x: [0, 1], y: [0, 1], z: [0, 1] };
   private inverted: Record<Axis, boolean> = { x: false, y: false, z: false };
   /** The shown region while sectioned: boxes of [min, max] per axis (mm); empty when not sectioned. */
@@ -194,8 +194,8 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.drawingGrid, this.overlay, this.wheel);
-    // grid first, then the origin lines over it; neither hides parts
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel);
+    // grid first, then the origin lines over it; neither hides bodies
     (this.axes.material as THREE.Material).depthTest = false;
     this.axes.renderOrder = -1;
     this.applyTheme();
@@ -206,7 +206,7 @@ export class Viewer implements ToolView {
     // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
     this.fit();
 
-    // capture: runs before the orbit controls, so grabbing a part or drawing does not orbit
+    // capture: runs before the orbit controls, so grabbing a body or drawing does not orbit
     el.addEventListener(
       'pointerdown',
       (e) => {
@@ -268,7 +268,7 @@ export class Viewer implements ToolView {
     return this.tool?.kind ?? null;
   }
 
-  /** A drawing tool (`kind`; none: picking a plane); `mode`: drawing mode, pulling or plane picking. */
+  /** A drawing tool (`kind`; none: picking a plane); `mode`: sketch mode, pulling or plane picking. */
   startTool(kind: ToolKind | null, host: ToolHost, mode?: ToolMode) {
     this.stopTool();
     this.tool = new SketchTool(kind, this, host, mode);
@@ -281,24 +281,24 @@ export class Viewer implements ToolView {
     this.startTool(null, host, { kind: 'pull', target, ids });
   }
 
-  /** Picks areas of a drawing and pulls them (E in drawing mode). */
+  /** Picks areas of a sketch and pulls them (E in sketch mode). */
   startAreas(host: ToolHost, target: Target, areas: AreaMesh[]) {
     this.stopTool();
     this.tool = new AreaTool(this, host, target, areas);
     this.renderSketches();
   }
 
-  /** The sketch in drawing mode gets a grid on its plane (null: none). */
-  setDrawing(frame: Frame | null, size = 400, step = 10) {
-    for (const o of this.drawingGrid.children) (o as THREE.GridHelper).dispose();
-    this.drawingGrid.clear();
+  /** The sketch in sketch mode gets a grid on its plane (null: none). */
+  setSketchGrid(frame: Frame | null, size = 400, step = 10) {
+    for (const o of this.sketchGrid.children) (o as THREE.GridHelper).dispose();
+    this.sketchGrid.clear();
     if (frame) {
       const g = new THREE.GridHelper(size, size / step, 0x3b6fd8, 0x3b6fd8);
       Object.assign(g.material, { transparent: true, opacity: 0.25, depthWrite: false });
       g.matrixAutoUpdate = false;
       // the helper lies in its x-z plane
       g.matrix.makeBasis(new THREE.Vector3(...frame.x), new THREE.Vector3(...frame.n), new THREE.Vector3(...frame.y)).setPosition(new THREE.Vector3(...frame.o));
-      this.drawingGrid.add(g);
+      this.sketchGrid.add(g);
     }
     this.render();
   }
@@ -355,7 +355,7 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The visible sketch shape under the pointer (innermost), unless a part surface is nearer. */
+  /** The visible sketch shape under the pointer (innermost), unless a body surface is nearer. */
   private shapeAt(ray: THREE.Ray, partDistance = Infinity) {
     let best: { sketch: string; shape: string; distance: number; area: number } | null = null;
     for (const s of this.sketches) {
@@ -387,7 +387,7 @@ export class Viewer implements ToolView {
     if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
   }
 
-  /** The next click on a part picks a face (null: Esc). */
+  /** The next click on a body picks a face (null: Esc). */
   pickFace(done: (face: PickedFace | null) => void) {
     this.facePick = done;
     this.renderer.domElement.classList.add('drawing');
@@ -438,7 +438,7 @@ export class Viewer implements ToolView {
     return this.camera === this.orthographic;
   }
 
-  setPart(id: string, mesh: PartMesh) {
+  setBody(id: string, mesh: BodyMesh) {
     const group = this.group(id);
     this.disposeChildren(group);
     const geometry = new THREE.BufferGeometry();
@@ -446,13 +446,13 @@ export class Viewer implements ToolView {
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     const solid = new THREE.Mesh(geometry, this.selection.includes(id) ? this.selectedMaterial : this.material);
-    Object.assign(solid.userData, { partId: id, faces: mesh.faces, corners: mesh.corners });
+    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
     group.add(solid, new THREE.LineSegments(edges, this.edgeMaterial));
     if (!this.fitted) {
       this.fitted = true;
-      requestAnimationFrame(() => this.fit()); // after the other parts of this batch
+      requestAnimationFrame(() => this.fit()); // after the other bodies of this batch
     }
     this.applySection();
   }
@@ -463,20 +463,20 @@ export class Viewer implements ToolView {
     this.applySection();
   }
 
-  /** Removes parts that are no longer in the document. */
+  /** Removes bodies that are no longer in the document. */
   retain(ids: Set<string>) {
-    for (const [id, group] of this.parts) {
+    for (const [id, group] of this.bodies) {
       if (ids.has(id)) continue;
       this.disposeChildren(group);
       this.scene.remove(group);
-      this.parts.delete(id);
+      this.bodies.delete(id);
     }
     this.applySection();
   }
 
   select(ids: string[]) {
     this.selection = ids;
-    for (const [id, group] of this.parts)
+    for (const [id, group] of this.bodies)
       for (const c of group.children)
         if (c instanceof THREE.Mesh) c.material = ids.includes(id) ? this.selectedMaterial : this.material;
     this.applySection();
@@ -493,12 +493,12 @@ export class Viewer implements ToolView {
     this.fitted = false;
   }
 
-  /** Tab: selects the next (`step` 1) or previous part along the last click's ray. */
+  /** Tab: selects the next (`step` 1) or previous body along the last click's ray. */
   cycle(step: number) {
     if (!this.pick) return;
     const ids = [
       ...new Set(
-        this.intersect(new THREE.Raycaster(this.pick.origin, this.pick.direction)).map((h) => h.object.userData.partId as string),
+        this.intersect(new THREE.Raycaster(this.pick.origin, this.pick.direction)).map((h) => h.object.userData.bodyId as string),
       ),
     ];
     if (!ids.length) return;
@@ -515,9 +515,9 @@ export class Viewer implements ToolView {
   /** The world axis nearest to the screen direction (`x` right, `y` up), e.g. for arrow-key nudging. */
   screenAxis(x: number, y: number) {
     const v = this.screenDir(x, y);
-    const parts = [v.x, v.y, v.z];
-    const i = parts.reduce((best, c, k) => (Math.abs(c) > Math.abs(parts[best]) ? k : best), 0);
-    return new THREE.Vector3().setComponent(i, Math.sign(parts[i]));
+    const bodies = [v.x, v.y, v.z];
+    const i = bodies.reduce((best, c, k) => (Math.abs(c) > Math.abs(bodies[best]) ? k : best), 0);
+    return new THREE.Vector3().setComponent(i, Math.sign(bodies[i]));
   }
 
   /** Switches the camera and keeps the framing: the orthographic zoom matches the perspective view height at the target. */
@@ -544,12 +544,12 @@ export class Viewer implements ToolView {
   }
 
   /**
-   * Frames all parts so they fit both the width and the height of the view: from the front-right corner, or
+   * Frames all bodies so they fit both the width and the height of the view: from the front-right corner, or
    * (`keepAngle`) from the direction the camera looks now.
    */
   fit(keepAngle = false) {
     const box = new THREE.Box3();
-    for (const g of this.parts.values()) box.expandByObject(g);
+    for (const g of this.bodies.values()) box.expandByObject(g);
     if (box.isEmpty()) box.set(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 20));
     const target = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
@@ -670,7 +670,7 @@ export class Viewer implements ToolView {
     );
   }
 
-  /** Part hits, nearest first, outside cut-away regions; while sectioned back faces count too, so a cut face picks its part. */
+  /** Body hits, nearest first, outside cut-away regions; while sectioned back faces count too, so a cut face picks its body. */
   private intersect(ray: THREE.Raycaster) {
     const side = this.boxes.length ? THREE.DoubleSide : THREE.FrontSide;
     this.material.side = this.selectedMaterial.side = side;
@@ -681,7 +681,7 @@ export class Viewer implements ToolView {
 
   corners() {
     const out: THREE.Vector3[] = [];
-    for (const g of this.parts.values())
+    for (const g of this.bodies.values())
       for (const c of g.children) {
         const xyz = c.userData.corners as Float32Array | undefined;
         for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).add(g.position));
@@ -718,7 +718,7 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The part face under the pointer, if it faces the camera (not a back face seen through a cut). */
+  /** The body face under the pointer, if it faces the camera (not a back face seen through a cut). */
   private frontHit(e: MouseEvent) {
     const ray = this.raycaster(e);
     const hit = this.intersect(ray)[0];
@@ -741,9 +741,9 @@ export class Viewer implements ToolView {
   }
 
   /**
-   * Shows the parts clipped to the section boxes (an inverted axis shows both sides outside its range), one clipped
+   * Shows the bodies clipped to the section boxes (an inverted axis shows both sides outside its range), one clipped
    * copy per box, with hatched caps on the cut faces: per plane, the solids' back faces minus their front faces mark
-   * the cut area in the stencil buffer, then a plane fills it. `rebound`: measure the parts again (not while dragging).
+   * the cut area in the stencil buffer, then a plane fills it. `rebound`: measure the bodies again (not while dragging).
    * Planes sit `eps` inside the shown range, so a face lying exactly on a cut is cut away cleanly instead of flickering.
    */
   private applySection(rebound = true, cap = 1e4 /* mm, cap plane size */, hatchMm = 4, shade = 0.6, eps = 1e-3) {
@@ -757,7 +757,7 @@ export class Viewer implements ToolView {
     const active = this.custom.length > 0 || axes.some((a) => this.inverted[a] || this.sections[a][0] > 0 || this.sections[a][1] < 1);
     if (rebound) {
       const bounds = new THREE.Box3();
-      for (const g of this.parts.values()) bounds.expandByObject(g);
+      for (const g of this.bodies.values()) bounds.expandByObject(g);
       const range = (a: Axis): Span => {
         const [from, to] = this.sections[a];
         const lo = bounds.min[a];
@@ -772,7 +772,7 @@ export class Viewer implements ToolView {
         active && !bounds.isEmpty() ? spans('x').flatMap((x) => spans('y').flatMap((y) => spans('z').map((z) => [x, y, z]))) : [];
     }
     const sectioned = this.boxes.length > 0;
-    for (const g of this.parts.values()) g.visible = !sectioned;
+    for (const g of this.bodies.values()) g.visible = !sectioned;
     if (!sectioned) return this.render();
 
     this.hatch.repeat.set(cap / hatchMm, cap / hatchMm);
@@ -788,7 +788,7 @@ export class Viewer implements ToolView {
       planes.push(...this.custom.map((c) => new THREE.Plane(c.normal.clone(), c.constant - eps)));
       for (const plane of planes) {
         order++;
-        for (const g of this.parts.values()) {
+        for (const g of this.bodies.values()) {
           const solid = g.children.find((c) => c instanceof THREE.Mesh);
           if (!solid) continue;
           for (const side of [THREE.BackSide, THREE.FrontSide]) {
@@ -835,8 +835,8 @@ export class Viewer implements ToolView {
         face.renderOrder = order + 0.5;
         this.sectionView.add(face);
       }
-      // the parts clipped to this box, drawn after the caps
-      for (const [id, g] of this.parts)
+      // the bodies clipped to this box, drawn after the caps
+      for (const [id, g] of this.bodies)
         for (const c of g.children) {
           const solid = c instanceof THREE.Mesh;
           const material = (solid ? (this.selection.includes(id) ? this.selectedMaterial : this.material) : this.edgeMaterial).clone();
@@ -851,10 +851,10 @@ export class Viewer implements ToolView {
   }
 
   private group(id: string) {
-    let group = this.parts.get(id);
+    let group = this.bodies.get(id);
     if (!group) {
       group = new THREE.Group();
-      this.parts.set(id, group);
+      this.bodies.set(id, group);
       this.scene.add(group);
     }
     return group;
@@ -868,8 +868,8 @@ export class Viewer implements ToolView {
   /** World axis (0 x, 1 y, 2 z) closest to the viewing direction. */
   private facingAxis() {
     const look = this.camera.getWorldDirection(new THREE.Vector3());
-    const parts = [look.x, look.y, look.z].map(Math.abs);
-    return parts.indexOf(Math.max(...parts));
+    const bodies = [look.x, look.y, look.z].map(Math.abs);
+    return bodies.indexOf(Math.max(...bodies));
   }
 
   /** Top left of the view: Ortho / Persp and Fit (each 3D view has its own). */
@@ -893,7 +893,7 @@ export class Viewer implements ToolView {
   }
 
   private meshes() {
-    return [...this.parts.values()].flatMap((g) => g.children.filter((c) => c instanceof THREE.Mesh));
+    return [...this.bodies.values()].flatMap((g) => g.children.filter((c) => c instanceof THREE.Mesh));
   }
 
   private raycaster(e: MouseEvent) {
@@ -904,7 +904,7 @@ export class Viewer implements ToolView {
   }
 
   /**
-   * A handle of the single selected shape starts resizing or turning it. Pressing a shape or a part selects it (Shift:
+   * A handle of the single selected shape starts resizing or turning it. Pressing a shape or a body selects it (Shift:
    * adds or removes, no move) and readies a move of the selection.
    */
   private down(e: PointerEvent) {
@@ -936,7 +936,7 @@ export class Viewer implements ToolView {
       return this.startShapeMove(ray.ray, shape.sketch, member && this.selectedShapes.length > 1 ? shape.shape : null, e);
     }
     if (!hit) return;
-    const id = hit.object.userData.partId as string;
+    const id = hit.object.userData.bodyId as string;
     if (e.shiftKey) return this.host.select(id, true);
     const member = this.selection.includes(id);
     if (!member) this.host.select(id, false);
@@ -1010,9 +1010,9 @@ export class Viewer implements ToolView {
   }
 
   /**
-   * Moves the dragged parts together: inside the dead zone they stay put and the axis is free; leaving it picks the axis
+   * Moves the dragged bodies together: inside the dead zone they stay put and the axis is free; leaving it picks the axis
    * whose spoke points most along the drag, kept until the pointer comes back through. A typed distance moves exactly
-   * that far (in the direction dragged); else the first part lands on the snap step (Ctrl). Alt: free in the plane.
+   * that far (in the direction dragged); else the first body lands on the snap step (Ctrl). Alt: free in the plane.
    */
   private applyDrag(d: Drag) {
     const e = d.last!;
@@ -1070,8 +1070,8 @@ export class Viewer implements ToolView {
       const typed = ed.typed.map((t) => (t === undefined ? undefined : (this.host.length(t) ?? undefined))) as [number | undefined, number | undefined];
       ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e?.altKey, shift: !!e?.shiftKey, step: e?.ctrlKey ? this.snapStep : 0.1, typed });
       const [w, h] = sizeOf(ed.next);
-      const part = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : `${ed.typed[k]}▏`}`;
-      this.label(st.kind === 'circle' ? part(ed.axis, 'Ø', w) : `${part(0, 'W', w)}   ${part(1, 'H', h)}`, world);
+      const body = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : `${ed.typed[k]}▏`}`;
+      this.label(st.kind === 'circle' ? body(ed.axis, 'Ø', w) : `${body(0, 'W', w)}   ${body(1, 'H', h)}`, world);
     }
     this.overrides.set(st.id, ed.next);
     this.renderSketches();
@@ -1117,7 +1117,7 @@ export class Viewer implements ToolView {
     return true;
   }
 
-  /** Ends a move: hands the new positions over, or puts the parts back. */
+  /** Ends a move: hands the new positions over, or puts the bodies back. */
   private endDrag(keep: boolean) {
     const d = this.drag;
     this.drag = null;
@@ -1261,13 +1261,13 @@ export class Viewer implements ToolView {
     const from = cam.position.clone().sub(target).normalize();
     const turn = new THREE.Quaternion().setFromUnitVectors(from, dir.clone().normalize());
     const start = performance.now();
-    const step = (now: number) => {
+    const feature = (now: number) => {
       const t = Math.min(1, (now - start) / ms);
       const k = t * t * (3 - 2 * t);
       cam.position.copy(target).addScaledVector(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, k)), dist);
       this.controls.update();
-      if (t < 1) requestAnimationFrame(step);
+      if (t < 1) requestAnimationFrame(feature);
     };
-    requestAnimationFrame(step);
+    requestAnimationFrame(feature);
   }
 }

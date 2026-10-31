@@ -3,14 +3,14 @@ import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
 import { setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { buildPart, StepError, type BuildStep } from './build';
+import { buildBody, FeatureError, type BuildFeature } from './build';
 
 const wasm = readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm'));
 
 beforeAll(async () => setOC(await init({ wasmBinary: wasm })), 60_000);
 
 const ground = { kind: 'base', axis: 'xy', offset: 0 } as const;
-const base = (w: number, depth = 4): BuildStep => ({
+const base = (w: number, depth = 4): BuildFeature => ({
   id: 'base',
   type: 'extrude',
   plane: ground,
@@ -19,7 +19,7 @@ const base = (w: number, depth = 4): BuildStep => ({
   mode: 'add',
   through: false,
 });
-const hole: BuildStep = {
+const hole: BuildFeature = {
   id: 'h1',
   type: 'extrude',
   plane: ground,
@@ -28,16 +28,16 @@ const hole: BuildStep = {
   mode: 'cut',
   through: true,
 };
-const plate = (w: number, ...more: BuildStep[]): BuildStep[] => [base(w), hole, ...more];
-const corners: BuildStep = { id: 'f1', type: 'finish', mode: 'fillet', size: 6, edges: 'vertical', enabled: true };
+const plate = (w: number, ...more: BuildFeature[]): BuildFeature[] => [base(w), hole, ...more];
+const corners: BuildFeature = { id: 'f1', type: 'finish', mode: 'fillet', size: 6, edges: 'vertical', enabled: true };
 
-const built = (steps: BuildStep[]) => {
-  const shape = buildPart(steps);
+const built = (features: BuildFeature[]) => {
+  const shape = buildBody(features);
   const info = { faces: shape.faces.length, box: shape.boundingBox };
   return { ...info, done: () => shape.delete() };
 };
 
-describe('buildPart', () => {
+describe('buildBody', () => {
   it('keeps a rule-based fillet on the corners when the base width changes', () => {
     for (const w of [100, 140]) {
       const raw = built(plate(w));
@@ -50,10 +50,10 @@ describe('buildPart', () => {
     }
   });
 
-  it('lists each part corner once', async () => {
-    const { meshPart } = await import('./build');
-    const shape = buildPart([base(100)]);
-    expect(meshPart(shape).corners.length).toBe(8 * 3);
+  it('lists each body corner once', async () => {
+    const { meshBody } = await import('./build');
+    const shape = buildBody([base(100)]);
+    expect(meshBody(shape).corners.length).toBe(8 * 3);
     shape.delete();
   });
 
@@ -66,10 +66,10 @@ describe('buildPart', () => {
   });
 
   it('adds a boss on the top face that follows the base depth', () => {
-    const boss: BuildStep = {
+    const boss: BuildFeature = {
       id: 'boss',
       type: 'extrude',
-      plane: { kind: 'cap', step: 'base' },
+      plane: { kind: 'cap', feature: 'base' },
       profiles: [{ id: 'b', kind: 'circle', x: 0, y: 0, d: 20 }],
       depth: 10,
       mode: 'add',
@@ -83,10 +83,10 @@ describe('buildPart', () => {
   });
 
   it('cuts a blind pocket into the top face', () => {
-    const pocket: BuildStep = {
+    const pocket: BuildFeature = {
       id: 'pocket',
       type: 'extrude',
-      plane: { kind: 'cap', step: 'base' },
+      plane: { kind: 'cap', feature: 'base' },
       profiles: [{ id: 'p', kind: 'polygon', pts: [[-10, -10], [10, -10], [0, 10]], r: 0, rot: 0 }],
       depth: -2,
       mode: 'cut',
@@ -101,8 +101,8 @@ describe('buildPart', () => {
   });
 
   it('makes shapes inside other shapes holes (even-odd)', () => {
-    const plateWithHole: BuildStep = {
-      ...(base(100) as Extract<BuildStep, { type: 'extrude' }>),
+    const plateWithHole: BuildFeature = {
+      ...(base(100) as Extract<BuildFeature, { type: 'extrude' }>),
       profiles: [
         { id: 'r', kind: 'rect', x: 0, y: 0, w: 100, h: 60, r: 0, rot: 0 },
         { id: 'c', kind: 'circle', x: 0, y: 0, d: 20 },
@@ -122,25 +122,25 @@ describe('buildPart', () => {
     const areas = areasOf([rect, disc]);
     expect(areas.map((a) => `${a.in.join('+')}|${a.out.join('+')}`).sort()).toEqual(['c|r', 'r+c|', 'r|c']);
     const lens = areas.find((a) => a.in.length === 2)!;
-    const step: BuildStep = { id: 'x', type: 'extrude', plane: ground, profiles: [rect, disc], areas: [{ in: lens.in, out: lens.out }], depth: 3, mode: 'add', through: false };
-    const b = built([step]);
+    const feature: BuildFeature = { id: 'x', type: 'extrude', plane: ground, profiles: [rect, disc], areas: [{ in: lens.in, out: lens.out }], depth: 3, mode: 'add', through: false };
+    const b = built([feature]);
     expect(b.box.width).toBeCloseTo(4, 3); // the lens: from x 6 to 10
     expect(b.box.height).toBeCloseTo(8, 3);
     b.done();
   });
 
-  it('reports a sketch plane whose step is gone', () => {
-    const orphan: BuildStep = { ...hole, id: 'o', plane: { kind: 'cap', step: 'gone' } };
-    expect(() => buildPart([base(100), orphan])).toThrow(/sketch plane lost/);
+  it('reports a sketch plane whose feature is gone', () => {
+    const orphan: BuildFeature = { ...hole, id: 'o', plane: { kind: 'cap', feature: 'gone' } };
+    expect(() => buildBody([base(100), orphan])).toThrow(/sketch plane lost/);
   });
 
-  it('reports the failing step instead of guessing', () => {
+  it('reports the failing feature instead of guessing', () => {
     try {
-      buildPart(plate(100, { ...corners, size: 40 }));
+      buildBody(plate(100, { ...corners, size: 40 }));
       expect.unreachable();
     } catch (err) {
-      expect(err).toBeInstanceOf(StepError);
-      expect((err as StepError).stepId).toBe('f1');
+      expect(err).toBeInstanceOf(FeatureError);
+      expect((err as FeatureError).featureId).toBe('f1');
     }
   });
 });

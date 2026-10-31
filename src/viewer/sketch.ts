@@ -7,10 +7,10 @@ import type { Area, BasePlane, SketchPlacement } from '../doc/types';
 export type ToolKind = 'rect' | 'circle' | 'polygon';
 export type { DrawnProfile };
 
-/** End face of an extrude step, in world coordinates. */
+/** End face of an extrude feature, in world coordinates. */
 export interface Cap {
-  part: string;
-  step: string;
+  body: string;
+  feature: string;
   frame: Frame;
 }
 
@@ -28,12 +28,12 @@ export interface Drawn {
   typed: Partial<Record<'w' | 'h' | 'd', string>>;
 }
 
-/** Where shapes go: an existing sketch, or a new one at `placement`; `part`: the part whose face it lies on. */
+/** Where shapes go: an existing sketch, or a new one at `placement`; `body`: the body whose face it lies on. */
 export interface Target {
   sketch: string | null;
   placement: Resolved<SketchPlacement>;
   frame: Frame;
-  part: string | null;
+  body: string | null;
   name: string;
 }
 
@@ -60,7 +60,7 @@ export interface ToolView {
   /** The selected sketch, drawn into when the pointer is on no other target. */
   activeSketch: string | null;
   ray(e: MouseEvent): THREE.Ray;
-  /** Nearest part surface under the pointer (cut-away regions excluded). */
+  /** Nearest body surface under the pointer (cut-away regions excluded). */
   hit(e: MouseEvent): THREE.Intersection | undefined;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
@@ -72,12 +72,12 @@ export interface ToolView {
   unlockPointer(): void;
   /** Lights the whole face of a hit (none: clears it). */
   markFace(hit?: THREE.Intersection): void;
-  /** Part corners in the world, to snap to. */
+  /** Body corners in the world, to snap to. */
   corners(): THREE.Vector3[];
   render(): void;
 }
 
-/** draw: flat shapes into a fixed sketch (drawing mode); pull: existing shapes; plane: pick a plane for a new drawing. */
+/** draw: flat shapes into a fixed sketch (sketch mode); pull: existing shapes; plane: pick a plane for a new sketch. */
 export type ToolMode = { kind: 'draw'; target: Target } | { kind: 'pull'; target: Target; ids: string[] } | { kind: 'plane' };
 
 /** A tool that takes the pointer and keys in the viewport. */
@@ -136,11 +136,11 @@ const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle
 
 /**
  * Draws rectangles, circles and polygons into sketches and pulls them into extrusions. A shape goes into the sketch
- * under the pointer, or onto the top face of the part under it (that face's sketch; pulling into the part cuts), or
+ * under the pointer, or onto the top face of the body under it (that face's sketch; pulling into the body cuts), or
  * into the selected sketch, or onto the base plane facing the camera. Right after drawing, moving pulls; a click
  * without pulling or Esc keeps it flat and the tool goes on. Ctrl snaps to the grid, the pointer to corners and
- * centres; typed sizes and depths are exact (incase-style typing). In drawing mode (`draw`) shapes go flat into its
- * sketch and the tool goes on; `pull` only pulls existing shapes (E); `plane` picks where a new drawing goes.
+ * centres; typed sizes and depths are exact (incase-style typing). In sketch mode (`draw`) shapes go flat into its
+ * sketch and the tool goes on; `pull` only pulls existing shapes (E); `plane` picks where a new sketch goes.
  */
 export class SketchTool implements Tool {
   private phase: Phase = { kind: 'hover' };
@@ -211,7 +211,7 @@ export class SketchTool implements Tool {
     if (ph.kind === 'hover') {
       if (!this.kind && this.mode?.kind !== 'plane') return;
       const target = this.target(e);
-      this.view.markFace(target?.part && !target.sketch ? this.view.hit(e) : undefined);
+      this.view.markFace(target?.body && !target.sketch ? this.view.hit(e) : undefined);
       this.host.hint(target ? this.hoverHint(target) : 'Only the top faces of extrusions take sketches for now · [Esc] stops');
       if (target) this.point(e, target, e.ctrlKey); // shows a snap dot
       return this.update();
@@ -278,8 +278,8 @@ export class SketchTool implements Tool {
   }
 
   /**
-   * Where the pointer draws: a visible sketch whose shape lies under it, the top face of the part under it, the
-   * selected sketch, a sketch on the base plane facing the camera, or that plane (null: another face of a part).
+   * Where the pointer draws: a visible sketch whose shape lies under it, the top face of the body under it, the
+   * selected sketch, a sketch on the base plane facing the camera, or that plane (null: another face of a body).
    */
   private target(e: MouseEvent): Target | null {
     if (this.mode?.kind === 'draw') return this.mode.target;
@@ -293,25 +293,25 @@ export class SketchTool implements Tool {
     if (hit) {
       const n = hit.face!.normal;
       if (n.dot(ray.direction) > 0) return null; // a back face seen through a section cut
-      const id = hit.object.userData.partId as string;
+      const id = hit.object.userData.bodyId as string;
       const cap = [...this.view.caps].reverse().find((c) => {
         const o = v3(c.frame.o);
-        return c.part === id && Math.abs(n.dot(v3(c.frame.n))) > 0.999 && Math.abs(hit.point.clone().sub(o).dot(n)) < 1e-3;
+        return c.body === id && Math.abs(n.dot(v3(c.frame.n))) > 0.999 && Math.abs(hit.point.clone().sub(o).dot(n)) < 1e-3;
       });
       if (!cap) return null;
-      const existing = this.view.sketches.find((s) => s.placement.kind === 'cap' && s.placement.part === id && s.placement.step === cap.step);
+      const existing = this.view.sketches.find((s) => s.placement.kind === 'cap' && s.placement.body === id && s.placement.feature === cap.feature);
       return existing
         ? this.sketchTarget(existing)
-        : { sketch: null, placement: { kind: 'cap', part: id, step: cap.step }, frame: cap.frame, part: id, name: 'this face' };
+        : { sketch: null, placement: { kind: 'cap', body: id, feature: cap.feature }, frame: cap.frame, body: id, name: 'this face' };
     }
     const axis = this.view.facing();
     const active = this.view.sketches.find((s) => s.id === this.view.activeSketch);
     const base = active ?? this.view.sketches.find((s) => s.placement.kind === 'base' && s.placement.axis === axis && s.placement.offset === 0);
-    return base ? this.sketchTarget(base) : { sketch: null, placement: { kind: 'base', axis, offset: 0 }, frame: BASE[axis], part: null, name: AXIS_NAME[axis] };
+    return base ? this.sketchTarget(base) : { sketch: null, placement: { kind: 'base', axis, offset: 0 }, frame: BASE[axis], body: null, name: AXIS_NAME[axis] };
   }
 
   private sketchTarget(s: ViewSketch): Target {
-    return { sketch: s.id, placement: s.placement, frame: s.frame, part: s.placement.kind === 'cap' ? s.placement.part : null, name: 'its sketch' };
+    return { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'its sketch' };
   }
 
   private snap(v: number, ctrl: boolean) {
@@ -321,7 +321,7 @@ export class SketchTool implements Tool {
 
   /**
    * Where the pointer snaps, in the target's plane coordinates: the plane origin, corners and centres of the shapes of
-   * every visible sketch, and part corners (from other planes: projected onto this one).
+   * every visible sketch, and body corners (from other planes: projected onto this one).
    */
   private snapPoints(t: Target): UV[] {
     const pts: UV[] = [[0, 0]];
@@ -395,7 +395,7 @@ export class SketchTool implements Tool {
     this.drawn(ph.target, { profile, typed: {} });
   }
 
-  /** A finished shape: in drawing mode it stays flat and drawing goes on, else pulling starts. */
+  /** A finished shape: in sketch mode it stays flat and drawing goes on, else pulling starts. */
   private drawn(target: Target, drawn: Drawn) {
     if (this.mode?.kind !== 'draw') return this.enterPull(target, [drawn.profile], drawn);
     this.phase = { kind: 'hover' };
@@ -407,7 +407,7 @@ export class SketchTool implements Tool {
     this.phase = { kind: 'pull', target, drawn, shapes, ids, raw: 0, depth: 0, typed: undefined };
     this.view.lockPointer();
     const keep = drawn ? ' · click without pulling or [Esc]: keep it flat' : ' · [Esc] cancels';
-    this.host.hint(PULL_HINT + (target.part ? ' · pulling into the part cuts' : '') + keep);
+    this.host.hint(PULL_HINT + (target.body ? ' · pulling into the body cuts' : '') + keep);
   }
 
   /** Centre of the pulled shapes, on the sketch plane (world). */
@@ -431,7 +431,7 @@ export class SketchTool implements Tool {
       shapes: ph.ids,
       depth,
       depthTyped: flat || this.typed(ph.typed) === undefined ? undefined : ph.typed,
-      mode: ph.target.part && depth < 0 ? 'cut' : 'add',
+      mode: ph.target.body && depth < 0 ? 'cut' : 'add',
     });
   }
 
@@ -467,7 +467,7 @@ export class SketchTool implements Tool {
       const f = ph.target.frame;
       const depth = this.typed(ph.typed) ?? ph.depth;
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
-      if (depth) this.solid(ph.shapes, f, depth, ph.target.part !== null && depth < 0);
+      if (depth) this.solid(ph.shapes, f, depth, ph.target.body !== null && depth < 0);
       label('Depth', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), true);
     }
     const r = this.view.el.getBoundingClientRect();

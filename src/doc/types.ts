@@ -8,11 +8,11 @@ export interface Expr {
 
 export type BasePlane = 'xy' | 'xz' | 'yz';
 
-/** Where an extrusion's shapes lie (part-local): a base plane of the part, or the end face of an earlier extrude step. */
-export type SketchPlane = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; step: string };
+/** Where an extrusion's shapes lie (body-local): a base plane of the body, or the end face of an earlier extrude feature. */
+export type SketchPlane = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; feature: string };
 
-/** Where a sketch object lies: a base plane (world), or the end face of a part's extrude step (moves with the part). */
-export type SketchPlacement = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; part: string; step: string };
+/** Where a sketch object lies: a base plane (world), or the end face of a body's extrude feature (moves with the body). */
+export type SketchPlacement = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; body: string; feature: string };
 
 /**
  * A shape in sketch plane coordinates: rect and circle centred on x, y; polygon corners in mm. `rot` (degrees) turns a
@@ -23,7 +23,7 @@ export type Profile =
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
   | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr; rot: Expr };
 
-/** A 2D drawing: shapes on one plane. Extrusions can use its shapes and follow their changes. */
+/** Editable 2D geometry: shapes on one plane. Extrusions can use its shapes and follow their changes. */
 export interface Sketch {
   id: string;
   name: string;
@@ -34,7 +34,7 @@ export interface Sketch {
 
 export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical';
 
-/** An area of a drawing: inside all `in` shapes and outside all `out` shapes (shape ids). */
+/** An area of a sketch: inside all `in` shapes and outside all `out` shapes (shape ids). */
 export interface Area {
   in: string[];
   out: string[];
@@ -42,18 +42,18 @@ export interface Area {
 
 /**
  * Shapes taken from a sketch (linked; `areas`: only these areas of them, else shapes inside shapes are holes), or kept
- * in the step itself (own; an unlinked copy).
+ * in the feature itself (own; an unlinked copy).
  */
 export type ExtrudeSource =
   | { kind: 'sketch'; sketch: string; shapes: string[]; areas?: Area[] }
   | { kind: 'own'; plane: SketchPlane; profiles: Profile[]; areas?: Area[] };
 
-export type FinishStep = { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean };
+export type FinishFeature = { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean };
 
-export type Step =
+export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; mode: 'add' | 'cut'; through: boolean }
-  | FinishStep;
+  | FinishFeature;
 
 /** An extrusion with its plane and shapes at hand, as the kernel builds it. */
 export type ExtrudeIn = {
@@ -66,13 +66,13 @@ export type ExtrudeIn = {
   mode: 'add' | 'cut';
   through: boolean;
 };
-export type BuildIn = ExtrudeIn | FinishStep;
+export type BuildIn = ExtrudeIn | FinishFeature;
 
-export interface Part {
+export interface Body {
   id: string;
   name: string;
   position: [Expr, Expr, Expr];
-  steps: Step[];
+  features: Feature[];
 }
 
 /** Custom section plane (world coordinates): keeps the side `normal` points to, cut at `origin` moved `offset` along it. */
@@ -86,10 +86,10 @@ export interface Section {
 }
 
 export interface Doc {
-  schema: 3;
+  schema: 4;
   units: Unit;
   params: Record<string, Expr>;
-  parts: Part[];
+  bodies: Body[];
   sketches: Sketch[];
   sections: Section[];
 }

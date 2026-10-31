@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import type { Doc, Expr, FinishStep, Part, Profile, SketchPlane, Step } from '../doc/types';
+import type { Doc } from '../doc/types';
 
 export const EXTENSION = '.mmk';
 
@@ -8,54 +8,10 @@ export interface Version {
   doc: Doc;
 }
 
-type V1Step =
-  | { id: string; type: 'extrude'; profile: { kind: 'rect'; w: Expr; h: Expr; r: Expr } | { kind: 'circle'; d: Expr }; depth: Expr }
-  | { id: string; type: 'hole'; x: Expr; y: Expr; d: Expr }
-  | FinishStep;
-type V2Profile =
-  | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr }
-  | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
-  | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr };
-type V2Step = { id: string; type: 'extrude'; plane: SketchPlane; profiles: V2Profile[]; depth: Expr; mode: 'add' | 'cut'; through: boolean } | FinishStep;
-type V2Doc = { schema: 2; units: Doc['units']; params: Doc['params']; parts: (Omit<Part, 'steps'> & { steps: V2Step[] })[]; sections?: Doc['sections'] };
-
-const zero = (u: Expr['u'] = 'mm'): Expr => ({ e: '0', u });
-
-/** v1: one base extrusion on XY plus through-holes. */
-function fromV1(doc: { params: Doc['params']; units: Doc['units']; parts: (Omit<Part, 'steps'> & { steps: V1Step[] })[] }): V2Doc {
-  const ground: SketchPlane = { kind: 'base', axis: 'xy', offset: zero() };
-  const parts = doc.parts.map((part) => ({
-    ...part,
-    steps: part.steps.map((s): V2Step => {
-      if (s.type === 'extrude')
-        return { id: s.id, type: 'extrude', plane: ground, profiles: [{ id: `${s.id}p`, x: zero(), y: zero(), ...s.profile }], depth: s.depth, mode: 'add', through: false };
-      if (s.type === 'hole')
-        return { id: s.id, type: 'extrude', plane: ground, profiles: [{ id: `${s.id}p`, kind: 'circle', x: s.x, y: s.y, d: s.d }], depth: zero(), mode: 'cut', through: true };
-      return s;
-    }),
-  }));
-  return { schema: 2, units: doc.units, params: doc.params, parts };
-}
-
-/** v2: extrusions kept their plane and shapes; now they are own sources, shapes can turn, and sketches exist. */
-function fromV2(doc: V2Doc): Doc {
-  const parts = doc.parts.map((part) => ({
-    ...part,
-    steps: part.steps.map((s): Step => {
-      if (s.type !== 'extrude') return s;
-      const { plane, profiles, ...rest } = s;
-      const turnable = profiles.map((p): Profile => (p.kind === 'circle' ? p : { ...p, rot: zero() }));
-      return { ...rest, source: { kind: 'own', plane, profiles: turnable } };
-    }),
-  }));
-  return { schema: 3, units: doc.units, params: doc.params, parts, sketches: [], sections: doc.sections ?? [] };
-}
-
+/** Only the current schema opens: the app is not released yet, so old files are not converted. */
 export function migrate(raw: unknown): Doc {
-  const doc = raw as { schema?: number };
-  if (doc?.schema === 1) return fromV2(fromV1(raw as Parameters<typeof fromV1>[0]));
-  if (doc?.schema === 2) return fromV2(raw as V2Doc);
-  if (doc?.schema !== 3) throw new Error(`unsupported document schema: ${doc?.schema}`);
+  const schema = (raw as { schema?: number })?.schema;
+  if (schema !== 4) throw new Error(`This file uses document schema ${schema}; this version only opens schema 4`);
   return raw as Doc;
 }
 

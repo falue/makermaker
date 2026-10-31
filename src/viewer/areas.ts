@@ -7,7 +7,7 @@ const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click areas to pick them (again to drop) · [Enter] or [E] pulls the picked areas · [Esc] cancels';
 const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done · [Esc] back to picking';
 
-/** In a drawing: pick areas (where shapes overlap, each piece is an area), then pull them into one extrusion. */
+/** In a sketch: pick areas (where shapes overlap, each piece is an area), then pull them into one extrusion. */
 export class AreaTool implements Tool {
   readonly kind = null;
   private picked = new Set<number>();
@@ -73,7 +73,7 @@ export class AreaTool implements Tool {
     else if ((e.key === 'Enter' || e.key.toLowerCase() === 'e') && this.picked.size) {
       this.pull = { raw: 0, depth: 0, typed: undefined };
       this.view.lockPointer();
-      this.host.hint(PULL_HINT + (this.target.part ? ' · pulling into the part cuts' : ''));
+      this.host.hint(PULL_HINT + (this.target.body ? ' · pulling into the body cuts' : ''));
     } else return false;
     this.update();
     return true;
@@ -95,7 +95,7 @@ export class AreaTool implements Tool {
       areas: picked.map((a) => ({ in: a.in, out: a.out })),
       depth,
       depthTyped: this.pull!.typed !== undefined && this.host.length(this.pull!.typed) !== null ? this.pull!.typed : undefined,
-      mode: this.target.part && depth < 0 ? 'cut' : 'add',
+      mode: this.target.body && depth < 0 ? 'cut' : 'add',
     });
   }
 
@@ -151,7 +151,7 @@ export class AreaTool implements Tool {
   private update() {
     this.clear();
     const depth = this.pull ? this.depth() : 0;
-    const cut = !!this.target.part && depth < 0;
+    const cut = !!this.target.body && depth < 0;
     this.areas.forEach((a, i) => {
       if (this.picked.has(i)) {
         this.fill(a, cut ? 0xe04040 : 0xff8c1a, 0.45);

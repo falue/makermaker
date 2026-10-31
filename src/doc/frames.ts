@@ -3,7 +3,7 @@ import type { BasePlane, BuildIn } from './types';
 
 export type V3 = [number, number, number];
 
-/** Sketch plane: origin, in-plane axes x and y, normal n = x × y (part-local). */
+/** Sketch plane: origin, in-plane axes x and y, normal n = x × y (body-local). */
 export interface Frame {
   o: V3;
   x: V3;
@@ -31,10 +31,10 @@ export const toPlane = (f: Frame, p: V3): [number, number] => {
 
 export const moved = (f: Frame, by: V3): Frame => ({ ...f, o: add(f.o, by) });
 
-/** Sketch frame per extrude step; a step on a missing (or later, or through-cut) step's face gets none. */
-export function frames(steps: Resolved<BuildIn>[]): Map<string, Frame> {
+/** Sketch frame per extrude feature; a feature on a missing (or later, or through-cut) feature's face gets none. */
+export function frames(features: Resolved<BuildIn>[]): Map<string, Frame> {
   const out = new Map<string, Frame>();
-  for (const s of steps) {
+  for (const s of features) {
     if (s.type !== 'extrude') continue;
     const p = s.plane;
     if (p.kind === 'base') {
@@ -42,12 +42,12 @@ export function frames(steps: Resolved<BuildIn>[]): Map<string, Frame> {
       out.set(s.id, { ...b, o: scale(b.n, p.offset) });
       continue;
     }
-    const of = steps.find((t) => t.id === p.step);
-    const f = out.get(p.step);
+    const of = features.find((t) => t.id === p.feature);
+    const f = out.get(p.feature);
     if (f && of?.type === 'extrude' && !of.through) out.set(s.id, { ...f, o: add(f.o, scale(f.n, of.depth)) });
   }
   return out;
 }
 
-/** End face of an extrude step: its frame moved along the normal by its depth. */
+/** End face of an extrude feature: its frame moved along the normal by its depth. */
 export const capFrame = (f: Frame, depth: number): Frame => ({ ...f, o: add(f.o, scale(f.n, depth)) });

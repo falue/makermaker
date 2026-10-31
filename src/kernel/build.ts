@@ -4,10 +4,10 @@ import { centre, nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BuildIn, EdgeRule, Profile } from '../doc/types';
 
-export type BuildStep = Resolved<BuildIn>;
-type Of<T extends BuildStep['type']> = Extract<BuildStep, { type: T }>;
+export type BuildFeature = Resolved<BuildIn>;
+type Of<T extends BuildFeature['type']> = Extract<BuildFeature, { type: T }>;
 
-export interface PartMesh {
+export interface BodyMesh {
   vertices: Float32Array;
   normals: Float32Array;
   indices: Uint32Array;
@@ -18,9 +18,9 @@ export interface PartMesh {
   corners: Float32Array;
 }
 
-export class StepError extends Error {
+export class FeatureError extends Error {
   constructor(
-    readonly stepId: string,
+    readonly featureId: string,
     message: string,
   ) {
     super(message);
@@ -32,9 +32,9 @@ type Circle = [number, number, number];
 
 const EPS = 1e-3;
 
-/** Extrusions run in order; finishing steps always run last, as the final layer. */
-export function buildPart(steps: BuildStep[]): Shape3D {
-  const plan = frames(steps);
+/** Extrusions run in order; finishing features always run last, as the final layer. */
+export function buildBody(features: BuildFeature[]): Shape3D {
+  const plan = frames(features);
   const circles: Circle[] = [];
   let shape: Shape3D | null = null;
   const apply = (id: string, fn: (s: Shape3D | null) => Shape3D) => {
@@ -43,9 +43,9 @@ export function buildPart(steps: BuildStep[]): Shape3D {
     shape = next;
   };
   try {
-    for (const s of steps) if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
-    if (!shape) throw new StepError(steps[0]?.id ?? '', 'a part needs an added extrusion');
-    for (const s of steps) if (s.type === 'finish' && s.enabled) apply(s.id, (cur) => finish(cur!, s, circles));
+    for (const s of features) if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
+    if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
+    for (const s of features) if (s.type === 'finish' && s.enabled) apply(s.id, (cur) => finish(cur!, s, circles));
   } catch (err) {
     (shape as Shape3D | null)?.delete();
     throw err;
@@ -53,7 +53,7 @@ export function buildPart(steps: BuildStep[]): Shape3D {
   return shape;
 }
 
-export function meshPart(shape: Shape3D): PartMesh {
+export function meshBody(shape: Shape3D): BodyMesh {
   const opts = { tolerance: 0.02, angularTolerance: 0.1 };
   const m = shape.mesh(opts);
   const e = shape.meshEdges(opts);
@@ -74,11 +74,11 @@ export function meshPart(shape: Shape3D): PartMesh {
   };
 }
 
-function run<T>(stepId: string, fn: () => T): T {
+function run<T>(featureId: string, fn: () => T): T {
   try {
     return fn();
   } catch (err) {
-    throw err instanceof StepError ? err : new StepError(stepId, err instanceof Error ? err.message : 'geometry operation failed');
+    throw err instanceof FeatureError ? err : new FeatureError(featureId, err instanceof Error ? err.message : 'geometry operation failed');
   }
 }
 
@@ -143,13 +143,13 @@ export interface AreaMesh extends Area {
  * independent overlay), with triangles to show and pick it.
  */
 export function areasOf(ps: Resolved<Profile>[]): AreaMesh[] {
-  let parts: { in: string[]; out: string[]; d: Drawing }[] = [];
+  let bodies: { in: string[]; out: string[]; d: Drawing }[] = [];
   let all: Drawing | null = null;
   const seen: string[] = [];
   for (const p of ps) {
     const d = drawing(p);
-    const next: typeof parts = [];
-    for (const r of parts) {
+    const next: typeof bodies = [];
+    for (const r of bodies) {
       const both = r.d.clone().intersect(d.clone());
       if (filled(both)) next.push({ in: [...r.in, p.id], out: r.out, d: both });
       const rest = r.d.clone().cut(d.clone());
@@ -159,10 +159,10 @@ export function areasOf(ps: Resolved<Profile>[]): AreaMesh[] {
     if (filled(fresh)) next.push({ in: [p.id], out: [...seen], d: fresh });
     all = all ? all.fuse(d) : d;
     seen.push(p.id);
-    parts = next;
+    bodies = next;
   }
   // later shapes count as outside too: an area keeps its place when shapes are added
-  return parts.map((r) => ({ in: r.in, out: seen.filter((id) => !r.in.includes(id)), tris: triangles(r.d) }));
+  return bodies.map((r) => ({ in: r.in, out: seen.filter((id) => !r.in.includes(id)), tris: triangles(r.d) }));
 }
 
 function triangles(d: Drawing): Float32Array {
@@ -191,7 +191,7 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   if (!s.profiles.length) throw new Error('no profile to extrude');
   if (!s.through && s.depth === 0) throw new Error('depth must not be 0');
   const outline = s.areas ? areaDrawing(s.profiles, s.areas) : combine(s.profiles);
-  // span along the normal; through: beyond the part on both sides
+  // span along the normal; through: beyond the body on both sides
   const bounds = shape?.boundingBox;
   const far = bounds ? Math.hypot(bounds.width, bounds.height, bounds.depth) + Math.hypot(...f.o) + 1 : 0;
   const [from, to] = s.through ? [-far, far] : [Math.min(0, s.depth), Math.max(0, s.depth)];
