@@ -259,10 +259,10 @@ function right(ctx: UIContext): Node[] {
 
 function hint(selected: number) {
   if (selected > 1)
-    return 'Drag an arrow, the ball or a part to move them all · [Shift]-click adds or removes · [Ctrl] snaps · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect · [⌘Z] undo';
+    return 'Drag a part to move them all: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Shift]-click adds or removes · [Ctrl] snaps · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect · [⌘Z] undo';
   if (selected)
-    return 'Drag an arrow to move along it, the ball or the part in the plane facing you · [Ctrl] snaps · [Shift]-click selects more · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect';
-  return '[Tab] next part under the click · [F] fit · drag to orbit, right-drag to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
+    return 'Drag to move: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Ctrl] snaps · [Shift]-click selects more · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect';
+  return 'Drag a part to move it: the direction picks X, Y or Z · [Tab] next part under the click · [F] fit · drag to orbit, right-drag to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
 function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (p: Part) => void) {
