@@ -73,6 +73,9 @@ export interface ToolView {
   render(): void;
 }
 
+/** draw: flat shapes into a fixed sketch (drawing mode); pull: existing shapes; plane: pick a plane for a new drawing. */
+export type ToolMode = { kind: 'draw'; target: Target } | { kind: 'pull'; target: Target; ids: string[] } | { kind: 'plane' };
+
 export interface ToolHost {
   /** A typed size in mm (expressions and units allowed), or null if invalid. */
   length(text: string): number | null;
@@ -100,8 +103,8 @@ const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle
  * under the pointer, or onto the top face of the part under it (that face's sketch; pulling into the part cuts), or
  * into the selected sketch, or onto the base plane facing the camera. Right after drawing, moving pulls; a click
  * without pulling or Esc keeps it flat and the tool goes on. Ctrl snaps to the grid, the pointer to corners and
- * centres of the sketch; typed sizes and depths are exact (incase-style typing). Without `kind` it only pulls
- * existing shapes (E).
+ * centres; typed sizes and depths are exact (incase-style typing). In drawing mode (`draw`) shapes go flat into its
+ * sketch and the tool goes on; `pull` only pulls existing shapes (E); `plane` picks where a new drawing goes.
  */
 export class SketchTool {
   private phase: Phase = { kind: 'hover' };
@@ -113,12 +116,12 @@ export class SketchTool {
     readonly kind: ToolKind | null,
     private view: ToolView,
     private host: ToolHost,
-    pull?: { target: Target; ids: string[] },
+    readonly mode?: ToolMode,
   ) {
     view.el.append(this.labels);
-    if (pull) {
-      const sketch = view.sketches.find((s) => s.id === pull.target.sketch);
-      this.enterPull(pull.target, sketch?.shapes.filter((s) => pull.ids.includes(s.id)) ?? [], undefined, pull.ids);
+    if (mode?.kind === 'pull') {
+      const sketch = view.sketches.find((s) => s.id === mode.target.sketch);
+      this.enterPull(mode.target, sketch?.shapes.filter((s) => mode.ids.includes(s.id)) ?? [], undefined, mode.ids);
     } else this.host.hint(this.hoverHint());
     this.update();
   }
@@ -134,6 +137,11 @@ export class SketchTool {
   down(e: PointerEvent): boolean {
     if (e.button !== 0) return false;
     const ph = this.phase;
+    if (ph.kind === 'hover' && this.mode?.kind === 'plane') {
+      const target = this.target(e);
+      if (target) this.host.done({ target, depth: 0, mode: 'add' });
+      return true;
+    }
     if (ph.kind === 'hover' && this.kind) {
       const target = this.target(e);
       if (!target) {
@@ -164,7 +172,7 @@ export class SketchTool {
   move(e: PointerEvent) {
     const ph = this.phase;
     if (ph.kind === 'hover') {
-      if (!this.kind) return;
+      if (!this.kind && this.mode?.kind !== 'plane') return;
       const target = this.target(e);
       this.view.markFace(target?.part && !target.sketch ? this.view.hit(e) : undefined);
       this.host.hint(target ? this.hoverHint(target) : 'Only the top faces of extrusions take sketches for now · [Esc] stops');
@@ -235,7 +243,9 @@ export class SketchTool {
   }
 
   private hoverHint(target?: Target) {
+    if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
     const how = this.kind === 'polygon' ? 'Click corners' : 'Drag (or click twice)';
+    if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]} · [R] [C] [P] switch · snaps to corners and centres · [Ctrl] grid · [Esc] stops drawing shapes`;
     return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] snaps · [Esc] stops`;
   }
 
@@ -244,6 +254,7 @@ export class SketchTool {
    * selected sketch, a sketch on the base plane facing the camera, or that plane (null: another face of a part).
    */
   private target(e: MouseEvent): Target | null {
+    if (this.mode?.kind === 'draw') return this.mode.target;
     const ray = this.view.ray(e);
     const hit = this.view.hit(e);
     const onSketch = this.view.sketches.find((s) => {
@@ -344,7 +355,7 @@ export class SketchTool {
     const size = profile.kind === 'rect' ? Math.min(profile.w, profile.h) : profile.kind === 'circle' ? profile.d : 1;
     if (!(size > 0)) return this.host.hint('Too small: drag further or type a size · [Esc] cancels');
     const [a, b] = ph.typed.map((t) => (this.typed(t) === undefined ? undefined : t));
-    this.enterPull(ph.target, [profile], { profile, typed: this.kind === 'circle' ? { d: a } : { w: a, h: b } });
+    this.drawn(ph.target, { profile, typed: this.kind === 'circle' ? { d: a } : { w: a, h: b } });
   }
 
   private closePolygon() {
@@ -353,7 +364,15 @@ export class SketchTool {
     const pts = ph.pts.filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 0.05);
     if (pts.length < 3) return this.host.hint('A polygon needs 3 corners · ' + POLYGON_HINT);
     const profile: DrawnProfile = { kind: 'polygon', pts, r: 0, rot: 0 };
-    this.enterPull(ph.target, [profile], { profile, typed: {} });
+    this.drawn(ph.target, { profile, typed: {} });
+  }
+
+  /** A finished shape: in drawing mode it stays flat and drawing goes on, else pulling starts. */
+  private drawn(target: Target, drawn: Drawn) {
+    if (this.mode?.kind !== 'draw') return this.enterPull(target, [drawn.profile], drawn);
+    this.phase = { kind: 'hover' };
+    this.host.hint(this.hoverHint());
+    this.host.done({ target, drawn, depth: 0, mode: 'add' });
   }
 
   private enterPull(target: Target, shapes: DrawnProfile[], drawn?: Drawn, ids?: string[]) {
@@ -374,6 +393,7 @@ export class SketchTool {
     if (ph.kind !== 'pull') return;
     const depth = flat ? 0 : (this.typed(ph.typed) ?? ph.depth);
     this.phase = { kind: 'hover' };
+    if (this.kind) this.host.hint(this.hoverHint()); // before done: the host may replace this tool
     if (!ph.drawn && !depth) return this.host.done(null);
     this.host.done({
       target: ph.target,
@@ -383,7 +403,6 @@ export class SketchTool {
       depthTyped: flat || this.typed(ph.typed) === undefined ? undefined : ph.typed,
       mode: ph.target.part && depth < 0 ? 'cut' : 'add',
     });
-    if (this.kind) this.host.hint(this.hoverHint());
   }
 
   private clearPreview() {

@@ -22,6 +22,10 @@ const history = new History<Doc>(sampleDoc());
 /** Selected objects (parts and sketches) and, inside a single selected sketch, its selected shapes. */
 let selected: string[] = history.current.parts.slice(0, 1).map((p) => p.id);
 let shapeSel: string[] = [];
+/** The sketch in drawing mode: shapes drawn into it stay flat. */
+let drawing: string | null = null;
+/** What the running tool does: one shape then pull, drawing mode, pulling shapes, or picking a plane for a new drawing. */
+let toolMode: 'direct' | 'draw' | 'pull' | 'plane' | null = null;
 let exprErrors = new Map<string, string>();
 const kernelErrors = new Map<string, { stepId: string; error: string }>();
 /** Parts that cannot be built because of a linked sketch, from the last update. */
@@ -140,6 +144,9 @@ function update() {
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
   viewer.select(selected);
   viewer.setSketches(shown, activeSketch(), shapeSel);
+  const drawn = shown.find((s) => s.id === drawing);
+  if (drawing && !drawn) exitDrawing();
+  else viewer.setDrawing(drawn?.frame ?? null);
   viewer.retain(ids);
   kernel.build(builds);
   scheduleAutosave();
@@ -156,8 +163,9 @@ function activeSketch() {
   return selected.length === 1 && history.current.sketches.some((s) => s.id === selected[0]) ? selected[0] : null;
 }
 
-/** `add`: toggles the object (part or sketch) in the selection; null clears it (unless adding). */
+/** `add`: toggles the object (part or sketch) in the selection; null clears it (unless adding). Selecting something else leaves drawing mode. */
 function select(id: string | null, add = false) {
+  if (drawing && id !== drawing) exitDrawing();
   if (id === null) selected = add ? selected : [];
   else if (!add) selected = [id];
   else selected = selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id];
@@ -167,6 +175,7 @@ function select(id: string | null, add = false) {
 
 /** A clicked sketch shape: selects its sketch and the shape (`add`: toggles it). */
 function pickShape(sketch: string, shape: string, add: boolean) {
+  if (drawing && sketch !== drawing) exitDrawing();
   if (activeSketch() !== sketch) [selected, shapeSel] = [[sketch], []];
   shapeSel = !add ? [shape] : shapeSel.includes(shape) ? shapeSel.filter((s) => s !== shape) : [...shapeSel, shape];
   showSelection();
@@ -288,7 +297,7 @@ const beforeFinish = (steps: Step[], step: Step) => {
  * A tool result: a drawn shape joins its sketch (a new sketch if needed); pulled shapes become an extrusion linked to
  * them, on the part whose face the sketch lies on, else as a new part. One undo step.
  */
-function sketched(r: SketchResult) {
+function sketched(r: SketchResult): string {
   const doc = history.current;
   const t = r.target;
   let sketches = doc.sketches;
@@ -319,6 +328,7 @@ function sketched(r: SketchResult) {
     shapeSel = [];
   } else [selected, shapeSel] = [[id], ids];
   commit({ ...doc, sketches, parts });
+  return id;
 }
 
 function profileOf({ profile: p, typed: t }: Drawn): Profile {
@@ -328,15 +338,29 @@ function profileOf({ profile: p, typed: t }: Drawn): Profile {
   return { id, kind: 'polygon', pts: p.pts.map(([x, y]) => [+fmt(x), +fmt(y)]), r: len(p.r), rot: ex(fmt(p.rot)) };
 }
 
+function stopTool() {
+  viewer.stopTool();
+  toolMode = null;
+  toolHint = null;
+}
+
 const toolHost: ToolHost = {
   length,
+  /**
+   * In drawing mode a shape stays flat and the tool goes on. A direct shape left flat enters drawing mode on its
+   * sketch; a picked plane gets a new drawing. Esc in drawing mode only stops the tool.
+   */
   done(result) {
-    // a flat shape keeps the drawing tool going; anything else ends it
-    if (!result || result.depth || !viewer.activeTool) {
-      viewer.stopTool();
-      toolHint = null;
+    const [was, kind] = [toolMode, viewer.activeTool];
+    if (!result) return stopTool(), render();
+    if (was === 'plane') {
+      stopTool();
+      return newDrawing(result.target);
     }
-    if (result) sketched(result);
+    const id = sketched(result);
+    if (was === 'draw') return;
+    stopTool();
+    if (was === 'direct' && !result.depth) enterDrawing(id, kind);
     else render();
   },
   hint(text) {
@@ -345,9 +369,49 @@ const toolHost: ToolHost = {
   },
 };
 
+/** R / C / P: in drawing mode into its sketch (flat), else one shape that is pulled right away. */
 function startTool(kind: ToolKind) {
-  viewer.startTool(kind, toolHost);
+  const s = viewer.sketches.find((v) => v.id === drawing);
+  if (s) viewer.startTool(kind, toolHost, { kind: 'draw', target: { sketch: s.id, placement: s.placement, frame: s.frame, part: null, name: 'the drawing' } });
+  else viewer.startTool(kind, toolHost);
+  toolMode = s ? 'draw' : 'direct';
   render();
+}
+
+/** Drawing mode on a sketch: R / C / P draw flat into it (`kind` starts one); `look` turns the camera to its plane. */
+function enterDrawing(id: string, kind: ToolKind | null = null, look = false) {
+  const s = viewer.sketches.find((v) => v.id === id);
+  if (!s) return notify('Show the sketch to draw on it');
+  drawing = id;
+  [selected, shapeSel] = [[id], shapeSel];
+  if (look) viewer.lookAlong(new Vector3(...s.frame.n));
+  viewer.setDrawing(s.frame);
+  showSelection();
+  if (kind) startTool(kind);
+}
+
+function exitDrawing() {
+  drawing = null;
+  stopTool();
+  viewer.setDrawing(null);
+  render();
+}
+
+/** New drawing: pick a top face or empty space (the base plane facing the camera). */
+function startNewDrawing() {
+  if (drawing) exitDrawing();
+  viewer.startTool(null, toolHost, { kind: 'plane' });
+  toolMode = 'plane';
+  render();
+}
+
+/** An empty sketch where the plane was picked, in drawing mode, the camera looking at it. */
+function newDrawing(t: Target) {
+  const doc = history.current;
+  const plane: SketchPlacement = t.placement.kind === 'base' ? { ...t.placement, offset: len(t.placement.offset) } : t.placement;
+  const sketch: Sketch = { id: newId(), name: `Sketch ${doc.sketches.length + 1}`, plane, shapes: [], visible: true };
+  commit({ ...doc, sketches: [...doc.sketches, sketch] });
+  enterDrawing(sketch.id, 'rect', true);
 }
 
 /** E: pulls the selected shapes of the selected sketch, or all of its shapes. */
@@ -357,6 +421,7 @@ function extrude() {
   if (!s) return notify(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
   const target: Target = { sketch: s.id, placement: s.placement, frame: s.frame, part: s.placement.kind === 'cap' ? s.placement.part : null, name: 'its sketch' };
   viewer.startPull(toolHost, target, shapeSel.length ? shapeSel : s.shapes.map((q) => q.id));
+  toolMode = 'pull';
   render();
 }
 
@@ -463,6 +528,11 @@ function render() {
     select,
     startTool,
     extrude,
+    drawing,
+    newDrawing: startNewDrawing,
+    editDrawing: (id) => enterDrawing(id, null, true),
+    exitDrawing,
+    stopTool: () => (stopTool(), render()),
     align: alignShapes,
     pickShape,
     lookAt(sketch) {
@@ -501,8 +571,9 @@ function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   file = { ...f, saved: doc };
   selected = [];
   status = '';
-  toolHint = null;
-  viewer.stopTool();
+  drawing = null;
+  stopTool();
+  viewer.setDrawing(null);
   viewer.fitNext();
   update();
 }
@@ -545,6 +616,8 @@ addEventListener('keydown', (e) => {
   else if (plain && key === 'f') viewer.fit();
   else if (plain && TOOL_KEYS[key]) startTool(TOOL_KEYS[key]);
   else if (plain && key === 'e') extrude();
+  else if (plain && key === 's') startNewDrawing();
+  else if (drawing && e.key === 'Escape') exitDrawing();
   else if (e.key === 'Tab') viewer.cycle(e.shiftKey ? -1 : 1);
   else if (shapeSel.length && arrows[e.key]) {
     const [x, y] = arrows[e.key];

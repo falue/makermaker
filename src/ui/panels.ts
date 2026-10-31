@@ -30,6 +30,13 @@ export interface UIContext {
   startTool(kind: ToolKind): void;
   /** Pulls the selected shapes (or all) of the selected sketch. */
   extrude(): void;
+  /** The sketch in drawing mode. */
+  drawing: string | null;
+  /** Pick a plane for a new drawing, enter drawing mode on a sketch, leave it, stop the drawing tool. */
+  newDrawing(): void;
+  editDrawing(sketch: string): void;
+  exitDrawing(): void;
+  stopTool(): void;
   pickShape(sketch: string, shape: string, add: boolean): void;
   /** Turns the camera to look straight at a sketch. */
   lookAt(sketch: string): void;
@@ -71,7 +78,7 @@ export function renderUI(ctx: UIContext) {
   $('custom-sections').replaceChildren(...customSections(ctx));
   $('left').replaceChildren(...left(ctx));
   $('right').replaceChildren(...right(ctx));
-  $('hint').innerHTML = (ctx.hint ?? hint(ctx.selected.length, ctx.shapes.length)).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
+  $('hint').innerHTML = (ctx.hint ?? (ctx.drawing ? DRAWING_HINT : hint(ctx.selected.length, ctx.shapes.length))).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   rendering = false;
   const el = path && document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
   if (!el) return;
@@ -201,8 +208,17 @@ function toolbar(ctx: UIContext): Node[] {
   ] as const;
   const none = !ctx.selected.length;
   const sketch = ctx.doc.sketches.some((s) => s.id === ctx.selected[0]) && ctx.selected.length === 1;
+  if (ctx.drawing)
+    return [
+      tool('select', 'Select and edit shapes (Esc stops drawing)', ctx.stopTool, !ctx.tool),
+      ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the drawing`, () => ctx.startTool(kind), ctx.tool === kind)),
+      h('hr'),
+      tool('extrude', 'Extrude (E): pull the selected shapes, or the whole drawing', ctx.extrude),
+      tool('finish', 'Leave the drawing (Esc)', ctx.exitDrawing),
+    ];
   return [
-    ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into a sketch, then pull it up (click or Esc keeps it flat)`, () => ctx.startTool(kind), ctx.tool === kind)),
+    tool('sketch', 'New drawing (S): click a top face or empty space, then draw shapes on it', ctx.newDrawing),
+    ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts drawing)`, () => ctx.startTool(kind), ctx.tool === kind)),
     tool('extrude', 'Extrude (E): pull the selected shapes, or the whole selected sketch', ctx.extrude, false, !sketch),
     h('hr'),
     tool('duplicate', 'Duplicate (⌘D)', ctx.duplicate, false, none),
@@ -310,6 +326,9 @@ function right(ctx: UIContext): Node[] {
   ];
 }
 
+const DRAWING_HINT =
+  'Drawing: [R] [C] [P] draw shapes (they stay flat) · click a shape to select it, drag to move, handles resize and turn · [E] extrude · [Esc] or ✓ leaves';
+
 function hint(selected: number, shapes: number) {
   if (shapes)
     return 'Drag to move in the sketch plane (the direction picks the axis) · handles resize: [Alt] from the middle, [Shift] keep proportions, type a size, [Tab] other side · round handle turns ([Shift] 15°) · [E] extrude · [Del] delete';
@@ -354,6 +373,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       'div',
       { className: 'row' },
       h('label', { className: 'check' }, show, 'Show'),
+      ...(ctx.drawing === s.id ? [] : [h('button', { onclick: () => ctx.editDrawing(s.id), title: 'Draw more shapes into this sketch' }, 'Draw')]),
       tool('look', 'Look straight at the sketch', () => ctx.lookAt(s.id)),
       tool('extrude', 'Extrude (E): the selected shapes, or all', ctx.extrude),
     ),

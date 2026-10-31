@@ -3,10 +3,10 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { BasePlane } from '../doc/types';
 import type { PartMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
-import { toWorld } from '../doc/frames';
+import { toWorld, type Frame } from '../doc/frames';
 import { centre, inside, type DrawnProfile } from '../doc/profiles';
 import { angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
-import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type ToolHost, type ToolKind, type ToolView, type ViewSketch } from './sketch';
+import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -118,6 +118,7 @@ export class Viewer implements ToolView {
   activeSketch: string | null = null;
   overlay = new THREE.Group();
   private sketchView = new THREE.Group();
+  private drawingGrid = new THREE.Group();
   private selectedShapes: string[] = [];
   /** Shapes shown changed while they are dragged, before the change is handed over. */
   private overrides = new Map<string, DrawnProfile>();
@@ -188,7 +189,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.overlay, this.wheel);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.drawingGrid, this.overlay, this.wheel);
     // grid first, then the origin lines over it; neither hides parts
     (this.axes.material as THREE.Material).depthTest = false;
     this.axes.renderOrder = -1;
@@ -254,16 +255,31 @@ export class Viewer implements ToolView {
     return this.tool?.kind ?? null;
   }
 
-  startTool(kind: ToolKind, host: ToolHost) {
+  /** A drawing tool (`kind`; none: picking a plane); `mode`: drawing mode, pulling or plane picking. */
+  startTool(kind: ToolKind | null, host: ToolHost, mode?: ToolMode) {
     this.stopTool();
-    this.tool = new SketchTool(kind, this, host);
-    this.renderer.domElement.classList.add('drawing');
+    this.tool = new SketchTool(kind, this, host, mode);
+    if (mode?.kind !== 'pull') this.renderer.domElement.classList.add('drawing');
   }
 
   /** Pulls existing shapes of a sketch into an extrusion (E). */
   startPull(host: ToolHost, target: Target, ids: string[]) {
-    this.stopTool();
-    this.tool = new SketchTool(null, this, host, { target, ids });
+    this.startTool(null, host, { kind: 'pull', target, ids });
+  }
+
+  /** The sketch in drawing mode gets a grid on its plane (null: none). */
+  setDrawing(frame: Frame | null, size = 400, step = 10) {
+    for (const o of this.drawingGrid.children) (o as THREE.GridHelper).dispose();
+    this.drawingGrid.clear();
+    if (frame) {
+      const g = new THREE.GridHelper(size, size / step, 0x3b6fd8, 0x3b6fd8);
+      Object.assign(g.material, { transparent: true, opacity: 0.25, depthWrite: false });
+      g.matrixAutoUpdate = false;
+      // the helper lies in its x-z plane
+      g.matrix.makeBasis(new THREE.Vector3(...frame.x), new THREE.Vector3(...frame.n), new THREE.Vector3(...frame.y)).setPosition(new THREE.Vector3(...frame.o));
+      this.drawingGrid.add(g);
+    }
+    this.render();
   }
 
   /** Shows the sketches; `active`: the selected sketch, `shapes`: its selected shapes. */
