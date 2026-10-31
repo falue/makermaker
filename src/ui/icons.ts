@@ -12,7 +12,7 @@ const ICONS = {
   union: '<path d="M12 7.1A6 6 0 1 0 12 16.9A6 6 0 1 0 12 7.1z"/>',
   subtract: '<path d="M12 7.1A6 6 0 1 0 12 16.9A6 6 0 0 1 12 7.1z"/><circle cx="15" cy="12" r="6" stroke-dasharray="2 2"/>',
   intersect: '<path d="M12 7.1A6 6 0 0 1 12 16.9A6 6 0 0 1 12 7.1z"/><circle cx="9" cy="12" r="6" stroke-dasharray="2 2"/><circle cx="15" cy="12" r="6" stroke-dasharray="2 2"/>',
-  rect: '<rect x="4" y="6" width="16" height="12" rx="1"/><path d="M12 4v-2M12 22v-2" stroke-dasharray="1 2"/>',
+  rect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
   circle: '<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>',
   polygon: '<path d="M4 18l3-12 9-2 4 9-7 7z"/>',
   sketch: '<path d="M3 17l9 4 9-4-9-4z"/><path d="M15 3l3 3-6 6H9V9z"/>',
@@ -39,7 +39,7 @@ const ICONS = {
   renderNice: '<path d="M4 7h3l2-3h6l2 3h3v12H4z"/><path d="M12 9.5l1 2.2 2.3.3-1.7 1.6.4 2.3-2-1.1-2 1.1.4-2.3-1.7-1.6 2.3-.3z"/>',
   print: '<path d="M8 3h8v6H8zM10 9l1 3h2l1-3M7 15h10v5H7zM3 20h18M7 17.5h10"/>',
   unlink: '<path d="M15 9l3-3a3 3 0 0 0-4.2-4.2l-3 3M9 15l-3 3a3 3 0 0 0 4.2 4.2l3-3M4 8h3M8 4v3M20 16h-3M16 20v-3"/>',
-  fit: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
+  fit: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.2 15.2L20 20"/><rect x="7.5" y="7.5" width="6" height="6" rx=".5"/>',
   section: '<path d="M4 20L20 4"/><path d="M4 12l8-8M12 20l8-8" stroke-dasharray="2 2"/>',
 };
 

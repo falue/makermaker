@@ -1,11 +1,20 @@
 import * as THREE from 'three';
 
+/** What a render reports to and asks of whoever watches it. */
+export interface RenderWatch {
+  /** The canvas the picture grows on, to preview. */
+  show(canvas: HTMLCanvasElement): void;
+  progress(done: number): void;
+  cancelled(): boolean;
+  /** Render slower, leaving the app usable. */
+  slow(): boolean;
+}
+
 /**
  * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px: a soft sky and a
- * pale floor under the meshes, `samples` passes; `progress` gets 0..1 and stops the render by returning false. The
- * path tracer loads on first use.
+ * pale floor under the meshes, `samples` passes. The path tracer loads on first use.
  */
-export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, samples: number, progress: (done: number) => boolean) {
+export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, samples: number, watch: RenderWatch, slowMs = 120) {
   if (!meshes.length) throw new Error('Nothing to render: no body is shown');
   const { WebGLPathTracer, GradientEquirectTexture } = await import('three-gpu-pathtracer');
   const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
@@ -44,11 +53,13 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   const tracer = new WebGLPathTracer(renderer);
   Object.assign(tracer, { renderDelay: 0, fadeDuration: 0, minSamples: 0 });
   tracer.setScene(scene, view);
+  watch.show(renderer.domElement);
   try {
     while (tracer.samples < samples) {
       tracer.renderSample();
-      if (!progress(Math.min(1, tracer.samples / samples))) throw new Error('Rendering cancelled');
-      await new Promise(requestAnimationFrame);
+      watch.progress(Math.min(1, tracer.samples / samples));
+      if (watch.cancelled()) throw new Error('Rendering cancelled');
+      await new Promise((next) => (watch.slow() ? setTimeout(next, slowMs) : requestAnimationFrame(next)));
     }
     return await new Promise<Blob>((done, fail) => renderer.domElement.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));
   } finally {

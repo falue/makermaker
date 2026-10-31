@@ -1105,7 +1105,7 @@ function render() {
       run(async () => {
         const bar = busy('Rendering nice');
         try {
-          const blob = await viewer.renderNice(256, (done) => (bar.set(done), !bar.cancelled));
+          const blob = await viewer.renderNice(256, { show: bar.show, progress: bar.set, cancelled: () => bar.cancelled, slow: () => bar.background });
           download(blob, `${project()}_render.png`);
         } finally {
           bar.done();

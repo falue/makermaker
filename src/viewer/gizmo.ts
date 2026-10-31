@@ -10,18 +10,34 @@ export function along(ray: THREE.Ray, o: THREE.Vector3, d: THREE.Vector3) {
 
 /**
  * Axis wheel for moving, 1 unit per spoke (the viewer scales it to a constant screen size): a slim double arrow per
- * axis in the origin's colours, a ball in the middle and a ring for the dead zone. Drawn over everything.
+ * axis fading like the origin's lines, a ball in the middle and a ring for the dead zone. Drawn over everything.
  */
-export function axisWheel(colors = [0xff9900, 0x99ff00, 0x0099ff], centre = 0x9e9e9e): THREE.Group {
+export function axisWheel(
+  // the origin's colours (AxesHelper): each axis fades from its first colour in the middle to the second at its tips
+  colors: [number, number][] = [
+    [0xff0000, 0xff9900],
+    [0x00ff00, 0x99ff00],
+    [0x0000ff, 0x0099ff],
+  ],
+  centre = 0x9e9e9e,
+): THREE.Group {
   const wheel = new THREE.Group();
-  const look = (color: number) => new THREE.MeshBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true });
-  colors.forEach((color, k) => {
-    const m = look(color);
-    const spoke = new THREE.Group().add(
-      new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.5, 8), m),
-      new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.2, 16).translate(0, 0.85, 0), m),
-      new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.2, 16).rotateX(Math.PI).translate(0, -0.85, 0), m),
-    );
+  const look = (color = 0xffffff, fade = false) => new THREE.MeshBasicMaterial({ color, vertexColors: fade, depthTest: false, depthWrite: false, transparent: true });
+  colors.forEach(([inner, outer], k) => {
+    const m = look(0xffffff, true);
+    const parts = [
+      new THREE.CylinderGeometry(0.015, 0.015, 1.5, 8, 6),
+      new THREE.ConeGeometry(0.05, 0.2, 16).translate(0, 0.85, 0),
+      new THREE.ConeGeometry(0.05, 0.2, 16).rotateX(Math.PI).translate(0, -0.85, 0),
+    ];
+    const [a, b] = [new THREE.Color(inner), new THREE.Color(outer)];
+    for (const g of parts) {
+      const pos = g.attributes.position;
+      const fade = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) a.clone().lerp(b, Math.min(1, Math.abs(pos.getY(i)) / 0.95)).toArray(fade, i * 3);
+      g.setAttribute('color', new THREE.BufferAttribute(fade, 3));
+    }
+    const spoke = new THREE.Group().add(...parts.map((g) => new THREE.Mesh(g, m)));
     if (k === 0) spoke.rotation.z = -Math.PI / 2;
     if (k === 2) spoke.rotation.x = Math.PI / 2;
     spoke.userData.axis = k;

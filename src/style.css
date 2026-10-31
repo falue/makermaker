@@ -811,9 +811,13 @@ input.color {
   height: 13px;
   vertical-align: -2px;
   margin-right: 5px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
 }
 
-/* a long job: a big progress bar over everything */
+/* a long job: its dialog over everything (a live preview, a progress bar), or a chip at the top right */
 .busy {
   position: fixed;
   inset: 0;
@@ -824,37 +828,71 @@ input.color {
   cursor: progress;
 }
 .busy .box {
-  width: min(560px, 90vw);
-  padding: 28px 32px;
+  width: min(720px, 92vw);
+  padding: 22px 26px;
   border-radius: 14px;
   background: var(--panel);
   box-shadow: 0 10px 40px rgb(0 0 0 / 0.35);
   text-align: center;
+  cursor: default;
 }
 .busy h2 {
-  margin: 0 0 18px;
-  font-size: 20px;
+  margin: 0 0 14px;
+  font-size: 18px;
+}
+.busy .preview canvas {
+  display: block;
+  width: 100%;
+  max-height: 55vh;
+  object-fit: contain;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  background: var(--line);
 }
 .busy .track {
-  height: 28px;
-  border-radius: 14px;
+  height: 12px;
+  border-radius: 6px;
   background: var(--line);
   overflow: hidden;
 }
 .busy .fill {
   width: 0;
   height: 100%;
-  border-radius: 14px;
-  background: repeating-linear-gradient(135deg, var(--accent) 0 14px, color-mix(in srgb, var(--accent) 80%, white) 14px 28px);
+  border-radius: 6px;
+  background: var(--accent);
   transition: width 0.2s;
 }
 .busy .percent {
-  margin: 12px 0 18px;
-  font-size: 28px;
-  font-weight: 700;
+  margin: 8px 0 14px;
+  font-size: 18px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.busy button {
-  padding: 6px 18px;
+.busy .buttons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.busy button,
+.busy-chip .label {
+  padding: 6px 14px;
   cursor: pointer;
+}
+.busy-chip {
+  position: fixed;
+  top: 4px;
+  right: 330px; /* in the top bar, left of its buttons */
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.2);
+}
+.busy-chip .label {
+  border: none;
+  background: none;
+  font-variant-numeric: tabular-nums;
 }
