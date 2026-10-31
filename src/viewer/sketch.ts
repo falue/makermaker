@@ -3,7 +3,6 @@ import { BASE, toWorld, type Frame, type V3 } from '../doc/frames';
 import { centre, corners, inside, nesting, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, SketchPlacement } from '../doc/types';
-import { along } from './gizmo';
 
 export type ToolKind = 'rect' | 'circle' | 'polygon';
 export type { DrawnProfile };
@@ -68,6 +67,9 @@ export interface ToolView {
   toScreen(p: THREE.Vector3): [number, number];
   /** Screen pixels per mm at `at`. */
   pixelsPerMm(at: THREE.Vector3): number;
+  /** Hides and locks the pointer while pulling (movement then has no end), and frees it. */
+  lockPointer(): void;
+  unlockPointer(): void;
   /** Lights the whole face of a hit (none: clears it). */
   markFace(hit?: THREE.Intersection): void;
   /** Part corners in the world, to snap to. */
@@ -91,26 +93,24 @@ export interface Tool {
   dispose(): void;
 }
 
-/** Where pulling began: along the normal (`t0`), or the pointer's screen y when looking along it (`y0`); NaN: not yet. */
+/** A pull's depth before snapping (mm), summed from pointer movement. */
 export interface PullStart {
-  t0: number;
-  y0: number;
+  raw: number;
 }
 
 /**
- * Depth from the pointer: where its ray passes closest to the normal through `middle`, from where pulling began;
- * looking along the normal that is undefined, so moving the pointer up pulls towards the viewer.
+ * Adds the pointer's movement to a pull: along the normal's direction on screen (any way: up, down, sideways), or,
+ * looking along the normal, moving up pulls towards the viewer. Movement works with the pointer locked, so a pull
+ * has no end at the screen edge.
  */
-export function pullDepth(view: ToolView, e: MouseEvent, f: Frame, middle: THREE.Vector3, s: PullStart) {
+export function pullBy(view: ToolView, e: PointerEvent, f: Frame, middle: THREE.Vector3, s: PullStart) {
   const n = v3(f.n);
-  const ray = view.ray(e);
-  const facing = n.dot(ray.direction);
-  if (Math.abs(facing) > 0.95) {
-    if (Number.isNaN(s.y0)) s.y0 = e.clientY;
-    return ((s.y0 - e.clientY) / view.pixelsPerMm(middle)) * -Math.sign(facing);
-  }
-  if (Number.isNaN(s.t0)) s.t0 = along(ray, middle, n);
-  return along(ray, middle, n) - s.t0;
+  const [x0, y0] = view.toScreen(middle);
+  const [x1, y1] = view.toScreen(middle.clone().add(n));
+  const [dx, dy] = [x1 - x0, y1 - y0]; // screen px per mm along the normal
+  const ppm = view.pixelsPerMm(middle);
+  if (Math.hypot(dx, dy) < 0.2 * ppm) s.raw -= (e.movementY / ppm) * (n.dot(view.ray(e).direction) < 0 ? 1 : -1);
+  else s.raw += (e.movementX * dx + e.movementY * dy) / (dx * dx + dy * dy);
 }
 
 export interface ToolHost {
@@ -128,8 +128,7 @@ type Phase =
   /** Rectangle or circle from `anchor`; typed sizes per axis (circle: only 0, the diameter). */
   | { kind: 'shape'; target: Target; anchor: UV; cur: UV; px: [number, number]; dragged: boolean; typed: (string | undefined)[]; axis: number; alt: boolean; shift: boolean }
   | { kind: 'polygon'; target: Target; pts: UV[]; cur: UV }
-  /** t0 / y0: where pulling began (along the normal, or the pointer's screen y when looking along the normal). */
-  | { kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[]; t0: number; y0: number; depth: number; typed: string | undefined };
+  | { kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[]; raw: number; depth: number; typed: string | undefined };
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const AXIS_NAME: Record<BasePlane, string> = { xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
@@ -164,6 +163,7 @@ export class SketchTool implements Tool {
   }
 
   dispose() {
+    this.view.unlockPointer();
     this.view.markFace();
     this.clearPreview();
     this.labels.remove();
@@ -223,7 +223,10 @@ export class SketchTool implements Tool {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
         Object.assign(ph, { alt: e.altKey, shift: e.shiftKey });
       }
-    } else ph.depth = this.snap(pullDepth(this.view, e, ph.target.frame, this.middle(ph), ph), e.ctrlKey);
+    } else {
+      pullBy(this.view, e, ph.target.frame, this.middle(ph), ph);
+      ph.depth = this.snap(ph.raw, e.ctrlKey);
+    }
     this.update();
   }
 
@@ -401,7 +404,8 @@ export class SketchTool implements Tool {
   }
 
   private enterPull(target: Target, shapes: DrawnProfile[], drawn?: Drawn, ids?: string[]) {
-    this.phase = { kind: 'pull', target, drawn, shapes, ids, t0: NaN, y0: NaN, depth: 0, typed: undefined };
+    this.phase = { kind: 'pull', target, drawn, shapes, ids, raw: 0, depth: 0, typed: undefined };
+    this.view.lockPointer();
     const keep = drawn ? ' · click without pulling or [Esc]: keep it flat' : ' · [Esc] cancels';
     this.host.hint(PULL_HINT + (target.part ? ' · pulling into the part cuts' : '') + keep);
   }
@@ -418,6 +422,7 @@ export class SketchTool implements Tool {
     if (ph.kind !== 'pull') return;
     const depth = flat ? 0 : (this.typed(ph.typed) ?? ph.depth);
     this.phase = { kind: 'hover' };
+    this.view.unlockPointer();
     if (this.kind) this.host.hint(this.hoverHint()); // before done: the host may replace this tool
     if (!ph.drawn && !depth) return this.host.done(null);
     this.host.done({

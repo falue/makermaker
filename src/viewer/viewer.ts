@@ -152,6 +152,9 @@ export class Viewer implements ToolView {
   private moveLabel = Object.assign(document.createElement('div'), { className: 'size-label active', hidden: true });
   private facePick: ((face: PickedFace | null) => void) | null = null;
   private faceMark: THREE.Mesh | null = null;
+  /** A tool locked the pointer; the browser freeing it (its Esc) counts as Esc for the tool. */
+  private locked = false;
+  private escFreed = 0;
   /** Custom section planes; each keeps its positive side. */
   private custom: THREE.Plane[] = [];
   private axes = new THREE.AxesHelper(30);
@@ -232,11 +235,19 @@ export class Viewer implements ToolView {
     });
     canvas.addEventListener('dblclick', () => this.tool?.dblclick());
     canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // Ctrl+click on macOS would open it
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement || !this.locked) return;
+      this.locked = false;
+      this.escFreed = performance.now();
+      this.tool?.key(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
     // a move, a face pick or a tool sees keys first (not those typed into fields)
     addEventListener(
       'keydown',
       (e) => {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+        // the Esc that freed a locked pointer was already handled
+        if (e.key === 'Escape' && performance.now() - this.escFreed < 300) return e.preventDefault(), e.stopPropagation();
         const used = this.drag?.moved
           ? this.dragKey(e)
           : this.edit?.next
@@ -364,6 +375,16 @@ export class Viewer implements ToolView {
   lookAlong(n: THREE.Vector3) {
     // straight up/down is a pole for the orbit controls: tilt a hair towards the front
     this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone());
+  }
+
+  lockPointer() {
+    this.locked = true;
+    Promise.resolve(this.renderer.domElement.requestPointerLock()).catch(() => {}); // without the lock it still pulls, up to the screen edge
+  }
+
+  unlockPointer() {
+    this.locked = false;
+    if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
   }
 
   /** The next click on a part picks a face (null: Esc). */

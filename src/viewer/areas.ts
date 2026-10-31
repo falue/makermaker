@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { toWorld, type V3 } from '../doc/frames';
 import type { AreaMesh } from '../kernel/build';
-import { planeHit, pullDepth, uvOf, type PullStart, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { planeHit, pullBy, uvOf, type PullStart, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click areas to pick them (again to drop) · [Enter] or [E] pulls the picked areas · [Esc] cancels';
@@ -27,6 +27,7 @@ export class AreaTool implements Tool {
   }
 
   dispose() {
+    this.view.unlockPointer();
     this.clear();
     this.labels.remove();
     this.view.render();
@@ -46,7 +47,8 @@ export class AreaTool implements Tool {
   move(e: PointerEvent) {
     if (this.pull) {
       const step = e.ctrlKey ? this.view.snapStep : 0.1;
-      this.pull.depth = Math.round(pullDepth(this.view, e, this.target.frame, this.middle(), this.pull) / step) * step;
+      pullBy(this.view, e, this.target.frame, this.middle(), this.pull);
+      this.pull.depth = Math.round(this.pull.raw / step) * step;
     } else this.hover = this.areaAt(e);
     this.update();
   }
@@ -58,7 +60,10 @@ export class AreaTool implements Tool {
   key(e: KeyboardEvent) {
     const p = this.pull;
     if (p) {
-      if (e.key === 'Escape') this.pull = null;
+      if (e.key === 'Escape') {
+        this.pull = null;
+        this.view.unlockPointer();
+      }
       else if (e.key === 'Enter') return this.commit(), true;
       else if (e.key === 'Backspace') p.typed = p.typed?.slice(0, -1) || undefined;
       else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) p.typed = (p.typed ?? '') + e.key;
@@ -66,7 +71,8 @@ export class AreaTool implements Tool {
       this.host.hint(this.pull ? PULL_HINT : PICK_HINT);
     } else if (e.key === 'Escape') return this.host.done(null), true;
     else if ((e.key === 'Enter' || e.key.toLowerCase() === 'e') && this.picked.size) {
-      this.pull = { t0: NaN, y0: NaN, depth: 0, typed: undefined };
+      this.pull = { raw: 0, depth: 0, typed: undefined };
+      this.view.lockPointer();
       this.host.hint(PULL_HINT + (this.target.part ? ' · pulling into the part cuts' : ''));
     } else return false;
     this.update();
@@ -81,6 +87,7 @@ export class AreaTool implements Tool {
   private commit() {
     const depth = this.depth();
     if (!depth) return this.host.hint('Pull up or down, or type a depth · ' + PULL_HINT);
+    this.view.unlockPointer();
     const picked = [...this.picked].map((i) => this.areas[i]);
     this.host.done({
       target: this.target,
