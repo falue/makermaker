@@ -11,10 +11,13 @@
   --selected: #e8efff;
   --accent-text: #ffffff;
   color-scheme: light dark;
-  /* axis letters, as on the origin and the move gizmo (darker, to read on white) */
+  /* axis letters, fading like the origin and the move gizmo (darker, to read on white) */
   --axis-x: #d92d20;
+  --axis-x2: #ee8a00;
   --axis-y: #1f9d3a;
+  --axis-y2: #74a800;
   --axis-z: #2563eb;
+  --axis-z2: #0a8fd6;
   font: 13px/1.4 system-ui, sans-serif;
   color: var(--text);
 }
@@ -23,8 +26,11 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     --axis-x: #ff6b5e;
+    --axis-x2: #ffb03b;
     --axis-y: #4cd36b;
+    --axis-y2: #b4f04a;
     --axis-z: #5b9bff;
+    --axis-z2: #3fc0ff;
     --bg: #18191b;
     --panel: #222326;
     --line: #3a3b3f;
@@ -40,8 +46,11 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
   --axis-x: #ff6b5e;
+  --axis-x2: #ffb03b;
   --axis-y: #4cd36b;
+  --axis-y2: #b4f04a;
   --axis-z: #5b9bff;
+  --axis-z2: #3fc0ff;
   --bg: #18191b;
   --panel: #222326;
   --line: #3a3b3f;
@@ -989,16 +998,28 @@ button.primary.wide {
 
 .axis-x,
 .field span.axis-x {
-  color: var(--axis-x);
-  font-weight: 600;
+  /* fading top to bottom like the gizmo's arrows */
+  background: linear-gradient(var(--axis-x), var(--axis-x2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
 }
 .axis-y,
 .field span.axis-y {
-  color: var(--axis-y);
-  font-weight: 600;
+  /* fading top to bottom like the gizmo's arrows */
+  background: linear-gradient(var(--axis-y), var(--axis-y2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
 }
 .axis-z,
 .field span.axis-z {
-  color: var(--axis-z);
-  font-weight: 600;
+  /* fading top to bottom like the gizmo's arrows */
+  background: linear-gradient(var(--axis-z), var(--axis-z2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
 }
