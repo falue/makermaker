@@ -200,7 +200,8 @@ input.invalid {
 .row > * {
   flex: 1;
 }
-.row > button {
+.row > button,
+.row > .ref-grid {
   flex: 0;
 }
 h4 {
@@ -484,7 +485,7 @@ body.scrubbing * {
   gap: 4px;
   white-space: nowrap;
 }
-.row.profile {
+.profile {
   padding-left: 6px;
   border-left: 2px solid var(--line);
 }
@@ -684,14 +685,6 @@ input.color {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-.shapes-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.shapes-head h3 {
-  flex: 1;
-}
 /* Illustrator's reference point locator */
 .ref-grid {
   display: grid;

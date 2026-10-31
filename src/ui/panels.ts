@@ -52,12 +52,12 @@ export interface UIContext {
   /** Joins, cuts or intersects the selected bodies: the first keeps the result. */
   boolean(op: BooleanOp): void;
   toggleAutosave(): void;
-  /** Reference point of the shape fields (-1, 0, 1 per own axis): X / Y measure it, sizes and turns keep it. */
-  shapeRef: [number, number];
-  setShapeRef(ref: [number, number]): void;
-  /** Width and height change together. */
-  linkSize: boolean;
-  toggleLinkSize(): void;
+  /** Reference point of a shape's fields (-1, 0, 1 per own axis): X / Y measure it, sizes and turns keep it. */
+  shapeRef(shape: string): [number, number];
+  setShapeRef(shape: string, ref: [number, number]): void;
+  /** The shape's width and height change together. */
+  linkSize(shape: string): boolean;
+  toggleLinkSize(shape: string): void;
   /** The shape at `path`: its reference point and own size (mm); `centred`: the reference point is its stored centre. */
   measure(path: string[]): { x: number; y: number; w: number; h: number; centred: boolean };
   transformShape(path: string[], field: ShapeField, value: Expr, live: boolean): void;
@@ -432,7 +432,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
     const box = h('input', { type: 'checkbox', checked: !!q.help });
     box.onchange = () => set({ shapes: s.shapes.map((r) => (r === q ? { ...r, help: box.checked } : r)) });
     const help = h('label', { className: 'check', title: 'Help line: dashed, snapped to, never extruded' }, box, 'Help');
-    return h('div', { className: 'shape' }, h('div', { className: 'listed' }, name, help, drop), h('div', { className: 'row' }, ...shapeFields(ctx, `${at}.shapes.${j}`, q)));
+    return h('div', { className: 'shape' }, h('div', { className: 'listed' }, name, help, drop), ...shapeFields(ctx, `${at}.shapes.${j}`, q));
   });
   return [
     h(
@@ -454,13 +454,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       tool('extrude', 'Extrude (E): the selected shapes, or all', ctx.extrude),
     ),
     ...(ctx.shapes.length > 1 ? [alignRow(ctx)] : []),
-    h(
-      'div',
-      { className: 'shapes-head' },
-      h('h3', {}, `Shapes (${s.shapes.length})`),
-      refGrid(ctx),
-      tool('link', ctx.linkSize ? 'Width and height change together: click to unlink' : 'Link width and height: they change together', ctx.toggleLinkSize, ctx.linkSize),
-    ),
+    h('h3', {}, `Shapes (${s.shapes.length})`),
     ...shapes,
   ];
 }
@@ -493,19 +487,20 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   const tf = (field: ShapeField, label: string, value: Expr, raw = false) =>
     exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
   const pf = (key: string, label: string, raw = false) => exprField(ctx, `${path}.${key}`, label, raw);
-  const pos = [tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
-  if (p.kind === 'circle') return [...pos, tf('d', 'Ø', stored('d'))];
+  const row = (...cells: HTMLElement[]) => h('div', { className: 'row' }, ...cells);
+  const pos = [refGrid(ctx, p.id), tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
+  if (p.kind === 'circle') return [row(...pos, tf('d', 'Ø', stored('d')))];
   const rot = tf('rot', '°', stored('rot'), true); // degrees: shown as typed, never unit-converted
-  if (p.kind === 'ngon') return [...pos, tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true), rot];
-  if (p.kind === 'rect') return [...pos, tf('w', 'W', stored('w')), tf('h', 'H', stored('h')), pf('r', 'R'), rot];
-  return [...pos, tf('w', 'W', mm(m.w)), tf('h', 'H', mm(m.h)), pf('r', 'R'), rot];
+  if (p.kind === 'ngon') return [row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true))];
+  const link = tool('link', ctx.linkSize(p.id) ? 'Width and height change together: click to unlink' : 'Link width and height: they change together', () => ctx.toggleLinkSize(p.id), ctx.linkSize(p.id));
+  const [w, hh] = p.kind === 'rect' ? [stored('w'), stored('h')] : [mm(m.w), mm(m.h)];
+  return [row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), pf('r', 'R'))];
 }
 
-/** Illustrator's reference point locator: which point of a shape's box X / Y give, and which point stays when sizing or turning. */
-function refGrid(ctx: UIContext) {
-  const cells = [1, 0, -1].flatMap((sy) =>
-    [-1, 0, 1].map((sx) => h('button', { className: `cell${ctx.shapeRef[0] === sx && ctx.shapeRef[1] === sy ? ' on' : ''}`, onclick: () => ctx.setShapeRef([sx, sy]) })),
-  );
+/** Illustrator's reference point locator for one shape: which point of its box X / Y give, and which point stays when sizing or turning. */
+function refGrid(ctx: UIContext, shape: string) {
+  const [rx, ry] = ctx.shapeRef(shape);
+  const cells = [1, 0, -1].flatMap((sy) => [-1, 0, 1].map((sx) => h('button', { className: `cell${rx === sx && ry === sy ? ' on' : ''}`, onclick: () => ctx.setShapeRef(shape, [sx, sy]) })));
   return h('div', { className: 'ref-grid', title: 'Reference point: X / Y measure it; changing size or turn keeps it in place' }, ...cells);
 }
 
@@ -554,7 +549,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       );
       const profiles = src.profiles.map((p, k) => {
         const drop = button('×', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }), 'Remove this shape');
-        return h('div', { className: 'row profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p), ...(src.profiles.length > 1 ? [drop] : []));
+        return h('div', { className: 'profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p), ...(src.profiles.length > 1 ? [drop] : []));
       });
       return h(
         'section',

@@ -572,9 +572,10 @@ function rewrite(shape: Profile, old: DrawnProfile, next: DrawnProfile, keep: Re
   return out as Profile;
 }
 
-/** Reference point of the shape fields (-1, 0, 1 per own axis) and whether width and height change together. */
-let shapeRef: [number, number] = JSON.parse(localStorage.getItem('makermaker.shapeRef') ?? '[0,0]');
-let linkSize = false;
+/** Per shape (by id): the reference point of its fields (-1, 0, 1 per own axis; default the centre), and whether its width and height change together. */
+const shapeRefs = new Map<string, [number, number]>();
+const linkedSizes = new Set<string>();
+const refOf = (id: string) => shapeRefs.get(id) ?? [0, 0];
 
 /**
  * A shape field typed or scrubbed (the shape at `path`): X / Y place the reference point, size and turn keep it
@@ -589,17 +590,19 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
   if (errors.size) return notify(errors.get(field)!);
   const old = resolve(shape, lookup, '', new Map()) as DrawnProfile;
   const [w, h] = sizeOf(old);
+  const ref = refOf(shape.id);
+  const linkSize = linkedSizes.has(shape.id);
   let next: DrawnProfile;
   const keep: Record<string, Expr> = { [field]: value };
   if (field === 'x' || field === 'y') {
-    const at = anchorAt(old, shapeRef);
+    const at = anchorAt(old, ref);
     at[field === 'x' ? 0 : 1] = v;
-    next = placed(old, shapeRef, at);
-    if (!centred(old)) delete keep[field]; // the stored centre is not what was typed
-  } else if (field === 'rot') next = turnedTo(old, shapeRef, v);
+    next = placed(old, ref, at);
+    if (!centred(old, ref)) delete keep[field]; // the stored centre is not what was typed
+  } else if (field === 'rot') next = turnedTo(old, ref, v);
   else {
     const size: [number, number] = field === 'd' ? [v, v] : field === 'w' ? [v, linkSize && w ? (h * v) / w : h] : [linkSize && h ? (w * v) / h : w, v];
-    next = sizedTo(old, shapeRef, size);
+    next = sizedTo(old, ref, size);
   }
   const changed = setIn(doc, path, rewrite(shape, old, next, keep));
   if (live) history.replace(changed);
@@ -608,7 +611,7 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
 }
 
 /** The reference point is the stored centre: X / Y fields then edit the stored expressions. */
-const centred = (p: DrawnProfile) => !shapeRef[0] && !shapeRef[1] && p.kind !== 'polygon';
+const centred = (p: DrawnProfile, ref: [number, number]) => !ref[0] && !ref[1] && p.kind !== 'polygon';
 
 /**
  * Pushes or pulls a face live (one undo step): an end face changes its extrusion's depth, a side moves that side of
@@ -835,22 +838,23 @@ function render() {
       else history.push(next);
       update();
     },
-    shapeRef,
-    linkSize,
-    setShapeRef(r) {
-      shapeRef = r;
-      localStorage.setItem('makermaker.shapeRef', JSON.stringify(r));
+    shapeRef: refOf,
+    linkSize: (id) => linkedSizes.has(id),
+    setShapeRef(id, r) {
+      shapeRefs.set(id, r);
       render();
     },
-    toggleLinkSize() {
-      linkSize = !linkSize;
+    toggleLinkSize(id) {
+      if (!linkedSizes.delete(id)) linkedSizes.add(id);
       render();
     },
     measure(path) {
-      const p = resolve(getIn(history.current, path), lookup, '', new Map()) as DrawnProfile;
-      const [x, y] = anchorAt(p, shapeRef);
+      const shape = getIn(history.current, path) as Profile;
+      const p = resolve(shape, lookup, '', new Map()) as DrawnProfile;
+      const ref = refOf(shape.id);
+      const [x, y] = anchorAt(p, ref);
       const [w, h] = sizeOf(p);
-      return { x, y, w, h, centred: centred(p) };
+      return { x, y, w, h, centred: centred(p, ref) };
     },
     transformShape,
     select,
