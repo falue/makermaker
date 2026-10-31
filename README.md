@@ -52,4 +52,25 @@ Chromium-based browsers only.
 - Section viewer (from incase, plus Z): two-handle range per axis (cuts are fixed world positions: adding or moving bodies widens the sliders' range, the handles follow, the cut stays), invert, reset / double-click, hatched caps on cut faces; clicking a cut face picks its body. Custom sections (saved in the file): + Section (the button then reads "Click any face or plane"), click a face (hovered faces light up) or empty space for the base plane facing you; the plane lies on it (offset 0), removing the side towards the camera; name, on/off, offset, flip, delete.
 - Autosave toggle: writes into the open file a moment after each change (Chromium; no history snapshot, ⌘S adds one).
 - Icons and toolbar in incase's style.
-- Not yet: face edits, editing profiles by dragging, instances, quad view, imports/exports.
+
+## Planned, not built yet
+
+Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order they were asked for.
+
+- **Rebindable hotkeys**: every shortcut and modifier role (Ctrl snaps, Alt from the centre, ...) set by the user.
+- **Undo history list**: ⌘Z twice shows the latest steps; drag a line through the log to move in history.
+- **Nice renders**: a "render nice" button (path traced in the browser, or Mitsuba 3 through a local helper); screenshot turntable and dolly clips.
+- **Laser export**: selected profiles or flat faces as SVG / DXF at exact size (the rules for which faces qualify are still open).
+- **3D print export, properly**: print checks (closed, manifold, scale) and 3MF next to the current STL proof.
+- **Imports**: STEP, STL / 3MF / OBJ / GLB as mesh bodies, SVG / DXF into sketches.
+- **Materials**: name, sheet thickness and look; groups give defaults; thickness mismatches shown.
+- **Joints**: fixed, hinge and slider between bodies or groups.
+- **Duplicates**: linked copies (shared design, own placement) next to independent ones.
+- **Cutters, further**: one cutter cutting several bodies, an editing mode that reveals hidden cutters, a note when a cutter removes nothing.
+- **Edge references**: fillets on clicked edges (now: rules plus left-out edges), robust after edits.
+- **Face edits**: moving faces that no extrusion made (fillet, boolean and sphere faces).
+- **Sketching**: lines and arcs, dimensions, constraints if needed.
+- **Bodies' own turn**: bodies have no rotation of their own yet (only their groups turn).
+- **Drawings**: paper sheets with scaled views, dimensions, sections, PDF export.
+- **Quad view**: four editable views at once.
+- **Desktop wrapper** (Tauri / Electron) with native file access; a shared command layer for shortcuts and automation.
