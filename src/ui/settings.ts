@@ -1,13 +1,15 @@
+import { backdropCss, SKIES } from '../viewer/sky';
+
 /** Settings of this browser (not of the document). */
 export interface Settings {
   /** Ambient occlusion in the 3D view. */
   ao: boolean;
-  /** Background of the 3D view and of new renders: the theme's grey, or a gradient around the horizon (bottom colour below, top above). */
-  background: { mode: 'solid' | 'gradient'; top: string; bottom: string };
+  /** Background of the 3D view and of new renders: the theme's grey, two colours meeting sharply at the horizon, or a sky preset (`sky`: its index). */
+  background: { mode: 'solid' | 'colours' | 'sky'; top: string; bottom: string; sky: number };
 }
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2' } };
+const DEFAULTS: Settings = { ao: false, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4 } };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
@@ -50,8 +52,21 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
           make('label', { className: 'check' }, ao, 'Soft shadows in corners and creases (off while a section cuts)'),
           make('h3', {}, 'Background'),
           make('p', { className: 'hint' }, 'Of the 3D view, and of new renders (each render keeps its own).'),
-          make('div', { className: 'row' }, mode('solid', 'Solid (the theme grey)'), mode('gradient', 'Gradient')),
-          ...(bg.mode === 'gradient' ? [make('div', { className: 'row' }, colour('top', 'Top (looking up)'), colour('bottom', 'Bottom (looking down)'))] : []),
+          make('div', { className: 'row' }, mode('solid', 'Solid (the theme grey)'), mode('colours', 'Two colours'), mode('sky', 'Sky')),
+          ...(bg.mode === 'colours' ? [make('div', { className: 'row' }, colour('top', 'Above the horizon'), colour('bottom', 'Below'))] : []),
+          ...(bg.mode === 'sky'
+            ? [
+                make(
+                  'div',
+                  { className: 'skies' },
+                  ...SKIES.map(([name, b], i) => {
+                    const el = make('button', { className: `sky${bg.sky === i ? ' on' : ''}`, title: name, onclick: () => set({ ...s, background: { ...bg, sky: i } }) });
+                    el.style.background = backdropCss(b);
+                    return el;
+                  }),
+                ),
+              ]
+            : []),
         ];
       },
     ],

@@ -149,10 +149,14 @@ export interface CameraState {
   size: [number, number];
 }
 
-/** A render's background: a gradient from `top` to `bottom` of the picture (the same colour twice: solid, with a floor that catches the shadows). */
+/**
+ * A background around the horizon: colour stops from straight up (`at` 0) to straight down (`at` 1), blended over
+ * `band` degrees above and below the horizon (looking further up or down shows only the end colours). One colour:
+ * solid, and renders get a floor of it that catches the shadows.
+ */
 export interface Backdrop {
-  top: string;
-  bottom: string;
+  stops: { color: string; at: number }[];
+  band: number;
 }
 
 /** A nice render: when, from where, on which background, and a small picture taken when it was asked for. */
@@ -168,7 +172,7 @@ export interface RenderShot {
 }
 
 export interface Doc {
-  schema: 8;
+  schema: 9;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

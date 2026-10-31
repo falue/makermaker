@@ -2,7 +2,8 @@ import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, type Row } from '../doc/groups';
-import type { Backdrop, BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
+import { backdropCss, twoColours } from '../viewer/sky';
+import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { icon, tool } from './icons';
@@ -455,8 +456,6 @@ function right(ctx: UIContext): Node[] {
  * Nice renders: background for the next one, Render this view, and the renders, newest first: picture (live while
  * rendering, else the result or the thumbnail taken when it was asked for), when and how, and what can be done.
  */
-/** A backdrop as a CSS background: top above, bottom below. */
-const backdropCss = (b: Backdrop) => (b.top === b.bottom ? b.top : `linear-gradient(${b.top}, ${b.bottom})`);
 
 /**
  * Renders, newest first (snapshots and nice ones): picture (live while rendering, else the result or the thumbnail
@@ -494,10 +493,15 @@ function rendersPanel(ctx: UIContext): Node[] {
       button('Use view', () => renders.useView(shot.id), 'Turn the 3D view to this camera'),
       button('×', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) }), 'Delete this render'),
     ];
-    // its background, for the next render of this view
+    // its background, for the next render of this view: picking a colour makes it two colours (the ends of its stops)
+    const stops = shot.background.stops;
+    const ends = { top: stops[0].color, bottom: stops[stops.length - 1].color };
     const colour = (key: 'top' | 'bottom', title: string) => {
-      const el = h('input', { type: 'color', value: shot.background[key], title, className: 'color' });
-      el.onchange = () => ctx.commit(setIn(doc, ['renders', String(i), 'background', key], el.value));
+      const el = h('input', { type: 'color', value: ends[key], title, className: 'color' });
+      el.onchange = () => {
+        const next = { ...ends, [key]: el.value };
+        ctx.commit(setIn(doc, ['renders', String(i), 'background'], twoColours(next.top, next.bottom)));
+      };
       return el;
     };
     return h(
@@ -511,7 +515,7 @@ function rendersPanel(ctx: UIContext): Node[] {
         'div',
         { className: 'listed' },
         h('strong', {}, state),
-        h('span', { className: 'backdrop-pick', title: 'Background of the next render of this view: top, bottom (the same twice: solid)' }, colour('top', 'Top'), colour('bottom', 'Bottom')),
+        h('span', { className: 'backdrop-pick', title: 'Background of the next render of this view: above and below the horizon (the same twice: solid)' }, colour('top', 'Above the horizon'), colour('bottom', 'Below')),
       ),
       h('div', { className: 'row actions' }, ...actions),
     );

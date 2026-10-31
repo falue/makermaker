@@ -957,3 +957,21 @@ button.primary.wide {
 .settings .body h3:first-child {
   margin-top: 0;
 }
+
+.settings .skies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.settings .sky {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.settings .sky.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

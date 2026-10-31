@@ -45,8 +45,8 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   scene.add(model);
   const box = new THREE.Box3();
   for (const m of meshes) model.add(m), box.expandByObject(m);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ color: background.bottom, roughness: 0.9 }));
-  floor.visible = background.top === background.bottom;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ color: background.stops[0].color, roughness: 0.9 }));
+  floor.visible = background.stops.every((s) => s.color === background.stops[0].color);
   const reach = box.getSize(new THREE.Vector3()).length() * 20;
   floor.scale.set(reach, reach, 1);
   floor.position.set(box.getCenter(new THREE.Vector3()).x, box.getCenter(new THREE.Vector3()).y, box.min.z - 0.01);
@@ -82,7 +82,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     const out = Object.assign(document.createElement('canvas'), { width, height });
     const g = out.getContext('2d')!;
     const look = camera.getWorldDirection(new THREE.Vector3());
-    drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background.top, background.bottom);
+    drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background);
     g.drawImage(renderer.domElement, 0, 0);
     return await new Promise<Blob>((done, fail) => out.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));
   } finally {
