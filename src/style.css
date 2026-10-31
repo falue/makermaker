@@ -238,12 +238,14 @@ section.baked {
   border-style: dashed;
   background: repeating-linear-gradient(135deg, transparent 0 6px, var(--selected) 6px 7px);
 }
-.baked-tag {
+section .bake {
   font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: var(--line);
-  color: var(--muted);
+  padding: 1px 8px;
+  min-height: 0;
+}
+section .bake.on {
+  background: var(--text);
+  color: var(--panel);
 }
 .error {
   margin: 4px 0 0;

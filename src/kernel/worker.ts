@@ -3,7 +3,7 @@ import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { setOC } from 'replicad';
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
-import { areasOf, buildBody, meshBody, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh } from './build';
+import { areasOf, buildBody, meshBody, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
 
 export type Request = { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[] } | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] };
 export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string };
@@ -24,16 +24,18 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
   }
   const results = data.bodies.map(({ id, features }): BodyResult => {
     try {
-      const shape = buildBody(features);
+      const finishing: Finishing = { base: null, edges: [] };
+      const shape = buildBody(features, finishing);
       try {
-        return { id, mesh: meshBody(shape) };
+        return { id, mesh: meshBody(shape, finishing) };
       } finally {
         shape.delete();
+        finishing.base?.delete();
       }
     } catch (err) {
       return err instanceof FeatureError ? { id, error: err.message, featureId: err.featureId } : { id, error: String(err), featureId: '' };
     }
   });
-  const transfer = results.flatMap((r) => ('mesh' in r ? Object.values(r.mesh).map((a) => a.buffer) : []));
+  const transfer = results.flatMap((r) => ('mesh' in r ? Object.values(r.mesh).flatMap((a) => (ArrayBuffer.isView(a) ? [a.buffer] : [])) : []));
   postMessage({ kind: 'build', results } satisfies Response, { transfer });
 };

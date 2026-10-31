@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
 import { setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { buildBody, FeatureError, type BuildFeature } from './build';
+import { buildBody, FeatureError, meshBody, type BuildFeature, type Finishing } from './build';
 
 const wasm = readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm'));
 
@@ -29,7 +29,7 @@ const hole: BuildFeature = {
   through: true,
 };
 const plate = (w: number, ...more: BuildFeature[]): BuildFeature[] => [base(w), hole, ...more];
-const corners: BuildFeature = { id: 'f1', type: 'finish', mode: 'fillet', size: 6, edges: 'vertical', enabled: true };
+const corners: BuildFeature = { id: 'f1', type: 'finish', mode: 'fillet', size: 6, edges: 'vertical', enabled: true, baked: false, skip: [] };
 
 const built = (features: BuildFeature[]) => {
   const shape = buildBody(features);
@@ -141,14 +141,27 @@ describe('buildBody', () => {
     [cut, plain, both].forEach((x) => x.done());
   });
 
-  it('a boolean after a finish cuts the finished shape; a finish after it rounds the cut too', () => {
+  it('an unbaked finish also finishes later cuts; a baked one is cut through; skipped edges stay sharp', () => {
     const pin: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false }];
     const cut: BuildFeature = { id: 'b', type: 'boolean', op: 'subtract', features: pin, offset: [0, 0, -5] };
-    const top: BuildFeature = { id: 't', type: 'finish', mode: 'chamfer', size: 1, edges: 'top', enabled: true };
-    const baked = built([base(100), top, cut]);
-    const after = built([base(100), cut, top]);
-    expect(after.faces).toBe(baked.faces + 1); // the hole's top edge is chamfered only when the finish comes after
-    [baked, after].forEach((x) => x.done());
+    const top: BuildFeature = { id: 't', type: 'finish', mode: 'chamfer', size: 1, edges: 'top', enabled: true, baked: false, skip: [] };
+    const unbaked = built([base(100), top, cut]);
+    const baked = built([base(100), { ...top, baked: true }, cut]);
+    expect(unbaked.faces).toBe(baked.faces + 1); // the hole's top edge is chamfered only when unbaked
+    const skipped = built([base(100), { ...top, skip: [[0, 30, 4]] }, cut]); // the middle of the back top edge
+    expect(skipped.faces).toBe(unbaked.faces - 1);
+    [unbaked, baked, skipped].forEach((x) => x.done());
+  });
+
+  it('marks the faces and edges an unbaked finish made', () => {
+    const finishing: Finishing = { base: null, edges: [] };
+    const shape = buildBody([base(100), corners], finishing);
+    const m = meshBody(shape, finishing);
+    expect(m.finishes.length).toBe(4); // the vertical corner edges
+    expect([...m.finishFaces].filter((k) => k >= 0).length).toBe(4); // one round face each
+    expect([...m.finishEdges].filter(Boolean).length).toBe(8); // their tangent edges
+    shape.delete();
+    finishing.base?.delete();
   });
 
   it('builds regular polygons and spheres', () => {

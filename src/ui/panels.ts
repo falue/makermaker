@@ -583,13 +583,26 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' },
         (r) => setFeature({ ...feature, edges: r }),
       );
-      const under = body.features.slice(body.features.indexOf(feature) + 1).find((t) => t.type === 'boolean');
-      const baked = under ? [h('span', { className: 'baked-tag', title: `The ${under.op === 'union' ? 'join' : under.op === 'subtract' ? 'cut' : 'intersection'} after it works on the finished shape` }, 'baked')] : [];
+      const bake = h(
+        'button',
+        {
+          className: `bake${feature.baked ? ' on' : ''}`,
+          title: feature.baked
+            ? 'Baked: stays where it is, so later cuts go through it. Click to unbake (it finishes later cuts again)'
+            : 'Bake: later cuts go through it instead of being finished too',
+          onclick: () => setFeature({ ...feature, baked: !feature.baked }),
+        },
+        feature.baked ? 'Baked' : 'Bake',
+      );
+      const skipped = feature.skip.length
+        ? [h('div', { className: 'listed' }, h('span', { className: 'hint' }, `${feature.skip.length} edge${feature.skip.length > 1 ? 's' : ''} left out`), button('Restore', () => setFeature({ ...feature, skip: [] }), 'Finish the left-out edges again'))]
+        : [];
       return h(
         'section',
-        { className: `${feature.enabled ? '' : 'disabled'}${under ? ' baked' : ''}` },
-        h('h4', {}, enabled, mode, ...baked, remove),
+        { className: `${feature.enabled ? '' : 'disabled'}${feature.baked ? ' baked' : ''}` },
+        h('h4', {}, enabled, mode, bake, remove),
         h('div', { className: 'row' }, f('size', feature.mode === 'fillet' ? 'Radius' : 'Distance'), edges),
+        ...skipped,
       );
     }
   }

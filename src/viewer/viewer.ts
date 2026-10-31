@@ -30,9 +30,14 @@ export interface ViewerHost {
   setShapes(sketch: string, shapes: { id: string; profile: DrawnProfile }[], typed?: Partial<Record<'w' | 'h' | 'd', string>>): void;
   /** A typed distance in mm, or null if invalid. */
   length(text: string): number | null;
+  /** A clicked part of a finish (null: a click elsewhere on a body). */
+  pickFinish(sel: FinishPick | null): void;
   /** A length in mm, as shown to the user. */
   format(mm: number): string;
 }
+
+/** A part of a finish on a body: the one replacing the edge through `mid` (null: the whole finish). */
+export type FinishPick = { body: string; feature: string; mid: Vec3 | null };
 
 /** A face picked for a section: a point on it and the normal pointing away from the camera; `body`: whose face (none: a base plane). */
 export interface PickedFace {
@@ -46,6 +51,15 @@ const toCube = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0
 const fromCube = (v: THREE.Vector3) => new THREE.Vector3(v.x, -v.z, v.y);
 const round = (v: number, step: number) => Math.round(v / step) * step;
 const unit = (k: number) => new THREE.Vector3().setComponent(k, 1);
+
+/** The B-rep face (index) of a body mesh hit. */
+function faceOf(hit: THREE.Intersection) {
+  const groups = hit.object.userData.faces as Uint32Array;
+  const at = hit.faceIndex! * 3;
+  let k = 0;
+  while (k < groups.length && !(at >= groups[k] && at < groups[k] + groups[k + 1])) k += 2;
+  return k / 2;
+}
 
 /** Normals averaged over all vertices at the same place, so a pushed-out hull stays closed at sharp edges. */
 function smoothNormals(vertices: Float32Array, normals: Float32Array) {
@@ -202,7 +216,8 @@ export class Viewer implements ToolView {
   /** One material per body: its colour. */
   private materials = new Map<string, THREE.MeshStandardMaterial>();
   private hidden = new Set<string>();
-  private edgeMaterial = new THREE.LineBasicMaterial({ color: 0x2a2a2a });
+  /** Body edges: their colours per point (see `setBody`). */
+  private edgeMaterial = new THREE.LineBasicMaterial({ vertexColors: true });
   /** Cutters (tool bodies of cuts): red outlines seen through everything, no fill (still picked by their faces). */
   private cutters = new Set<string>();
   private cutterEdges = [0xe5484d, 0xff8c1a].map((color) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
@@ -284,7 +299,13 @@ export class Viewer implements ToolView {
       this.toolPress = false;
       this.tool?.up();
     });
-    canvas.addEventListener('dblclick', (e) => this.tool?.dblclick(e));
+    canvas.addEventListener('dblclick', (e) => {
+      if (this.tool) return this.tool.dblclick(e);
+      // a double-click on a finish face picks the whole finish
+      const hit = this.frontHit(e);
+      const f = hit && this.finishAt(hit);
+      if (f) this.host.pickFinish({ body: hit.object.userData.bodyId, feature: f.feature, mid: null });
+    });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // Ctrl+click on macOS would open it
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement || !this.locked) return;
@@ -569,16 +590,23 @@ export class Viewer implements ToolView {
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     geometry.setAttribute('smoothNormal', smoothNormals(mesh.vertices, mesh.normals));
     const solid = new THREE.Mesh(geometry);
-    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners });
+    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes });
     const silhouette = new THREE.Mesh(geometry, this.outline);
     silhouette.raycast = () => {}; // never picked
     silhouette.userData.outline = true;
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
+    // edges unbaked finishes made are light grey, the rest near black
+    const colors = new Float32Array(mesh.edges.length);
+    const [dark, light] = [new THREE.Color(0x2a2a2a), new THREE.Color(0xb4b4b4)];
+    for (let k = 0; k < mesh.edgeGroups.length; k += 2)
+      for (let i = mesh.edgeGroups[k]; i < mesh.edgeGroups[k] + mesh.edgeGroups[k + 1]; i++) colors.set((mesh.finishEdges[k / 2] ? light : dark).toArray(), i * 3);
+    edges.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const lines = new THREE.LineSegments(edges);
     lines.userData.edgeGroups = mesh.edgeGroups;
     group.add(solid, lines, silhouette);
     this.dress(id);
+    if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
     if (!this.fitted) {
       this.fitted = true;
       requestAnimationFrame(() => this.fit()); // after the other bodies of this batch
@@ -894,31 +922,54 @@ export class Viewer implements ToolView {
 
   /** Lights the whole B-rep face of `hit` (none: clears it). */
   markFace(hit?: THREE.Intersection, color = 0xff8c1a) {
-    if (this.faceMark) {
-      this.faceMark.removeFromParent();
-      this.faceMark.geometry.dispose();
-      (this.faceMark.material as THREE.Material).dispose();
-      this.faceMark = null;
+    this.faceMark = this.replaceMark(this.faceMark, hit ? (hit.object as THREE.Mesh) : undefined, hit ? [faceOf(hit)] : [], color);
+  }
+
+  /** Lights B-rep faces `faces` of body mesh `mesh`, replacing mark `old` (none: only removes it). */
+  private replaceMark(old: THREE.Mesh | null, mesh: THREE.Mesh | undefined, faces: number[], color: number) {
+    if (old) {
+      old.removeFromParent();
+      old.geometry.dispose();
+      (old.material as THREE.Material).dispose();
     }
-    const mesh = hit?.object as THREE.Mesh | undefined;
-    const faces = mesh?.userData.faces as Uint32Array | undefined;
-    if (mesh && faces && hit!.faceIndex != null) {
-      const at = hit!.faceIndex * 3;
-      let k = 0;
-      while (k < faces.length && !(at >= faces[k] && at < faces[k] + faces[k + 1])) k += 2;
-      const index = mesh.geometry.index!.array.subarray(faces[k], faces[k] + faces[k + 1]);
+    const groups = mesh?.userData.faces as Uint32Array | undefined;
+    let mark: THREE.Mesh | null = null;
+    if (mesh && groups && faces.length) {
+      const index = faces.flatMap((k) => [...mesh.geometry.index!.array.subarray(groups[k * 2], groups[k * 2] + groups[k * 2 + 1])]);
       const pos = mesh.geometry.attributes.position;
       const points = new Float32Array(index.length * 3);
       index.forEach((v, i) => points.set([pos.getX(v), pos.getY(v), pos.getZ(v)], i * 3));
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
-      this.faceMark = new THREE.Mesh(
+      mark = new THREE.Mesh(
         geo,
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
       );
-      mesh.parent!.add(this.faceMark);
+      mesh.parent!.add(mark);
     }
     this.render();
+    return mark;
+  }
+
+  /** The selected part of a finish (`mid`: the edge it replaced; null: the whole finish), lit on its body. */
+  private finishSel: FinishPick | null = null;
+  private finishMark: THREE.Mesh | null = null;
+
+  setFinishMark(sel: FinishPick | null) {
+    this.finishSel = sel;
+    const solid = sel && (this.bodies.get(sel.body)?.children[0] as THREE.Mesh | undefined);
+    const finishes = (solid?.userData.finishes ?? []) as { feature: string; mid: number[] }[];
+    const same = (a: number[], b: number[]) => a.every((v, k) => Math.abs(v - b[k]) < 0.01);
+    const faces = [...((solid?.userData.finishFaces ?? []) as Int32Array)].flatMap((k, f) =>
+      k >= 0 && finishes[k].feature === sel!.feature && (!sel!.mid || same(finishes[k].mid, sel!.mid)) ? [f] : [],
+    );
+    this.finishMark = this.replaceMark(this.finishMark, solid ?? undefined, faces, 0xff8c1a);
+  }
+
+  /** The finish part under a body hit, if the hit face is one. */
+  private finishAt(hit: THREE.Intersection): { feature: string; mid: Vec3 } | null {
+    const k = (hit.object.userData.finishFaces as Int32Array | undefined)?.[faceOf(hit)] ?? -1;
+    return k >= 0 ? (hit.object.userData.finishes as { feature: string; mid: Vec3 }[])[k] : null;
   }
 
   /** The body face under the pointer, if it faces the camera (not a back face seen through a cut). */
@@ -1147,6 +1198,8 @@ export class Viewer implements ToolView {
     const member = this.selection.includes(id);
     if (!member) this.host.select(id, false);
     if (!this.selection.includes(id)) return; // the click went to a tool (deleted it, say)
+    const f = this.finishAt(hit);
+    this.host.pickFinish(f && { body: id, ...f });
     const start = hit.point.clone();
     const group = this.withOwned(this.selection).map((g) => ({ id: g, from: this.group(g).position.clone() }));
     this.startDrag(e, ray.ray, start, {

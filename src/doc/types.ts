@@ -54,7 +54,11 @@ export type ExtrudeSource =
   | { kind: 'sketch'; sketch: string; shapes: string[]; areas?: Area[] }
   | { kind: 'own'; plane: SketchPlane; profiles: Profile[]; areas?: Area[] };
 
-export type FinishFeature = { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean };
+/**
+ * Rounds or chamfers the edges its rule picks, except `skip` (body points on edges taken out one by one). Unbaked it
+ * runs last, so it also finishes edges made later (by booleans); baked it stays where it is in the list.
+ */
+export type FinishFeature = { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean; baked: boolean; skip: [number, number, number][] };
 
 /** A ball with diameter `d` centred on x, y, z (body coordinates). */
 export type SphereFeature = { id: string; type: 'sphere'; x: Expr; y: Expr; z: Expr; d: Expr };

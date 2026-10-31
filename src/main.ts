@@ -18,7 +18,7 @@ import { sectionControls } from './ui/sections';
 import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
-import { Viewer, type PickedFace, type Vec3 } from './viewer/viewer';
+import { Viewer, type FinishPick, type PickedFace, type Vec3 } from './viewer/viewer';
 
 const tips = installTooltips();
 const history = new History<Doc>(sampleDoc());
@@ -44,6 +44,8 @@ let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; sa
 };
 let status = '';
 let toolHint: string | null = null;
+/** The selected part of a fillet / chamfer (Del leaves that edge out; the whole finish: deletes it). */
+let finishSel: FinishPick | null = null;
 /** A face pick running for the extrude tool (E, then a face). */
 let extrudePick = false;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
@@ -70,6 +72,11 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   pickShape,
   setShapes,
   length,
+  pickFinish(sel) {
+    finishSel = sel;
+    viewer.setFinishMark(sel);
+    render();
+  },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
 });
 
@@ -279,6 +286,7 @@ function picked(sel: string[], list: string[], id: string, how: Pick) {
  * (unless adding). Selecting something else leaves sketch mode.
  */
 function select(id: string | null, how: Pick = false) {
+  if (finishSel) viewer.setFinishMark((finishSel = null));
   if (pending && id && history.current.bodies.some((b) => b.id === id)) return pending.pick(id);
   // while picking areas, a sketch chosen in the list gets all its areas picked
   if (toolMode === 'pull' && sketching && id && history.current.sketches.some((s) => s.id === id)) {
@@ -476,6 +484,15 @@ function cancelPending() {
 function remove() {
   if (!selected.length) return pickFor('delete', remove);
   const doc = history.current;
+  if (finishSel) {
+    // a part of a finish: its edge is left out; the whole finish: it goes
+    const { body, feature, mid } = finishSel;
+    viewer.setFinishMark((finishSel = null));
+    const bodies = doc.bodies.map((b) =>
+      b.id !== body ? b : { ...b, features: b.features.flatMap((f) => (f.id !== feature || f.type !== 'finish' ? [f] : mid ? [{ ...f, skip: [...f.skip, mid] }] : [])) },
+    );
+    return commit({ ...doc, bodies });
+  }
   const sketch = activeSketch();
   if (sketch && shapeSel.length) {
     const gone = shapeSel;
@@ -865,7 +882,7 @@ function render() {
     status,
     shapes: shapeSel,
     active: pending?.tool ?? (extrudePick || (toolMode === 'pull' && !viewer.activeTool) ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
-    hint: toolHint,
+    hint: toolHint ?? (finishSel ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish` : null),
     autosave,
     notify,
     paramValue(name) {

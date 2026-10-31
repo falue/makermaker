@@ -20,6 +20,20 @@ export interface BodyMesh {
   corners: Float32Array;
   /** Per B-rep edge: start and count of its points in `edges` (segment pairs). */
   edgeGroups: Uint32Array;
+  /** Per B-rep edge: 1 if an unbaked finish made it. */
+  finishEdges: Uint8Array;
+  /** Per B-rep face: the index in `finishes` of the finished edge it rounds or chamfers, else -1. */
+  finishFaces: Int32Array;
+  /** Edges unbaked finishes worked on: the feature and a point on the edge (its middle; `skip` takes these). */
+  finishes: { feature: string; mid: V3 }[];
+}
+
+type V3 = [number, number, number];
+
+/** What unbaked finishes start from and which edges they work on (sampled points), filled by `buildBody`. */
+export interface Finishing {
+  base: Shape3D | null;
+  edges: { feature: string; size: number; mid: V3; pts: V3[] }[];
 }
 
 export class FeatureError extends Error {
@@ -36,8 +50,11 @@ type Circle = [number, number, number];
 
 const EPS = 1e-3;
 
-/** Features run in order: a finish before a boolean is baked under it (the boolean cuts the finished shape). */
-export function buildBody(features: BuildFeature[]): Shape3D {
+/**
+ * Features run in order, except unbaked finishes: they run last, so they also finish edges of later booleans. A baked
+ * finish stays in place: a later boolean cuts through it. `finishing` gets what the unbaked ones did.
+ */
+export function buildBody(features: BuildFeature[], finishing?: Finishing): Shape3D {
   const plan = frames(features.filter((f) => f.type !== 'boolean'));
   const circles: Circle[] = [];
   let shape: Shape3D | null = null;
@@ -51,9 +68,11 @@ export function buildBody(features: BuildFeature[]): Shape3D {
       if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
       if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
       if (s.type === 'boolean') apply(s.id, (cur) => boolean(cur, s));
-      if (s.type === 'finish' && s.enabled) apply(s.id, (cur) => finish(cur, s, circles));
+      if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
+    if (finishing) finishing.base = (shape as Shape3D).clone();
+    for (const s of features) if (s.type === 'finish' && s.enabled && !s.baked) apply(s.id, (cur) => finish(cur, s, circles, finishing));
   } catch (err) {
     (shape as Shape3D | null)?.delete();
     throw err;
@@ -61,10 +80,42 @@ export function buildBody(features: BuildFeature[]): Shape3D {
   return shape;
 }
 
-export function meshBody(shape: Shape3D): BodyMesh {
+/** Distance from `p` to a polyline (points; `pairs`: separate segments a-b, c-d, ...). */
+function toLine(p: V3, pts: ArrayLike<number>, pairs: boolean) {
+  let best = Infinity;
+  for (let i = 0; i + 5 < pts.length; i += pairs ? 6 : 3) {
+    const a = [pts[i], pts[i + 1], pts[i + 2]];
+    const d = [pts[i + 3] - a[0], pts[i + 4] - a[1], pts[i + 5] - a[2]];
+    const l = d[0] * d[0] + d[1] * d[1] + d[2] * d[2] || 1;
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / l));
+    best = Math.min(best, Math.hypot(p[0] - a[0] - t * d[0], p[1] - a[1] - t * d[1], p[2] - a[2] - t * d[2]));
+  }
+  return best;
+}
+
+/** The mesh of a body; `finishing` (from `buildBody`) marks the edges and faces its unbaked finishes made. */
+export function meshBody(shape: Shape3D, finishing?: Finishing): BodyMesh {
   const opts = { tolerance: 0.02, angularTolerance: 0.1 };
   const m = shape.mesh(opts);
   const e = shape.meshEdges(opts);
+  // an edge the finishes made lies on no edge of the shape before them
+  const before = finishing?.base?.meshEdges(opts).lines;
+  const point = (xyz: ArrayLike<number>, i: number): V3 => [xyz[i * 3], xyz[i * 3 + 1], xyz[i * 3 + 2]];
+  const finishEdges = new Uint8Array(e.edgeGroups.map((g) => +(!!before && toLine(point(e.lines, g.start + (g.count >> 1)), before, true) > 0.05)));
+  // a finish face lies wholly within its size of the edge it replaced
+  const lines = finishing?.edges.map((f) => f.pts.flat()) ?? [];
+  const finishFaces = new Int32Array(
+    m.faceGroups.map((g) => {
+      const corners = Array.from(m.triangles.slice(g.start, g.start + g.count), (v) => point(m.vertices, v));
+      let best = -1;
+      let worst = Infinity;
+      finishing?.edges.forEach((f, k) => {
+        const far = Math.max(...corners.map((c) => toLine(c, lines[k], false)));
+        if (far <= f.size * 1.5 + 0.05 && far < worst) [best, worst] = [k, far];
+      });
+      return best;
+    }),
+  );
   // edge groups count points: an edge's ends are its group's first and last point
   const ends = new Map<string, number[]>();
   for (const g of e.edgeGroups)
@@ -80,6 +131,9 @@ export function meshBody(shape: Shape3D): BodyMesh {
     faces: new Uint32Array(m.faceGroups.flatMap((g) => [g.start, g.count])),
     corners: new Float32Array([...ends.values()].flat()),
     edgeGroups: new Uint32Array(e.edgeGroups.flatMap((g) => [g.start, g.count])),
+    finishEdges,
+    finishFaces,
+    finishes: finishing?.edges.map(({ feature, mid }) => ({ feature, mid })) ?? [],
   };
 }
 
@@ -245,13 +299,17 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   }
 }
 
-function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[]): Shape3D {
+function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finishing?: Finishing): Shape3D {
   if (!shape) throw new Error('nothing to finish yet');
   positive(s.size, s.mode === 'fillet' ? 'radius' : 'distance');
   const [[, , bottom], [, , top]] = shape.boundingBox.bounds;
-  const pick = edgeRule(s.edges, bottom, top, circles);
-  const count = shape.edges.filter(pick).length;
+  const rule = edgeRule(s.edges, bottom, top, circles);
+  const at = (e: Edge, t: number): V3 => e.pointAt(t).toTuple() as V3;
+  const pick = (e: Edge) => rule(e) && !s.skip.some((p) => Math.hypot(...at(e, 0.5).map((v, k) => v - p[k])) < 0.01);
+  const picked = shape.edges.filter(pick);
+  const count = picked.length;
   if (!count) throw new Error(`no edges match "${s.edges}"`);
+  for (const e of picked) finishing?.edges.push({ feature: s.id, size: s.size, mid: at(e, 0.5), pts: Array.from({ length: 9 }, (_, i) => at(e, i / 8)) });
   const size = (e: Edge) => (pick(e) ? s.size : null);
   try {
     return s.mode === 'fillet' ? shape.fillet(size) : shape.chamfer(size);
