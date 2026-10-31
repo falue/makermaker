@@ -136,12 +136,38 @@ export interface Group {
   origin: { kind: 'parent' } | { kind: 'custom'; position: [Expr, Expr, Expr]; rotation: { rx: Expr; ry: Expr; rz: Expr } };
 }
 
+/** A camera as it was: enough to render the same picture again with newer model data. */
+export interface CameraState {
+  ortho: boolean;
+  position: [number, number, number];
+  target: [number, number, number];
+  up: [number, number, number];
+  /** Perspective: vertical field of view (degrees); ortho: visible height (mm). */
+  fov: number;
+  height: number;
+  /** Picture size in px. */
+  size: [number, number];
+}
+
+/** A nice render: when, from where, on which background, and a small picture taken when it was asked for. */
+export interface RenderShot {
+  id: string;
+  at: string;
+  camera: CameraState;
+  background: string;
+  /** PNG data URL, about 320 px wide. */
+  thumbnail: string;
+}
+
 export interface Doc {
-  schema: 5;
+  schema: 6;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];
   sketches: Sketch[];
   groups: Group[];
   sections: Section[];
+  /** Nice renders, newest first, and the background the next one gets. */
+  renders: RenderShot[];
+  renderBackground: string;
 }

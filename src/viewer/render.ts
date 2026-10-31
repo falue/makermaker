@@ -1,4 +1,18 @@
 import * as THREE from 'three';
+import type { CameraState } from '../doc/types';
+
+/** A camera as `state` describes it (z up, like the viewer's). */
+export function cameraFrom(state: CameraState): THREE.Camera {
+  const [w, h] = state.size;
+  const cam = state.ortho
+    ? new THREE.OrthographicCamera((-state.height * w) / h / 2, (state.height * w) / h / 2, state.height / 2, -state.height / 2, -50000, 50000)
+    : new THREE.PerspectiveCamera(state.fov, w / h, 1, 50000);
+  cam.up.set(...state.up);
+  cam.position.set(...state.position);
+  cam.lookAt(...state.target);
+  cam.updateMatrixWorld();
+  return cam;
+}
 
 /** What a render reports to and asks of whoever watches it. */
 export interface RenderWatch {
@@ -11,15 +25,16 @@ export interface RenderWatch {
 }
 
 /**
- * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px: a soft sky and a
- * pale floor under the meshes, `samples` passes. The path tracer loads on first use.
+ * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px: lit by a soft
+ * sky, on a plain `background` with a floor of the same colour (so only its shadows show), `samples` passes. The path
+ * tracer loads on first use.
  */
-export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, samples: number, watch: RenderWatch, slowMs = 120) {
+export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: string, samples: number, watch: RenderWatch, slowMs = 120) {
   if (!meshes.length) throw new Error('Nothing to render: no body is shown');
   const { WebGLPathTracer, GradientEquirectTexture } = await import('three-gpu-pathtracer');
   const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
   renderer.setSize(width, height, false);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMapping = THREE.NeutralToneMapping; // keeps the background colour close to what was picked
   const scene = new THREE.Scene();
   // the sky is y-up, the model z-up: everything turns a quarter around x
   const turn = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
@@ -28,7 +43,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   scene.add(model);
   const box = new THREE.Box3();
   for (const m of meshes) model.add(m), box.expandByObject(m);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ color: 0xf0f0ee, roughness: 0.9 }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ color: background, roughness: 0.9 }));
   const reach = box.getSize(new THREE.Vector3()).length() * 20;
   floor.scale.set(reach, reach, 1);
   floor.position.set(box.getCenter(new THREE.Vector3()).x, box.getCenter(new THREE.Vector3()).y, box.min.z - 0.01);
@@ -37,7 +52,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   sky.topColor.set(0xffffff);
   sky.bottomColor.set(0x9aa0a8);
   sky.update();
-  scene.background = sky;
+  scene.background = new THREE.Color(background);
   scene.environment = sky;
   const view = camera.clone();
   if (view instanceof THREE.OrthographicCamera) {

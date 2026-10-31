@@ -15,9 +15,8 @@ import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, type Pick, type ShapeField, type UIContext } from './ui/panels';
+import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
-import { busy } from './ui/busy';
 import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
@@ -1101,21 +1100,40 @@ function render() {
       localStorage.setItem('makermaker.theme', theme);
       viewer.applyTheme();
     },
-    renderNice: () =>
-      run(async () => {
-        const bar = busy('Rendering nice');
-        try {
-          const blob = await viewer.renderNice(256, { show: bar.show, progress: bar.set, cancelled: () => bar.cancelled, slow: () => bar.background });
-          download(blob, `${project()}_render.png`);
-        } finally {
-          bar.done();
-        }
-      }),
+    renders: {
+      open: rendersOpen,
+      jobs,
+      toggle() {
+        rendersOpen = !rendersOpen;
+        render();
+      },
+      shoot: () => run(shoot),
+      again(id) {
+        jobs.set(id, { state: 'waiting', done: 0 });
+        render();
+        run(renderQueue);
+      },
+      cancel(id) {
+        const job = jobs.get(id);
+        if (job?.state === 'waiting') Object.assign(job, { state: 'failed', error: 'Cancelled' });
+        else if (job) job.cancel = true;
+        render();
+      },
+      download(id) {
+        const image = jobs.get(id)?.image;
+        const n = history.current.renders.length - history.current.renders.findIndex((r) => r.id === id);
+        if (image) download(image, `${project()}_render_${n}.png`);
+      },
+      useView(id) {
+        const shot = history.current.renders.find((r) => r.id === id);
+        if (shot) viewer.setCameraState(shot.camera);
+      },
+    },
     renderImage: () => run(async () => download(await viewer.snapshot(2), `${project()}_snapshot.png`)),
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 5, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 6, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [], renderBackground: '#f4f4f2' }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -1146,6 +1164,65 @@ async function exportPrint() {
   if (files.length === 1) download(new Blob([files[0].data], { type: 'model/stl' }), `${files[0].name}.stl`);
   else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.stl`, new Uint8Array(f.data)])))]), `${project()}_stl.zip`);
   notify(`Exported ${files.length} STL file${files.length === 1 ? '' : 's'}${failed.length ? `; could not build: ${failed.join(', ')}` : ''}`);
+}
+
+/** The right column shows the renders. */
+let rendersOpen = false;
+/** Renders of this session by shot id: waiting, rendering (the canvas it grows on), done (the picture) or failed. */
+const jobs = new Map<string, RenderJob>();
+let queueRunning = false;
+
+/**
+ * Render nice: takes a small picture of the view at once and queues the real render (the camera is saved with it, so
+ * it can be rendered again with newer model data).
+ */
+async function shoot() {
+  const camera = viewer.cameraState();
+  const small = await viewer.thumbnail();
+  const thumbnail = await new Promise<string>((done) => {
+    const reader = new FileReader();
+    reader.onload = () => done(reader.result as string);
+    reader.readAsDataURL(small);
+  });
+  const doc = history.current;
+  const shot = { id: newId(), at: new Date().toISOString(), camera, background: doc.renderBackground, thumbnail };
+  jobs.set(shot.id, { state: 'waiting', done: 0 });
+  commit({ ...doc, renders: [shot, ...doc.renders] });
+  await renderQueue();
+}
+
+/** Renders the waiting shots one after another, oldest first; slower while the renders panel is closed. */
+async function renderQueue() {
+  if (queueRunning) return;
+  queueRunning = true;
+  try {
+    for (;;) {
+      const shot = [...history.current.renders].reverse().find((r) => jobs.get(r.id)?.state === 'waiting');
+      if (!shot) break;
+      const job = jobs.get(shot.id)!;
+      job.state = 'rendering';
+      render();
+      let shown = -1;
+      try {
+        const image = await viewer.renderNice(shot.camera, shot.background, 256, {
+          show: (canvas) => ((job.canvas = canvas), render()),
+          progress(done) {
+            job.done = done;
+            if (Math.floor(done * 100) !== shown) (shown = Math.floor(done * 100)), render();
+          },
+          cancelled: () => !!job.cancel || !history.current.renders.some((r) => r.id === shot.id),
+          slow: () => !rendersOpen,
+        });
+        Object.assign(job, { state: 'done', image, url: URL.createObjectURL(image) });
+      } catch (err) {
+        Object.assign(job, { state: 'failed', error: (err as Error).message });
+      }
+      job.canvas = undefined;
+      render();
+    }
+  } finally {
+    queueRunning = false;
+  }
 }
 
 /** The open file's name without its extension. */

@@ -3,7 +3,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { BasePlane } from '../doc/types';
+import type { BasePlane, CameraState } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
@@ -14,7 +14,7 @@ import { AreaTool } from './areas';
 import { FacePullTool } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
-import { pathTraced, type RenderWatch } from './render';
+import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -821,6 +821,11 @@ export class Viewer implements ToolView {
     return blob!;
   }
 
+  /** A small snapshot, `width` px wide. */
+  thumbnail(width = 320) {
+    return this.snapshot(width / this.renderer.domElement.width);
+  }
+
   /** Extra snap points (world), each with a small mark: sphere centres. */
   setSnapPoints(points: THREE.Vector3[]) {
     this.snapPoints = points;
@@ -831,8 +836,36 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The view path traced (`samples` passes) at `scale` times the screen size: shown bodies only, cutters and overlays left out. */
-  renderNice(samples: number, watch: RenderWatch, scale = 2) {
+  /** The camera now, for rendering the same picture later; the picture is `scale` times the view's size. */
+  cameraState(scale = 2): CameraState {
+    const size = this.renderer.getSize(new THREE.Vector2()).multiplyScalar(scale);
+    return {
+      ortho: this.isOrthographic,
+      position: this.camera.position.toArray(),
+      target: this.controls.target.toArray(),
+      up: this.camera.up.toArray(),
+      fov: this.perspective.fov,
+      height: this.viewHeight / this.orthographic.zoom,
+      size: [Math.round(size.x), Math.round(size.y)],
+    };
+  }
+
+  /** Turns the view to a saved camera (its picture size aside). */
+  setCameraState(state: CameraState) {
+    this.setOrthographic(state.ortho);
+    this.controls.target.set(...state.target);
+    this.camera.position.set(...state.position);
+    if (state.ortho) {
+      this.orthographic.zoom = this.viewHeight / state.height;
+      this.orthographic.updateProjectionMatrix();
+    }
+    this.controls.update();
+    this.leaveSideView();
+    this.render();
+  }
+
+  /** A path traced picture (`samples` passes) from a saved camera: shown bodies only, cutters and overlays left out. */
+  renderNice(camera: CameraState, background: string, samples: number, watch: RenderWatch) {
     const meshes = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children[0] as THREE.Mesh | undefined;
       if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];
@@ -840,8 +873,7 @@ export class Viewer implements ToolView {
       m.applyMatrix4(g.matrixWorld);
       return [m];
     });
-    const size = this.renderer.getSize(new THREE.Vector2()).multiplyScalar(scale);
-    return pathTraced(meshes, this.camera, Math.round(size.x), Math.round(size.y), samples, watch);
+    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, samples, watch);
   }
 
   render = () => {

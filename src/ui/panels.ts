@@ -63,9 +63,20 @@ export interface UIContext {
   toggleTheme(): void;
   /** Downloads STL files of the selected (else shown) bodies. */
   exportPrint(): void;
-  /** Downloads the view as a PNG; nice: path traced. */
+  /** Downloads the view as a PNG. */
   renderImage(): void;
-  renderNice(): void;
+  /** Nice renders: the panel (open: it replaces the right column), this session's jobs, and what can be done. */
+  renders: {
+    open: boolean;
+    jobs: Map<string, RenderJob>;
+    toggle(): void;
+    /** Renders the view now (a thumbnail at once, the picture when its turn comes). */
+    shoot(): void;
+    again(id: string): void;
+    cancel(id: string): void;
+    download(id: string): void;
+    useView(id: string): void;
+  };
   /** Reference point of a shape's fields (-1, 0, 1 per own axis): X / Y measure it, sizes and turns keep it. */
   shapeRef(shape: string): [number, number];
   setShapeRef(shape: string, ref: [number, number]): void;
@@ -87,6 +98,17 @@ export interface UIContext {
 const $ = (id: string) => document.getElementById(id)!;
 
 export type Pick = boolean | 'range';
+
+/** A nice render in this session: waiting, rendering (on `canvas`, `done` 0..1), done (`image`, `url`) or failed. */
+export interface RenderJob {
+  state: 'waiting' | 'rendering' | 'done' | 'failed';
+  done: number;
+  canvas?: HTMLCanvasElement;
+  image?: Blob;
+  url?: string;
+  error?: string;
+  cancel?: boolean;
+}
 export type ShapeField = 'x' | 'y' | 'w' | 'h' | 'd' | 'rot';
 
 /** A list click as in file lists: Shift a range, ⌘ / Ctrl toggles. Ctrl-click on macOS (a context menu click) toggles too. */
@@ -250,7 +272,7 @@ function topbar(ctx: UIContext): Node[] {
     h('span', { className: 'status' }, ctx.status),
     tool('print', 'Export for 3D print: one STL per selected body (else all shown ones), as placed in the world; several come zipped', ctx.exportPrint),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection)', ctx.renderImage),
-    tool('renderNice', 'Render nice: path traced (soft light, shadows), twice the screen resolution; takes a while, Esc cancels', ctx.renderNice),
+    tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),
     tool('theme', 'Light / dark', ctx.toggleTheme),
     h('a', { className: 'link', href: 'https://github.com/falue/makermaker', target: '_blank', rel: 'noopener', title: 'Source code on GitHub', innerHTML: GITHUB }),
     h('a', { className: 'link', href: 'https://buymeacoffee.com/falue', target: '_blank', rel: 'noopener', title: 'Support MAKERMAKER' }, '☕ Buy me a coffee'),
@@ -406,6 +428,67 @@ function left(ctx: UIContext): Node[] {
 }
 
 function right(ctx: UIContext): Node[] {
+  if (ctx.renders.open) return rendersPanel(ctx);
+  // renders going on while the panel is closed: a status row on top
+  const busy = ctx.doc.renders.filter((r) => ['waiting', 'rendering'].includes(ctx.renders.jobs.get(r.id)?.state ?? ''));
+  const now = busy.map((r) => ctx.renders.jobs.get(r.id)!).find((j) => j.state === 'rendering');
+  const status = busy.length
+    ? [h('button', { className: 'render-status', onclick: ctx.renders.toggle, title: 'Show the renders' }, `Rendering${busy.length > 1 ? ` (${busy.length} queued)` : ''}: ${Math.floor((now?.done ?? 0) * 100)} %`)]
+    : [];
+  return [...status, ...selectionPanel(ctx)];
+}
+
+/**
+ * Nice renders: background for the next one, Render this view, and the renders, newest first: picture (live while
+ * rendering, else the result or the thumbnail taken when it was asked for), when and how, and what can be done.
+ */
+function rendersPanel(ctx: UIContext): Node[] {
+  const { doc, renders } = ctx;
+  const background = h('input', { type: 'color', value: doc.renderBackground, title: 'Background of the next render', className: 'color' });
+  background.onchange = () => ctx.commit({ ...doc, renderBackground: background.value });
+  const shots = doc.renders.map((shot) => {
+    const job = renders.jobs.get(shot.id);
+    const picture = job?.canvas ?? h('img', { src: job?.url ?? shot.thumbnail, alt: 'Render' });
+    const c = shot.camera;
+    const how = `${c.ortho ? 'Ortho' : `Persp ${Math.round(c.fov)}°`} · ${c.size[0]} × ${c.size[1]} px`;
+    const state = !job
+      ? 'Not rendered in this session'
+      : job.state === 'waiting'
+        ? 'Waiting'
+        : job.state === 'rendering'
+          ? `Rendering ${Math.floor(job.done * 100)} %`
+          : job.state === 'done'
+            ? 'Done'
+            : job.error ?? 'Failed';
+    const bar = job?.state === 'rendering' ? [h('div', { className: 'track' }, Object.assign(h('div', { className: 'fill' }), { style: `width:${job.done * 100}%` }))] : [];
+    const busy = job?.state === 'waiting' || job?.state === 'rendering';
+    const actions = [
+      ...(job?.state === 'done' ? [button('Download', () => renders.download(shot.id), 'Save the picture')] : []),
+      ...(busy ? [button('Cancel', () => renders.cancel(shot.id))] : [button('Render again', () => renders.again(shot.id), 'Render this view again with the model as it is now')]),
+      button('Use view', () => renders.useView(shot.id), 'Turn the 3D view to this camera'),
+      button('×', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) }), 'Delete this render'),
+    ];
+    const swatch = h('span', { className: 'swatch' });
+    swatch.style.background = shot.background;
+    return h(
+      'section',
+      { className: 'render' },
+      h('div', { className: 'picture' }, picture),
+      ...bar,
+      h('div', { className: 'listed' }, swatch, h('span', { className: 'hint' }, `${new Date(shot.at).toLocaleString()} · ${how}`)),
+      h('div', { className: 'listed' }, h('strong', {}, state)),
+      h('div', { className: 'row actions' }, ...actions),
+    );
+  });
+  return [
+    h('div', { className: 'head' }, h('h3', {}, 'Renders'), button('×', renders.toggle, 'Close the renders')),
+    h('div', { className: 'row' }, h('label', { className: 'check' }, background, 'Background'), h('button', { className: 'primary', onclick: renders.shoot, title: 'Render the view as it is now; renders queue up' }, 'Render this view')),
+    h('p', { className: 'hint' }, 'Each render keeps its camera: render it again any time with the model as it is then. Pictures are kept until the page reloads, thumbnails in the file.'),
+    ...shots,
+  ];
+}
+
+function selectionPanel(ctx: UIContext): Node[] {
   const n = ctx.selected.length;
   if (n > 1)
     return [
