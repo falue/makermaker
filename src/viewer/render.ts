@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Backdrop, CameraState } from '../doc/types';
+import { drawSky } from './sky';
 
 /** A camera as `state` describes it (z up, like the viewer's). */
 export function cameraFrom(state: CameraState): THREE.Camera {
@@ -26,11 +27,11 @@ export interface RenderWatch {
 
 /**
  * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px, lit by a soft
- * sky, `samples` passes: traced on a transparent background, then laid over `background` (a gradient from the top to
- * the bottom of the picture); a solid background gets a floor of its colour that catches the shadows. The path
- * tracer loads on first use.
+ * sky, `samples` passes: traced on a transparent background, then laid over `background` (the gradient around the
+ * horizon as the camera sees it, `tanHalf`: tangent of half the view angle it assumes); a solid background gets a
+ * floor of its colour that catches the shadows. The path tracer loads on first use.
  */
-export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: Backdrop, samples: number, watch: RenderWatch, slowMs = 120) {
+export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: Backdrop, tanHalf: number, samples: number, watch: RenderWatch, slowMs = 120) {
   if (!meshes.length) throw new Error('Nothing to render: no body is shown');
   const { WebGLPathTracer, GradientEquirectTexture } = await import('three-gpu-pathtracer');
   const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, alpha: true });
@@ -80,11 +81,8 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     }
     const out = Object.assign(document.createElement('canvas'), { width, height });
     const g = out.getContext('2d')!;
-    const fill = g.createLinearGradient(0, 0, 0, height);
-    fill.addColorStop(0, background.top);
-    fill.addColorStop(1, background.bottom);
-    g.fillStyle = fill;
-    g.fillRect(0, 0, width, height);
+    const look = camera.getWorldDirection(new THREE.Vector3());
+    drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background.top, background.bottom);
     g.drawImage(renderer.domElement, 0, 0);
     return await new Promise<Blob>((done, fail) => out.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));
   } finally {

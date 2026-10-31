@@ -2,7 +2,7 @@
 export interface Settings {
   /** Ambient occlusion in the 3D view. */
   ao: boolean;
-  /** Background of the 3D view and of new renders: the theme's grey, or a gradient from top to bottom of the picture. */
+  /** Background of the 3D view and of new renders: the theme's grey, or a gradient around the horizon (bottom colour below, top above). */
   background: { mode: 'solid' | 'gradient'; top: string; bottom: string };
 }
 

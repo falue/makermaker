@@ -19,6 +19,7 @@ import { FacePullTool } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
+import { drawSky } from './sky';
 import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -81,20 +82,6 @@ function originLines(size = 30, px = 3) {
   const lines = new LineSegments2(geo, new LineMaterial({ vertexColors: true, linewidth: px, depthTest: false, depthWrite: false, transparent: true }));
   lines.renderOrder = 1e6;
   return lines;
-}
-
-/** A vertical gradient as a texture (a scene background drawn over the whole view, top to bottom). */
-function gradientTexture(top: string, bottom: string) {
-  const canvas = Object.assign(document.createElement('canvas'), { width: 2, height: 256 });
-  const g = canvas.getContext('2d')!;
-  const fill = g.createLinearGradient(0, 0, 0, 256);
-  fill.addColorStop(0, top);
-  fill.addColorStop(1, bottom);
-  g.fillStyle = fill;
-  g.fillRect(0, 0, 2, 256);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
 }
 
 /** Faint (20 % black) diagonal stripes on white, one per tile; tiles seamlessly. */
@@ -251,6 +238,8 @@ export class Viewer implements ToolView {
   private ao = { on: false, composer: null as EffectComposer | null };
   /** The view's background (settings): the theme grey, or a gradient from the top to the bottom of the view. */
   private backdrop: { mode: 'solid' | 'gradient'; top: string; bottom: string } = { mode: 'solid', top: '#ffffff', bottom: '#ffffff' };
+  /** The gradient background: a column redrawn when the camera tilts (`drawn`: for which tilt and view). */
+  private sky = { canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 256 }), texture: null as THREE.CanvasTexture | null, drawn: '' };
   /** Selected bodies: their edges drawn thick, in cyan. */
   private selectedEdges = new LineMaterial({ color: 0x00bcd4, linewidth: 3 });
   /** Owner per owned body (a tool body belongs to the body whose boolean uses it): it moves along. */
@@ -908,7 +897,24 @@ export class Viewer implements ToolView {
       m.applyMatrix4(g.matrixWorld);
       return [m];
     });
-    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, samples, watch);
+    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
+  }
+
+  /** The camera's tilt and half field of view (ortho: as the perspective camera would see it), for the sky. */
+  private tilt() {
+    const look = this.camera.getWorldDirection(new THREE.Vector3());
+    return { pitch: Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf: Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2)) };
+  }
+
+  /** Redraws the gradient background when the camera tilted. */
+  private drawSky() {
+    if (this.backdrop.mode !== 'gradient' || !this.sky.texture) return;
+    const { pitch, tanHalf } = this.tilt();
+    const key = `${pitch.toFixed(3)} ${tanHalf}`;
+    if (key === this.sky.drawn) return;
+    this.sky.drawn = key;
+    drawSky(this.sky.canvas.getContext('2d')!, 1, 256, pitch, tanHalf, this.backdrop.top, this.backdrop.bottom);
+    this.sky.texture.needsUpdate = true;
   }
 
   /** The ambient occlusion composer for the current camera (stencil kept for the section caps). */
@@ -939,6 +945,7 @@ export class Viewer implements ToolView {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
       this.placeWheel();
+      this.drawSky();
       // three's AO pass ignores the section clipping (and sees the stencil helpers): no AO while a section cuts
       if (this.ao.on && !this.boxes.length) this.aoComposer().render();
       else this.renderer.render(this.scene, this.camera);
@@ -994,9 +1001,12 @@ export class Viewer implements ToolView {
 
   applyTheme = () => {
     const dark = this.isDark;
-    if (this.scene.background instanceof THREE.Texture) this.scene.background.dispose();
-    const { top, bottom } = this.backdropColours();
-    this.scene.background = this.backdrop.mode === 'gradient' ? gradientTexture(top, bottom) : new THREE.Color(top);
+    const { top } = this.backdropColours();
+    if (this.backdrop.mode === 'gradient') {
+      this.sky.texture ??= Object.assign(new THREE.CanvasTexture(this.sky.canvas), { colorSpace: THREE.SRGBColorSpace });
+      this.sky.drawn = ''; // colours changed: draw again
+      this.scene.background = this.sky.texture;
+    } else this.scene.background = new THREE.Color(top);
     const grid = new THREE.GridHelper(1000, 100, dark ? 0x45474d : 0xbbbbbb, dark ? 0x2c2e32 : 0xd6d6d4);
     grid.rotation.x = Math.PI / 2;
     grid.material.depthWrite = false;
