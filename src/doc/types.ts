@@ -6,25 +6,33 @@ export interface Expr {
   u: Unit;
 }
 
-export type Profile = { kind: 'rect'; w: Expr; h: Expr; r: Expr } | { kind: 'circle'; d: Expr };
+export type BasePlane = 'xy' | 'xz' | 'yz';
+
+/** Where a sketch lies: a base plane of the part, or the end face of an earlier extrude step. */
+export type SketchPlane = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; step: string };
+
+/** In sketch plane coordinates; rect and circle are centred on x, y; polygon corners in mm. */
+export type Profile =
+  | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr }
+  | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
+  | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr };
 
 export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical';
 
 export type Step =
-  | { id: string; type: 'extrude'; profile: Profile; depth: Expr }
-  | { id: string; type: 'hole'; x: Expr; y: Expr; d: Expr }
+  /** Profiles pushed along the plane normal by `depth` (negative: the other way), or through everything. */
+  | { id: string; type: 'extrude'; plane: SketchPlane; profiles: Profile[]; depth: Expr; mode: 'add' | 'cut'; through: boolean }
   | { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean };
 
 export interface Part {
   id: string;
   name: string;
   position: [Expr, Expr, Expr];
-  /** steps[0] is the base extrusion. */
   steps: Step[];
 }
 
 export interface Doc {
-  schema: 1;
+  schema: 2;
   units: Unit;
   params: Record<string, Expr>;
   parts: Part[];

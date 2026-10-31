@@ -1,10 +1,8 @@
-import type { Doc, Expr, Part, Step, Unit } from './types';
+import type { Doc, Expr, Part, Profile, SketchPlane, Step, Unit } from './types';
 
 export const ex = (e: string | number, u: Unit = 'mm'): Expr => ({ e: String(e), u });
 
 export const newId = () => crypto.randomUUID().slice(0, 8);
-
-export const newHole = (u: Unit): Step => ({ id: newId(), type: 'hole', x: ex(0, u), y: ex(0, u), d: ex(5, 'mm') });
 
 export const newFinish = (u: Unit): Step => ({
   id: newId(),
@@ -15,14 +13,9 @@ export const newFinish = (u: Unit): Step => ({
   enabled: true,
 });
 
-export function newPart(name: string, u: Unit): Part {
-  return {
-    id: newId(),
-    name,
-    position: [ex(0, u), ex(0, u), ex(0, u)],
-    steps: [{ id: newId(), type: 'extrude', profile: { kind: 'rect', w: ex(100), h: ex(60), r: ex(0) }, depth: ex('ply') }],
-  };
-}
+const ground: SketchPlane = { kind: 'base', axis: 'xy', offset: ex(0) };
+const rect = (w: number, h: number): Profile => ({ id: newId(), kind: 'rect', x: ex(0), y: ex(0), w: ex(w), h: ex(h), r: ex(0) });
+const circle = (x: number, y: number, d: number): Profile => ({ id: newId(), kind: 'circle', x: ex(x), y: ex(y), d: ex(d) });
 
 export function sampleDoc(): Doc {
   const plate: Part = {
@@ -30,26 +23,30 @@ export function sampleDoc(): Doc {
     name: 'Plate',
     position: [ex(0), ex(0), ex(0)],
     steps: [
-      { id: newId(), type: 'extrude', profile: { kind: 'rect', w: ex(120), h: ex(80), r: ex(0) }, depth: ex('ply') },
-      ...[
-        [-1, -1],
-        [1, -1],
-        [1, 1],
-        [-1, 1],
-      ].map(([sx, sy]): Step => ({ id: newId(), type: 'hole', x: ex(`${sx * 45}`), y: ex(`${sy * 25}`), d: ex(5) })),
+      { id: newId(), type: 'extrude', plane: ground, profiles: [rect(120, 80)], depth: ex('ply'), mode: 'add', through: false },
+      {
+        id: newId(),
+        type: 'extrude',
+        plane: ground,
+        profiles: [circle(-45, -25, 5), circle(45, -25, 5), circle(45, 25, 5), circle(-45, 25, 5)],
+        depth: ex(0),
+        mode: 'cut',
+        through: true,
+      },
       { id: newId(), type: 'finish', mode: 'fillet', size: ex(8), edges: 'vertical', enabled: true },
       { id: newId(), type: 'finish', mode: 'chamfer', size: ex(0.8), edges: 'top', enabled: true },
     ],
   };
+  const base = newId();
   const disc: Part = {
     id: newId(),
     name: 'Disc',
     position: [ex(110), ex(0), ex(0)],
     steps: [
-      { id: newId(), type: 'extrude', profile: { kind: 'circle', d: ex(50) }, depth: ex('2 * ply') },
-      { id: newId(), type: 'hole', x: ex(0), y: ex(0), d: ex(8) },
+      { id: base, type: 'extrude', plane: ground, profiles: [circle(0, 0, 50)], depth: ex('2 * ply'), mode: 'add', through: false },
+      { id: newId(), type: 'extrude', plane: { kind: 'cap', step: base }, profiles: [circle(0, 0, 8)], depth: ex(-4), mode: 'cut', through: false },
       { id: newId(), type: 'finish', mode: 'fillet', size: ex(2), edges: 'top', enabled: true },
     ],
   };
-  return { schema: 1, units: 'mm', params: { ply: ex('4mm') }, parts: [plate, disc] };
+  return { schema: 2, units: 'mm', params: { ply: ex('4mm') }, parts: [plate, disc] };
 }

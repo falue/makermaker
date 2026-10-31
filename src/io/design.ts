@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import type { Doc } from '../doc/types';
+import type { Doc, Expr, Part, SketchPlane, Step } from '../doc/types';
 
 export const EXTENSION = '.mmk';
 
@@ -8,10 +8,49 @@ export interface Version {
   doc: Doc;
 }
 
+type V1Step =
+  | { id: string; type: 'extrude'; profile: { kind: 'rect'; w: Expr; h: Expr; r: Expr } | { kind: 'circle'; d: Expr }; depth: Expr }
+  | { id: string; type: 'hole'; x: Expr; y: Expr; d: Expr }
+  | Extract<Step, { type: 'finish' }>;
+
+/** v1: one base extrusion on XY plus through-holes. */
+function fromV1(doc: { params: Doc['params']; units: Doc['units']; parts: (Omit<Part, 'steps'> & { steps: V1Step[] })[] }): Doc {
+  const zero = (u: Expr['u']): Expr => ({ e: '0', u });
+  const ground: SketchPlane = { kind: 'base', axis: 'xy', offset: zero('mm') };
+  const parts = doc.parts.map((part) => ({
+    ...part,
+    steps: part.steps.map((s): Step => {
+      if (s.type === 'extrude')
+        return {
+          id: s.id,
+          type: 'extrude',
+          plane: ground,
+          profiles: [{ id: `${s.id}p`, x: zero('mm'), y: zero('mm'), ...s.profile }],
+          depth: s.depth,
+          mode: 'add',
+          through: false,
+        };
+      if (s.type === 'hole')
+        return {
+          id: s.id,
+          type: 'extrude',
+          plane: ground,
+          profiles: [{ id: `${s.id}p`, kind: 'circle', x: s.x, y: s.y, d: s.d }],
+          depth: zero('mm'),
+          mode: 'cut',
+          through: true,
+        };
+      return s;
+    }),
+  }));
+  return { schema: 2, units: doc.units, params: doc.params, parts };
+}
+
 export function migrate(raw: unknown): Doc {
-  const doc = raw as Doc;
-  if (doc?.schema !== 1) throw new Error(`unsupported document schema: ${doc?.schema}`);
-  return doc;
+  const doc = raw as { schema?: number };
+  if (doc?.schema === 1) return fromV1(raw as Parameters<typeof fromV1>[0]);
+  if (doc?.schema !== 2) throw new Error(`unsupported document schema: ${doc?.schema}`);
+  return raw as Doc;
 }
 
 /** ZIP with document.json plus one history snapshot per save. */

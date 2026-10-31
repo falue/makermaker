@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import type { BasePlane } from '../doc/types';
 import type { PartMesh } from '../kernel/build';
+import { SketchTool, type Cap, type ToolHost, type ToolKind, type ToolView } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -13,8 +15,6 @@ export interface ViewerHost {
   select(id: string | null, add: boolean): void;
   /** Parts were dragged to new positions (mm). */
   move(moves: { id: string; position: Vec3 }[]): void;
-  /** The camera switched between orthographic and perspective on its own. */
-  projection(): void;
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -52,11 +52,15 @@ interface Drag {
 }
 
 /**
- * Z-up viewport. Drag a part to move it (Ctrl snaps to `snapStep`), drag the background to orbit, right-drag pans,
- * wheel zooms. The view cube top right turns the camera; clicking a side switches to orthographic until the next rotation.
+ * Z-up viewport. Drag a part to move it in the base plane facing the camera (Ctrl snaps to `snapStep`), drag the
+ * background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
+ * to orthographic until the next rotation. Top left: Ortho / Persp and Fit. A sketch tool takes the pointer while active.
  */
-export class Viewer {
+export class Viewer implements ToolView {
   snapStep = 5; // mm
+  /** End faces of extrusions, where sketches can start. */
+  caps: Cap[] = [];
+  overlay = new THREE.Group();
 
   private renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
   private scene = new THREE.Scene();
@@ -74,6 +78,9 @@ export class Viewer {
   private downAt = { x: 0, y: 0 };
   private drag: Drag | null = null;
   private fitted = false;
+  private tool: SketchTool | null = null;
+  private toolPress = false;
+  private projection = document.createElement('span');
 
   /** Visible range per axis as fractions of the parts' bounding box (0..1); inverted shows only what is outside. */
   private sections: Record<Axis, Span> = { x: [0, 1], y: [0, 1], z: [0, 1] };
@@ -99,18 +106,18 @@ export class Viewer {
   private edgeMaterial = new THREE.LineBasicMaterial({ color: 0x2a2a2a });
 
   constructor(
-    private el: HTMLElement,
+    readonly el: HTMLElement,
     private host: ViewerHost,
   ) {
     this.selectedMaterial.color.set(0x8fb4ff);
     this.renderer.setPixelRatio(devicePixelRatio);
     this.renderer.localClippingEnabled = true;
     const canvas = this.renderer.domElement;
-    el.append(canvas, this.viewCube());
+    el.append(canvas, this.viewCube(), this.cameraControls());
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, new THREE.AxesHelper(30), this.sectionView);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, new THREE.AxesHelper(30), this.sectionView, this.overlay);
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
 
@@ -119,11 +126,79 @@ export class Viewer {
     // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
     this.fit();
 
-    // capture: runs before the orbit controls, so grabbing a part does not orbit
-    el.addEventListener('pointerdown', (e) => e.target === canvas && this.down(e), { capture: true });
-    canvas.addEventListener('pointermove', (e) => this.move(e));
-    canvas.addEventListener('pointerup', (e) => this.up(e));
+    // capture: runs before the orbit controls, so grabbing a part or drawing does not orbit
+    el.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (e.target !== canvas) return;
+        if (this.tool?.down(e)) {
+          this.toolPress = true;
+          canvas.setPointerCapture(e.pointerId);
+          e.stopPropagation();
+        } else this.down(e);
+      },
+      { capture: true },
+    );
+    canvas.addEventListener('pointermove', (e) => (this.tool?.move(e), this.move(e)));
+    canvas.addEventListener('pointerup', (e) => {
+      if (!this.toolPress) return this.up(e);
+      this.toolPress = false;
+      this.tool?.up();
+    });
+    canvas.addEventListener('dblclick', () => this.tool?.dblclick());
     canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // Ctrl+click on macOS would open it
+    // while a tool runs it sees keys first (not those typed into fields)
+    addEventListener(
+      'keydown',
+      (e) => {
+        if (!this.tool || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+        if (!this.tool.key(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      { capture: true },
+    );
+  }
+
+  get activeTool() {
+    return this.tool?.kind ?? null;
+  }
+
+  startTool(kind: ToolKind, host: ToolHost) {
+    this.stopTool();
+    this.tool = new SketchTool(kind, this, host);
+    this.renderer.domElement.classList.add('drawing');
+  }
+
+  stopTool() {
+    this.tool?.dispose();
+    this.tool = null;
+    this.toolPress = false;
+    this.renderer.domElement.classList.remove('drawing');
+  }
+
+  ray(e: MouseEvent) {
+    return this.raycaster(e).ray;
+  }
+
+  hit(e: MouseEvent) {
+    return this.raycaster(e).intersectObjects(this.meshes()).find((h) => this.shown(h.point));
+  }
+
+  facing(): BasePlane {
+    return (['yz', 'xz', 'xy'] as const)[this.facingAxis()];
+  }
+
+  pixelsPerMm(at: THREE.Vector3) {
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    const [x0, y0] = this.toScreen(at);
+    const [x1, y1] = this.toScreen(at.clone().add(up));
+    return Math.hypot(x1 - x0, y1 - y0) || 1;
+  }
+
+  toScreen(p: THREE.Vector3): [number, number] {
+    const v = p.clone().project(this.camera);
+    return [((v.x + 1) / 2) * this.el.clientWidth, ((1 - v.y) / 2) * this.el.clientHeight];
   }
 
   get isOrthographic() {
@@ -229,6 +304,7 @@ export class Viewer {
     this.camera = to;
     this.controls.object = to;
     this.controls.update();
+    this.projection.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 0) === on));
     this.render();
   }
 
@@ -277,7 +353,7 @@ export class Viewer {
     this.render();
   }
 
-  private render = () => {
+  render = () => {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
       this.renderer.render(this.scene, this.camera);
@@ -443,6 +519,33 @@ export class Viewer {
     group.clear();
   }
 
+  /** World axis (0 x, 1 y, 2 z) closest to the viewing direction. */
+  private facingAxis() {
+    const look = this.camera.getWorldDirection(new THREE.Vector3());
+    const parts = [look.x, look.y, look.z].map(Math.abs);
+    return parts.indexOf(Math.max(...parts));
+  }
+
+  /** Top left of the view: Ortho / Persp and Fit (each 3D view has its own). */
+  private cameraControls() {
+    const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { textContent: text, title, onclick });
+    this.projection.className = 'segmented';
+    this.projection.append(
+      button('Ortho', 'Orthographic: no perspective distortion, sizes compare directly', () => this.pickProjection(true)),
+      button('Persp', 'Perspective', () => this.pickProjection(false)),
+    );
+    this.projection.firstElementChild!.classList.add('on');
+    const bar = Object.assign(document.createElement('div'), { className: 'overlay top-left' });
+    bar.append(this.projection, button('Fit', 'Fit everything into the view (F)', () => this.fit()));
+    return bar;
+  }
+
+  /** A projection chosen by hand stays when leaving a cube side. */
+  private pickProjection(on: boolean) {
+    this.autoOrtho = false;
+    this.setOrthographic(on);
+  }
+
   private meshes() {
     return [...this.parts.values()].flatMap((g) => g.children.filter((c) => c instanceof THREE.Mesh));
   }
@@ -467,9 +570,8 @@ export class Viewer {
     if (e.shiftKey || !member) this.host.select(id, e.shiftKey);
     if (!this.selection.includes(id)) return; // Shift-click removed it
     this.controls.enabled = false;
-    // horizontal plane, or the screen plane when looking from the side
-    const look = this.camera.getWorldDirection(new THREE.Vector3());
-    const normal = Math.abs(look.z) > 0.3 ? new THREE.Vector3(0, 0, 1) : look.negate();
+    // one base plane: the one facing the camera most (top view: XY, front: XZ, side: YZ)
+    const normal = new THREE.Vector3().setComponent(this.facingAxis(), 1);
     this.drag = {
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.point),
       start: hit.point.clone(),
@@ -616,7 +718,6 @@ export class Viewer {
     if (!this.autoOrtho) return;
     this.autoOrtho = false;
     this.setOrthographic(false);
-    this.host.projection();
   }
 
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
@@ -626,7 +727,6 @@ export class Viewer {
     if (side && !this.isOrthographic) {
       this.setOrthographic(true);
       this.autoOrtho = true;
-      this.host.projection();
     }
     const target = this.controls.target;
     const cam = this.camera;

@@ -1,6 +1,7 @@
-import { drawCircle, drawRoundedRectangle, makeCylinder, type Edge, type Shape3D } from 'replicad';
+import { draw, drawCircle, drawRoundedRectangle, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
+import { add, frames, scale, toWorld, type Frame } from '../doc/frames';
 import type { Resolved } from '../doc/resolve';
-import type { EdgeRule, Step } from '../doc/types';
+import type { EdgeRule, Profile, Step } from '../doc/types';
 
 export type BuildStep = Resolved<Step>;
 type Of<T extends BuildStep['type']> = Extract<BuildStep, { type: T }>;
@@ -26,23 +27,22 @@ type Circle = [number, number, number];
 
 const EPS = 1e-3;
 
-/** Holes run after the base; finishing steps always run last, as the final layer. */
+/** Extrusions run in order; finishing steps always run last, as the final layer. */
 export function buildPart(steps: BuildStep[]): Shape3D {
-  const [base, ...rest] = steps;
-  if (base?.type !== 'extrude') throw new StepError(base?.id ?? '', 'a part must start with an extrusion');
+  const plan = frames(steps);
   const circles: Circle[] = [];
-  let shape = run(base.id, () => extrude(base, circles));
-  const apply = (id: string, fn: () => Shape3D) => {
-    const next = run(id, fn);
-    shape.delete();
+  let shape: Shape3D | null = null;
+  const apply = (id: string, fn: (s: Shape3D | null) => Shape3D) => {
+    const next = run(id, () => fn(shape));
+    shape?.delete();
     shape = next;
   };
   try {
-    for (const s of rest) if (s.type === 'hole') apply(s.id, () => hole(shape, s, base.depth, circles));
-    for (const s of rest)
-      if (s.type === 'finish' && s.enabled) apply(s.id, () => finish(shape, s, base.depth, circles));
+    for (const s of steps) if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
+    if (!shape) throw new StepError(steps[0]?.id ?? '', 'a part needs an added extrusion');
+    for (const s of steps) if (s.type === 'finish' && s.enabled) apply(s.id, (cur) => finish(cur!, s, circles));
   } catch (err) {
-    shape.delete();
+    (shape as Shape3D | null)?.delete();
     throw err;
   }
   return shape;
@@ -71,36 +71,61 @@ function positive(v: number, name: string) {
   if (!(v > 0)) throw new Error(`${name} must be greater than 0`);
 }
 
-function extrude(s: Of<'extrude'>, circles: Circle[]): Shape3D {
-  positive(s.depth, 'depth');
-  const p = s.profile;
-  if (p.kind === 'circle') {
-    positive(p.d, 'diameter');
-    circles.push([0, 0, p.d / 2]);
-    return drawCircle(p.d / 2).sketchOnPlane('XY').extrude(s.depth) as Shape3D;
+function drawing(p: Resolved<Profile>): Drawing {
+  switch (p.kind) {
+    case 'rect':
+      positive(p.w, 'width');
+      positive(p.h, 'height');
+      if (p.r < 0 || p.r * 2 >= Math.min(p.w, p.h)) throw new Error('corner radius must be between 0 and half the shorter side');
+      return drawRoundedRectangle(p.w, p.h, p.r).translate(p.x, p.y);
+    case 'circle':
+      positive(p.d, 'diameter');
+      return drawCircle(p.d / 2).translate(p.x, p.y);
+    case 'polygon': {
+      if (p.pts.length < 3) throw new Error('a polygon needs 3 corners');
+      if (p.r < 0) throw new Error('corner radius must not be negative');
+      const closed = p.pts.slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(p.pts[0])).close();
+      return p.r > 0 ? closed.fillet(p.r) : closed;
+    }
   }
-  positive(p.w, 'width');
-  positive(p.h, 'height');
-  if (p.r < 0 || p.r * 2 >= Math.min(p.w, p.h)) throw new Error('corner radius must be between 0 and half the shorter side');
-  if (p.r > 0)
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) circles.push([sx * (p.w / 2 - p.r), sy * (p.h / 2 - p.r), p.r]);
-  return drawRoundedRectangle(p.w, p.h, p.r).sketchOnPlane('XY').extrude(s.depth) as Shape3D;
 }
 
-function hole(shape: Shape3D, s: Of<'hole'>, depth: number, circles: Circle[]): Shape3D {
-  positive(s.d, 'diameter');
-  circles.push([s.x, s.y, s.d / 2]);
-  const tool = makeCylinder(s.d / 2, depth + 2, [s.x, s.y, -1]);
+/** Cylindrical faces standing on an XY-parallel plane (circles, rounded corners), for the edge rules. */
+function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
+  if (Math.abs(Math.abs(f.n[2]) - 1) > EPS) return;
+  const at = (u: number, v: number, r: number) => {
+    const [x, y] = toWorld(f, u, v);
+    circles.push([x, y, r]);
+  };
+  if (p.kind === 'circle') at(p.x, p.y, p.d / 2);
+  if (p.kind === 'rect' && p.r > 0)
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) at(p.x + sx * (p.w / 2 - p.r), p.y + sy * (p.h / 2 - p.r), p.r);
+}
+
+function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, circles: Circle[]): Shape3D {
+  if (!f) throw new Error('sketch plane lost: the face it was on is gone');
+  if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
+  if (!s.profiles.length) throw new Error('no profile to extrude');
+  if (!s.through && s.depth === 0) throw new Error('depth must not be 0');
+  const outline = s.profiles.map(drawing).reduce((a, b) => a.fuse(b));
+  // span along the normal; through: beyond the part on both sides
+  const bounds = shape?.boundingBox;
+  const far = bounds ? Math.hypot(bounds.width, bounds.height, bounds.depth) + Math.hypot(...f.o) + 1 : 0;
+  const [from, to] = s.through ? [-far, far] : [Math.min(0, s.depth), Math.max(0, s.depth)];
+  const tool = outline.sketchOnPlane(new Plane(add(f.o, scale(f.n, from)), f.x, f.n)).extrude(to - from) as Shape3D;
+  for (const p of s.profiles) addCircles(p, f, circles);
+  if (!shape) return tool;
   try {
-    return shape.cut(tool);
+    return s.mode === 'add' ? shape.fuse(tool) : shape.cut(tool);
   } finally {
     tool.delete();
   }
 }
 
-function finish(shape: Shape3D, s: Of<'finish'>, depth: number, circles: Circle[]): Shape3D {
+function finish(shape: Shape3D, s: Of<'finish'>, circles: Circle[]): Shape3D {
   positive(s.size, s.mode === 'fillet' ? 'radius' : 'distance');
-  const pick = edgeRule(s.edges, depth, circles);
+  const [[, , bottom], [, , top]] = shape.boundingBox.bounds;
+  const pick = edgeRule(s.edges, bottom, top, circles);
   const count = shape.edges.filter(pick).length;
   if (!count) throw new Error(`no edges match "${s.edges}"`);
   const size = (e: Edge) => (pick(e) ? s.size : null);
@@ -111,7 +136,7 @@ function finish(shape: Shape3D, s: Of<'finish'>, depth: number, circles: Circle[
   }
 }
 
-function edgeRule(rule: EdgeRule, depth: number, circles: Circle[]): (e: Edge) => boolean {
+function edgeRule(rule: EdgeRule, bottom: number, top: number, circles: Circle[]): (e: Edge) => boolean {
   return (e) => {
     const [[x0, y0, z0], [x1, y1, z1]] = e.boundingBox.bounds;
     const vertical = x1 - x0 < EPS && y1 - y0 < EPS;
@@ -123,9 +148,9 @@ function edgeRule(rule: EdgeRule, depth: number, circles: Circle[]): (e: Edge) =
       case 'vertical':
         return vertical;
       case 'top':
-        return at(depth);
+        return at(top);
       case 'bottom':
-        return at(0);
+        return at(bottom);
     }
   };
 }

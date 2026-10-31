@@ -1,7 +1,8 @@
 import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
-import { ex, newFinish, newHole, newPart } from '../doc/sample';
-import type { Doc, EdgeRule, Expr, Part, Profile, Step, Unit } from '../doc/types';
+import { ex, newFinish } from '../doc/sample';
+import type { BasePlane, Doc, EdgeRule, Expr, Part, Profile, Step, Unit } from '../doc/types';
+import type { ToolKind } from '../viewer/sketch';
 
 export interface UIContext {
   doc: Doc;
@@ -11,15 +12,16 @@ export interface UIContext {
   title: string;
   dirty: boolean;
   status: string;
-  orthographic: boolean;
+  tool: ToolKind | null;
+  /** Replaces the hint bar text while a tool runs. */
+  hint: string | null;
   notify(message: string): void;
   paramValue(name: string): string;
   commit(doc: Doc): void;
   /** `live`: replaces the current undo step (scrubbing). */
   setValue(path: string[], value: unknown, live?: boolean): void;
   select(id: string | null, add?: boolean): void;
-  setOrthographic(on: boolean): void;
-  fit(): void;
+  startTool(kind: ToolKind): void;
   newDoc(): void;
   open(): void;
   save(): void;
@@ -51,7 +53,7 @@ export function renderUI(ctx: UIContext) {
   $('topbar').replaceChildren(...topbar(ctx));
   $('left').replaceChildren(...left(ctx));
   $('right').replaceChildren(...right(ctx));
-  $('hint').innerHTML = hint(ctx.selected.length).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
+  $('hint').innerHTML = (ctx.hint ?? hint(ctx.selected.length)).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   rendering = false;
   const el = path && document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
   if (!el) return;
@@ -164,13 +166,13 @@ function topbar(ctx: UIContext): Node[] {
       'span',
       { className: 'segmented' },
       ...([
-        [true, 'Ortho', 'Orthographic: no perspective distortion, sizes compare directly'],
-        [false, 'Persp', 'Perspective'],
-      ] as const).map(([on, label, title]) =>
-        h('button', { className: ctx.orthographic === on ? 'on' : '', title, onclick: () => ctx.setOrthographic(on) }, label),
+        ['rect', 'Rectangle', 'R'],
+        ['circle', 'Circle', 'C'],
+        ['polygon', 'Polygon', 'P'],
+      ] as const).map(([kind, label, key]) =>
+        h('button', { className: ctx.tool === kind ? 'on' : '', title: `Draw a ${label.toLowerCase()} and pull it up (${key})`, onclick: () => ctx.startTool(kind) }, label),
       ),
     ),
-    button('Fit', ctx.fit, 'F'),
     select(
       ctx.doc.units,
       Object.fromEntries(Object.keys(UNITS).map((u) => [u, u])) as Record<Unit, string>,
@@ -192,12 +194,6 @@ function left(ctx: UIContext): Node[] {
       p.name,
     ),
   );
-  const addPart = button('+ Part', () => {
-    const part = newPart(`Part ${doc.parts.length + 1}`, doc.units);
-    ctx.commit({ ...doc, parts: [...doc.parts, part] });
-    ctx.select(part.id);
-  });
-
   const params = Object.keys(doc.params).map((name) =>
     h(
       'div',
@@ -220,7 +216,8 @@ function left(ctx: UIContext): Node[] {
   });
   addParam.placeholder = 'name = expression';
 
-  return [h('h3', {}, 'Parts'), ...parts, addPart, h('h3', {}, 'Parameters'), ...params, addParam];
+  const none = doc.parts.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a part.')];
+  return [h('h3', {}, 'Parts'), ...parts, ...none, h('h3', {}, 'Parameters'), ...params, addParam];
 }
 
 function right(ctx: UIContext): Node[] {
@@ -255,7 +252,6 @@ function right(ctx: UIContext): Node[] {
     h(
       'div',
       { className: 'row' },
-      button('+ Hole', () => setPart({ ...part, steps: [...part.steps, newHole(ctx.doc.units)] })),
       button('+ Fillet', () => setPart({ ...part, steps: [...part.steps, newFinish(ctx.doc.units)] })),
     ),
   ];
@@ -276,25 +272,43 @@ function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (
 
   switch (step.type) {
     case 'extrude': {
-      const p = step.profile;
-      const kind = select(p.kind, { rect: 'Rectangle', circle: 'Circle' }, (k) => {
-        const profile: Profile =
-          k === p.kind ? p : p.kind === 'rect' ? { kind: 'circle', d: p.w } : { kind: 'rect', w: p.d, h: p.d, r: ex(0, ctx.doc.units) };
-        setStep({ ...step, profile });
+      const u = ctx.doc.units;
+      const extrudes = part.steps.filter((t) => t.type === 'extrude');
+      const name = (t: (typeof extrudes)[number]) => `Extrude ${extrudes.indexOf(t) + 1}`;
+      const planes: Record<string, string> = { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' };
+      for (const t of extrudes.slice(0, extrudes.indexOf(step))) if (!t.through) planes[`cap:${t.id}`] = `On top of ${name(t)}`;
+      const value = step.plane.kind === 'base' ? step.plane.axis : `cap:${step.plane.step}`;
+      planes[value] ??= 'Lost face';
+      const offset = step.plane.kind === 'base' ? step.plane.offset : ex(0, u);
+      const plane = select(value, planes, (v) =>
+        setStep({ ...step, plane: v.startsWith('cap:') ? { kind: 'cap', step: v.slice(4) } : { kind: 'base', axis: v as BasePlane, offset } }),
+      );
+      const mode = select(step.mode, { add: 'Add', cut: 'Cut' }, (m) => setStep({ ...step, mode: m, through: m === 'cut' && step.through }));
+      const through = h('input', { type: 'checkbox', checked: step.through });
+      through.onchange = () => setStep({ ...step, through: through.checked });
+      const reach = [
+        ...(step.through ? [] : [f('depth', 'Depth')]),
+        ...(step.mode === 'cut' ? [h('label', { className: 'check' }, through, 'Through')] : []),
+      ];
+      const profiles = step.profiles.map((p, k) => {
+        const pf = (key: string, label: string) => f(`profiles.${k}.${key}`, label);
+        const drop = button('×', () => setStep({ ...step, profiles: step.profiles.filter((q) => q !== p) }), 'Remove this shape');
+        const fields: Record<Profile['kind'], () => HTMLElement[]> = {
+          rect: () => [pf('x', 'X'), pf('y', 'Y'), pf('w', 'W'), pf('h', 'H'), pf('r', 'R')],
+          circle: () => [pf('x', 'X'), pf('y', 'Y'), pf('d', 'Ø')],
+          polygon: () => [h('span', { className: 'hint' }, `${p.kind === 'polygon' ? p.pts.length : 0} corners`), pf('r', 'R')],
+        };
+        return h('div', { className: 'row profile' }, ...fields[p.kind](), ...(step.profiles.length > 1 ? [drop] : []));
       });
-      const dims =
-        p.kind === 'rect'
-          ? [f('profile.w', 'Width'), f('profile.h', 'Height'), f('profile.r', 'Corner')]
-          : [f('profile.d', 'Diameter')];
-      return h('section', {}, h('h4', {}, 'Base ', kind), h('div', { className: 'row' }, ...dims, f('depth', 'Depth')));
-    }
-    case 'hole':
       return h(
         'section',
         {},
-        h('h4', {}, 'Hole', remove),
-        h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('d', 'Diameter')),
+        h('h4', {}, name(step), mode, remove),
+        h('div', { className: 'row' }, plane, ...(step.plane.kind === 'base' ? [f('plane.offset', 'Offset')] : [])),
+        ...profiles,
+        h('div', { className: 'row' }, ...reach),
       );
+    }
     case 'finish': {
       const enabled = h('input', { type: 'checkbox', checked: step.enabled, title: 'Enabled' });
       enabled.onchange = () => setStep({ ...step, enabled: enabled.checked });

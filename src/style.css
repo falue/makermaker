@@ -182,6 +182,12 @@ input.invalid {
 .row > * {
   flex: 1;
 }
+.row > button {
+  flex: 0;
+}
+h4 {
+  white-space: nowrap;
+}
 .head {
   display: flex;
   gap: 6px;
@@ -354,6 +360,13 @@ body.scrubbing * {
   align-items: center;
   gap: 6px;
 }
+.overlay.top-left {
+  top: 8px;
+  left: 8px;
+}
+.overlay button {
+  background: var(--panel);
+}
 .overlay.bottom-left {
   bottom: 8px;
   left: 8px;
@@ -436,4 +449,39 @@ body.scrubbing * {
   border-radius: 50%;
   background: var(--accent);
   cursor: ew-resize;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.row.profile {
+  padding-left: 6px;
+  border-left: 2px solid var(--line);
+}
+
+canvas.drawing {
+  cursor: crosshair;
+}
+.size-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.size-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.size-label.active {
+  border-color: var(--accent);
 }

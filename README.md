@@ -23,12 +23,13 @@ Chromium-based browsers only.
 - `src/io` – `.mmk` design file (ZIP: `document.json` + `history/`), file access
 - `public/sw.js` – offline cache
 
-## Stage 0 status
+## Status
 
-- Parts are recipes: base extrusion (rectangle with corner radius, or circle) → through-holes → fillets/chamfers as final layer.
-- Fillets/chamfers select edges by rule (all/top/bottom/vertical) and survive base dimension changes; failures name the step and keep the last valid geometry.
+- Parts are recipes of extrude steps: each has a sketch plane (ground / front / right plane with offset, or the top face of an earlier step), one or more profiles (rectangle with corner radius, circle, polygon), a depth and add / cut (cut: blind or through). Fillets/chamfers are the final layer.
+- Drawing (R / C / P): on the top face under the pointer (adds to that part; pulling into it cuts) or on the base plane facing the camera (new part). Drag or click twice; Alt from the centre, Shift square, Ctrl snaps; type sizes and depth (expressions stay live); then pull with the mouse, click or Enter.
+- Fillets/chamfers select edges by rule (all/top/bottom/vertical) and survive dimension changes; failures name the step and keep the last valid geometry.
 - Every numeric field accepts numbers, units (`3in`) and expressions with parameters (`2*ply + 10`); display units switch without changing geometry.
-- Save in place (File System Access), open, drag & drop, undo/redo, offline startup.
-- Viewport and editing follow incase: view cube (sides switch to orthographic, corners, drag to orbit, turn arrows), Ortho/Persp, F fit, drag parts to move (Ctrl snaps 5 mm; horizontal plane, screen plane in side views), Shift-click multi-select, Tab through parts under the click, arrows nudge (Shift ×10), Del, ⌘D duplicate, Esc, drag a field label to scrub (numbers with or without unit).
-- Section viewer (from incase, plus Z): two-handle range per axis, invert, reset / double-click, hatched caps on cut faces (stencil); picking ignores cut-away parts.
-- Not yet: face edits, sketches on faces, instances, groups, quad view, imports/exports.
+- Save in place (File System Access), open, drag & drop, undo/redo, offline startup; v1 files migrate to v2.
+- Viewport and editing follow incase: view cube, per-view Ortho/Persp and Fit, drag parts to move in the base plane facing the camera (Ctrl snaps 5 mm), Shift-click multi-select, Tab through parts under the click, arrows nudge (Shift ×10), Del, ⌘D duplicate, Esc, drag a field or its label to scrub.
+- Section viewer (from incase, plus Z): two-handle range per axis, invert, reset / double-click, hatched caps on cut faces; picking ignores cut-away parts.
+- Not yet: sketches on side faces, face edits, editing profiles by dragging, instances, groups, quad view, imports/exports.
