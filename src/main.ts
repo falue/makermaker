@@ -9,6 +9,7 @@ import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildStep } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type UIContext } from './ui/panels';
+import { sectionControls } from './ui/sections';
 import { Viewer, type Vec3 } from './viewer/viewer';
 
 const history = new History<Doc>(sampleDoc());
@@ -29,6 +30,8 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   move: place,
   projection: render,
 });
+
+sectionControls(document.getElementById('viewport')!, (axis, from, to, inverted) => viewer.setSection(axis, from, to, inverted));
 
 const kernel = new Kernel((r) => {
   if (!history.current.parts.some((p) => p.id === r.id)) return; // deleted while it was built

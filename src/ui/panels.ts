@@ -89,7 +89,7 @@ function input(path: string, shown: string, apply: (text: string) => void, error
   return el;
 }
 
-/** Expression input; dragging the label of a plain number scrubs it (Shift: fine). */
+/** Expression input; dragging the label of a number scrubs it (Shift: fine). */
 function exprField(ctx: UIContext, path: string, label: string, raw = false) {
   const keys = path.split('.');
   const x = getIn(ctx.doc, keys) as Expr;
@@ -98,17 +98,20 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false) {
   const el = input(path, shown, (e) => ctx.setValue(keys, { e, u }), ctx.exprErrors.get(path));
   if (!el.title && !isPlain(x.e) && x.u !== u) el.title = `plain numbers in ${x.u}`;
   const name = h('span', {}, label);
-  if (isPlain(shown)) {
+  // a number with an optional unit (`12`, `4mm`) keeps its unit while scrubbed
+  const num = /^\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*([a-z]*)\s*$/i.exec(shown);
+  const unit = (num?.[2] || u) as Unit;
+  if (num && unit in UNITS) {
     name.className = 'scrub';
     name.onpointerdown = (e) => {
       e.preventDefault();
       const start = e.clientX;
-      const base = parseFloat(shown);
-      const step = { mm: 1, cm: 0.1, m: 0.001, in: 0.05, ft: 0.005 }[u]; // per px
+      const base = parseFloat(num[1]);
+      const step = { mm: 0.5, cm: 0.05, m: 0.0005, in: 0.02, ft: 0.002 }[unit]; // per px, as in incase
       let last = shown;
       // on window: the panels are rebuilt while scrubbing
       const move = (m: PointerEvent) => {
-        const text = fmt(base + Math.round((m.clientX - start) / (m.shiftKey ? 10 : 1)) * step);
+        const text = fmt(base + Math.round((m.clientX - start) / (m.shiftKey ? 10 : 1)) * step) + num[2];
         if (text === last) return;
         ctx.setValue(keys, { e: text, u }, last !== shown);
         last = text;

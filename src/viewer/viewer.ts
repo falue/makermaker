@@ -5,6 +5,8 @@ import type { PartMesh } from '../kernel/build';
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
 export type Vec3 = [number, number, number];
+export type Axis = 'x' | 'y' | 'z';
+type Span = [number, number];
 
 export interface ViewerHost {
   /** `add`: Shift-click, adds the part to the selection or removes it. */
@@ -19,6 +21,26 @@ export interface ViewerHost {
 const toCube = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 const fromCube = (v: THREE.Vector3) => new THREE.Vector3(v.x, -v.z, v.y);
 const round = (v: number, step: number) => Math.round(v / step) * step;
+
+/** Faint (20 % black) diagonal stripes on white, one per tile; tiles seamlessly. */
+function hatchTexture(px = 16) {
+  const c = Object.assign(document.createElement('canvas'), { width: px, height: px });
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, px, px);
+  g.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+  g.lineWidth = px / 6;
+  g.beginPath();
+  for (const o of [-px, 0, px]) {
+    g.moveTo(o, px);
+    g.lineTo(o + px, 0);
+  }
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 interface Drag {
   plane: THREE.Plane;
@@ -36,7 +58,7 @@ interface Drag {
 export class Viewer {
   snapStep = 5; // mm
 
-  private renderer = new THREE.WebGLRenderer({ antialias: true });
+  private renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
   private scene = new THREE.Scene();
   private perspective = new THREE.PerspectiveCamera(35, 1, 1, 50000);
   private orthographic = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
@@ -52,6 +74,14 @@ export class Viewer {
   private downAt = { x: 0, y: 0 };
   private drag: Drag | null = null;
   private fitted = false;
+
+  /** Visible range per axis as fractions of the parts' bounding box (0..1); inverted shows only what is outside. */
+  private sections: Record<Axis, Span> = { x: [0, 1], y: [0, 1], z: [0, 1] };
+  private inverted: Record<Axis, boolean> = { x: false, y: false, z: false };
+  /** The shown region while sectioned: boxes of [min, max] per axis (mm); empty when not sectioned. */
+  private boxes: Span[][] = [];
+  private sectionView = new THREE.Group();
+  private hatch = hatchTexture();
 
   /** Set when a view cube click switched to orthographic; the next rotation switches back to perspective. */
   private autoOrtho = false;
@@ -74,12 +104,13 @@ export class Viewer {
   ) {
     this.selectedMaterial.color.set(0x8fb4ff);
     this.renderer.setPixelRatio(devicePixelRatio);
+    this.renderer.localClippingEnabled = true;
     const canvas = this.renderer.domElement;
     el.append(canvas, this.viewCube());
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, new THREE.AxesHelper(30));
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, new THREE.AxesHelper(30), this.sectionView);
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
 
@@ -115,13 +146,13 @@ export class Viewer {
       this.fitted = true;
       requestAnimationFrame(() => this.fit()); // after the other parts of this batch
     }
-    this.render();
+    this.applySection();
   }
 
   setPosition(id: string, [x, y, z]: number[]) {
     if (this.drag?.group.some((g) => g.id === id)) return;
     this.group(id).position.set(x, y, z);
-    this.render();
+    this.applySection();
   }
 
   /** Removes parts that are no longer in the document. */
@@ -132,7 +163,7 @@ export class Viewer {
       this.scene.remove(group);
       this.parts.delete(id);
     }
-    this.render();
+    this.applySection();
   }
 
   select(ids: string[]) {
@@ -140,7 +171,13 @@ export class Viewer {
     for (const [id, group] of this.parts)
       for (const c of group.children)
         if (c instanceof THREE.Mesh) c.material = ids.includes(id) ? this.selectedMaterial : this.material;
-    this.render();
+    this.applySection();
+  }
+
+  setSection(axis: Axis, from: number, to: number, inverted: boolean) {
+    this.sections[axis] = [from, to];
+    this.inverted[axis] = inverted;
+    this.applySection();
   }
 
   /** Frames everything again once the next geometry arrives (new or opened document). */
@@ -153,7 +190,10 @@ export class Viewer {
     if (!this.pick) return;
     const ids = [
       ...new Set(
-        new THREE.Raycaster(this.pick.origin, this.pick.direction).intersectObjects(this.meshes()).map((h) => h.object.userData.partId as string),
+        new THREE.Raycaster(this.pick.origin, this.pick.direction)
+          .intersectObjects(this.meshes())
+          .filter((h) => this.shown(h.point))
+          .map((h) => h.object.userData.partId as string),
       ),
     ];
     if (!ids.length) return;
@@ -274,6 +314,120 @@ export class Viewer {
     this.render();
   };
 
+  /** Hit points in a cut-away region do not count. */
+  private shown(p: THREE.Vector3) {
+    return !this.boxes.length || this.boxes.some((box) => box.every(([lo, hi], k) => p.getComponent(k) >= lo && p.getComponent(k) <= hi));
+  }
+
+  /**
+   * Shows the parts clipped to the section boxes (an inverted axis shows both sides outside its range), one clipped
+   * copy per box, with hatched caps on the cut faces: per plane, the solids' back faces minus their front faces mark
+   * the cut area in the stencil buffer, then a plane fills it. `rebound`: measure the parts again (not while dragging).
+   * Planes sit `eps` inside the shown range, so a face lying exactly on a cut is cut away cleanly instead of flickering.
+   */
+  private applySection(rebound = true, cap = 1e4 /* mm, cap plane size */, hatchMm = 4, shade = 0.6, eps = 1e-3) {
+    this.sectionView.traverse((o) => {
+      if (!(o instanceof THREE.Mesh || o instanceof THREE.LineSegments)) return;
+      (o.material as THREE.Material).dispose();
+      if (o.userData.cap) o.geometry.dispose();
+    });
+    this.sectionView.clear();
+    const axes = ['x', 'y', 'z'] as const;
+    const active = axes.some((a) => this.inverted[a] || this.sections[a][0] > 0 || this.sections[a][1] < 1);
+    if (rebound) {
+      const bounds = new THREE.Box3();
+      for (const g of this.parts.values()) bounds.expandByObject(g);
+      const range = (a: Axis): Span => {
+        const [from, to] = this.sections[a];
+        const lo = bounds.min[a];
+        const size = bounds.max[a] - lo;
+        return [from > 0 ? lo + from * size : -Infinity, to < 1 ? lo + to * size : Infinity];
+      };
+      const spans = (a: Axis): Span[] => {
+        const [lo, hi] = range(a);
+        return this.inverted[a] ? ([[-Infinity, lo], [hi, Infinity]] as Span[]).filter(([s, e]) => s < e) : [[lo, hi]];
+      };
+      this.boxes =
+        active && !bounds.isEmpty() ? spans('x').flatMap((x) => spans('y').flatMap((y) => spans('z').map((z) => [x, y, z]))) : [];
+    }
+    const sectioned = this.boxes.length > 0;
+    for (const g of this.parts.values()) g.visible = !sectioned;
+    if (!sectioned) return this.render();
+
+    this.hatch.repeat.set(cap / hatchMm, cap / hatchMm);
+    let order = 0;
+    for (const box of this.boxes) {
+      const planes = box.flatMap(([lo, hi], k) => {
+        const n = new THREE.Vector3().setComponent(k, 1);
+        return [
+          ...(Number.isFinite(lo) ? [new THREE.Plane(n.clone(), -lo - eps)] : []),
+          ...(Number.isFinite(hi) ? [new THREE.Plane(n.clone().negate(), hi - eps)] : []),
+        ];
+      });
+      for (const plane of planes) {
+        order++;
+        for (const g of this.parts.values()) {
+          const solid = g.children.find((c) => c instanceof THREE.Mesh);
+          if (!solid) continue;
+          for (const side of [THREE.BackSide, THREE.FrontSide]) {
+            const op = side === THREE.BackSide ? THREE.IncrementWrapStencilOp : THREE.DecrementWrapStencilOp;
+            const mark = new THREE.Mesh(
+              solid.geometry,
+              new THREE.MeshBasicMaterial({
+                side,
+                clippingPlanes: [plane],
+                colorWrite: false,
+                depthWrite: false,
+                depthTest: false,
+                stencilWrite: true,
+                stencilFunc: THREE.AlwaysStencilFunc,
+                stencilFail: op,
+                stencilZFail: op,
+                stencilZPass: op,
+              }),
+            );
+            mark.position.copy(g.position);
+            mark.renderOrder = order;
+            this.sectionView.add(mark);
+          }
+        }
+        const face = new THREE.Mesh(
+          new THREE.PlaneGeometry(cap, cap),
+          new THREE.MeshStandardMaterial({
+            color: this.material.color.clone().multiplyScalar(shade),
+            map: this.hatch,
+            roughness: 0.9,
+            clippingPlanes: planes.filter((p) => p !== plane),
+            stencilWrite: true,
+            stencilRef: 0,
+            stencilFunc: THREE.NotEqualStencilFunc,
+            stencilFail: THREE.ReplaceStencilOp,
+            stencilZFail: THREE.ReplaceStencilOp,
+            stencilZPass: THREE.ReplaceStencilOp,
+          }),
+        );
+        face.userData.cap = true;
+        plane.coplanarPoint(face.position);
+        face.lookAt(face.position.clone().sub(plane.normal));
+        face.onAfterRender = (r) => r.clearStencil();
+        face.renderOrder = order + 0.5;
+        this.sectionView.add(face);
+      }
+      // the parts clipped to this box, drawn after the caps
+      for (const [id, g] of this.parts)
+        for (const c of g.children) {
+          const solid = c instanceof THREE.Mesh;
+          const material = (solid ? (this.selection.includes(id) ? this.selectedMaterial : this.material) : this.edgeMaterial).clone();
+          material.clippingPlanes = planes;
+          const copy = solid ? new THREE.Mesh(c.geometry, material) : new THREE.LineSegments((c as THREE.LineSegments).geometry, material);
+          copy.position.copy(g.position);
+          copy.renderOrder = 1e6;
+          this.sectionView.add(copy);
+        }
+    }
+    this.render();
+  }
+
   private group(id: string) {
     let group = this.parts.get(id);
     if (!group) {
@@ -306,7 +460,7 @@ export class Viewer {
     this.downAt = { x: e.clientX, y: e.clientY };
     const ray = this.raycaster(e);
     this.pick = ray.ray.clone();
-    const hit = ray.intersectObjects(this.meshes())[0];
+    const hit = ray.intersectObjects(this.meshes()).find((h) => this.shown(h.point));
     if (!hit) return;
     const id = hit.object.userData.partId as string;
     const member = this.selection.includes(id);
@@ -347,7 +501,7 @@ export class Viewer {
       round(lead.z + delta.z, step) - lead.z,
     );
     for (const g of d.group) this.group(g.id).position.copy(g.from).add(by);
-    this.render();
+    this.applySection(false);
   }
 
   /** Ends a move, or handles a click: on empty space it deselects (unless Shift). */
