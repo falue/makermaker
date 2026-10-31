@@ -3,7 +3,7 @@ import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
-import { BASE, capFrame, frames, placeFrame, scale, unplaced, type Frame, type Place } from './doc/frames';
+import { BASE, capFrame, frames, placed as inWorld, placeFrame, scale, unplaced, type Frame, type Place } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -17,6 +17,7 @@ import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type Pick, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
+import { busy } from './ui/busy';
 import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
@@ -303,6 +304,12 @@ function update() {
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
   const owner = ownersOf(doc);
+  // sphere centres snap like corners
+  viewer.setSnapPoints(
+    doc.bodies.flatMap((b) =>
+      b.visible && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z]))] : [])) : [],
+    ),
+  );
   viewer.setLooks(doc.bodies.map((b) => ({ ...b, visible: b.visible && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.op === 'subtract' && f.body === b.id)) })));
   viewer.select(contents(doc, selected));
   viewer.setSketches(shown, activeSketch(), shapeSel);
@@ -1096,15 +1103,15 @@ function render() {
     },
     renderNice: () =>
       run(async () => {
-        let shown = -1;
-        const blob = await viewer.renderNice(256, (done) => {
-          const pct = Math.floor(done * 10) * 10; // the status every 10 %: the panels rebuild with it
-          if (pct !== shown) notify(`Rendering nice… ${(shown = pct)} %`);
-        });
-        download(blob, file.name.replace(/\.[^.]*$/, '') + '-nice.png');
-        notify('Rendered');
+        const bar = busy('Rendering nice');
+        try {
+          const blob = await viewer.renderNice(256, (done) => (bar.set(done), !bar.cancelled));
+          download(blob, `${project()}_render.png`);
+        } finally {
+          bar.done();
+        }
       }),
-    renderImage: () => run(async () => download(await viewer.snapshot(2), file.name.replace(/\.[^.]*$/, '') + '.png')),
+    renderImage: () => run(async () => download(await viewer.snapshot(2), `${project()}_snapshot.png`)),
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
@@ -1136,11 +1143,13 @@ async function exportPrint() {
     return n > 1 ? `${base}_${n}` : base;
   };
   const { files, failed } = await kernel.stl(bodies.map((b) => ({ name: nameOf(b), features: built.get(b.id)!, place: bodyPlace(b.id) })));
-  const project = file.name.replace(/\.[^.]*$/, '');
   if (files.length === 1) download(new Blob([files[0].data], { type: 'model/stl' }), `${files[0].name}.stl`);
-  else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.stl`, new Uint8Array(f.data)])))]), `${project}-stl.zip`);
+  else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.stl`, new Uint8Array(f.data)])))]), `${project()}_stl.zip`);
   notify(`Exported ${files.length} STL file${files.length === 1 ? '' : 's'}${failed.length ? `; could not build: ${failed.join(', ')}` : ''}`);
 }
+
+/** The open file's name without its extension. */
+const project = () => file.name.replace(/\.[^.]*$/, '');
 
 /** Saves `blob` as a download named `name`. */
 function download(blob: Blob, name: string) {

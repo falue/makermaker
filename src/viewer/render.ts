@@ -2,9 +2,10 @@ import * as THREE from 'three';
 
 /**
  * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px: a soft sky and a
- * pale floor under the meshes, `samples` passes; `progress` gets 0..1. The path tracer loads on first use.
+ * pale floor under the meshes, `samples` passes; `progress` gets 0..1 and stops the render by returning false. The
+ * path tracer loads on first use.
  */
-export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, samples: number, progress: (done: number) => void) {
+export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, samples: number, progress: (done: number) => boolean) {
   const { WebGLPathTracer, GradientEquirectTexture } = await import('three-gpu-pathtracer');
   const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
   renderer.setSize(width, height, false);
@@ -37,7 +38,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   try {
     while (tracer.samples < samples) {
       tracer.renderSample();
-      progress(Math.min(1, tracer.samples / samples));
+      if (!progress(Math.min(1, tracer.samples / samples))) throw new Error('Rendering cancelled');
       await new Promise(requestAnimationFrame);
     }
     return await new Promise<Blob>((done, fail) => renderer.domElement.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));

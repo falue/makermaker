@@ -67,6 +67,16 @@ function faceOf(hit: THREE.Intersection) {
   return k / 2;
 }
 
+/** The origin: AxesHelper's lines and colours, thick and over everything. */
+function originLines(size = 30, px = 3) {
+  const axes = new THREE.AxesHelper(size);
+  const geo = new LineSegmentsGeometry().setPositions(axes.geometry.attributes.position.array as Float32Array).setColors(axes.geometry.attributes.color.array as Float32Array);
+  axes.dispose();
+  const lines = new LineSegments2(geo, new LineMaterial({ vertexColors: true, linewidth: px, depthTest: false, depthWrite: false, transparent: true }));
+  lines.renderOrder = 1e6;
+  return lines;
+}
+
 /** Faint (20 % black) diagonal stripes on white, one per tile; tiles seamlessly. */
 function hatchTexture(px = 16) {
   const c = Object.assign(document.createElement('canvas'), { width: px, height: px });
@@ -151,7 +161,7 @@ export class Viewer implements ToolView {
   private overrides = new Map<string, DrawnProfile>();
   private edit: ShapeEdit | null = null;
 
-  private renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
+  private renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true, alpha: true }); // alpha: snapshots without background
   private scene = new THREE.Scene();
   private perspective = new THREE.PerspectiveCamera(35, 1, 1, 50000);
   private orthographic = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
@@ -184,7 +194,11 @@ export class Viewer implements ToolView {
   private escFreed = 0;
   /** Custom section planes; each keeps its positive side. */
   private custom: THREE.Plane[] = [];
-  private axes = new THREE.AxesHelper(30);
+  /** The origin: three thick lines (AxesHelper's colours), drawn over everything. */
+  private axes = originLines();
+  /** Points to snap to besides body corners (sphere centres), with their marks. */
+  private snapPoints: THREE.Vector3[] = [];
+  private centres = new THREE.Group();
 
   /** Visible range per axis in world mm (open ends: ±Infinity), fixed to the origin; inverted shows only what is outside. */
   private sections: Record<Axis, Span> = { x: [-Infinity, Infinity], y: [-Infinity, Infinity], z: [-Infinity, Infinity] };
@@ -229,10 +243,8 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres);
     // grid first, then the origin lines over it; neither hides bodies
-    (this.axes.material as THREE.Material).depthTest = false;
-    this.axes.renderOrder = -1;
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
 
@@ -785,22 +797,42 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The view as a PNG, `scale` times the screen resolution. */
+  /** The bodies as a PNG on a transparent background, `scale` times the screen resolution: no grid, origin, sketches, cutters or selection. */
   async snapshot(scale = 1): Promise<Blob> {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
+    const cutters = [...this.cutters].flatMap((id) => this.bodies.get(id) ?? []);
+    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
+    const selection = this.selection;
+    helpers.forEach((o) => (o.visible = false));
+    this.select([]);
+    const background = this.scene.background;
+    this.scene.background = null;
     this.renderer.setPixelRatio(ratio * scale);
     this.renderer.setSize(size.x, size.y, false);
     this.renderer.render(this.scene, this.camera); // read back right after drawing: the buffer is cleared later
     const blob = await new Promise<Blob | null>((done) => this.renderer.domElement.toBlob(done, 'image/png'));
+    this.scene.background = background;
+    helpers.forEach((o) => (o.visible = true));
+    this.select(selection);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(size.x, size.y, false);
     this.render();
     return blob!;
   }
 
+  /** Extra snap points (world), each with a small mark: sphere centres. */
+  setSnapPoints(points: THREE.Vector3[]) {
+    this.snapPoints = points;
+    for (const o of this.centres.children) ((o as THREE.Points).geometry.dispose(), ((o as THREE.Points).material as THREE.Material).dispose());
+    this.centres.clear();
+    if (points.length) this.centres.add(marks(points, 0x6b6b6b, 6));
+    this.centres.traverse((o) => (o.renderOrder = 1e6));
+    this.render();
+  }
+
   /** The view path traced (`samples` passes) at `scale` times the screen size: shown bodies only, cutters and overlays left out. */
-  renderNice(samples: number, progress: (done: number) => void, scale = 2) {
+  renderNice(samples: number, progress: (done: number) => boolean, scale = 2) {
     const meshes = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children[0] as THREE.Mesh | undefined;
       if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];
@@ -828,6 +860,7 @@ export class Viewer implements ToolView {
     if (!w || !h) return;
     this.renderer.setSize(w, h);
     this.selectedEdges.resolution.set(w, h);
+    (this.axes.material as LineMaterial).resolution.set(w, h);
     this.updateFrustums(w / h);
     this.render();
   }
@@ -936,7 +969,7 @@ export class Viewer implements ToolView {
         const xyz = c.userData.corners as Float32Array | undefined;
         for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).applyMatrix4(g.matrix));
       }
-    return out;
+    return [...out, ...this.snapPoints];
   }
 
   /** A picking press ended: without dragging it picks a face or goes to the tool as a click. */
@@ -1168,24 +1201,21 @@ export class Viewer implements ToolView {
     );
     this.projection.firstElementChild!.classList.add('on');
     const bar = Object.assign(document.createElement('div'), { className: 'overlay top-left' });
-    // the ground grid and the origin axes can be hidden (remembered per browser)
+    // switches for the ground grid and the origin (remembered per browser)
     const toggle = (name: string, title: string, what: THREE.Object3D) => {
-      const key = `makermaker.${name}`;
+      const key = `makermaker.${name.toLowerCase()}`;
       what.visible = localStorage.getItem(key) !== 'off';
-      const b = Object.assign(button(name, title, () => {
+      const b = button('', title, () => {
         what.visible = !what.visible;
         localStorage.setItem(key, what.visible ? 'on' : 'off');
         b.classList.toggle('on', what.visible);
         this.render();
-      }), { className: what.visible ? 'on' : '' });
+      });
+      b.className = `switch${what.visible ? ' on' : ''}`;
+      b.append(Object.assign(document.createElement('span'), { className: 'track' }), name);
       return b;
     };
-    bar.append(
-      this.projection,
-      button('Fit', 'Fit everything into the view (F)', () => this.fit()),
-      toggle('Grid', 'Show or hide the ground grid', this.grid),
-      toggle('Axes', 'Show or hide the origin axes', this.axes),
-    );
+    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes));
     return bar;
   }
 
@@ -1539,7 +1569,7 @@ export class Viewer implements ToolView {
     );
     // below the cube: click it, then a face, and the camera looks straight at that face
     const look = Object.assign(document.createElement('button'), {
-      className: 'tool look-at',
+      className: 'tool',
       title: 'Look at a face: click this, then a face, or a face first, then this (Esc cancels)',
       innerHTML: icon('look'),
       onclick: () => {
@@ -1549,8 +1579,11 @@ export class Viewer implements ToolView {
         else this.pickFace(show);
       },
     });
+    const fit = Object.assign(document.createElement('button'), { className: 'tool fit', title: 'Fit everything into the view (F)', innerHTML: icon('fit'), onclick: () => this.fit() });
+    const below = Object.assign(document.createElement('div'), { className: 'below-cube' });
+    below.append(look, fit);
     this.cubeWrap.className = 'viewcube';
-    this.cubeWrap.append(this.cube, ...arrows, look);
+    this.cubeWrap.append(this.cube, ...arrows, below);
     return this.cubeWrap;
   }
 
