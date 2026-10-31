@@ -149,14 +149,10 @@ export interface CameraState {
   size: [number, number];
 }
 
-/**
- * A render's background: a sky fading from `bottom` straight down to `top` straight up, the horizon halfway (the same
- * colour twice: plain); `floor`: a floor of the colour at the horizon catches the shadows (and hides the lower sky).
- */
+/** A render's background: a gradient from `top` to `bottom` of the picture (the same colour twice: solid, with a floor that catches the shadows). */
 export interface Backdrop {
   top: string;
   bottom: string;
-  floor: boolean;
 }
 
 /** A nice render: when, from where, on which background, and a small picture taken when it was asked for. */
@@ -167,19 +163,18 @@ export interface RenderShot {
   background: Backdrop;
   /** PNG data URL, about 320 px wide. */
   thumbnail: string;
-  /** Small JPEG data URLs of finished renders, newest first (rendered again: the older ones stay below). */
-  results: { at: string; preview: string }[];
+  /** Small data URLs of its pictures, newest first (rendered again: the older ones stay below); `nice`: path traced, else a snapshot. */
+  results: { at: string; preview: string; nice: boolean }[];
 }
 
 export interface Doc {
-  schema: 7;
+  schema: 8;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];
   sketches: Sketch[];
   groups: Group[];
   sections: Section[];
-  /** Nice renders, newest first, and the background the next one gets. */
+  /** Renders (snapshots and nice ones), newest first. */
   renders: RenderShot[];
-  renderBackground: Backdrop;
 }

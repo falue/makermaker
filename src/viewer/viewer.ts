@@ -83,6 +83,20 @@ function originLines(size = 30, px = 3) {
   return lines;
 }
 
+/** A vertical gradient as a texture (a scene background drawn over the whole view, top to bottom). */
+function gradientTexture(top: string, bottom: string) {
+  const canvas = Object.assign(document.createElement('canvas'), { width: 2, height: 256 });
+  const g = canvas.getContext('2d')!;
+  const fill = g.createLinearGradient(0, 0, 0, 256);
+  fill.addColorStop(0, top);
+  fill.addColorStop(1, bottom);
+  g.fillStyle = fill;
+  g.fillRect(0, 0, 2, 256);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 /** Faint (20 % black) diagonal stripes on white, one per tile; tiles seamlessly. */
 function hatchTexture(px = 16) {
   const c = Object.assign(document.createElement('canvas'), { width: px, height: px });
@@ -234,7 +248,9 @@ export class Viewer implements ToolView {
   private cutterEdges = [0xe5484d, 0xff8c1a].map((color) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
   private ghost = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   /** Ambient occlusion (three's GTAO pass) on or off; its composer is made for the current camera when needed. */
-  private ao = { on: localStorage.getItem('makermaker.ao') === 'on', composer: null as EffectComposer | null };
+  private ao = { on: false, composer: null as EffectComposer | null };
+  /** The view's background (settings): the theme grey, or a gradient from the top to the bottom of the view. */
+  private backdrop: { mode: 'solid' | 'gradient'; top: string; bottom: string } = { mode: 'solid', top: '#ffffff', bottom: '#ffffff' };
   /** Selected bodies: their edges drawn thick, in cyan. */
   private selectedEdges = new LineMaterial({ color: 0x00bcd4, linewidth: 3 });
   /** Owner per owned body (a tool body belongs to the body whose boolean uses it): it moves along. */
@@ -958,9 +974,29 @@ export class Viewer implements ToolView {
     return set ? set === 'dark' : this.dark.matches;
   }
 
+  /** Ambient occlusion on or off (settings). */
+  setAO(on: boolean) {
+    this.ao.on = on;
+    this.render();
+  }
+
+  /** The view's background (settings). */
+  setBackdrop(backdrop: { mode: 'solid' | 'gradient'; top: string; bottom: string }) {
+    this.backdrop = backdrop;
+    this.applyTheme();
+  }
+
+  /** The background's colours now, top and bottom (solid: the theme grey twice). */
+  backdropColours() {
+    const grey = `#${new THREE.Color(this.isDark ? 0x1c1d20 : 0xeeeeec).getHexString()}`;
+    return this.backdrop.mode === 'gradient' ? { top: this.backdrop.top, bottom: this.backdrop.bottom } : { top: grey, bottom: grey };
+  }
+
   applyTheme = () => {
     const dark = this.isDark;
-    this.scene.background = new THREE.Color(dark ? 0x1c1d20 : 0xeeeeec);
+    if (this.scene.background instanceof THREE.Texture) this.scene.background.dispose();
+    const { top, bottom } = this.backdropColours();
+    this.scene.background = this.backdrop.mode === 'gradient' ? gradientTexture(top, bottom) : new THREE.Color(top);
     const grid = new THREE.GridHelper(1000, 100, dark ? 0x45474d : 0xbbbbbb, dark ? 0x2c2e32 : 0xd6d6d4);
     grid.rotation.x = Math.PI / 2;
     grid.material.depthWrite = false;
@@ -1293,15 +1329,7 @@ export class Viewer implements ToolView {
       b.append(Object.assign(document.createElement('span'), { className: 'track' }), name);
       return b;
     };
-    const ao = button('', 'Ambient occlusion: soft shadows in corners and creases', () => {
-      this.ao.on = !this.ao.on;
-      localStorage.setItem('makermaker.ao', this.ao.on ? 'on' : 'off');
-      ao.classList.toggle('on', this.ao.on);
-      this.render();
-    });
-    ao.className = `switch${this.ao.on ? ' on' : ''}`;
-    ao.append(Object.assign(document.createElement('span'), { className: 'track' }), 'AO');
-    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes), ao);
+    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes));
     return bar;
   }
 

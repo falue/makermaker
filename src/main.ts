@@ -10,19 +10,21 @@ import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './d
 import { ex, newId, sampleDoc } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { contents, ownerOf, tree, within } from './doc/groups';
-import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, Sketch, SketchPlacement } from './doc/types';
+import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
+import { loadSettings, openSettings } from './ui/settings';
 import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import { Viewer, type FinishPick, type PickedFace, type Vec3 } from './viewer/viewer';
 
 const tips = installTooltips();
+let settings = loadSettings();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 const history = new History<Doc>(sampleDoc());
@@ -138,6 +140,13 @@ const sections = sectionControls(
   newSection,
 );
 viewer.onBounds = sections.bounds;
+
+/** The settings of this browser, in the view. */
+function applySettings() {
+  viewer.setAO(settings.ao);
+  viewer.setBackdrop(settings.background);
+}
+applySettings();
 
 const kernel = new Kernel((r) => {
   if (!history.current.bodies.some((p) => p.id === r.id)) return; // deleted while it was built
@@ -1131,11 +1140,16 @@ function render() {
         if (shot) viewer.setCameraState(shot.camera);
       },
     },
-    renderImage: () => run(async () => download(await viewer.snapshot(2), `${project()}_snapshot.png`)),
+    renderImage: () => run(snapshot),
+    openSettings: () =>
+      openSettings(settings, (next) => {
+        settings = next;
+        applySettings();
+      }),
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 7, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [], renderBackground: { top: '#f4f4f2', bottom: '#f4f4f2', floor: true } }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 8, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -1176,23 +1190,37 @@ let rendersOpen = false;
 const jobs = new Map<string, RenderJob>();
 let queueRunning = false;
 
-/**
- * Render nice: takes a small picture of the view at once and queues the real render (the camera is saved with it, so
- * it can be rendered again with newer model data).
- */
-async function shoot() {
-  const camera = viewer.cameraState();
-  const small = await viewer.thumbnail();
-  const thumbnail = await new Promise<string>((done) => {
+/** A blob as a data URL. */
+const dataUrl = (blob: Blob) =>
+  new Promise<string>((done) => {
     const reader = new FileReader();
     reader.onload = () => done(reader.result as string);
-    reader.readAsDataURL(small);
+    reader.readAsDataURL(blob);
   });
+
+/**
+ * A new render of the view as it is: its camera and the background of the settings are saved with it (so it can be
+ * rendered again with newer model data), and a small picture taken at once. Returns its id.
+ */
+async function newShot(results: RenderShot['results'] = []) {
+  const shot: RenderShot = { id: newId(), at: new Date().toISOString(), camera: viewer.cameraState(), background: viewer.backdropColours(), thumbnail: await dataUrl(await viewer.thumbnail()), results };
   const doc = history.current;
-  const shot = { id: newId(), at: new Date().toISOString(), camera, background: doc.renderBackground, thumbnail, results: [] };
-  jobs.set(shot.id, { state: 'waiting', done: 0 });
   commit({ ...doc, renders: [shot, ...doc.renders] });
+  return shot.id;
+}
+
+/** Render nice: a new render of the view, queued. */
+async function shoot() {
+  jobs.set(await newShot(), { state: 'waiting', done: 0 });
+  render();
   await renderQueue();
+}
+
+/** Snapshot: downloads the view as a PNG and keeps it in the renders (without opening them), ready to be rendered nicely. */
+async function snapshot() {
+  const image = await viewer.snapshot(2);
+  download(image, `${project()}_snapshot.png`);
+  await newShot([{ at: new Date().toISOString(), preview: await previewOf(image, 320, 'image/png'), nice: false }]);
 }
 
 /** Renders the waiting shots one after another, oldest first; slower while the renders panel is closed. */
@@ -1222,7 +1250,7 @@ async function renderQueue() {
         const preview = await previewOf(image);
         const doc = history.current;
         const i = doc.renders.findIndex((r) => r.id === shot.id);
-        if (i >= 0) history.replace(setIn(doc, ['renders', String(i), 'results'], [{ at: new Date().toISOString(), preview }, ...doc.renders[i].results].slice(0, 8)));
+        if (i >= 0) history.replace(setIn(doc, ['renders', String(i), 'results'], [{ at: new Date().toISOString(), preview, nice: true }, ...doc.renders[i].results].slice(0, 8)));
         if (job.again) downloadRender(shot.id);
       } catch (err) {
         Object.assign(job, { state: 'failed', error: (err as Error).message });
@@ -1242,13 +1270,13 @@ function downloadRender(id: string) {
   if (image) download(image, `${project()}_render_${n}.png`);
 }
 
-/** A small JPEG data URL of a picture, `width` px wide. */
-async function previewOf(image: Blob, width = 320) {
+/** A small data URL of a picture, `width` px wide (JPEG; PNG keeps transparency). */
+async function previewOf(image: Blob, width = 320, type = 'image/jpeg') {
   const bitmap = await createImageBitmap(image);
   const canvas = Object.assign(document.createElement('canvas'), { width, height: Math.round((bitmap.height * width) / bitmap.width) });
   canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   bitmap.close();
-  return canvas.toDataURL('image/jpeg', 0.8);
+  return canvas.toDataURL(type, 0.8);
 }
 
 /** The open file's name without its extension. */

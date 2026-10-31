@@ -39,6 +39,7 @@ const ICONS = {
   renderNice: '<path d="M4 7h3l2-3h6l2 3h3v12H4z"/><path d="M12 9.5l1 2.2 2.3.3-1.7 1.6.4 2.3-2-1.1-2 1.1.4-2.3-1.7-1.6 2.3-.3z"/>',
   laser: '<rect x="8.5" y="2.5" width="7" height="6" rx="1.2"/><path d="M10.5 8.5l1 1.5h1l1-1.5M12 10v7M3.5 18h7M13.5 18h7M10.5 17.5l-2.5-4M10.5 18l-3.5-2M13.5 17.5l3.5-5.5M13.5 18l5-4"/>',
   print: '<path d="M8 3h8v6H8zM10 9l1 3h2l1-3M7 15h10v5H7zM3 20h18M7 17.5h10"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/><circle cx="12" cy="12" r="6.5"/>',
   unlink: '<path d="M15 9l3-3a3 3 0 0 0-4.2-4.2l-3 3M9 15l-3 3a3 3 0 0 0 4.2 4.2l3-3M4 8h3M8 4v3M20 16h-3M16 20v-3"/>',
   fit: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.2 15.2L20 20"/><rect x="7.5" y="7.5" width="6" height="6" rx=".5"/>',
   section: '<path d="M4 20L20 4"/><path d="M4 12l8-8M12 20l8-8" stroke-dasharray="2 2"/>',

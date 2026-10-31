@@ -25,14 +25,15 @@ export interface RenderWatch {
 }
 
 /**
- * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px: lit by a soft
- * sky, seen against the `background` sky (horizon level, halfway), over its floor if it has one (the colour at the
- * horizon, so mostly its shadows show), `samples` passes. The path tracer loads on first use.
+ * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px, lit by a soft
+ * sky, `samples` passes: traced on a transparent background, then laid over `background` (a gradient from the top to
+ * the bottom of the picture); a solid background gets a floor of its colour that catches the shadows. The path
+ * tracer loads on first use.
  */
 export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: Backdrop, samples: number, watch: RenderWatch, slowMs = 120) {
   if (!meshes.length) throw new Error('Nothing to render: no body is shown');
   const { WebGLPathTracer, GradientEquirectTexture } = await import('three-gpu-pathtracer');
-  const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
+  const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, alpha: true });
   renderer.setSize(width, height, false);
   renderer.toneMapping = THREE.NeutralToneMapping; // keeps the background colour close to what was picked
   const scene = new THREE.Scene();
@@ -43,9 +44,8 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   scene.add(model);
   const box = new THREE.Box3();
   for (const m of meshes) model.add(m), box.expandByObject(m);
-  const horizon = new THREE.Color(background.bottom).lerp(new THREE.Color(background.top), 0.5);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ color: horizon, roughness: 0.9 }));
-  floor.visible = background.floor;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ color: background.bottom, roughness: 0.9 }));
+  floor.visible = background.top === background.bottom;
   const reach = box.getSize(new THREE.Vector3()).length() * 20;
   floor.scale.set(reach, reach, 1);
   floor.position.set(box.getCenter(new THREE.Vector3()).x, box.getCenter(new THREE.Vector3()).y, box.min.z - 0.01);
@@ -54,13 +54,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   sky.topColor.set(0xffffff);
   sky.bottomColor.set(0x9aa0a8);
   sky.update();
-  // the background sky: bottom straight down, top straight up, linear in height (the horizon halfway)
-  const backdrop = new GradientEquirectTexture();
-  backdrop.bottomColor.set(background.bottom);
-  backdrop.topColor.set(background.top);
-  backdrop.exponent = 1;
-  backdrop.update();
-  scene.background = backdrop;
+  scene.background = null; // transparent: the background is laid under it at the end
   scene.environment = sky;
   const view = camera.clone();
   if (view instanceof THREE.OrthographicCamera) {
@@ -84,11 +78,18 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
       if (watch.cancelled()) throw new Error('Rendering cancelled');
       await new Promise((next) => (watch.slow() ? setTimeout(next, slowMs) : requestAnimationFrame(next)));
     }
-    return await new Promise<Blob>((done, fail) => renderer.domElement.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));
+    const out = Object.assign(document.createElement('canvas'), { width, height });
+    const g = out.getContext('2d')!;
+    const fill = g.createLinearGradient(0, 0, 0, height);
+    fill.addColorStop(0, background.top);
+    fill.addColorStop(1, background.bottom);
+    g.fillStyle = fill;
+    g.fillRect(0, 0, width, height);
+    g.drawImage(renderer.domElement, 0, 0);
+    return await new Promise<Blob>((done, fail) => out.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));
   } finally {
     tracer.dispose();
     sky.dispose();
-    backdrop.dispose();
     floor.geometry.dispose();
     (floor.material as THREE.Material).dispose();
     for (const m of meshes) (m.material as THREE.Material).dispose(); // their geometry belongs to the viewer
