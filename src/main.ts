@@ -22,6 +22,8 @@ import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from '.
 import { Viewer, type FinishPick, type PickedFace, type Vec3 } from './viewer/viewer';
 
 const tips = installTooltips();
+const savedTheme = localStorage.getItem('makermaker.theme');
+if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 const history = new History<Doc>(sampleDoc());
 /** Selected objects (bodies and sketches) and, inside a single selected sketch, its selected shapes. */
 let selected: string[] = history.current.bodies.slice(0, 1).map((p) => p.id);
@@ -1054,6 +1056,13 @@ function render() {
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
     },
     toggleAutosave: () => run(toggleAutosave),
+    toggleTheme() {
+      const theme = viewer.isDark ? 'light' : 'dark';
+      document.documentElement.dataset.theme = theme;
+      localStorage.setItem('makermaker.theme', theme);
+      viewer.applyTheme();
+    },
+    renderImage: () => run(async () => download(await viewer.snapshot(2), file.name.replace(/\.[^.]*$/, '') + '.png')),
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
@@ -1065,6 +1074,13 @@ function render() {
     redo: () => undo(true),
   };
   renderUI(ctx);
+}
+
+/** Saves `blob` as a download named `name`. */
+function download(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  Object.assign(document.createElement('a'), { href: url, download: name }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function notify(message: string) {

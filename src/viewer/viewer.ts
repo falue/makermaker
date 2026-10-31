@@ -166,7 +166,7 @@ export class Viewer implements ToolView {
   private perspective = new THREE.PerspectiveCamera(35, 1, 1, 50000);
   private orthographic = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = this.orthographic;
-  private controls = new OrbitControls(this.camera, this.renderer.domElement);
+  private controls = Object.assign(new OrbitControls(this.camera, this.renderer.domElement), { zoomToCursor: true });
   private viewHeight = 400; // orthographic frustum height in mm at zoom 1
   private bodies = new Map<string, THREE.Group>();
   private selection: string[] = [];
@@ -530,7 +530,7 @@ export class Viewer implements ToolView {
   /** Looks straight along `n`; `at`: that point moves to the middle of the view. */
   lookAlong(n: THREE.Vector3, at?: THREE.Vector3) {
     // straight up/down is a pole for the orbit controls: tilt a hair towards the front
-    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone(), true, 300, at);
+    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone(), true, 600, at);
   }
 
   /** Looking straight along `n` (a flat view), turns back to the last angled view: pulling along `n` needs depth to see. */
@@ -809,6 +809,20 @@ export class Viewer implements ToolView {
     this.render();
   }
 
+  /** The view as a PNG, `scale` times the screen resolution. */
+  async snapshot(scale = 1): Promise<Blob> {
+    const size = this.renderer.getSize(new THREE.Vector2());
+    const ratio = this.renderer.getPixelRatio();
+    this.renderer.setPixelRatio(ratio * scale);
+    this.renderer.setSize(size.x, size.y, false);
+    this.renderer.render(this.scene, this.camera); // read back right after drawing: the buffer is cleared later
+    const blob = await new Promise<Blob | null>((done) => this.renderer.domElement.toBlob(done, 'image/png'));
+    this.renderer.setPixelRatio(ratio);
+    this.renderer.setSize(size.x, size.y, false);
+    this.render();
+    return blob!;
+  }
+
   render = () => {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
@@ -838,8 +852,14 @@ export class Viewer implements ToolView {
     this.perspective.updateProjectionMatrix();
   }
 
-  private applyTheme = () => {
-    const dark = this.dark.matches;
+  /** Dark unless the page is set to light (`data-theme` on the root), or the system says so. */
+  get isDark() {
+    const set = document.documentElement.dataset.theme;
+    return set ? set === 'dark' : this.dark.matches;
+  }
+
+  applyTheme = () => {
+    const dark = this.isDark;
     this.scene.background = new THREE.Color(dark ? 0x1c1d20 : 0xeeeeec);
     const grid = new THREE.GridHelper(1000, 100, dark ? 0x45474d : 0xbbbbbb, dark ? 0x2c2e32 : 0xd6d6d4);
     grid.rotation.x = Math.PI / 2;
@@ -1156,7 +1176,24 @@ export class Viewer implements ToolView {
     );
     this.projection.firstElementChild!.classList.add('on');
     const bar = Object.assign(document.createElement('div'), { className: 'overlay top-left' });
-    bar.append(this.projection, button('Fit', 'Fit everything into the view (F)', () => this.fit()));
+    // the ground grid and the origin axes can be hidden (remembered per browser)
+    const toggle = (name: string, title: string, what: THREE.Object3D) => {
+      const key = `makermaker.${name}`;
+      what.visible = localStorage.getItem(key) !== 'off';
+      const b = Object.assign(button(name, title, () => {
+        what.visible = !what.visible;
+        localStorage.setItem(key, what.visible ? 'on' : 'off');
+        b.classList.toggle('on', what.visible);
+        this.render();
+      }), { className: what.visible ? 'on' : '' });
+      return b;
+    };
+    bar.append(
+      this.projection,
+      button('Fit', 'Fit everything into the view (F)', () => this.fit()),
+      toggle('Grid', 'Show or hide the ground grid', this.grid),
+      toggle('Axes', 'Show or hide the origin axes', this.axes),
+    );
     return bar;
   }
 
@@ -1542,7 +1579,7 @@ export class Viewer implements ToolView {
   }
 
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
-  private viewFrom(dir: THREE.Vector3, side = true, ms = 300, at?: THREE.Vector3) {
+  private viewFrom(dir: THREE.Vector3, side = true, ms = 600, at?: THREE.Vector3) {
     // leaving an angled view for a flat one: remember it, so pulling can return to it
     if (side && !this.cubeWrap.classList.contains('aligned')) this.angledView = this.camera.position.clone().sub(this.controls.target).normalize();
     if (!side) this.leaveSideView();

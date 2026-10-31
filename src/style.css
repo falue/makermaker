@@ -15,8 +15,9 @@
   color: var(--text);
 }
 
+/* dark: by the system unless the theme button set light; or set dark */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #18191b;
     --panel: #222326;
     --line: #3a3b3f;
@@ -28,6 +29,22 @@
     --field-invalid: #3a1f1f;
     --selected: #2a3550;
   }
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #18191b;
+  --panel: #222326;
+  --line: #3a3b3f;
+  --text: #e4e4e2;
+  --muted: #9a9a98;
+  --accent: #6f9bff;
+  --error: #ff6b6b;
+  --field: #1a1b1d;
+  --field-invalid: #3a1f1f;
+  --selected: #2a3550;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 * {
@@ -77,6 +94,12 @@ body {
 }
 #topbar .link:hover {
   color: var(--accent);
+}
+#topbar .link svg {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+  fill: currentColor;
 }
 
 #left,
