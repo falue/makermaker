@@ -444,9 +444,10 @@ export class Viewer implements ToolView {
     return best;
   }
 
-  lookAlong(n: THREE.Vector3) {
+  /** Looks straight along `n`; `at`: that point moves to the middle of the view. */
+  lookAlong(n: THREE.Vector3, at?: THREE.Vector3) {
     // straight up/down is a pole for the orbit controls: tilt a hair towards the front
-    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone());
+    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone(), true, 300, at);
   }
 
   /** Looking straight along `n` (a flat view), turns back to the last angled view: pulling along `n` needs depth to see. */
@@ -1378,9 +1379,14 @@ export class Viewer implements ToolView {
     // below the cube: click it, then a face, and the camera looks straight at that face
     const look = Object.assign(document.createElement('button'), {
       className: 'tool look-at',
-      title: 'Look at a face: click this, then a face (Esc cancels)',
+      title: 'Look at a face: click this, then a face, or a face first, then this (Esc cancels)',
       innerHTML: icon('look'),
-      onclick: () => this.pickFace((face) => face && this.lookAlong(face.normal.clone().negate())),
+      onclick: () => {
+        const face = this.lastFace;
+        const show = (f: PickedFace | null) => f && this.lookAlong(f.normal.clone().negate(), f.point);
+        if (face?.body && this.selection.includes(face.body)) show(face);
+        else this.pickFace(show);
+      },
     });
     this.cubeWrap.className = 'viewcube';
     this.cubeWrap.append(this.cube, ...arrows, look);
@@ -1404,7 +1410,7 @@ export class Viewer implements ToolView {
   }
 
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
-  private viewFrom(dir: THREE.Vector3, side = true, ms = 300) {
+  private viewFrom(dir: THREE.Vector3, side = true, ms = 300, at?: THREE.Vector3) {
     // leaving an angled view for a flat one: remember it, so pulling can return to it
     if (side && !this.cubeWrap.classList.contains('aligned')) this.angledView = this.camera.position.clone().sub(this.controls.target).normalize();
     if (!side) this.leaveSideView();
@@ -1414,6 +1420,7 @@ export class Viewer implements ToolView {
       this.autoOrtho = true;
     }
     const target = this.controls.target;
+    const [t0, t1] = [target.clone(), at ?? target.clone()];
     const cam = this.camera;
     const dist = cam.position.distanceTo(target);
     const from = cam.position.clone().sub(target).normalize();
@@ -1422,6 +1429,7 @@ export class Viewer implements ToolView {
     const animate = (now: number) => {
       const t = Math.min(1, (now - start) / ms);
       const k = t * t * (3 - 2 * t);
+      target.lerpVectors(t0, t1, k);
       cam.position.copy(target).addScaledVector(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, k)), dist);
       this.controls.update();
       if (t < 1) requestAnimationFrame(animate);
