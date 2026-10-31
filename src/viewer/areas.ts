@@ -158,16 +158,43 @@ export class AreaTool implements Tool {
     this.view.overlay.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false })));
   }
 
+  /**
+   * The picked areas pulled by `depth`, translucent: their triangles at the bottom and the top, and walls along the
+   * outline (triangle edges that only one triangle has).
+   */
+  private prism(all: Float32Array[], depth: number) {
+    const f = this.target.frame;
+    const at = (x: number, y: number, z: number) => v3(toWorld(f, x, y)).addScaledVector(v3(f.n), z).toArray();
+    const pts: number[] = [];
+    const edges = new Map<string, [number, number, number, number]>();
+    for (const t of all)
+      for (let k = 0; k < t.length; k += 6) {
+        const tri = [0, 2, 4].map((o) => [t[k + o], t[k + o + 1]] as const);
+        for (const z of [0, depth]) for (const [x, y] of tri) pts.push(...at(x, y, z));
+        tri.forEach(([x0, y0], i) => {
+          const [x1, y1] = tri[(i + 1) % 3];
+          const key = [x0, y0, x1, y1].map((v) => v.toFixed(4));
+          const back = `${key[2]},${key[3]},${key[0]},${key[1]}`;
+          if (edges.has(back)) edges.delete(back);
+          else edges.set(key.join(), [x0, y0, x1, y1]);
+        });
+      }
+    for (const [x0, y0, x1, y1] of edges.values()) pts.push(...at(x0, y0, 0), ...at(x1, y1, 0), ...at(x1, y1, depth), ...at(x0, y0, 0), ...at(x1, y1, depth), ...at(x0, y0, depth));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    geo.computeVertexNormals();
+    this.view.overlay.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })));
+  }
+
   /** All areas faint, the hovered one lit, the picked ones orange; while pulling, the picked ones also at the depth. */
   private update() {
     this.clear();
     const depth = this.pull ? this.depth() : 0;
     this.areas.forEach((a, i) => {
-      if (this.picked.has(i)) {
-        this.fill(a, 0xff8c1a, 0.45);
-        if (depth) this.fill(a, 0xff8c1a, 0.3, depth);
-      } else this.fill(a, 0x3b6fd8, i === this.hover && !this.pull ? 0.35 : 0.08);
+      if (this.picked.has(i)) this.fill(a, 0xff8c1a, 0.45);
+      else this.fill(a, 0x3b6fd8, i === this.hover && !this.pull ? 0.35 : 0.08);
     });
+    if (depth) this.prism([...this.picked].map((i) => this.areas[i].tris), depth);
     this.labels.replaceChildren();
     if (this.pull) {
       const at = this.middle().addScaledVector(v3(this.target.frame.n), depth);
