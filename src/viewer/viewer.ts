@@ -946,6 +946,15 @@ export class Viewer implements ToolView {
     const gtao = new GTAOPass(this.scene, this.camera, size.x, size.y);
     gtao.updateGtaoMaterial({ radius: 15, thickness: 15, scale: 1.6, samples: 16 }); // three's defaults are for metres: mm here
     composer.addPass(gtao);
+    // three's pass leaves only plain lines and points out of its depth picture; overlays (face marks, the gizmo,
+    // cutters' invisible faces) and thick lines must stay out too, or they shade what is under them
+    const pass = gtao as unknown as { scene: THREE.Scene; _visibilityCache: THREE.Object3D[]; _overrideVisibility(): void };
+    pass._overrideVisibility = () =>
+      pass.scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+        const overlay = o instanceof LineSegments2 || (o as THREE.Points).isPoints || (o as THREE.Line).isLine || (m && (m.transparent || !m.depthWrite || !m.colorWrite));
+        if (overlay && o.visible) (o.visible = false), pass._visibilityCache.push(o);
+      });
     this.ao.gtao = gtao;
     this.ao.external = false;
     // the cut view's depth and normals, at the composer's size
