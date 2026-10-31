@@ -34,8 +34,8 @@ export type Profile = (
   | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr }
   | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr; rot: Expr }
 ) & {
-  /** A help line: drawn dashed, snapped to, never extruded. */
-  help?: boolean;
+  /** A construction line: drawn dashed, snapped to, never extruded. */
+  construction?: boolean;
 };
 
 /** Editable 2D geometry: shapes on one plane. Extrusions can use its shapes and follow their changes. */

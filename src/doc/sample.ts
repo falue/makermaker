@@ -95,7 +95,7 @@ export function sampleDoc(): Doc {
         name: 'Free sketch',
         group: null,
         plane: { kind: 'base', axis: 'xz', offset: ex(60) },
-        shapes: [circle(-20, 20, 24), { ...rect(50, 30), help: true }],
+        shapes: [circle(-20, 20, 24), { ...rect(50, 30), construction: true }],
         visible: true,
       },
     ],

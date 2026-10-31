@@ -607,10 +607,10 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
     if (only && !ctx.shapes.includes(q.id)) return [];
     const name = listItem(`item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
     const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
-    const box = h('input', { type: 'checkbox', checked: !!q.help });
-    box.onchange = () => set({ shapes: s.shapes.map((r) => (r === q ? { ...r, help: box.checked } : r)) });
-    const help = h('label', { className: 'check', title: 'Help line: dashed, snapped to, never extruded' }, box, 'Help');
-    return [h('div', { className: 'shape' }, h('div', { className: 'listed' }, name, help, drop), ...shapeFields(ctx, `${at}.shapes.${j}`, q))];
+    const box = h('input', { type: 'checkbox', checked: !!q.construction });
+    box.onchange = () => set({ shapes: s.shapes.map((r) => (r === q ? { ...r, construction: box.checked } : r)) });
+    const construction = h('label', { className: 'check', title: 'Construction line: dashed, snapped to, never extruded' }, box, 'Construction');
+    return [h('div', { className: 'shape' }, h('div', { className: 'listed' }, name, construction, drop), ...shapeFields(ctx, `${at}.shapes.${j}`, q))];
   });
   return [
     h(
