@@ -378,7 +378,7 @@ export class SketchTool {
     const h = this.typed(ph.typed[1]) ?? Math.abs(dv) * k;
     const sx = Math.sign(du || 1);
     const sy = Math.sign(dv || 1);
-    return ph.alt ? { kind: 'rect', x: au, y: av, w, h, r: 0 } : { kind: 'rect', x: au + (sx * w) / 2, y: av + (sy * h) / 2, w, h, r: 0 };
+    return ph.alt ? { kind: 'rect', x: au, y: av, w, h, r: 0, rot: 0 } : { kind: 'rect', x: au + (sx * w) / 2, y: av + (sy * h) / 2, w, h, r: 0, rot: 0 };
   }
 
   private shapeDone() {
@@ -396,7 +396,7 @@ export class SketchTool {
     if (ph.kind !== 'polygon') return;
     const pts = ph.pts.filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 0.05);
     if (pts.length < 3) return this.host.hint('A polygon needs 3 corners · ' + POLYGON_HINT);
-    this.drawn(ph.target, { profile: { kind: 'polygon', pts, r: 0 }, typed: {} });
+    this.drawn(ph.target, { profile: { kind: 'polygon', pts, r: 0, rot: 0 }, typed: {} });
   }
 
   /** A finished shape: kept in the session, else pulled right away. */
@@ -457,7 +457,7 @@ export class SketchTool {
     }
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
-      const profile: DrawnProfile = ph.kind === 'shape' ? this.shape(ph) : { kind: 'polygon', pts: [...ph.pts, ph.cur], r: 0 };
+      const profile: DrawnProfile = ph.kind === 'shape' ? this.shape(ph) : { kind: 'polygon', pts: [...ph.pts, ph.cur], r: 0, rot: 0 };
       this.outline(profile, f);
       if (profile.kind === 'rect' && ph.kind === 'shape') {
         label('W', ph.typed[0], profile.w, v3(toWorld(f, profile.x, profile.y - profile.h / 2)), ph.axis === 0);

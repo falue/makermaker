@@ -313,6 +313,15 @@ function hint(selected: number) {
   return 'Drag a part to move it: the direction picks X, Y or Z · [Tab] next part under the click · [F] fit · drag to orbit, right-drag to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
+/** Fields of one shape at `path`: position, size, corner radius, rotation (degrees). */
+function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
+  const pf = (key: string, label: string) => exprField(ctx, `${path}.${key}`, label);
+  if (p.kind === 'circle') return [pf('x', 'X'), pf('y', 'Y'), pf('d', 'Ø')];
+  const rot = exprField(ctx, `${path}.rot`, '°', true); // degrees: shown as typed, never unit-converted
+  if (p.kind === 'rect') return [pf('x', 'X'), pf('y', 'Y'), pf('w', 'W'), pf('h', 'H'), pf('r', 'R'), rot];
+  return [h('span', { className: 'hint' }, `${p.pts.length} corners`), pf('r', 'R'), rot];
+}
+
 function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (p: Part) => void) {
   const setStep = (next: Step) => setPart({ ...part, steps: part.steps.map((s) => (s === step ? next : s)) });
   const remove = button('×', () => setPart({ ...part, steps: part.steps.filter((s) => s !== step) }), 'Remove');
@@ -320,17 +329,8 @@ function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (
 
   switch (step.type) {
     case 'extrude': {
-      const u = ctx.doc.units;
       const extrudes = part.steps.filter((t) => t.type === 'extrude');
       const name = (t: (typeof extrudes)[number]) => `Extrude ${extrudes.indexOf(t) + 1}`;
-      const planes: Record<string, string> = { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' };
-      for (const t of extrudes.slice(0, extrudes.indexOf(step))) if (!t.through) planes[`cap:${t.id}`] = `On top of ${name(t)}`;
-      const value = step.plane.kind === 'base' ? step.plane.axis : `cap:${step.plane.step}`;
-      planes[value] ??= 'Lost face';
-      const offset = step.plane.kind === 'base' ? step.plane.offset : ex(0, u);
-      const plane = select(value, planes, (v) =>
-        setStep({ ...step, plane: v.startsWith('cap:') ? { kind: 'cap', step: v.slice(4) } : { kind: 'base', axis: v as BasePlane, offset } }),
-      );
       const mode = select(step.mode, { add: 'Add', cut: 'Cut' }, (m) => setStep({ ...step, mode: m, through: m === 'cut' && step.through }));
       const through = h('input', { type: 'checkbox', checked: step.through });
       through.onchange = () => setStep({ ...step, through: through.checked });
@@ -338,22 +338,31 @@ function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (
         ...(step.through ? [] : [f('depth', 'Depth')]),
         ...(step.mode === 'cut' ? [h('label', { className: 'check' }, through, 'Through')] : []),
       ];
-      const profiles = step.profiles.map((p, k) => {
-        const pf = (key: string, label: string) => f(`profiles.${k}.${key}`, label);
-        const drop = button('×', () => setStep({ ...step, profiles: step.profiles.filter((q) => q !== p) }), 'Remove this shape');
-        const fields: Record<Profile['kind'], () => HTMLElement[]> = {
-          rect: () => [pf('x', 'X'), pf('y', 'Y'), pf('w', 'W'), pf('h', 'H'), pf('r', 'R')],
-          circle: () => [pf('x', 'X'), pf('y', 'Y'), pf('d', 'Ø')],
-          polygon: () => [h('span', { className: 'hint' }, `${p.kind === 'polygon' ? p.pts.length : 0} corners`), pf('r', 'R')],
-        };
-        return h('div', { className: 'row profile' }, ...fields[p.kind](), ...(step.profiles.length > 1 ? [drop] : []));
+      const src = step.source;
+      if (src.kind === 'sketch') {
+        const sketch = ctx.doc.sketches.find((k) => k.id === src.sketch);
+        const from = sketch ? `${sketch.name}: ${src.shapes.length} of ${sketch.shapes.length} shapes` : 'its sketch was deleted';
+        return h('section', {}, h('h4', {}, name(step), mode, remove), h('p', { className: 'hint' }, `Linked to ${from}`), h('div', { className: 'row' }, ...reach));
+      }
+      const planes: Record<string, string> = { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' };
+      for (const t of extrudes.slice(0, extrudes.indexOf(step))) if (!t.through) planes[`cap:${t.id}`] = `On top of ${name(t)}`;
+      const value = src.plane.kind === 'base' ? src.plane.axis : `cap:${src.plane.step}`;
+      planes[value] ??= 'Lost face';
+      const offset = src.plane.kind === 'base' ? src.plane.offset : ex(0, ctx.doc.units);
+      const setSource = (next: Partial<typeof src>) => setStep({ ...step, source: { ...src, ...next } });
+      const plane = select(value, planes, (v) =>
+        setSource({ plane: v.startsWith('cap:') ? { kind: 'cap', step: v.slice(4) } : { kind: 'base', axis: v as BasePlane, offset } }),
+      );
+      const profiles = src.profiles.map((p, k) => {
+        const drop = button('×', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }), 'Remove this shape');
+        return h('div', { className: 'row profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p), ...(src.profiles.length > 1 ? [drop] : []));
       });
       const edit = button('✎', () => ctx.startSketch({ part: part.id, step: step.id }), 'Edit the sketch: add or remove shapes');
       return h(
         'section',
         {},
         h('h4', {}, name(step), mode, edit, remove),
-        h('div', { className: 'row' }, plane, ...(step.plane.kind === 'base' ? [f('plane.offset', 'Offset')] : [])),
+        h('div', { className: 'row' }, plane, ...(src.plane.kind === 'base' ? [f('source.plane.offset', 'Offset')] : [])),
         ...profiles,
         h('div', { className: 'row' }, ...reach),
       );

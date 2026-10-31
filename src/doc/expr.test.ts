@@ -44,3 +44,14 @@ describe('displayText', () => {
     expect(displayText(ex('10'), 'mm')).toBe('10');
   });
 });
+
+describe('resolve', () => {
+  it('keeps rotations in degrees, unconverted', async () => {
+    const { resolve } = await import('./resolve');
+    const errors = new Map<string, string>();
+    const out = resolve({ rot: ex('45', 'in'), w: ex('1', 'in') }, params, 'p', errors);
+    expect(out).toEqual({ rot: 45, w: 25.4 });
+    resolve({ rot: ex('3mm') }, params, 'q', errors);
+    expect(errors.get('q.rot')).toMatch('angle');
+  });
+});

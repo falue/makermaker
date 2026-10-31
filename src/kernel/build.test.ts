@@ -14,7 +14,7 @@ const base = (w: number, depth = 4): BuildStep => ({
   id: 'base',
   type: 'extrude',
   plane: ground,
-  profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w, h: 60, r: 0 }],
+  profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w, h: 60, r: 0, rot: 0 }],
   depth,
   mode: 'add',
   through: false,
@@ -80,7 +80,7 @@ describe('buildPart', () => {
       id: 'pocket',
       type: 'extrude',
       plane: { kind: 'cap', step: 'base' },
-      profiles: [{ id: 'p', kind: 'polygon', pts: [[-10, -10], [10, -10], [0, 10]], r: 0 }],
+      profiles: [{ id: 'p', kind: 'polygon', pts: [[-10, -10], [10, -10], [0, 10]], r: 0, rot: 0 }],
       depth: -2,
       mode: 'cut',
       through: false,
@@ -97,7 +97,7 @@ describe('buildPart', () => {
     const plateWithHole: BuildStep = {
       ...(base(100) as Extract<BuildStep, { type: 'extrude' }>),
       profiles: [
-        { id: 'r', kind: 'rect', x: 0, y: 0, w: 100, h: 60, r: 0 },
+        { id: 'r', kind: 'rect', x: 0, y: 0, w: 100, h: 60, r: 0, rot: 0 },
         { id: 'c', kind: 'circle', x: 0, y: 0, d: 20 },
       ],
     };

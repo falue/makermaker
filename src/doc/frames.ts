@@ -1,5 +1,5 @@
 import type { Resolved } from './resolve';
-import type { BasePlane, Step } from './types';
+import type { BasePlane, BuildIn } from './types';
 
 export type V3 = [number, number, number];
 
@@ -32,7 +32,7 @@ export const toPlane = (f: Frame, p: V3): [number, number] => {
 export const moved = (f: Frame, by: V3): Frame => ({ ...f, o: add(f.o, by) });
 
 /** Sketch frame per extrude step; a step on a missing (or later, or through-cut) step's face gets none. */
-export function frames(steps: Resolved<Step>[]): Map<string, Frame> {
+export function frames(steps: Resolved<BuildIn>[]): Map<string, Frame> {
   const out = new Map<string, Frame>();
   for (const s of steps) {
     if (s.type !== 'extrude') continue;

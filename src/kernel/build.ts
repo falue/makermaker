@@ -1,10 +1,10 @@
 import { draw, drawCircle, drawRoundedRectangle, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
 import { add, frames, scale, toWorld, type Frame } from '../doc/frames';
-import { nesting } from '../doc/profiles';
+import { centre, nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
-import type { EdgeRule, Profile, Step } from '../doc/types';
+import type { BuildIn, EdgeRule, Profile } from '../doc/types';
 
-export type BuildStep = Resolved<Step>;
+export type BuildStep = Resolved<BuildIn>;
 type Of<T extends BuildStep['type']> = Extract<BuildStep, { type: T }>;
 
 export interface PartMesh {
@@ -81,7 +81,7 @@ function drawing(p: Resolved<Profile>): Drawing {
       positive(p.w, 'width');
       positive(p.h, 'height');
       if (p.r < 0 || p.r * 2 >= Math.min(p.w, p.h)) throw new Error('corner radius must be between 0 and half the shorter side');
-      return drawRoundedRectangle(p.w, p.h, p.r).translate(p.x, p.y);
+      return drawRoundedRectangle(p.w, p.h, p.r).rotate(p.rot).translate(p.x, p.y);
     case 'circle':
       positive(p.d, 'diameter');
       return drawCircle(p.d / 2).translate(p.x, p.y);
@@ -89,7 +89,7 @@ function drawing(p: Resolved<Profile>): Drawing {
       if (p.pts.length < 3) throw new Error('a polygon needs 3 corners');
       if (p.r < 0) throw new Error('corner radius must not be negative');
       const closed = p.pts.slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(p.pts[0])).close();
-      return p.r > 0 ? closed.fillet(p.r) : closed;
+      return (p.r > 0 ? closed.fillet(p.r) : closed).rotate(p.rot, centre(p));
     }
   }
 }

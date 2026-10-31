@@ -27,11 +27,18 @@ export function paramLookup(params: Doc['params']): Lookup {
   return lookup;
 }
 
-/** Replaces every Expr in `obj` by its length in mm; errors are keyed by dotted path. */
+/** Unitless number: angles in degrees. */
+function evalAngle(x: Expr, lookup: Lookup) {
+  const q = evalQuantity(x, lookup);
+  if (q.dim) throw new Error('an angle has no unit (degrees)');
+  return q.v;
+}
+
+/** Replaces every Expr in `obj` by its length in mm (`rot`: degrees); errors are keyed by dotted path. */
 export function resolve<T>(obj: T, lookup: Lookup, path: string, errors: Map<string, string>): Resolved<T> {
   if (isExpr(obj)) {
     try {
-      return evalLength(obj, lookup) as Resolved<T>;
+      return (path.endsWith('.rot') ? evalAngle(obj, lookup) : evalLength(obj, lookup)) as Resolved<T>;
     } catch (err) {
       errors.set(path, (err as Error).message);
       return NaN as Resolved<T>;

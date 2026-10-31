@@ -13,10 +13,10 @@ describe('design file', () => {
   });
 
   it('rejects unknown schemas', () => {
-    expect(() => unpack(pack({ ...sampleDoc(), schema: 3 as 2 }, []))).toThrow('schema');
+    expect(() => unpack(pack({ ...sampleDoc(), schema: 4 as 3 }, []))).toThrow('schema');
   });
 
-  it('migrates v1 base extrusions and holes to sketch extrusions', () => {
+  it('migrates v1 base extrusions and holes to own extrusions', () => {
     const mm = (e: string) => ({ e, u: 'mm' as const });
     const v1 = {
       schema: 1,
@@ -34,8 +34,10 @@ describe('design file', () => {
         },
       ],
     };
-    const [base, hole] = migrate(v1).parts[0].steps;
-    expect(base).toMatchObject({ type: 'extrude', mode: 'add', depth: mm('4'), profiles: [{ kind: 'rect', w: mm('100') }] });
-    expect(hole).toMatchObject({ type: 'extrude', mode: 'cut', through: true, profiles: [{ kind: 'circle', x: mm('10'), d: mm('3') }] });
+    const doc = migrate(v1);
+    const [base, hole] = doc.parts[0].steps;
+    expect(doc.schema).toBe(3);
+    expect(base).toMatchObject({ type: 'extrude', mode: 'add', depth: mm('4'), source: { kind: 'own', profiles: [{ kind: 'rect', w: mm('100'), rot: mm('0') }] } });
+    expect(hole).toMatchObject({ type: 'extrude', mode: 'cut', through: true, source: { kind: 'own', profiles: [{ kind: 'circle', x: mm('10'), d: mm('3') }] } });
   });
 });

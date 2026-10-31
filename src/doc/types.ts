@@ -8,21 +8,45 @@ export interface Expr {
 
 export type BasePlane = 'xy' | 'xz' | 'yz';
 
-/** Where a sketch lies: a base plane of the part, or the end face of an earlier extrude step. */
+/** Where an extrusion's shapes lie (part-local): a base plane of the part, or the end face of an earlier extrude step. */
 export type SketchPlane = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; step: string };
 
-/** In sketch plane coordinates; rect and circle are centred on x, y; polygon corners in mm. */
+/** Where a sketch object lies: a base plane (world), or the end face of a part's extrude step (moves with the part). */
+export type SketchPlacement = { kind: 'base'; axis: BasePlane; offset: Expr } | { kind: 'cap'; part: string; step: string };
+
+/**
+ * A shape in sketch plane coordinates: rect and circle centred on x, y; polygon corners in mm. `rot` (degrees) turns a
+ * rect around its centre and a polygon around the centre of its corners.
+ */
 export type Profile =
-  | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr }
+  | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr; rot: Expr }
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
-  | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr };
+  | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr; rot: Expr };
+
+/** A 2D drawing: shapes on one plane. Extrusions can use its shapes and follow their changes. */
+export interface Sketch {
+  id: string;
+  name: string;
+  plane: SketchPlacement;
+  shapes: Profile[];
+  visible: boolean;
+}
 
 export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical';
 
+/** Shapes taken from a sketch (linked), or kept in the step itself (own; an unlinked copy). */
+export type ExtrudeSource = { kind: 'sketch'; sketch: string; shapes: string[] } | { kind: 'own'; plane: SketchPlane; profiles: Profile[] };
+
+export type FinishStep = { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean };
+
 export type Step =
-  /** Profiles pushed along the plane normal by `depth` (negative: the other way), or through everything. */
-  | { id: string; type: 'extrude'; plane: SketchPlane; profiles: Profile[]; depth: Expr; mode: 'add' | 'cut'; through: boolean }
-  | { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean };
+  /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
+  | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; mode: 'add' | 'cut'; through: boolean }
+  | FinishStep;
+
+/** An extrusion with its plane and shapes at hand, as the kernel builds it. */
+export type ExtrudeIn = { id: string; type: 'extrude'; plane: SketchPlane; profiles: Profile[]; depth: Expr; mode: 'add' | 'cut'; through: boolean };
+export type BuildIn = ExtrudeIn | FinishStep;
 
 export interface Part {
   id: string;
@@ -42,9 +66,10 @@ export interface Section {
 }
 
 export interface Doc {
-  schema: 2;
+  schema: 3;
   units: Unit;
   params: Record<string, Expr>;
   parts: Part[];
+  sketches: Sketch[];
   sections: Section[];
 }

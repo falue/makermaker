@@ -1,5 +1,6 @@
 import './style.css';
 import { evalLength, fmt, UNITS } from './doc/expr';
+import { toBuild } from './doc/expand';
 import { capFrame, frames, moved } from './doc/frames';
 import { History } from './doc/history';
 import { paramLookup, resolve, setIn } from './doc/resolve';
@@ -18,6 +19,8 @@ const history = new History<Doc>(sampleDoc());
 let selected: string[] = history.current.parts.slice(0, 1).map((p) => p.id);
 let exprErrors = new Map<string, string>();
 const kernelErrors = new Map<string, { stepId: string; error: string }>();
+/** Parts that cannot be built because of a linked sketch, from the last update. */
+let linkErrors = new Map<string, { stepId: string; error: string }>();
 /** Resolved part positions in mm, from the last update. */
 const positions = new Map<string, Vec3>();
 let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; saved: Doc } = {
@@ -76,6 +79,15 @@ function update() {
     }
   const builds: { id: string; steps: BuildStep[] }[] = [];
   const caps: Cap[] = [];
+  // sketches with an invalid value are left out, so their extrusions wait like parts with one
+  const sketches = new Map(
+    doc.sketches.flatMap((s, i) => {
+      const before = exprErrors.size;
+      const resolved = resolve(s, lookup, `sketches.${i}`, exprErrors);
+      return exprErrors.size === before ? [[s.id, resolved] as const] : [];
+    }),
+  );
+  linkErrors = new Map();
   doc.parts.forEach((p, i) => {
     const position = resolve(p.position, lookup, `parts.${i}.position`, exprErrors);
     if (position.every(Number.isFinite)) {
@@ -83,8 +95,14 @@ function update() {
       viewer.setPosition(p.id, position);
     }
     const before = exprErrors.size;
-    const steps = resolve(p.steps, lookup, `parts.${i}.steps`, exprErrors);
+    const resolved = resolve(p.steps, lookup, `parts.${i}.steps`, exprErrors);
     if (exprErrors.size !== before) return;
+    const steps: BuildStep[] = [];
+    for (const s of resolved) {
+      const built = toBuild(s, p.id, sketches);
+      if (typeof built === 'string') return linkErrors.set(p.id, { stepId: s.id, error: `Cannot build: ${built}` });
+      steps.push(built);
+    }
     builds.push({ id: p.id, steps });
     const plan = frames(steps);
     for (const s of steps) {
@@ -156,15 +174,15 @@ function sketched(r: SketchResult) {
   const doc = history.current;
   const i = doc.parts.findIndex((q) => q.id === r.part);
   const editing = i >= 0 && r.edit ? doc.parts[i].steps.find((s) => s.id === r.edit) : undefined;
-  const kept = editing?.type === 'extrude' ? editing.profiles : [];
-  const profiles = r.shapes.map((d) => kept.find((k) => k.id === d.id) ?? profileOf(d));
-  if (editing) {
+  const kept = editing?.type === 'extrude' && editing.source.kind === 'own' ? editing.source : null;
+  const profiles = r.shapes.map((d) => kept?.profiles.find((k) => k.id === d.id) ?? profileOf(d));
+  if (editing && kept) {
     selected = [r.part!];
-    const steps = doc.parts[i].steps.map((s) => (s === editing ? { ...editing, profiles } : s));
+    const steps = doc.parts[i].steps.map((s) => (s === editing ? { ...editing, source: { ...kept, profiles } } : s));
     return commit(setIn(doc, ['parts', String(i), 'steps'], steps));
   }
   const plane: SketchPlane = r.plane.kind === 'base' ? { ...r.plane, offset: len(r.plane.offset) } : r.plane;
-  const step: Step = { id: newId(), type: 'extrude', plane, profiles, depth: len(r.depth, r.depthTyped), mode: r.mode, through: false };
+  const step: Step = { id: newId(), type: 'extrude', source: { kind: 'own', plane, profiles }, depth: len(r.depth, r.depthTyped), mode: r.mode, through: false };
   if (i >= 0) {
     // before the finishing steps, so the list reads in build order
     const steps = doc.parts[i].steps;
@@ -179,9 +197,9 @@ function sketched(r: SketchResult) {
 
 function profileOf({ profile: p, typed: t }: Drawn): Profile {
   const id = newId();
-  if (p.kind === 'rect') return { id, kind: 'rect', x: len(p.x), y: len(p.y), w: len(p.w, t.w), h: len(p.h, t.h), r: len(p.r) };
+  if (p.kind === 'rect') return { id, kind: 'rect', x: len(p.x), y: len(p.y), w: len(p.w, t.w), h: len(p.h, t.h), r: len(p.r), rot: ex(fmt(p.rot)) };
   if (p.kind === 'circle') return { id, kind: 'circle', x: len(p.x), y: len(p.y), d: len(p.d, t.d) };
-  return { id, kind: 'polygon', pts: p.pts.map(([x, y]) => [+fmt(x), +fmt(y)]), r: len(p.r) };
+  return { id, kind: 'polygon', pts: p.pts.map(([x, y]) => [+fmt(x), +fmt(y)]), r: len(p.r), rot: ex(fmt(p.rot)) };
 }
 
 const toolHost: ToolHost = {
@@ -207,7 +225,10 @@ function startTool(kind: ToolKind) {
 function startSketch(edit?: { part: string; step: string }) {
   const part = history.current.parts.find((p) => p.id === edit?.part);
   if (!edit || !part) return viewer.startSketch(toolHost), render();
-  const steps = resolve(part.steps, paramLookup(history.current.params), '', new Map());
+  const steps = resolve(part.steps, paramLookup(history.current.params), '', new Map()).flatMap((s) => {
+    const built = toBuild(s, part.id, new Map());
+    return typeof built === 'string' ? [] : [built];
+  });
   const step = steps.find((s) => s.id === edit.step);
   const frame = frames(steps).get(edit.step);
   if (step?.type !== 'extrude' || !frame) return notify('This sketch cannot be opened: its plane is lost or a value is invalid');
@@ -297,7 +318,7 @@ function render() {
     doc,
     selected,
     exprErrors,
-    kernelErrors,
+    kernelErrors: new Map([...kernelErrors, ...linkErrors]),
     title: file.name,
     dirty: doc !== file.saved,
     status,
@@ -330,7 +351,7 @@ function render() {
     duplicate: () => duplicate(),
     remove,
     newDoc() {
-      load({ schema: 2, units: history.current.units, params: {}, parts: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 3, units: history.current.units, params: {}, parts: [], sketches: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
