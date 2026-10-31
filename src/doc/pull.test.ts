@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildFeature } from '../kernel/build';
+import { placed, unplaced, type V3 } from './frames';
 import { faceAt, pushed, sideFrame } from './pull';
 
 const ground = { kind: 'base', axis: 'xy', offset: 0 } as const;
@@ -16,7 +17,7 @@ describe('faceAt', () => {
 
   it('pulling a hole wall outwards shrinks the hole, also through a boolean tool body', () => {
     expect(faceAt([plate, hole], [13, 0, 2], [-1, 0, 0])).toMatchObject({ shape: 'c', edge: -1, rate: -1 });
-    const tool: BuildFeature = { id: 'b', type: 'boolean', op: 'subtract', offset: [5, 0, 0], features: [{ ...hole, id: 't', through: false, mode: 'add', depth: 4 }] };
+    const tool: BuildFeature = { id: 'b', type: 'boolean', op: 'subtract', place: { axis: [0, 0, 1], angle: 0, offset: [5, 0, 0] }, features: [{ ...hole, id: 't', through: false, mode: 'add', depth: 4 }] };
     expect(faceAt([plate, tool], [18, 0, 2], [-1, 0, 0])).toMatchObject({ feature: 't', rate: -1 });
   });
 });
@@ -38,5 +39,14 @@ describe('sideFrame', () => {
     const f = sideFrame([plate], 'p', 'r', 0); // the bottom side (y = -10), from (-20, -10) to (20, -10)
     const clean = (v: number[]) => v.map((k) => k + 0); // no -0
     expect([f!.o, f!.x, f!.y, f!.n].map(clean)).toEqual([[-20, -10, 0], [1, 0, 0], [0, 0, 1], [0, -1, 0]]);
+  });
+});
+
+describe('placements', () => {
+  it('turns, moves, and back', () => {
+    const pl = { axis: [0, 0, 1] as V3, angle: 90, offset: [10, 0, 0] as V3 };
+    const p = placed(pl, [1, 0, 0]);
+    expect(p.map((v) => +v.toFixed(9))).toEqual([10, 1, 0]);
+    expect(unplaced(pl, p).map((v) => +v.toFixed(9) + 0)).toEqual([1, 0, 0]);
   });
 });

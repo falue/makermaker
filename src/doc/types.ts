@@ -125,14 +125,15 @@ export interface Section {
 
 /**
  * Groups organise bodies, sketches and other groups. `origin` parent: contents count from the parent's origin;
- * custom: from `position` (in the parent). Hiding a group hides its contents without changing their own eyes.
+ * custom: from `position` (in the parent), turned by `rotation` (degrees around the parent's X, then Y, then Z), so
+ * contents are edited unturned. Hiding a group hides its contents without changing their own eyes.
  */
 export interface Group {
   id: string;
   name: string;
   parent: string | null;
   visible: boolean;
-  origin: { kind: 'parent' } | { kind: 'custom'; position: [Expr, Expr, Expr] };
+  origin: { kind: 'parent' } | { kind: 'custom'; position: [Expr, Expr, Expr]; rotation: { rx: Expr; ry: Expr; rz: Expr } };
 }
 
 export interface Doc {

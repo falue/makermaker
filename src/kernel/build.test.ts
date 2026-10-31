@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
 import { setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { STILL } from '../doc/frames';
 import { buildBody, FeatureError, meshBody, type BuildFeature, type Finishing } from './build';
 
 const wasm = readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm'));
@@ -132,10 +133,10 @@ describe('buildBody', () => {
   it('joins, cuts and intersects with a tool body', () => {
     const pin: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false }];
     const slab = base(100); // 100 x 60 x 4 at the origin
-    const cut = built([slab, { id: 'b', type: 'boolean', op: 'subtract', features: pin, offset: [0, 0, -5] }]);
+    const cut = built([slab, { id: 'b', type: 'boolean', op: 'subtract', features: pin, place: { ...STILL, offset: [0, 0, -5] } }]);
     const plain = built([slab]);
     expect(cut.faces).toBeGreaterThan(plain.faces); // the hole wall
-    const both = built([slab, { id: 'b', type: 'boolean', op: 'intersect', features: pin, offset: [0, 0, -5] }]);
+    const both = built([slab, { id: 'b', type: 'boolean', op: 'intersect', features: pin, place: { ...STILL, offset: [0, 0, -5] } }]);
     expect(both.box.width).toBeCloseTo(10, 2); // only the overlap: a 10 mm disc, 4 mm thick
     expect(both.box.depth).toBeCloseTo(4, 2);
     [cut, plain, both].forEach((x) => x.done());
@@ -143,7 +144,7 @@ describe('buildBody', () => {
 
   it('an unbaked finish also finishes later cuts; a baked one is cut through; skipped edges stay sharp', () => {
     const pin: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false }];
-    const cut: BuildFeature = { id: 'b', type: 'boolean', op: 'subtract', features: pin, offset: [0, 0, -5] };
+    const cut: BuildFeature = { id: 'b', type: 'boolean', op: 'subtract', features: pin, place: { ...STILL, offset: [0, 0, -5] } };
     const top: BuildFeature = { id: 't', type: 'finish', mode: 'chamfer', size: 1, edges: 'top', enabled: true, baked: false, skip: [] };
     const unbaked = built([base(100), top, cut]);
     const baked = built([base(100), { ...top, baked: true }, cut]);

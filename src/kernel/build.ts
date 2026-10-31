@@ -1,11 +1,11 @@
 import { draw, drawCircle, drawRoundedRectangle, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
-import { add, frames, scale, toWorld, type Frame } from '../doc/frames';
+import { add, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { centre, corners, nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, EdgeRule, Profile } from '../doc/types';
 
-/** A boolean with its tool body's features at hand, moved by `offset` (tool position minus this body's). */
-export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; offset: [number, number, number] };
+/** A boolean with its tool body's features at hand, placed as the tool body sits in this body's coordinates. */
+export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place };
 export type BuildFeature = Resolved<BuildIn> | BooleanBuild;
 type Of<T extends BuildFeature['type']> = Extract<BuildFeature, { type: T }>;
 
@@ -255,8 +255,7 @@ function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
 /** Joins, cuts or intersects with the tool body (built here from its features). */
 function boolean(shape: Shape3D | null, s: Of<'boolean'>): Shape3D {
   const built = buildBody(s.features);
-  const tool = built.translate(...s.offset);
-  built.delete();
+  const tool = placeShape(built, s.place);
   try {
     if (!shape) {
       if (s.op !== 'union') throw new Error('nothing to cut or intersect yet');
@@ -266,6 +265,12 @@ function boolean(shape: Shape3D | null, s: Of<'boolean'>): Shape3D {
   } finally {
     tool.delete();
   }
+}
+
+/** `shape` turned and moved by `pl` (replicad's transforms consume the shape they are called on). */
+export function placeShape(shape: Shape3D, pl: Place): Shape3D {
+  const turned = pl.angle ? shape.rotate(pl.angle, [0, 0, 0], pl.axis) : shape;
+  return pl.offset.some((v) => v) ? turned.translate(...pl.offset) : turned;
 }
 
 function sphere(shape: Shape3D | null, s: Of<'sphere'>): Shape3D {
@@ -314,7 +319,7 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
   try {
     return s.mode === 'fillet' ? shape.fillet(size) : shape.chamfer(size);
   } catch {
-    throw new Error(`${s.mode} on ${count} edges failed (size too large?)`);
+    throw new Error(`${s.mode} on ${count} edges failed (size too large?${s.baked ? '' : ' Bake it to leave edges of later cuts sharp'})`);
   }
 }
 

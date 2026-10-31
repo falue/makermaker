@@ -1,5 +1,5 @@
 import type { BuildFeature } from '../kernel/build';
-import { frames, toPlane, toWorld, type Frame, type V3 } from './frames';
+import { frames, toPlane, toWorld, unplaced, type Frame, type V3 } from './frames';
 import { centre, corners, inside, type DrawnProfile } from './profiles';
 import type { Resolved } from './resolve';
 import type { ExtrudeIn } from './types';
@@ -24,7 +24,7 @@ export function faceAt(features: BuildFeature[], p: V3, out: V3, eps = 0.05): Pu
   const plan = frames(features.filter((f) => f.type !== 'boolean'));
   let found: PulledFace | null = null;
   for (const s of features) {
-    if (s.type === 'boolean') found = faceAt(s.features, sub(p, s.offset), out, eps) ?? found;
+    if (s.type === 'boolean') found = faceAt(s.features, unplaced(s.place, p), unplaced(s.place, out, true), eps) ?? found;
     const f = s.type === 'extrude' && plan.get(s.id);
     if (f) found = extrudeFace(s as Resolved<ExtrudeIn>, f, p, out, eps) ?? found;
   }

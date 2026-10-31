@@ -606,9 +606,12 @@ export class Viewer implements ToolView {
     this.applySection();
   }
 
-  setPosition(id: string, [x, y, z]: number[]) {
-    if (this.drag?.moved && this.withOwned(this.selection).includes(id)) return; // being dragged
-    this.group(id).position.set(x, y, z);
+  /** Where a body sits in the world: its origin and its turn (from turned groups). */
+  setPlacement(id: string, at: THREE.Vector3, turn: THREE.Quaternion) {
+    const g = this.group(id);
+    g.quaternion.copy(turn);
+    if (!(this.drag?.moved && this.withOwned(this.selection).includes(id))) g.position.copy(at); // not while dragged
+    g.updateMatrixWorld();
     this.applySection();
   }
 
@@ -890,6 +893,7 @@ export class Viewer implements ToolView {
     for (const m of this.materials.values()) m.side = side;
     const hits = ray.intersectObjects(this.meshes()).filter((h) => this.shown(h.point));
     for (const m of this.materials.values()) m.side = THREE.FrontSide;
+    for (const h of hits) h.face?.normal.transformDirection(h.object.matrixWorld); // world normals from here on
     return hits;
   }
 
@@ -901,7 +905,7 @@ export class Viewer implements ToolView {
         const groups = c.userData.edgeGroups as Uint32Array | undefined;
         if (!groups) continue;
         const pos = (c as THREE.LineSegments).geometry.attributes.position;
-        const at = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, i).add(g.position);
+        const at = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(g.matrix);
         for (let k = 0; k < groups.length; k += 2) {
           const segs: [THREE.Vector3, THREE.Vector3][] = [];
           for (let i = groups[k]; i + 1 < groups[k] + groups[k + 1]; i += 2) segs.push([at(i), at(i + 1)]);
@@ -916,7 +920,7 @@ export class Viewer implements ToolView {
     for (const [id, g] of this.bodies)
       for (const c of this.hidden.has(id) ? [] : g.children) {
         const xyz = c.userData.corners as Float32Array | undefined;
-        for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).add(g.position));
+        for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).applyMatrix4(g.matrix));
       }
     return out;
   }
@@ -1074,6 +1078,7 @@ export class Viewer implements ToolView {
               }),
             );
             mark.position.copy(g.position);
+            mark.quaternion.copy(g.quaternion);
             mark.renderOrder = order;
             this.sectionView.add(mark);
           }
@@ -1109,6 +1114,7 @@ export class Viewer implements ToolView {
           material.clippingPlanes = planes;
           const copy = solid ? new THREE.Mesh(c.geometry, material) : new THREE.LineSegments((c as THREE.LineSegments).geometry, material);
           copy.position.copy(g.position);
+          copy.quaternion.copy(g.quaternion);
           copy.renderOrder = 1e6;
           this.sectionView.add(copy);
         }

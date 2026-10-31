@@ -1,8 +1,8 @@
-import { Vector3 } from 'three';
+import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
-import { BASE, capFrame, frames, moved, scale, type Frame } from './doc/frames';
+import { BASE, capFrame, frames, placeFrame, scale, unplaced, type Frame, type Place } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -38,8 +38,23 @@ const kernelErrors = new Map<string, { featureId: string; error: string }>();
 let linkErrors = new Map<string, { featureId: string; error: string }>();
 /** Resolved body positions in mm, from the last update. */
 const positions = new Map<string, Vec3>();
-/** Group origins in world mm, from the last update (a body's position counts from its group's). */
-const origins = new Map<string, Vec3>();
+/** World placements from the last update: group origins (a body's position counts from its group's), bodies. */
+const groupPlaces = new Map<string, Matrix4>();
+const bodyPlaces = new Map<string, Matrix4>();
+const groupPlace = (id: string | null) => groupPlaces.get(id ?? '') ?? new Matrix4();
+
+/** A rigid matrix as a turn around an axis, then a move. */
+function toPlace(m: Matrix4): Place {
+  const [offset, q] = [new Vector3(), new Quaternion()];
+  m.decompose(offset, q, new Vector3());
+  if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
+  const s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
+  const angle = (2 * Math.acos(Math.min(1, q.w)) * 180) / Math.PI;
+  return { axis: s < 1e-9 ? [0, 0, 1] : [q.x / s, q.y / s, q.z / s], angle: s < 1e-9 ? 0 : angle, offset: offset.toArray() };
+}
+
+/** Where body `id` sits in the world. */
+const bodyPlace = (id: string) => toPlace(bodyPlaces.get(id) ?? new Matrix4());
 /** Build features per body (tool bodies inside), from the last update. */
 const built = new Map<string, BuildFeature[]>();
 /** A sketch placement's world frame, as of the last update. */
@@ -50,10 +65,10 @@ let frameOf: (p: Resolved<SketchPlacement>) => Frame | undefined = () => undefin
  * face is flat, a fixed plane on it (x as level as possible).
  */
 function placeOn(face: PickedFace, flat: boolean): Omit<Target, 'sketch'> | null {
-  const at = positions.get(face.body ?? '');
   const features = built.get(face.body ?? '');
   const out = face.normal.clone().negate().toArray();
-  const hit = at && features && faceAt(features, face.point.toArray().map((v, k) => v - at[k]) as Vec3, out);
+  const pl = bodyPlace(face.body ?? '');
+  const hit = features && faceAt(features, unplaced(pl, face.point.toArray()), unplaced(pl, out, true));
   const owner = hit && history.current.bodies.find((b) => b.features.some((f) => f.id === hit.feature))?.id;
   const placement: Resolved<SketchPlacement> | null =
     !hit || !owner ? null : hit.kind === 'cap' ? { kind: 'cap', body: owner, feature: hit.feature } : hit.edge >= 0 ? { kind: 'side', body: owner, feature: hit.feature, shape: hit.shape, edge: hit.edge, flip: hit.rate < 0 } : null;
@@ -149,21 +164,28 @@ function update() {
     }),
   );
   linkErrors = new Map();
-  // group origins (world mm; a custom origin counts from its parent's) and whether groups are shown with their parents
-  origins.clear();
-  const originOf = (id: string | null, seen: string[] = []): Vec3 => {
+  // group origins in the world (a custom origin is moved and turned in its parent's) and whether groups are shown
+  groupPlaces.clear();
+  const groupAt = (id: string | null, seen: string[] = []): Matrix4 => {
     const i = doc.groups.findIndex((g) => g.id === id);
     const g = doc.groups[i];
-    if (!g || seen.includes(g.id)) return [0, 0, 0];
-    const done = origins.get(g.id);
+    if (!g || seen.includes(g.id)) return new Matrix4();
+    const done = groupPlaces.get(g.id);
     if (done) return done;
-    const parent = originOf(g.parent, [...seen, g.id]);
-    const own = g.origin.kind === 'custom' ? resolve(g.origin.position, lookup, `groups.${i}.origin.position`, exprErrors) : [0, 0, 0];
-    const at = parent.map((v, k) => v + (Number.isFinite(own[k]) ? own[k] : 0)) as Vec3;
-    origins.set(g.id, at);
-    return at;
+    const m = groupAt(g.parent, [...seen, g.id]).clone();
+    if (g.origin.kind === 'custom') {
+      const at = `groups.${i}.origin`;
+      const fine = (v: number) => (Number.isFinite(v) ? v : 0);
+      const [x, y, z] = resolve(g.origin.position, lookup, `${at}.position`, exprErrors).map(fine);
+      const r = resolve(g.origin.rotation, lookup, `${at}.rotation`, exprErrors);
+      const deg = (v: number) => (fine(v) * Math.PI) / 180;
+      // degrees around the parent's X, then Y, then Z
+      m.multiply(new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromEuler(new Euler(deg(r.rx), deg(r.ry), deg(r.rz), 'ZYX')), new Vector3(1, 1, 1)));
+    }
+    groupPlaces.set(g.id, m);
+    return m;
   };
-  doc.groups.forEach((g) => originOf(g.id));
+  doc.groups.forEach((g) => groupAt(g.id));
   const shownIn = (id: string | null) => {
     for (const seen = new Set<string>(); id && !seen.has(id); ) {
       const g = doc.groups.find((q) => q.id === id);
@@ -178,14 +200,17 @@ function update() {
   const own = new Map<string, Map<string, BuildFeature>>();
   let pending = doc.bodies.flatMap((p, i) => {
     const local = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
-    const position = local.map((v, k) => v + originOf(p.group)[k]) as Vec3;
-    if (position.every(Number.isFinite)) {
-      positions.set(p.id, position);
-      viewer.setPosition(p.id, position);
+    if (local.every(Number.isFinite)) {
+      const m = groupAt(p.group).clone().multiply(new Matrix4().makeTranslation(...local));
+      bodyPlaces.set(p.id, m);
+      const [at, turn] = [new Vector3(), new Quaternion()];
+      m.decompose(at, turn, new Vector3());
+      positions.set(p.id, at.toArray());
+      viewer.setPlacement(p.id, at, turn);
     }
     const before = exprErrors.size;
     const resolved = resolve(p.features, lookup, `bodies.${i}.features`, exprErrors);
-    return exprErrors.size === before ? [{ id: p.id, resolved, at: positions.get(p.id) ?? ([0, 0, 0] as Vec3) }] : [];
+    return exprErrors.size === before ? [{ id: p.id, resolved, at: bodyPlace(p.id) }] : [];
   });
   const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
   /** A placement's frame in the world; undefined while its body is not built (or its face is gone). */
@@ -195,7 +220,7 @@ function update() {
     if (p.kind === 'cap') return caps.find((c) => c.body === p.body && c.feature === p.feature)?.frame;
     const parts = own.get(p.body);
     const f = parts && sideFrame([...parts.values()], p.feature, p.shape, p.edge, p.flip);
-    return f && moved(f, positions.get(p.body) ?? [0, 0, 0]);
+    return f && placeFrame(bodyPlace(p.body), f);
   };
   frameOf = worldFrame;
   for (let progress = true; pending.length && progress; ) {
@@ -203,7 +228,7 @@ function update() {
     pending = pending.filter(({ id, resolved, at }) => {
       const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
         const f = worldFrame(p);
-        return f && moved(f, scale(at, -1));
+        return f && placeFrame(at, f, true);
       };
       const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
@@ -219,13 +244,13 @@ function update() {
       const plan = frames(list);
       for (const s of list) {
         const f = plan.get(s.id);
-        if (s.type === 'extrude' && f && !s.through) caps.push({ body: id, feature: s.id, frame: moved(capFrame(f, s.depth), at) });
+        if (s.type === 'extrude' && f && !s.through) caps.push({ body: id, feature: s.id, frame: placeFrame(at, capFrame(f, s.depth)) });
       }
       return false;
     });
   }
   for (const { id, resolved } of pending) linkErrors.set(id, { featureId: resolved[0]?.id ?? '', error: "Cannot build: its sketch's face is gone, or sketches lie on each other's faces in a circle" });
-  // 2: booleans take their tool bodies' full features, moved by the positions
+  // 2: booleans take their tool bodies' full features, placed as the tool sits in the body's coordinates
   built.clear();
   const full = new Map<string, BuildFeature[] | string>();
   const fullOf = (id: string, path: string[] = []): BuildFeature[] | string => {
@@ -243,8 +268,8 @@ function update() {
       if (!doc.bodies.some((b) => b.id === s.body)) return 'its tool body was deleted';
       const tool = fullOf(s.body, [...path, id]);
       if (typeof tool === 'string') return tool;
-      const offset = (positions.get(s.body) ?? [0, 0, 0]).map((v, k) => v - (positions.get(id) ?? [0, 0, 0])[k]) as Vec3;
-      out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, offset });
+      const relative = (bodyPlaces.get(id) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
+      out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative) });
     }
     full.set(id, out);
     return out;
@@ -260,7 +285,7 @@ function update() {
     const r = sketches.get(s.id);
     const p = r?.plane;
     if (!r || !p || !s.visible || !shownIn(s.group)) return [];
-    const frame = p.kind === 'base' ? moved(worldFrame(p)!, originOf(s.group)) : worldFrame(p);
+    const frame = p.kind === 'base' ? placeFrame(toPlace(groupAt(s.group)), worldFrame(p)!) : worldFrame(p);
     return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes }] : [];
   });
   viewer.setCustomSections(
@@ -271,7 +296,7 @@ function update() {
   );
   const ids = new Set(doc.bodies.map((p) => p.id));
   for (const id of kernelErrors.keys()) if (!ids.has(id)) kernelErrors.delete(id);
-  for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id);
+  for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id), bodyPlaces.delete(id);
   selected = selected.filter((id) => ids.has(id) || [...doc.sketches, ...doc.groups].some((o) => o.id === id));
   if (isolated && !ids.has(isolated.body)) isolated = null;
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
@@ -517,10 +542,11 @@ function place(moves: { id: string; position: Vec3 }[]) {
     const i = doc.bodies.findIndex((p) => p.id === id);
     const before = positions.get(id);
     if (i < 0 || !before) continue;
-    const origin = origins.get(doc.bodies[i].group ?? '') ?? [0, 0, 0];
-    position.forEach((v, k) => {
-      if (Math.abs(v - before[k]) > 1e-9)
-        next = setIn(next, ['bodies', String(i), 'position', String(k)], ex(fmt((v - origin[k]) / UNITS[doc.units]), doc.units));
+    // in the group's (turned) coordinates: axes whose local value changed are written
+    const toLocal = groupPlace(doc.bodies[i].group).clone().invert();
+    const [now, was] = [position, before].map((p) => new Vector3(...p).applyMatrix4(toLocal).toArray());
+    now.forEach((v, k) => {
+      if (Math.abs(v - was[k]) > 1e-9) next = setIn(next, ['bodies', String(i), 'position', String(k)], ex(fmt(v / UNITS[doc.units]), doc.units));
     });
   }
   commit(next);
@@ -587,13 +613,13 @@ const toggled = new Set<string>();
  * `doc` with objects put into a group (null: the top level) whose origin is at `target` (world mm). Bodies keep their
  * place in the world (their positions now count from that origin); a group cannot go into itself.
  */
-function movedInto(doc: Doc, ids: string[], group: string | null, target: Vec3 = origins.get(group ?? '') ?? [0, 0, 0]): Doc {
+function movedInto(doc: Doc, ids: string[], group: string | null, target: Matrix4 = groupPlace(group)): Doc {
   const lookup = paramLookup(doc.params);
   const bodies = doc.bodies.map((b) => {
     if (!ids.includes(b.id) || b.group === group) return b;
-    const was = origins.get(b.group ?? '') ?? [0, 0, 0];
     const local = resolve(b.position, lookup, '', new Map());
-    return { ...b, group, position: b.position.map((x, k) => plus(x, local[k], was[k] - target[k])) as Body['position'] };
+    const now = new Vector3(...local).applyMatrix4(groupPlace(b.group)).applyMatrix4(target.clone().invert()).toArray();
+    return { ...b, group, position: b.position.map((x, k) => plus(x, local[k], now[k] - local[k])) as Body['position'] };
   });
   const sketches = doc.sketches.map((s) => (ids.includes(s.id) ? { ...s, group } : s));
   const groups = doc.groups.map((g) => (ids.includes(g.id) && !(group && within(doc, g.id).has(group)) ? { ...g, parent: group } : g));
@@ -611,7 +637,7 @@ function groupSelection() {
   const group: Group = { id: newId(), name: `Group ${doc.groups.length + 1}`, parent, visible: true, origin: { kind: 'parent' } };
   const ids = selected;
   [selected, shapeSel] = [[group.id], []];
-  commit(movedInto({ ...doc, groups: [...doc.groups, group] }, ids, group.id, origins.get(parent ?? '') ?? [0, 0, 0]));
+  commit(movedInto({ ...doc, groups: [...doc.groups, group] }, ids, group.id, groupPlace(parent)));
 }
 
 /**
@@ -792,9 +818,9 @@ const centred = (p: DrawnProfile, ref: [number, number]) => !ref[0] && !ref[1] &
  * its shape (in the sketch, if linked). Values keep their expressions.
  */
 function pullFace(face: PickedFace) {
-  const at = positions.get(face.body ?? '');
   const features = built.get(face.body ?? '');
-  const hit = at && features && faceAt(features, face.point.toArray().map((v, k) => v - at[k]) as Vec3, face.normal.clone().negate().toArray());
+  const pl = bodyPlace(face.body ?? '');
+  const hit = features && faceAt(features, unplaced(pl, face.point.toArray()), unplaced(pl, face.normal.clone().negate().toArray(), true));
   if (!hit) return notify('Only faces made by extrusions can be pushed or pulled so far');
   const before = history.current;
   const bi = before.bodies.findIndex((b) => b.features.some((f) => f.id === hit.feature));
@@ -970,8 +996,7 @@ function duplicate(offset = 10) {
   const copies = doc.bodies
     .filter((p) => selected.includes(p.id))
     .map((p): Body => {
-      const origin = origins.get(p.group ?? '') ?? [0, 0, 0];
-      const [x, y] = (positions.get(p.id) ?? [0, 0]).map((v, k) => v - origin[k]);
+      const [x, y] = resolve(p.position, paramLookup(doc.params), '', new Map());
       const at = (v: number) => ex(fmt((v + offset) / UNITS[doc.units]), doc.units);
       return {
         ...structuredClone(p),

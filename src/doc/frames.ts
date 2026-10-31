@@ -55,3 +55,37 @@ export function frames(features: Resolved<BuildIn>[]): Map<string, Frame> {
 
 /** End face of an extrude feature: its frame moved along the normal by its depth. */
 export const capFrame = (f: Frame, depth: number): Frame => ({ ...f, o: add(f.o, scale(f.n, depth)) });
+
+/** A rigid placement: turned by `angle` degrees around `axis` (unit, through the origin), then moved by `offset`. */
+export interface Place {
+  axis: V3;
+  angle: number;
+  offset: V3;
+}
+
+export const STILL: Place = { axis: [0, 0, 1], angle: 0, offset: [0, 0, 0] };
+
+/** `v` turned by `deg` degrees around unit `axis` (Rodrigues). */
+export function turned(v: V3, axis: V3, deg: number): V3 {
+  if (!deg) return v;
+  const a = (deg * Math.PI) / 180;
+  const [c, s] = [Math.cos(a), Math.sin(a)];
+  const k = dot(axis, v) * (1 - c);
+  const [x, y, z] = axis;
+  return [v[0] * c + (y * v[2] - z * v[1]) * s + x * k, v[1] * c + (z * v[0] - x * v[2]) * s + y * k, v[2] * c + (x * v[1] - y * v[0]) * s + z * k];
+}
+
+/** A point given in placed coordinates, in the outer ones (`direction`: only turned). */
+export const placed = (pl: Place, p: V3, direction = false): V3 => {
+  const t = turned(p, pl.axis, pl.angle);
+  return direction ? t : add(t, pl.offset);
+};
+
+/** A point given in the outer coordinates, in placed ones (`direction`: only turned back). */
+export const unplaced = (pl: Place, p: V3, direction = false): V3 => turned(direction ? p : add(p, scale(pl.offset, -1)), pl.axis, -pl.angle);
+
+/** A frame given in placed coordinates, in the outer ones; `back`: the other way. */
+export function placeFrame(pl: Place, f: Frame, back = false): Frame {
+  const map = back ? unplaced : placed;
+  return { o: map(pl, f.o), x: map(pl, f.x, true), y: map(pl, f.y, true), n: map(pl, f.n, true) };
+}

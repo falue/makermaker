@@ -458,7 +458,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
   const set = (next: Partial<Group>) => ctx.commit(setIn(ctx.doc, ['groups', String(i)], { ...g, ...next }));
   const u = ctx.doc.units;
   const origin = select(g.origin.kind, { parent: "Parent's origin", custom: 'Custom origin' }, (kind) =>
-    set({ origin: kind === 'custom' ? { kind, position: [ex(0, u), ex(0, u), ex(0, u)] } : { kind } }),
+    set({ origin: kind === 'custom' ? { kind, position: [ex(0, u), ex(0, u), ex(0, u)], rotation: { rx: ex(0), ry: ex(0), rz: ex(0) } } : { kind } }),
   );
   return [
     h('div', { className: 'head' }, input(`groups.${i}.name`, g.name, (name) => set({ name })), button('Delete', ctx.remove, 'Delete the group with everything in it')),
@@ -467,7 +467,9 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
     ...(g.origin.kind === 'custom'
       ? [
           h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `groups.${i}.origin.position.${k}`, l))),
-          h('p', { className: 'hint' }, 'Its contents count from this point: changing it moves them all.'),
+          // degrees: shown as typed, never unit-converted
+          h('div', { className: 'row' }, ...(['rx', 'ry', 'rz'] as const).map((k) => exprField(ctx, `groups.${i}.origin.rotation.${k}`, `${k[1].toUpperCase()}°`, true))),
+          h('p', { className: 'hint' }, 'Its contents count from this point and turn with it (degrees around X, then Y, then Z); inside, they are edited unturned.'),
         ]
       : [h('p', { className: 'hint' }, "Its contents count from the parent's origin.")]),
   ];
