@@ -37,7 +37,7 @@ const ICONS = {
   theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>',
   render: '<path d="M4 7h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5"/>',
   renderNice: '<path d="M4 7h3l2-3h6l2 3h3v12H4z"/><path d="M12 9.5l1 2.2 2.3.3-1.7 1.6.4 2.3-2-1.1-2 1.1.4-2.3-1.7-1.6 2.3-.3z"/>',
-  laser: '<rect x="8" y="2" width="8" height="6" rx="1"/><path d="M10 8l1 2h2l1-2M12 10v9M3 19h18M12 19l-3.5-3M12 19l3.5-3M12 19l-5-1.5M12 19l5-1.5"/>',
+  laser: '<rect x="8" y="2" width="8" height="6" rx="1"/><path d="M10 8l1 2h2l1-2M12 10v8M3 20h7M14 20h7M12 17.5l-3-2.5M12 17.5l3-2.5M12 17.5l-4.5-.5M12 17.5l4.5-.5"/>',
   print: '<path d="M8 3h8v6H8zM10 9l1 3h2l1-3M7 15h10v5H7zM3 20h18M7 17.5h10"/>',
   unlink: '<path d="M15 9l3-3a3 3 0 0 0-4.2-4.2l-3 3M9 15l-3 3a3 3 0 0 0 4.2 4.2l3-3M4 8h3M8 4v3M20 16h-3M16 20v-3"/>',
   fit: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.2 15.2L20 20"/><rect x="7.5" y="7.5" width="6" height="6" rx=".5"/>',
