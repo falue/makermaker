@@ -237,7 +237,7 @@ export class Viewer implements ToolView {
       this.toolPress = false;
       this.tool?.up();
     });
-    canvas.addEventListener('dblclick', () => this.tool?.dblclick());
+    canvas.addEventListener('dblclick', (e) => this.tool?.dblclick(e));
     canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // Ctrl+click on macOS would open it
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement || !this.locked) return;

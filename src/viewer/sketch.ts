@@ -99,7 +99,7 @@ export interface Tool {
   down(e: PointerEvent): boolean;
   move(e: PointerEvent): void;
   up(): void;
-  dblclick(): void;
+  dblclick(e: MouseEvent): void;
   /** Returns true if the key was used. */
   key(e: KeyboardEvent): boolean;
   dispose(): void;

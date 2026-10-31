@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { toWorld, type V3 } from '../doc/frames';
+import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
 import { planeHit, pullBy, uvOf, type PullStart, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
-const PICK_HINT = 'Click areas to pick them (again to drop) · [Enter] or [E] pulls the picked areas · [Esc] cancels';
+const PICK_HINT = 'Click areas to pick them (again to drop) · double-click picks everything inside a shape · [Enter] or [E] pulls the picked areas · [Esc] cancels';
 const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done · [Esc] back to picking';
 
 /** In a sketch: pick areas (where shapes overlap, each piece is an area), then pull them into one extrusion. */
@@ -55,7 +56,16 @@ export class AreaTool implements Tool {
 
   up() {}
 
-  dblclick() {}
+  /** Picks everything inside the shape under the pointer (the smallest there): all areas that lie in it. */
+  dblclick(e: MouseEvent) {
+    const i = this.pull ? null : this.areaAt(e);
+    if (i === null) return;
+    const shapes = this.view.sketches.find((s) => s.id === this.target.sketch)?.shapes ?? [];
+    const sized = this.areas[i].in.flatMap((id) => shapes.filter((q) => q.id === id)).sort((a, b) => area(a) - area(b));
+    if (!sized.length) return;
+    this.areas.forEach((a, k) => a.in.includes(sized[0].id) && this.picked.add(k));
+    this.update();
+  }
 
   key(e: KeyboardEvent) {
     const p = this.pull;
