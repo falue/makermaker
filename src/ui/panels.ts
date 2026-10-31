@@ -210,7 +210,6 @@ function toolbar(ctx: UIContext): Node[] {
     ['polygon', 'Polygon (P)'],
   ] as const;
   const none = !ctx.selected.length;
-  const sketch = ctx.doc.sketches.some((s) => s.id === ctx.selected[0]) && ctx.selected.length === 1;
   if (ctx.sketching)
     return [
       tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.tool),
@@ -224,7 +223,7 @@ function toolbar(ctx: UIContext): Node[] {
     tool('sketch', 'New sketch (S): click a top face or empty space, then draw shapes on it', ctx.newSketch),
     ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), ctx.tool === kind)),
     tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), ctx.tool === 'sphere'),
-    tool('extrude', 'Extrude (E): pull the selected shapes, or the whole selected sketch', ctx.extrude, false, !sketch),
+    tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a clicked end face', ctx.extrude),
     h('hr'),
     tool('duplicate', 'Duplicate (⌘D)', ctx.duplicate, false, none),
     tool('delete', 'Delete (Del)', ctx.remove, false, none),

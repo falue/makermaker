@@ -8,6 +8,7 @@ import { centre, inside, type DrawnProfile } from '../doc/profiles';
 import { angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import type { AreaMesh } from '../kernel/build';
 import { AreaTool } from './areas';
+import { FacePullTool } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
 import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
@@ -33,10 +34,19 @@ export interface ViewerHost {
   format(mm: number): string;
 }
 
-/** A face picked for a section: a point on it and the normal pointing away from the camera. */
+/** A face picked for a section: a point on it and the normal pointing away from the camera; `body`: whose face (none: a base plane). */
 export interface PickedFace {
   point: THREE.Vector3;
   normal: THREE.Vector3;
+  body?: string;
+}
+
+/** An extrusion's end face under a point: the feature, its outward frame (normal out of the body), and the point. */
+export interface CapHit {
+  body: string;
+  feature: string;
+  frame: Frame;
+  at: THREE.Vector3;
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -272,6 +282,26 @@ export class Viewer implements ToolView {
     this.tool = new SketchTool(kind, this, host, mode);
     if (mode?.kind !== 'pull') this.renderer.domElement.classList.add('drawing');
     this.renderSketches(); // no handles while a tool runs
+  }
+
+  /** The last face clicked on a body (front side), for E after clicking a face. */
+  lastFace: PickedFace | null = null;
+
+  /** The extrusion end face at a picked face, if it is one; its frame's normal points out of the body. */
+  capAt(face: PickedFace): CapHit | null {
+    const out = face.normal.clone().negate(); // picked normals point away from the camera
+    const cap = this.caps.find((c) => {
+      const n = new THREE.Vector3(...c.frame.n);
+      return c.body === face.body && Math.abs(out.dot(n)) > 0.999 && Math.abs(face.point.clone().sub(new THREE.Vector3(...c.frame.o)).dot(n)) < 1e-3;
+    });
+    if (!cap) return null;
+    return { body: cap.body, feature: cap.feature, frame: { ...cap.frame, n: out.toArray() }, at: face.point.clone() };
+  }
+
+  /** Pulls an extrusion's end face (E on a face). */
+  startFacePull(host: ToolHost, cap: CapHit, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void) {
+    this.stopTool();
+    this.tool = new FacePullTool(this, host, cap.frame, cap.at, onPull);
   }
 
   /** Pulls existing shapes of a sketch into an extrusion (E). */
@@ -764,7 +794,7 @@ export class Viewer implements ToolView {
   /** A face under the pointer, else the base plane facing the camera through the origin; the normal points away from the camera. */
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
-    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate() });
+    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId });
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const k = this.facingAxis();
     this.endFacePick({ point: new THREE.Vector3(), normal: unit(k).multiplyScalar(Math.sign(look.getComponent(k)) || 1) });
@@ -968,6 +998,8 @@ export class Viewer implements ToolView {
     const hit = this.intersect(ray)[0];
     const shape = this.shapeAt(ray.ray, hit?.distance);
     this.downOnPart = !!hit || !!shape;
+    if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0)
+      this.lastFace = { point: hit.point.clone(), normal: hit.face.normal.clone().negate(), body: hit.object.userData.bodyId };
     if (shape) {
       if (e.shiftKey) return this.host.pickShape(shape.sketch, shape.shape, true);
       const member = this.activeSketch === shape.sketch && this.selectedShapes.includes(shape.shape);

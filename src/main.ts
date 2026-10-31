@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import './style.css';
-import { evalLength, fmt, UNITS } from './doc/expr';
+import { evalLength, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
 import { BASE, capFrame, frames, moved, scale } from './doc/frames';
 import { History } from './doc/history';
@@ -17,7 +17,7 @@ import { sectionControls } from './ui/sections';
 import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
 import { moved as shifted } from './viewer/shapes';
-import { Viewer, type Vec3 } from './viewer/viewer';
+import { Viewer, type PickedFace, type Vec3 } from './viewer/viewer';
 
 const tips = installTooltips();
 const history = new History<Doc>(sampleDoc());
@@ -423,6 +423,42 @@ function startTool(kind: ToolKind) {
   render();
 }
 
+/**
+ * Pushes or pulls an extrusion's end face: changes that extrusion's depth live (one undo step). An expression stays
+ * one: `ply` pulled out by 5 becomes `ply + 5`.
+ */
+function pullFace(face: PickedFace) {
+  const cap = viewer.capAt(face);
+  if (!cap) return notify('Only end faces of extrusions can be pushed or pulled so far');
+  const before = history.current;
+  const bi = before.bodies.findIndex((b) => b.id === cap.body);
+  const fi = before.bodies[bi]?.features.findIndex((f) => f.id === cap.feature) ?? -1;
+  const feature = before.bodies[bi]?.features[fi];
+  if (feature?.type !== 'extrude') return;
+  const old = feature.depth;
+  const oldMm = resolve(old, paramLookup(before.params), '', new Map()) as number;
+  // the face points along the extrusion when the depth is positive
+  const sign = Math.sign(oldMm) || 1;
+  let pushed = false;
+  viewer.startFacePull(toolHost, cap, (mm, phase) => {
+    if (phase === 'cancel') {
+      if (pushed) history.undo();
+      stopTool();
+      return update();
+    }
+    const by = mm * sign;
+    const depth = isPlain(old.e) ? len(oldMm + by) : by ? { e: `${old.e} ${by < 0 ? '-' : '+'} ${fmt(Math.abs(by) / UNITS[old.u])}`, u: old.u } : old;
+    const next = setIn(before, ['bodies', String(bi), 'features', String(fi), 'depth'], depth);
+    if (pushed) history.replace(next);
+    else history.push(next);
+    pushed = true;
+    if (phase === 'done') stopTool();
+    update();
+  });
+  toolMode = 'pull';
+  render();
+}
+
 /** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already. */
 async function extrudeAreas(all = false) {
   const s = viewer.sketches.find((v) => v.id === sketching);
@@ -471,9 +507,23 @@ function newSketch(t: Target) {
   enterSketch(sketch.id, 'rect', true);
 }
 
-/** E: in sketch mode picks areas of the sketch to pull; else pulls the selected shapes of the selected sketch, or all of them. */
+/**
+ * E: in sketch mode picks areas of the sketch to pull; with a sketch selected pulls its selected shapes (or all);
+ * else pulls an extrusion's end face: the face last clicked on the selected body, or one clicked next.
+ */
 function extrude() {
   if (sketching) return void extrudeAreas();
+  if (!activeSketch()) {
+    const last = viewer.lastFace;
+    if (last?.body && selected.includes(last.body)) return pullFace(last);
+    toolHint = 'Click the end face of an extrusion to push or pull it · [Esc] cancels';
+    render();
+    return viewer.pickFace((face) => {
+      toolHint = null;
+      if (face) pullFace(face);
+      else render();
+    });
+  }
   const id = activeSketch();
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return notify(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
