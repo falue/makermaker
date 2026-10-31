@@ -608,3 +608,20 @@ canvas.drawing {
   background: var(--accent);
   border-color: var(--accent);
 }
+
+.tooltip {
+  position: fixed;
+  z-index: 20;
+  max-width: 360px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.tooltip.follow {
+  border-color: var(--accent);
+}

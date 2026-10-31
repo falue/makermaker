@@ -14,10 +14,12 @@ import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
+import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
 import { moved as shifted } from './viewer/shapes';
 import { Viewer, type Vec3 } from './viewer/viewer';
 
+installTooltips();
 const history = new History<Doc>(sampleDoc());
 /** Selected objects (bodies and sketches) and, inside a single selected sketch, its selected shapes. */
 let selected: string[] = history.current.bodies.slice(0, 1).map((p) => p.id);
