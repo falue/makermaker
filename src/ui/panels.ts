@@ -108,6 +108,8 @@ export interface RenderJob {
   url?: string;
   error?: string;
   cancel?: boolean;
+  /** Rendered again: saves itself when done. */
+  again?: boolean;
 }
 export type ShapeField = 'x' | 'y' | 'w' | 'h' | 'd' | 'rot';
 
@@ -448,11 +450,17 @@ function rendersPanel(ctx: UIContext): Node[] {
   background.onchange = () => ctx.commit({ ...doc, renderBackground: background.value });
   const shots = doc.renders.map((shot) => {
     const job = renders.jobs.get(shot.id);
-    const picture = job?.canvas ?? h('img', { src: job?.url ?? shot.thumbnail, alt: 'Render' });
+    // live while rendering, else this session's picture, the last saved result, or the thumbnail (on the background colour)
+    const picture = job?.canvas ?? h('img', { src: job?.url ?? shot.results[0]?.preview ?? shot.thumbnail, alt: 'Render' });
+    picture.style.background = shot.background;
+    // rendered more than once: the older results below, newest first
+    const older = shot.results.slice(job?.canvas ? 0 : 1).map((r) => h('img', { src: r.preview, title: `Rendered ${new Date(r.at).toLocaleString()}` }));
     const c = shot.camera;
     const how = `${c.ortho ? 'Ortho' : `Persp ${Math.round(c.fov)}°`} · ${c.size[0]} × ${c.size[1]} px`;
     const state = !job
-      ? 'Not rendered in this session'
+      ? shot.results.length
+        ? `Rendered ${new Date(shot.results[0].at).toLocaleString()}`
+        : 'Not rendered yet'
       : job.state === 'waiting'
         ? 'Waiting'
         : job.state === 'rendering'
@@ -475,6 +483,7 @@ function rendersPanel(ctx: UIContext): Node[] {
       { className: 'render' },
       h('div', { className: 'picture' }, picture),
       ...bar,
+      ...(older.length ? [h('div', { className: 'older' }, ...older)] : []),
       h('div', { className: 'listed' }, swatch, h('span', { className: 'hint' }, `${new Date(shot.at).toLocaleString()} · ${how}`)),
       h('div', { className: 'listed' }, h('strong', {}, state)),
       h('div', { className: 'row actions' }, ...actions),
@@ -483,7 +492,7 @@ function rendersPanel(ctx: UIContext): Node[] {
   return [
     h('div', { className: 'head' }, h('h3', {}, 'Renders'), button('×', renders.toggle, 'Close the renders')),
     h('div', { className: 'row' }, h('label', { className: 'check' }, background, 'Background'), h('button', { className: 'primary', onclick: renders.shoot, title: 'Render the view as it is now; renders queue up' }, 'Render this view')),
-    h('p', { className: 'hint' }, 'Each render keeps its camera: render it again any time with the model as it is then. Pictures are kept until the page reloads, thumbnails in the file.'),
+    h('p', { className: 'hint' }, 'Each render keeps its camera: Render again renders the same view with the model as it is now (and saves itself). Full pictures stay until the page reloads; small copies are saved in the file.'),
     ...shots,
   ];
 }

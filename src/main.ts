@@ -119,6 +119,11 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   setShapes,
   length,
   placeOn,
+  touched() {
+    if (!rendersOpen) return;
+    rendersOpen = false; // choosing something in the view shows it, not the renders
+    render();
+  },
   pickFinish(sel) {
     finishSel = sel;
     viewer.setFinishMark(sel);
@@ -384,6 +389,7 @@ function picked(sel: string[], list: string[], id: string, how: Pick) {
  * (unless adding). Selecting something else leaves sketch mode.
  */
 function select(id: string | null, how: Pick = false) {
+  rendersOpen = false; // choosing something shows it, not the renders
   if (finishSel) viewer.setFinishMark((finishSel = null));
   if (pending && id && history.current.bodies.some((b) => b.id === id)) return pending.pick(id);
   // while picking areas, a sketch chosen in the list gets all its areas picked
@@ -1109,7 +1115,7 @@ function render() {
       },
       shoot: () => run(shoot),
       again(id) {
-        jobs.set(id, { state: 'waiting', done: 0 });
+        jobs.set(id, { state: 'waiting', done: 0, again: true });
         render();
         run(renderQueue);
       },
@@ -1119,11 +1125,7 @@ function render() {
         else if (job) job.cancel = true;
         render();
       },
-      download(id) {
-        const image = jobs.get(id)?.image;
-        const n = history.current.renders.length - history.current.renders.findIndex((r) => r.id === id);
-        if (image) download(image, `${project()}_render_${n}.png`);
-      },
+      download: downloadRender,
       useView(id) {
         const shot = history.current.renders.find((r) => r.id === id);
         if (shot) viewer.setCameraState(shot.camera);
@@ -1185,7 +1187,7 @@ async function shoot() {
     reader.readAsDataURL(small);
   });
   const doc = history.current;
-  const shot = { id: newId(), at: new Date().toISOString(), camera, background: doc.renderBackground, thumbnail };
+  const shot = { id: newId(), at: new Date().toISOString(), camera, background: doc.renderBackground, thumbnail, results: [] };
   jobs.set(shot.id, { state: 'waiting', done: 0 });
   commit({ ...doc, renders: [shot, ...doc.renders] });
   await renderQueue();
@@ -1214,6 +1216,12 @@ async function renderQueue() {
           slow: () => !rendersOpen,
         });
         Object.assign(job, { state: 'done', image, url: URL.createObjectURL(image) });
+        // a small copy goes into the document, so the result outlives the session (no undo step of its own)
+        const preview = await previewOf(image);
+        const doc = history.current;
+        const i = doc.renders.findIndex((r) => r.id === shot.id);
+        if (i >= 0) history.replace(setIn(doc, ['renders', String(i), 'results'], [{ at: new Date().toISOString(), preview }, ...doc.renders[i].results].slice(0, 8)));
+        if (job.again) downloadRender(shot.id);
       } catch (err) {
         Object.assign(job, { state: 'failed', error: (err as Error).message });
       }
@@ -1223,6 +1231,22 @@ async function renderQueue() {
   } finally {
     queueRunning = false;
   }
+}
+
+/** Saves a finished render of this session as `<file>_render_<n>.png` (n counts from the oldest render). */
+function downloadRender(id: string) {
+  const image = jobs.get(id)?.image;
+  const n = history.current.renders.length - history.current.renders.findIndex((r) => r.id === id);
+  if (image) download(image, `${project()}_render_${n}.png`);
+}
+
+/** A small JPEG data URL of a picture, `width` px wide. */
+async function previewOf(image: Blob, width = 320) {
+  const bitmap = await createImageBitmap(image);
+  const canvas = Object.assign(document.createElement('canvas'), { width, height: Math.round((bitmap.height * width) / bitmap.width) });
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL('image/jpeg', 0.8);
 }
 
 /** The open file's name without its extension. */

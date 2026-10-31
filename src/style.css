@@ -826,6 +826,17 @@ section.render .picture canvas {
   border-radius: 6px;
   background: var(--line);
 }
+section.render .older {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 6px;
+}
+section.render .older img {
+  width: 100%;
+  border-radius: 4px;
+  opacity: 0.8;
+}
 section.render .track {
   height: 6px;
   margin: 6px 0;

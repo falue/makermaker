@@ -36,6 +36,8 @@ export interface ViewerHost {
   length(text: string): number | null;
   /** Where shapes drawn on a body face go (`flat`: the face is planar). */
   placeOn(face: PickedFace, flat: boolean): Omit<Target, 'sketch'> | null;
+  /** A press on a body or a sketch shape (before any selecting). */
+  touched(): void;
   /** A clicked part of a finish (null: a click elsewhere on a body). */
   pickFinish(sel: FinishPick | null): void;
   /** A length in mm, as shown to the user. */
@@ -1295,6 +1297,7 @@ export class Viewer implements ToolView {
     const hit = this.intersect(ray)[0];
     const shape = this.shapeAt(ray.ray, hit?.distance);
     this.downOnPart = !!hit || !!shape;
+    if (this.downOnPart) this.host.touched();
     if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0) {
       this.lastFace = { point: hit.point.clone(), normal: hit.face.normal.clone().negate(), body: hit.object.userData.bodyId };
       this.lastHit = hit;

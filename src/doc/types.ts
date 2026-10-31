@@ -157,6 +157,8 @@ export interface RenderShot {
   background: string;
   /** PNG data URL, about 320 px wide. */
   thumbnail: string;
+  /** Small JPEG data URLs of finished renders, newest first (rendered again: the older ones stay below). */
+  results: { at: string; preview: string }[];
 }
 
 export interface Doc {
