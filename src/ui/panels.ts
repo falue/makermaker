@@ -36,8 +36,12 @@ export interface UIContext {
   toggleFold(group: string): void;
   /** Puts objects into a group (null: the top level). */
   moveInto(ids: string[], group: string | null): void;
-  /** A new group around the selection. */
-  group(): void;
+  /** Groups the selection, or ungroups a selected group (nothing selected: waits for clicked objects). */
+  groupTool(): void;
+  /** Whether a group is selected (the group tool then ungroups). */
+  groupSelected: boolean;
+  /** Moves objects before or after another one (into its group), or into a group. */
+  arrange(ids: string[], target: string, where: 'before' | 'after' | 'into'): void;
   /** The body shown alone (its eye was Ctrl-clicked), if any. */
   isolated: string | null;
   /** Shows only this body; again (or for the isolated body) shows what was shown before. */
@@ -313,6 +317,7 @@ function toolbar(ctx: UIContext): Node[] {
       }, flyout || on('boolean')),
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
+    tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? 'Ungroup (⇧⌘G): the contents move to the group\'s parent, staying where they are' : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
     h('hr'),
     tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
     tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
@@ -357,20 +362,30 @@ function left(ctx: UIContext): Node[] {
   const dimmed = (id: string) => (ctx.isolated && ctx.isolated !== id ? ' dimmed' : '');
   const eye = (path: string[], on: boolean) =>
     h('button', { className: 'icon', title: on ? 'Hide' : 'Show', innerHTML: icon(on ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, path, !on)) });
-  // rows can be dragged (with the rest of the selection) onto a group, or onto the header for the top level
+  // rows can be dragged (with the rest of the selection): the upper or lower half of a row puts them before or after
+  // it (in its group), the middle of a group row into the group, the header to the end of the top level
   const dragged = (id: string) => (ctx.selected.includes(id) ? ctx.selected : [id]);
-  const dropOn = (el: HTMLElement, group: string | null) => {
-    el.ondragover = (e) => (e.preventDefault(), el.classList.add('drop'));
-    el.ondragleave = () => el.classList.remove('drop');
-    el.ondrop = (e) => {
-      e.preventDefault();
-      ctx.moveInto(JSON.parse(e.dataTransfer!.getData('text/plain')), group);
-    };
-  };
-  const row = (id: string, depth: number, ...cells: HTMLElement[]) => {
+  const row = (id: string, depth: number, group: boolean, ...cells: HTMLElement[]) => {
     const el = h('div', { className: `listed${dimmed(id)}`, draggable: true }, ...cells);
     el.style.paddingLeft = `${depth * 14}px`;
     el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
+    const where = (e: DragEvent) => {
+      const r = el.getBoundingClientRect();
+      const at = (e.clientY - r.top) / r.height;
+      return group && at > 0.25 && at < 0.75 ? 'into' : at < 0.5 ? 'before' : 'after';
+    };
+    const clear = () => el.classList.remove('drop', 'drop-before', 'drop-after');
+    el.ondragover = (e) => {
+      e.preventDefault();
+      clear();
+      el.classList.add(where(e) === 'into' ? 'drop' : `drop-${where(e)}`);
+    };
+    el.ondragleave = clear;
+    el.ondrop = (e) => {
+      e.preventDefault();
+      clear();
+      ctx.arrange(JSON.parse(e.dataTransfer!.getData('text/plain')), id, where(e));
+    };
     return el;
   };
   const fold = ({ id, open }: Row) => (open === undefined ? h('span', { className: 'fold-space' }) : button(open ? '▾' : '▸', () => ctx.toggleFold(id), open ? 'Fold' : 'Unfold'));
@@ -381,9 +396,7 @@ function left(ctx: UIContext): Node[] {
     if (kind === 'group') {
       const i = doc.groups.findIndex((g) => g.id === id);
       const g = doc.groups[i];
-      const el = row(id, depth, fold(r), listItem(`${selectedClass(id)} group`, (how) => ctx.select(id, how), g.name), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
-      dropOn(el, id);
-      return el;
+      return row(id, depth, true, fold(r), listItem(`${selectedClass(id)} group`, (how) => ctx.select(id, how), g.name), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -401,7 +414,7 @@ function left(ctx: UIContext): Node[] {
     const sketch = own.length
       ? h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.select(own[0].id) })
       : h('span', { className: 'fold-space' });
-    return row(id, depth, fold(r), listItem(selectedClass(id), (how) => ctx.select(id, how), swatch, p.name), sketch, look);
+    return row(id, depth, false, fold(r), listItem(selectedClass(id), (how) => ctx.select(id, how), swatch, p.name), sketch, look);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
@@ -409,8 +422,10 @@ function left(ctx: UIContext): Node[] {
     const item = listItem(selectedClass(sk.id), (how) => ctx.select(sk.id, how), sketchIcon(), sk.name, ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
     return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye(['sketches', String(i), 'visible'], sk.visible));
   });
-  const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'), button('+ Group', ctx.group, 'New group (⌘G): around the selected objects, or empty'));
-  dropOn(head, null);
+  const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'));
+  head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));
+  head.ondragleave = () => head.classList.remove('drop');
+  head.ondrop = (e) => (e.preventDefault(), ctx.moveInto(JSON.parse(e.dataTransfer!.getData('text/plain')), null));
   const params = Object.keys(doc.params).map((name) =>
     h(
       'div',

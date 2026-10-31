@@ -97,7 +97,7 @@ let finishSel: FinishPick | null = null;
 /** A face pick running for the extrude tool (E, then a face). */
 let extrudePick = false;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
-let pending: { tool: 'boolean' | 'delete' | 'duplicate'; pick(id: string): void; apply?(): void } | null = null;
+let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'group'; pick(id: string): void; apply?(): void } | null = null;
 let autosave = localStorage.getItem('makermaker.autosave') === 'on';
 let autosaveTimer = 0;
 /** The body shown alone, and what was visible before (bodies and sketches by id). */
@@ -647,6 +647,73 @@ function movedInto(doc: Doc, ids: string[], group: string | null, target: Matrix
   return { ...doc, bodies, sketches, groups };
 }
 
+/** Group tool: ungroups a selected group, groups the selection, or (nothing selected) groups the objects clicked next on Enter. */
+function groupTool() {
+  const doc = history.current;
+  if (selected.some((id) => doc.groups.some((g) => g.id === id))) return ungroup();
+  if (selected.length) return groupSelection();
+  pending = {
+    tool: 'group',
+    pick(id) {
+      selected = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
+      showSelection();
+    },
+    apply() {
+      cancelPending();
+      if (selected.length) groupSelection();
+    },
+  };
+  toolHint = 'Click the objects to group · [Enter] groups them · [Esc] cancels';
+  render();
+}
+
+/** A group's origin that places it at world matrix `m` inside a parent at world matrix `parent`. */
+function originAt(m: Matrix4, parent: Matrix4): Group['origin'] {
+  const local = parent.clone().invert().multiply(m);
+  if (local.equals(new Matrix4())) return { kind: 'parent' };
+  const [at, turn] = [new Vector3(), new Quaternion()];
+  local.decompose(at, turn, new Vector3());
+  const r = new Euler().setFromQuaternion(turn, 'ZYX');
+  const deg = (v: number) => ex(fmt((v * 180) / Math.PI));
+  return { kind: 'custom', position: at.toArray().map((v) => len(v)) as [Expr, Expr, Expr], rotation: { rx: deg(r.x), ry: deg(r.y), rz: deg(r.z) } };
+}
+
+/** Ungroups the selected groups (⇧⌘G): their contents move to each group's parent, staying where they are; the groups go. */
+function ungroup() {
+  let doc = history.current;
+  const groups = doc.groups.filter((g) => selected.includes(g.id));
+  const freed: string[] = [];
+  for (const g of groups) {
+    const bodiesAndSketches = [...doc.bodies, ...doc.sketches].filter((o) => o.group === g.id).map((o) => o.id);
+    const children = doc.groups.filter((q) => q.parent === g.id);
+    doc = movedInto(doc, bodiesAndSketches, g.parent);
+    // groups inside keep their place: their origin now counts from the new parent
+    doc = { ...doc, groups: doc.groups.map((q) => (children.includes(q) ? { ...q, parent: g.parent, origin: originAt(groupPlace(q.id), groupPlace(g.parent)) } : q)) };
+    freed.push(...bodiesAndSketches, ...children.map((q) => q.id));
+  }
+  [selected, shapeSel] = [freed.filter((id) => !doc.sketches.some((s) => s.id === id)), []];
+  commit({ ...doc, groups: doc.groups.filter((g) => !groups.includes(g)) });
+}
+
+/** Moves objects before or after another one in its list (into that one's group), or into a group; they stay in place. */
+function arrange(ids: string[], target: string, where: 'before' | 'after' | 'into') {
+  if (ids.includes(target)) return;
+  let doc = history.current;
+  const parent = where === 'into' ? target : (doc.groups.find((g) => g.id === target)?.parent ?? doc.bodies.find((b) => b.id === target)?.group ?? null);
+  doc = movedInto(doc, ids, parent);
+  if (where !== 'into') {
+    // in the list of the target's kind: the moved ones right before or after it
+    const place = <T extends { id: string }>(list: T[]) => {
+      const moving = list.filter((o) => ids.includes(o.id));
+      const rest = list.filter((o) => !ids.includes(o.id));
+      const i = rest.findIndex((o) => o.id === target);
+      return i < 0 || !moving.length ? list : [...rest.slice(0, i + (where === 'after' ? 1 : 0)), ...moving, ...rest.slice(i + (where === 'after' ? 1 : 0))];
+    };
+    doc = { ...doc, bodies: place(doc.bodies), groups: place(doc.groups) };
+  }
+  commit(doc);
+}
+
 /** A new group around the selection (⌘G), in the group they share; empty when nothing is selected. */
 function groupSelection() {
   const doc = history.current;
@@ -1087,7 +1154,9 @@ function render() {
       render();
     },
     moveInto: (ids, group) => commit(movedInto(history.current, ids, group)),
-    group: groupSelection,
+    groupTool,
+    groupSelected: selected.some((id) => doc.groups.some((g) => g.id === id)),
+    arrange,
     select,
     isolated: isolated?.body ?? null,
     isolate,
@@ -1373,7 +1442,8 @@ addEventListener('keydown', (e) => {
   else if (selected.length && e.key === 'Escape') select(null);
   else if (shapeSel.length && mod && key === 'd') duplicateShapes();
   else if (selected.length && mod && key === 'd') duplicate();
-  else if (mod && key === 'g') groupSelection();
+  else if (mod && key === 'g' && e.shiftKey) ungroup();
+  else if (mod && key === 'g') groupTool();
   else return;
   e.preventDefault();
 });
