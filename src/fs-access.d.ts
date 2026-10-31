@@ -1,0 +1,14 @@
+// File System Access API pickers (Chromium); not yet part of lib.dom.
+interface FilePickerOptions {
+  types?: { description?: string; accept: Record<string, string[]> }[];
+  suggestedName?: string;
+}
+
+interface Window {
+  showOpenFilePicker?(options?: FilePickerOptions): Promise<FileSystemFileHandle[]>;
+  showSaveFilePicker?(options?: FilePickerOptions): Promise<FileSystemFileHandle>;
+}
+
+interface DataTransferItem {
+  getAsFileSystemHandle?(): Promise<FileSystemHandle | null>;
+}

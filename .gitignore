@@ -9,3 +9,5 @@ __pycache__
 .claude
 .devin
 testdata
+node_modules
+dist
