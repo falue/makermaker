@@ -291,7 +291,9 @@ function update() {
     const r = sketches.get(s.id);
     const p = r?.plane;
     if (!r || !p || !s.visible || !shownIn(s.group)) return [];
-    const frame = p.kind === 'base' ? placeFrame(toPlace(groupAt(s.group)), worldFrame(p)!) : worldFrame(p);
+    // a base-plane sketch moves with the body that extrudes it (its extrusion lies in that body's coordinates), else with its group
+    const owner = p.kind === 'base' ? ownerOf(doc, s.id) : null;
+    const frame = p.kind === 'base' ? placeFrame(owner && bodyPlaces.has(owner) ? bodyPlace(owner) : toPlace(groupAt(s.group)), worldFrame(p)!) : worldFrame(p);
     return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes }] : [];
   });
   viewer.setCustomSections(
@@ -1099,7 +1101,8 @@ function render() {
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
     },
     toggleAutosave: () => run(toggleAutosave),
-    exportPrint: () => run(exportPrint),
+    exportPrint: () => run(() => exportBodies('stl')),
+    exportLaser: () => run(() => exportBodies('svg')),
     toggleTheme() {
       const theme = viewer.isDark ? 'light' : 'dark';
       document.documentElement.dataset.theme = theme;
@@ -1146,10 +1149,11 @@ function render() {
 }
 
 /**
- * Export for 3D print: one binary STL per selected body (else per shown body), placed as in the world; several come
- * as one ZIP. Tool bodies are left out: their cuts and joins are in their owners.
+ * Exports one file per selected body (else per shown body), several as one ZIP; tool bodies are left out (their cuts
+ * and joins are in their owners). stl: for 3D print, placed as in the world; svg: for the laser, the outline of the
+ * body's biggest flat face at 1:1 without fillets and chamfers.
  */
-async function exportPrint() {
+async function exportBodies(format: 'stl' | 'svg') {
   const doc = history.current;
   const tools = new Set(ownersOf(doc).keys());
   const chosen = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
@@ -1162,10 +1166,11 @@ async function exportPrint() {
     taken.set(base, n);
     return n > 1 ? `${base}_${n}` : base;
   };
-  const { files, failed } = await kernel.stl(bodies.map((b) => ({ name: nameOf(b), features: built.get(b.id)!, place: bodyPlace(b.id) })));
-  if (files.length === 1) download(new Blob([files[0].data], { type: 'model/stl' }), `${files[0].name}.stl`);
-  else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.stl`, new Uint8Array(f.data)])))]), `${project()}_stl.zip`);
-  notify(`Exported ${files.length} STL file${files.length === 1 ? '' : 's'}${failed.length ? `; could not build: ${failed.join(', ')}` : ''}`);
+  const { files, failed } = await kernel.export(format, bodies.map((b) => ({ name: nameOf(b), features: built.get(b.id)!, place: bodyPlace(b.id) })));
+  const type = format === 'stl' ? 'model/stl' : 'image/svg+xml';
+  if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
+  else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, new Uint8Array(f.data)])))]), `${project()}_${format}.zip`);
+  notify(`Exported ${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}`);
 }
 
 /** The right column shows the renders. */

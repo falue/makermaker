@@ -61,8 +61,9 @@ export interface UIContext {
   boolean(op: BooleanOp): void;
   toggleAutosave(): void;
   toggleTheme(): void;
-  /** Downloads STL files of the selected (else shown) bodies. */
+  /** Downloads STL files (3D print) or SVG outlines (laser) of the selected (else shown) bodies. */
   exportPrint(): void;
+  exportLaser(): void;
   /** Downloads the view as a PNG. */
   renderImage(): void;
   /** Nice renders: the panel (open: it replaces the right column), this session's jobs, and what can be done. */
@@ -273,6 +274,7 @@ function topbar(ctx: UIContext): Node[] {
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
     h('span', { className: 'status' }, ctx.status),
     tool('print', 'Export for 3D print: one STL per selected body (else all shown ones), as placed in the world; several come zipped', ctx.exportPrint),
+    tool('laser', 'Export for the laser: one SVG per selected body (else all shown ones), the outline of its biggest flat face at 1:1, without fillets and chamfers; several come zipped', ctx.exportLaser),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection)', ctx.renderImage),
     tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),
     tool('theme', 'Light / dark', ctx.toggleTheme),

@@ -1,7 +1,7 @@
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { AreaMesh, BuildFeature } from './build';
-import type { BodyResult, Request, Response, StlFile } from './worker';
+import type { BodyResult, ExportFile, Request, Response } from './worker';
 
 type BuildPart = Extract<Request, { kind: 'build' }>['bodies'][number];
 
@@ -37,10 +37,10 @@ export class Kernel {
     return answer.kind === 'areas' ? answer.areas : [];
   }
 
-  /** Binary STLs of bodies placed in the world, and the names of those that could not be built. */
-  async stl(bodies: Extract<Request, { kind: 'stl' }>['bodies']): Promise<{ files: StlFile[]; failed: string[] }> {
-    const answer = await this.ask({ kind: 'stl', id: this.nextAsk++, bodies });
-    return answer.kind === 'stl' ? answer : { files: [], failed: [] };
+  /** One file per body (see the worker's export), and the names of those that could not be made. */
+  async export(format: 'stl' | 'svg', bodies: Extract<Request, { kind: 'export' }>['bodies']): Promise<{ files: ExportFile[]; failed: string[] }> {
+    const answer = await this.ask({ kind: 'export', format, id: this.nextAsk++, bodies });
+    return answer.kind === 'export' ? answer : { files: [], failed: [] };
   }
 
   private ask(request: Extract<Request, { id: number }>): Promise<Response> {

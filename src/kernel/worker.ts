@@ -4,16 +4,17 @@ import { setOC } from 'replicad';
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
+import { laserSvg } from './laser';
 import { areasOf, buildBody, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
 
-/** stl: bodies placed in the world, one binary STL each. */
-export type StlFile = { name: string; data: ArrayBuffer };
+/** export: one file per body: stl (binary, placed in the world) or svg (laser outline of its biggest flat face). */
+export type ExportFile = { name: string; data: ArrayBuffer };
 export type Request =
   | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[] }
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
-  | { kind: 'stl'; id: number; bodies: { name: string; features: BuildFeature[]; place: Place }[] };
+  | { kind: 'export'; format: 'stl' | 'svg'; id: number; bodies: { name: string; features: BuildFeature[]; place: Place }[] };
 export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string };
-export type Response = { kind: 'build'; results: BodyResult[] } | { kind: 'areas'; id: number; areas: AreaMesh[] } | { kind: 'stl'; id: number; files: StlFile[]; failed: string[] };
+export type Response = { kind: 'build'; results: BodyResult[] } | { kind: 'areas'; id: number; areas: AreaMesh[] } | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] };
 
 const ready = init({ locateFile: () => wasmUrl }).then(setOC);
 
@@ -28,10 +29,18 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
     }
     return postMessage({ kind: 'areas', id: data.id, areas } satisfies Response, { transfer: areas.map((a) => a.tris.buffer) });
   }
-  if (data.kind === 'stl') {
-    const files: StlFile[] = [];
+  if (data.kind === 'export') {
+    const files: ExportFile[] = [];
     const failed: string[] = [];
     for (const { name, features, place } of data.bodies) {
+      if (data.format === 'svg') {
+        try {
+          files.push({ name, data: new TextEncoder().encode(laserSvg(features)).buffer as ArrayBuffer });
+        } catch {
+          failed.push(name);
+        }
+        continue;
+      }
       let shape;
       try {
         shape = placeShape(buildBody(features), place);
@@ -42,7 +51,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
         shape?.delete();
       }
     }
-    return postMessage({ kind: 'stl', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
+    return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
   }
   const results = data.bodies.map(({ id, features }): BodyResult => {
     try {
