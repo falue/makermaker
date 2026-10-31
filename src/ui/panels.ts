@@ -3,7 +3,7 @@ import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
 import type { BasePlane, Doc, EdgeRule, Expr, Part, Profile, Step, Unit } from '../doc/types';
 import type { ToolKind } from '../viewer/sketch';
-import { tool } from './icons';
+import { icon, tool } from './icons';
 
 export interface UIContext {
   doc: Doc;
@@ -13,8 +13,10 @@ export interface UIContext {
   title: string;
   dirty: boolean;
   status: string;
-  /** The running tool: its drawing kind (null: selecting) and whether it is a sketch session. */
-  tool: { kind: ToolKind | null; session: boolean } | null;
+  /** Selected shapes of the selected sketch. */
+  shapes: string[];
+  /** The running drawing tool. */
+  tool: ToolKind | null;
   /** Replaces the hint bar text while a tool runs. */
   hint: string | null;
   autosave: boolean;
@@ -25,11 +27,11 @@ export interface UIContext {
   setValue(path: string[], value: unknown, live?: boolean): void;
   select(id: string | null, add?: boolean): void;
   startTool(kind: ToolKind): void;
-  /** A new sketch session, or reopening an extrude step's sketch. */
-  startSketch(edit?: { part: string; step: string }): void;
-  setToolKind(kind: ToolKind | null): void;
-  finishSketch(): void;
-  cancelTool(): void;
+  /** Pulls the selected shapes (or all) of the selected sketch. */
+  extrude(): void;
+  pickShape(sketch: string, shape: string, add: boolean): void;
+  /** Turns the camera to look straight at a sketch. */
+  lookAt(sketch: string): void;
   toggleAutosave(): void;
   duplicate(): void;
   remove(): void;
@@ -187,26 +189,18 @@ function topbar(ctx: UIContext): Node[] {
   ];
 }
 
-/** Left of the 3D view (incase's toolbar): drawing tools, or the sketch session's tools while sketching. */
+/** Left of the 3D view (incase's toolbar). */
 function toolbar(ctx: UIContext): Node[] {
-  const t = ctx.tool;
   const shapes = [
     ['rect', 'Rectangle (R)'],
     ['circle', 'Circle (C)'],
     ['polygon', 'Polygon (P)'],
   ] as const;
-  if (t?.session)
-    return [
-      tool('select', 'Select shapes (Esc)', () => ctx.setToolKind(null), t.kind === null),
-      ...shapes.map(([kind, title]) => tool(kind, title, () => ctx.setToolKind(kind), t.kind === kind)),
-      h('hr'),
-      tool('finish', 'Finish the sketch and pull it (Enter)', ctx.finishSketch),
-      tool('cancel', 'Cancel the sketch', ctx.cancelTool),
-    ];
   const none = !ctx.selected.length;
+  const sketch = ctx.doc.sketches.some((s) => s.id === ctx.selected[0]) && ctx.selected.length === 1;
   return [
-    ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up`, () => ctx.startTool(kind), t?.kind === kind)),
-    tool('sketch', 'Sketch (S): pick a plane, draw several shapes, then pull them', () => ctx.startSketch()),
+    ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into a sketch, then pull it up (click or Esc keeps it flat)`, () => ctx.startTool(kind), ctx.tool === kind)),
+    tool('extrude', 'Extrude (E): pull the selected shapes, or the whole selected sketch', ctx.extrude, false, !sketch),
     h('hr'),
     tool('duplicate', 'Duplicate (⌘D)', ctx.duplicate, false, none),
     tool('delete', 'Delete (Del)', ctx.remove, false, none),
@@ -265,15 +259,23 @@ function left(ctx: UIContext): Node[] {
   addParam.placeholder = 'name = expression';
 
   const none = doc.parts.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a part.')];
-  return [h('h3', {}, 'Parts'), ...parts, ...none, h('h3', {}, 'Parameters'), ...params, addParam];
+  const sketches = doc.sketches.map((s, i) => {
+    const eye = h('button', { className: 'icon', title: s.visible ? 'Hide' : 'Show', innerHTML: icon(s.visible ? 'eye' : 'eyeOff') });
+    eye.onclick = () => ctx.commit(setIn(doc, ['sketches', String(i), 'visible'], !s.visible));
+    const item = h('button', { className: `item${ctx.selected.includes(s.id) ? ' selected' : ''}`, onclick: (e) => ctx.select(s.id, e.shiftKey) }, s.name);
+    return h('div', { className: 'listed' }, item, eye);
+  });
+  return [h('h3', {}, 'Parts'), ...parts, ...none, h('h3', {}, 'Sketches'), ...sketches, h('h3', {}, 'Parameters'), ...params, addParam];
 }
 
 function right(ctx: UIContext): Node[] {
   const n = ctx.selected.length;
   if (n > 1)
     return [h('p', { className: 'hint' }, `${n} parts selected: drag, nudge, duplicate or delete them together; select one to edit it.`)];
+  const k = ctx.doc.sketches.findIndex((s) => s.id === ctx.selected[0]);
+  if (k >= 0) return sketchPanel(ctx, k);
   const i = ctx.doc.parts.findIndex((p) => p.id === ctx.selected[0]);
-  if (i < 0) return [h('p', { className: 'hint' }, 'Select a part.')];
+  if (i < 0) return [h('p', { className: 'hint' }, 'Select a part or a sketch.')];
   const part = ctx.doc.parts[i];
   const at = `parts.${i}`;
   const setPart = (next: Part) => ctx.commit(setIn(ctx.doc, ['parts', String(i)], next));
@@ -311,6 +313,48 @@ function hint(selected: number) {
   if (selected)
     return 'Drag to move: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Ctrl] snaps · [Shift]-click selects more · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect';
   return 'Drag a part to move it: the direction picks X, Y or Z · [Tab] next part under the click · [F] fit · drag to orbit, right-drag to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
+}
+
+/** A sketch: its plane, visibility, and shapes (click a label to select it, Shift to add). */
+function sketchPanel(ctx: UIContext, k: number): Node[] {
+  const { doc } = ctx;
+  const s = doc.sketches[k];
+  const at = `sketches.${k}`;
+  const set = (next: Partial<typeof s>) => ctx.commit(setIn(doc, ['sketches', String(k)], { ...s, ...next }));
+  const p = s.plane;
+  const where =
+    p.kind === 'base'
+      ? [select(p.axis, { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' }, (axis) => set({ plane: { ...p, axis } })), exprField(ctx, `${at}.plane.offset`, 'Offset')]
+      : [h('span', { className: 'hint' }, `On a face of ${doc.parts.find((q) => q.id === p.part)?.name ?? 'a deleted part'}`)];
+  const show = h('input', { type: 'checkbox', checked: s.visible });
+  show.onchange = () => set({ visible: show.checked });
+  const kinds = { rect: 'Rectangle', circle: 'Circle', polygon: 'Polygon' };
+  const shapes = s.shapes.map((q, j) => {
+    const name = h('button', { className: `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, onclick: (e) => ctx.pickShape(s.id, q.id, e.shiftKey) }, kinds[q.kind]);
+    const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
+    return h('div', { className: 'shape' }, h('div', { className: 'listed' }, name, drop), h('div', { className: 'row' }, ...shapeFields(ctx, `${at}.shapes.${j}`, q)));
+  });
+  return [
+    h(
+      'div',
+      { className: 'head' },
+      input(`${at}.name`, s.name, (name) => set({ name })),
+      button('Delete', () => {
+        ctx.commit({ ...doc, sketches: doc.sketches.filter((q) => q !== s) });
+        ctx.select(null);
+      }),
+    ),
+    h('div', { className: 'row' }, ...where),
+    h(
+      'div',
+      { className: 'row' },
+      h('label', { className: 'check' }, show, 'Show'),
+      tool('look', 'Look straight at the sketch', () => ctx.lookAt(s.id)),
+      tool('extrude', 'Extrude (E): the selected shapes, or all', ctx.extrude),
+    ),
+    h('h3', {}, `Shapes (${s.shapes.length})`),
+    ...shapes,
+  ];
 }
 
 /** Fields of one shape at `path`: position, size, corner radius, rotation (degrees). */
@@ -357,11 +401,10 @@ function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (
         const drop = button('×', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }), 'Remove this shape');
         return h('div', { className: 'row profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p), ...(src.profiles.length > 1 ? [drop] : []));
       });
-      const edit = button('✎', () => ctx.startSketch({ part: part.id, step: step.id }), 'Edit the sketch: add or remove shapes');
       return h(
         'section',
         {},
-        h('h4', {}, name(step), mode, edit, remove),
+        h('h4', {}, name(step), mode, remove),
         h('div', { className: 'row' }, plane, ...(src.plane.kind === 'base' ? [f('source.plane.offset', 'Offset')] : [])),
         ...profiles,
         h('div', { className: 'row' }, ...reach),

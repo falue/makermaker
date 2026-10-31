@@ -136,6 +136,14 @@ button.icon:hover {
   background: var(--selected);
   color: var(--text);
 }
+button.icon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
 input:not([type]),
 select {
   width: 100%;
@@ -558,4 +566,17 @@ canvas.drawing {
   align-items: end;
   gap: 4px;
   margin-top: 4px;
+}
+
+.listed {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 3px;
+}
+.listed .item {
+  margin-bottom: 0;
+}
+.shape {
+  margin-top: 6px;
 }

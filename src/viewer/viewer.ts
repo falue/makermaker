@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { BasePlane } from '../doc/types';
 import type { PartMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
-import { SketchTool, type Cap, type SketchEdit, type ToolHost, type ToolKind, type ToolView } from './sketch';
+import { inside } from '../doc/profiles';
+import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type ToolHost, type ToolKind, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -16,6 +17,8 @@ export interface ViewerHost {
   select(id: string | null, add: boolean): void;
   /** Parts were dragged to new positions (mm). */
   move(moves: { id: string; position: Vec3 }[]): void;
+  /** A sketch shape was clicked; `add`: Shift, toggles it in the selection. */
+  pickShape(sketch: string, shape: string, add: boolean): void;
   /** A typed distance in mm, or null if invalid. */
   length(text: string): number | null;
   /** A length in mm, as shown to the user. */
@@ -82,7 +85,11 @@ export class Viewer implements ToolView {
   snapStep = 5; // mm
   /** End faces of extrusions, where sketches can start. */
   caps: Cap[] = [];
+  /** Visible sketches (world frames) and the selected one with its selected shapes. */
+  sketches: ViewSketch[] = [];
+  activeSketch: string | null = null;
   overlay = new THREE.Group();
+  private sketchView = new THREE.Group();
 
   private renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
   private scene = new THREE.Scene();
@@ -149,7 +156,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.overlay, this.wheel);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.overlay, this.wheel);
     // grid first, then the origin lines over it; neither hides parts
     (this.axes.material as THREE.Material).depthTest = false;
     this.axes.renderOrder = -1;
@@ -204,9 +211,9 @@ export class Viewer implements ToolView {
     );
   }
 
-  /** The running tool: its drawing kind (null: selecting) and whether it is a sketch session. */
+  /** The running drawing tool (null: none, or a pull). */
   get activeTool() {
-    return this.tool ? { kind: this.tool.kind, session: this.tool.inSession } : null;
+    return this.tool?.kind ?? null;
   }
 
   startTool(kind: ToolKind, host: ToolHost) {
@@ -215,19 +222,44 @@ export class Viewer implements ToolView {
     this.renderer.domElement.classList.add('drawing');
   }
 
-  /** A sketch session: pick a plane (or reopen `edit`), draw several shapes, finish. */
-  startSketch(host: ToolHost, edit?: SketchEdit) {
+  /** Pulls existing shapes of a sketch into an extrusion (E). */
+  startPull(host: ToolHost, target: Target, ids: string[]) {
     this.stopTool();
-    this.tool = new SketchTool('rect', this, host, edit ?? true);
-    this.renderer.domElement.classList.add('drawing');
+    this.tool = new SketchTool(null, this, host, { target, ids });
   }
 
-  setToolKind(kind: ToolKind | null) {
-    this.tool?.setKind(kind);
+  /** Shows the sketches; `active`: the selected sketch, `shapes`: its selected shapes. */
+  setSketches(sketches: ViewSketch[], active: string | null, shapes: string[], lift = 0.05) {
+    this.sketches = sketches;
+    this.activeSketch = active;
+    for (const o of this.sketchView.children) {
+      (o as THREE.Line).geometry.dispose();
+      ((o as THREE.Line).material as THREE.Material).dispose();
+    }
+    this.sketchView.clear();
+    for (const s of sketches)
+      for (const p of s.shapes) {
+        const color = shapes.includes(p.id) && s.id === active ? 0xff8c1a : s.id === active ? 0x1d4ed8 : 0x5b7fc7;
+        this.sketchView.add(outline(p, s.frame, color, lift));
+      }
+    this.render();
   }
 
-  finishSketch() {
-    this.tool?.finish();
+  /** The visible sketch shape under the pointer (innermost), unless a part surface is nearer. */
+  private shapeAt(ray: THREE.Ray, partDistance = Infinity) {
+    let best: { sketch: string; shape: string; distance: number; area: number } | null = null;
+    for (const s of this.sketches) {
+      const p = planeHit(ray, s.frame);
+      if (!p) continue;
+      const distance = p.distanceTo(ray.origin);
+      if (distance > partDistance + 1e-3 || (best && distance > best.distance + 1e-6)) continue;
+      const [u, v] = uvOf(s.frame, p);
+      for (const q of s.shapes) {
+        const area = q.kind === 'circle' ? q.d * q.d : q.kind === 'rect' ? q.w * q.h : Infinity;
+        if (inside(q, u, v) && (!best || distance < best.distance - 1e-6 || area < best.area)) best = { sketch: s.id, shape: q.id, distance, area };
+      }
+    }
+    return best;
   }
 
   lookAlong(n: THREE.Vector3) {
@@ -740,8 +772,10 @@ export class Viewer implements ToolView {
     this.downAt = { x: e.clientX, y: e.clientY };
     const ray = this.raycaster(e);
     this.pick = ray.ray.clone();
-    const hit = ray.intersectObjects(this.meshes()).find((h) => this.shown(h.point));
-    this.downOnPart = !!hit;
+    const hit = this.intersect(ray)[0];
+    const shape = this.shapeAt(ray.ray, hit?.distance);
+    this.downOnPart = !!hit || !!shape;
+    if (shape) return this.host.pickShape(shape.sketch, shape.shape, e.shiftKey);
     if (!hit) return;
     const id = hit.object.userData.partId as string;
     if (e.shiftKey) return this.host.select(id, true);
