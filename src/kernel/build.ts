@@ -36,7 +36,7 @@ type Circle = [number, number, number];
 
 const EPS = 1e-3;
 
-/** Extrusions run in order; finishing features always run last, as the final layer. */
+/** Features run in order: a finish before a boolean is baked under it (the boolean cuts the finished shape). */
 export function buildBody(features: BuildFeature[]): Shape3D {
   const plan = frames(features.filter((f) => f.type !== 'boolean'));
   const circles: Circle[] = [];
@@ -51,9 +51,9 @@ export function buildBody(features: BuildFeature[]): Shape3D {
       if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
       if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
       if (s.type === 'boolean') apply(s.id, (cur) => boolean(cur, s));
+      if (s.type === 'finish' && s.enabled) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
-    for (const s of features) if (s.type === 'finish' && s.enabled) apply(s.id, (cur) => finish(cur!, s, circles));
   } catch (err) {
     (shape as Shape3D | null)?.delete();
     throw err;
@@ -245,7 +245,8 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   }
 }
 
-function finish(shape: Shape3D, s: Of<'finish'>, circles: Circle[]): Shape3D {
+function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[]): Shape3D {
+  if (!shape) throw new Error('nothing to finish yet');
   positive(s.size, s.mode === 'fillet' ? 'radius' : 'distance');
   const [[, , bottom], [, , top]] = shape.boundingBox.bounds;
   const pick = edgeRule(s.edges, bottom, top, circles);

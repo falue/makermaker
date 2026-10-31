@@ -31,7 +31,7 @@ Build a precise, approachable modeling tool for props, fitted parts, and worksho
 | 13 | Materials and appearance | Optional and lightweight. A material has a name, thickness, color, and appearance (opacity etc.). Appearances also exist independently of materials. An object can have a material, an appearance, both, or neither. Materials can be assigned retroactively (e.g. all 3 mm parts). Low priority compared to modeling and export. |
 | 14 | Sketch placement | Sketches attach to faces and follow them. The face reference follows decision 1; a lost face is reported, never guessed. |
 | 15 | Laser export | Select one or more objects in the model browser or the 3D viewer, click "Export laser". Objects without parallel flat sides are refused with a message. Every other object is projected along the normal of its biggest flat face, and the projected outline (outer contour plus holes) is exported as SVG. Section views do not produce exportable outlines. |
-| 16 | Fillet order | Fillets/chamfers always stay the last layer. A face edit made after filleting is inserted before the fillet layer, and the fillet is recomputed on the edited shape. |
+| 16 | Fillet order | Fillets/chamfers stay the last layer for face edits: a face edit made after filleting changes the shape under the fillet, and the fillet is recomputed. Exception (2026-10-31): a boolean added after a fillet/chamfer works on the finished shape, so that finish is baked under it (still editable, shown as baked); finishes added after the boolean round the cut too. |
 | 17 | Quad view | One viewport or four synchronized top/front/side/perspective viewports. Every view is fully editable (select, draw, drag, edit) at MVP; changes appear live in all views. |
 
 ## Output priorities
@@ -62,7 +62,7 @@ Each part is a parametric recipe with hidden history (decision 2). Direct manipu
 - Preserve meaningful primitives: a rounded rectangle retains width, height, and corner radius.
 - Every numeric value can be a number, a number with a unit, or an expression referencing named parameters, other dimensions, or material thickness (decisions 7, 11). Display units switch on the fly, default mm (decision 12).
 - Non-destructive edge finishing is a must-have: retain the underlying shape and allow fillet radius or chamfer depth to be changed or disabled later. Make original geometry available as a reference when needed.
-- Editable fillets/chamfers always form the final finishing layer (decision 16). This is not permission to silently bake them into the base shape; baking happens only as an explicit user action.
+- Editable fillets/chamfers form the final finishing layer, except under later booleans (decision 16). This is not permission to silently bake them into the base shape; baking happens only as an explicit user action.
 - References to edges and faces are rule-based by default, with clicked selections as fallback (decision 1). Stable references after arbitrary topology-changing edits remain a major technical risk. Unsupported or ambiguous references must be reported rather than reassigned silently; a failed recompute keeps the last valid geometry.
 - Imported STEP solids have no recipe; direct face edits are their main editing path.
 - Optional relationships between parts are a later goal; do not make every operation depend on a global constraint system.

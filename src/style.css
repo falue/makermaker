@@ -223,6 +223,17 @@ section {
 section.disabled {
   opacity: 0.55;
 }
+section.baked {
+  border-style: dashed;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, var(--selected) 6px 7px);
+}
+.baked-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--line);
+  color: var(--muted);
+}
 .error {
   margin: 4px 0 0;
   color: var(--error);

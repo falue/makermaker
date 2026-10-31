@@ -517,10 +517,12 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' },
         (r) => setFeature({ ...feature, edges: r }),
       );
+      const under = body.features.slice(body.features.indexOf(feature) + 1).find((t) => t.type === 'boolean');
+      const baked = under ? [h('span', { className: 'baked-tag', title: `The ${under.op === 'union' ? 'join' : under.op === 'subtract' ? 'cut' : 'intersection'} after it works on the finished shape` }, 'baked')] : [];
       return h(
         'section',
-        { className: feature.enabled ? '' : 'disabled' },
-        h('h4', {}, enabled, mode, remove),
+        { className: `${feature.enabled ? '' : 'disabled'}${under ? ' baked' : ''}` },
+        h('h4', {}, enabled, mode, ...baked, remove),
         h('div', { className: 'row' }, f('size', feature.mode === 'fillet' ? 'Radius' : 'Distance'), edges),
       );
     }

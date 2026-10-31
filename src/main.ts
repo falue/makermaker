@@ -305,7 +305,10 @@ function duplicateShapes(offset = 10) {
   commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sel.id ? { ...s, shapes: [...s.shapes, ...copies] } : s)) });
 }
 
-/** Joins, cuts or intersects: the first selected body keeps the result, the others become its tool bodies (hidden, editable). */
+/**
+ * Joins, cuts or intersects: the first selected body keeps the result, the others become its tool bodies (hidden,
+ * editable). The boolean comes last, so it cuts through finishes made before it (they are baked under it).
+ */
 function applyBoolean(op: BooleanOp) {
   const doc = history.current;
   const ids = selected.filter((id) => doc.bodies.some((b) => b.id === id));
@@ -314,9 +317,7 @@ function applyBoolean(op: BooleanOp) {
   const bodies = doc.bodies.map((b) => {
     if (tools.includes(b.id)) return { ...b, visible: false };
     if (b.id !== target) return b;
-    const at = b.features.findIndex((f) => f.type === 'finish'); // finishing stays the last layer
-    const ops: Feature[] = tools.map((body) => ({ id: newId(), type: 'boolean', op, body }));
-    return { ...b, features: at < 0 ? [...b.features, ...ops] : b.features.toSpliced(at, 0, ...ops) };
+    return { ...b, features: [...b.features, ...tools.map((body): Feature => ({ id: newId(), type: 'boolean', op, body }))] };
   });
   [selected, shapeSel] = [[target], []];
   commit({ ...doc, bodies });

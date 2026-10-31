@@ -141,6 +141,16 @@ describe('buildBody', () => {
     [cut, plain, both].forEach((x) => x.done());
   });
 
+  it('a boolean after a finish cuts the finished shape; a finish after it rounds the cut too', () => {
+    const pin: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false }];
+    const cut: BuildFeature = { id: 'b', type: 'boolean', op: 'subtract', features: pin, offset: [0, 0, -5] };
+    const top: BuildFeature = { id: 't', type: 'finish', mode: 'chamfer', size: 1, edges: 'top', enabled: true };
+    const baked = built([base(100), top, cut]);
+    const after = built([base(100), cut, top]);
+    expect(after.faces).toBe(baked.faces + 1); // the hole's top edge is chamfered only when the finish comes after
+    [baked, after].forEach((x) => x.done());
+  });
+
   it('builds regular polygons and spheres', () => {
     const hex: BuildFeature = { id: 'h', type: 'extrude', plane: ground, profiles: [{ id: 'n', kind: 'ngon', x: 0, y: 0, d: 20, sides: 6, rot: 0 }], depth: 5, mode: 'add', through: false };
     const prism = built([hex]);
