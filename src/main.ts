@@ -73,11 +73,12 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
 });
 
-const sectionPicking = sectionControls(
+const sections = sectionControls(
   document.getElementById('viewport')!,
   (axis, from, to, inverted) => viewer.setSection(axis, from, to, inverted),
   newSection,
 );
+viewer.onBounds = sections.bounds;
 
 const kernel = new Kernel((r) => {
   if (!history.current.bodies.some((p) => p.id === r.id)) return; // deleted while it was built
@@ -783,11 +784,11 @@ function extrude() {
 /** Picks a face; a section lies on it, removing the side towards the camera. */
 function newSection() {
   toolHint = 'Click a face (or empty space: the base plane facing you): the new section lies on it and removes what is in front · [Esc] cancels';
-  sectionPicking(true);
+  sections.picking(true);
   render();
   viewer.pickFace((face) => {
     toolHint = null;
-    sectionPicking(false);
+    sections.picking(false);
     if (!face) return render();
     const doc = history.current;
     const section = {

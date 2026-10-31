@@ -4,8 +4,11 @@ import type { Axis } from '../viewer/viewer';
  * Section panel (bottom left of the 3D view), as in incase: per axis a two-handle slider for the shown range,
  * reset and invert (show only what is outside the handles); double-click a slider to reset it. Below: custom
  * sections (rows rendered into #custom-sections by the panels) and a button that starts a new one.
+ * Cuts are world positions (mm, ±Infinity: open): they stay where they are when bodies change; the sliders span the
+ * bodies and the cuts (`bounds`).
  */
-export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void, add: () => void): (picking: boolean) => void {
+export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void, add: () => void) {
+  const spans: ((box: { min: Record<Axis, number>; max: Record<Axis, number> }) => void)[] = [];
   const panel = Object.assign(document.createElement('div'), { className: 'overlay bottom-left sections' });
   const tips: Record<Axis, [string, string]> = {
     x: ['Show only a slice left to right', 'Drag the handles to cut the 3D view left / right · double-click to reset'],
@@ -19,20 +22,36 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
     const slider = Object.assign(document.createElement('span'), { className: 'dual', title: tips[axis][1] });
     slider.append(from, to);
     const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { className: 'icon', textContent: text, title, onclick });
+    let cut: [number, number] = [-Infinity, Infinity];
+    let span: [number, number] = [0, 1]; // mm the slider spans
+    const value = (mm: number) => (Number.isFinite(mm) ? Math.round(((mm - span[0]) / (span[1] - span[0] || 1)) * 1000) : mm < 0 ? 0 : 1000);
+    const show = () => {
+      [from.value, to.value] = cut.map((mm) => String(value(mm)));
+      // nothing lies outside the whole range: invert is off there, but remembered for when a handle moves in
+      invert.disabled = !cut.some(Number.isFinite);
+      const inverted = !invert.disabled && invert.classList.contains('active');
+      slider.classList.toggle('inverted', inverted);
+      slider.style.setProperty('--from', String(from.valueAsNumber / 1000));
+      slider.style.setProperty('--to', String(to.valueAsNumber / 1000));
+      return inverted;
+    };
     const update = (moved?: HTMLInputElement) => {
       // handles may not cross: the moved one stops at the other
       if (from.valueAsNumber > to.valueAsNumber) moved!.value = (moved === from ? to : from).value;
-      // nothing lies outside the whole range: invert is off there, but remembered for when a handle moves in
-      invert.disabled = from.valueAsNumber === 0 && to.valueAsNumber === 1000;
-      const inverted = !invert.disabled && invert.classList.contains('active');
-      slider.classList.toggle('inverted', inverted);
-      set(axis, from.valueAsNumber / 1000, to.valueAsNumber / 1000, inverted);
-      slider.style.setProperty('--from', String(from.valueAsNumber / 1000));
-      slider.style.setProperty('--to', String(to.valueAsNumber / 1000));
+      // only the moved handle changes its cut; at the ends of the slider it is open
+      if (moved) {
+        const v = moved.valueAsNumber;
+        cut[moved === from ? 0 : 1] = v === 0 ? -Infinity : v === 1000 ? Infinity : span[0] + (v / 1000) * (span[1] - span[0]);
+      }
+      set(axis, ...cut, show());
     };
+    spans.push((box) => {
+      if (!Number.isFinite(box.min[axis])) return;
+      span = [Math.min(box.min[axis], ...cut.filter(Number.isFinite)), Math.max(box.max[axis], ...cut.filter(Number.isFinite))];
+      show();
+    });
     const reset = () => {
-      from.value = '0';
-      to.value = '1000';
+      cut = [-Infinity, Infinity];
       invert.classList.remove('active');
       update();
     };
@@ -61,9 +80,13 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
   const more = Object.assign(document.createElement('button'), { textContent: '+ Section', title: 'A section parallel to a face you click: slanted planes too', onclick: add });
   panel.append(custom, more);
   host.append(panel);
-  // while a face is being picked the button says what to do
-  return (picking) => {
-    more.textContent = picking ? 'Click any face or plane' : '+ Section';
-    more.classList.toggle('on', picking);
+  return {
+    /** While a face is being picked the button says what to do. */
+    picking(on: boolean) {
+      more.textContent = on ? 'Click any face or plane' : '+ Section';
+      more.classList.toggle('on', on);
+    },
+    /** The bodies' bounding box changed: the sliders span it (and the cuts). */
+    bounds: (box: { min: Record<Axis, number>; max: Record<Axis, number> }) => spans.forEach((f) => f(box)),
   };
 }

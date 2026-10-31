@@ -181,8 +181,11 @@ export class Viewer implements ToolView {
   private custom: THREE.Plane[] = [];
   private axes = new THREE.AxesHelper(30);
 
-  /** Visible range per axis as fractions of the bodies' bounding box (0..1); inverted shows only what is outside. */
-  private sections: Record<Axis, Span> = { x: [0, 1], y: [0, 1], z: [0, 1] };
+  /** Visible range per axis in world mm (open ends: ±Infinity), fixed to the origin; inverted shows only what is outside. */
+  private sections: Record<Axis, Span> = { x: [-Infinity, Infinity], y: [-Infinity, Infinity], z: [-Infinity, Infinity] };
+  /** Called with the bodies' bounding box when it changed (the section sliders span it). */
+  onBounds: ((box: THREE.Box3) => void) | null = null;
+  private lastBounds = new THREE.Box3();
   private inverted: Record<Axis, boolean> = { x: false, y: false, z: false };
   /** The shown region while sectioned: boxes of [min, max] per axis (mm); empty when not sectioned. */
   private boxes: Span[][] = [];
@@ -649,6 +652,7 @@ export class Viewer implements ToolView {
     return m;
   }
 
+  /** Shows only `from` to `to` (world mm, ±Infinity: open) along `axis`; inverted: only what is outside. */
   setSection(axis: Axis, from: number, to: number, inverted: boolean) {
     this.sections[axis] = [from, to];
     this.inverted[axis] = inverted;
@@ -953,23 +957,20 @@ export class Viewer implements ToolView {
     });
     this.sectionView.clear();
     const axes = ['x', 'y', 'z'] as const;
-    const active = this.custom.length > 0 || axes.some((a) => this.inverted[a] || this.sections[a][0] > 0 || this.sections[a][1] < 1);
+    const active = this.custom.length > 0 || axes.some((a) => this.inverted[a] || this.sections[a].some(Number.isFinite));
     if (rebound) {
       const bounds = new THREE.Box3();
       for (const g of this.bodies.values()) bounds.expandByObject(g);
-      const range = (a: Axis): Span => {
-        const [from, to] = this.sections[a];
-        const lo = bounds.min[a];
-        const size = bounds.max[a] - lo;
-        return [from > 0 ? lo + from * size : -Infinity, to < 1 ? lo + to * size : Infinity];
-      };
-      const spans = (a: Axis): Span[] => {
-        const [lo, hi] = range(a);
-        return this.inverted[a] ? ([[-Infinity, lo], [hi, Infinity]] as Span[]).filter(([s, e]) => s < e) : [[lo, hi]];
-      };
-      this.boxes =
-        active && !bounds.isEmpty() ? spans('x').flatMap((x) => spans('y').flatMap((y) => spans('z').map((z) => [x, y, z]))) : [];
+      if (!bounds.equals(this.lastBounds)) {
+        this.lastBounds = bounds;
+        this.onBounds?.(bounds);
+      }
     }
+    const spans = (a: Axis): Span[] => {
+      const [lo, hi] = this.sections[a];
+      return this.inverted[a] ? ([[-Infinity, lo], [hi, Infinity]] as Span[]).filter(([s, e]) => s < e) : [[lo, hi]];
+    };
+    this.boxes = active ? spans('x').flatMap((x) => spans('y').flatMap((y) => spans('z').map((z) => [x, y, z]))) : [];
     const sectioned = this.boxes.length > 0;
     for (const [id, g] of this.bodies) g.visible = !sectioned && !this.hidden.has(id);
     if (!sectioned) return this.render();
