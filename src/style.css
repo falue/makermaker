@@ -887,3 +887,24 @@ button.primary {
   font-size: 11px;
   color: var(--muted);
 }
+
+.backdrops {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.backdrops .backdrop {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.backdrops .backdrop.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+button.primary.wide {
+  width: 100%;
+  margin-bottom: 4px;
+}

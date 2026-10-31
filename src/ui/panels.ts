@@ -2,7 +2,7 @@ import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, type Row } from '../doc/groups';
-import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
+import type { Backdrop, BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { icon, tool } from './icons';
@@ -453,15 +453,41 @@ function right(ctx: UIContext): Node[] {
  * Nice renders: background for the next one, Render this view, and the renders, newest first: picture (live while
  * rendering, else the result or the thumbnail taken when it was asked for), when and how, and what can be done.
  */
+/** Background presets for renders. */
+const BACKDROPS: [string, Backdrop][] = [
+  ['Plain', { top: '#f4f4f2', bottom: '#f4f4f2', floor: true }],
+  ['Studio', { top: '#ffffff', bottom: '#9ea3ab', floor: false }],
+  ['Sky', { top: '#4f8fe8', bottom: '#f2f5f8', floor: false }],
+  ['Sunset', { top: '#2f2d63', bottom: '#ffb27a', floor: false }],
+  ['Night', { top: '#05070f', bottom: '#3a4560', floor: false }],
+];
+
+/** A backdrop as a CSS background: top above, bottom below. */
+const backdropCss = (b: Backdrop) => (b.top === b.bottom ? b.top : `linear-gradient(${b.top}, ${b.bottom})`);
+const sameBackdrop = (a: Backdrop, b: Backdrop) => a.top === b.top && a.bottom === b.bottom && a.floor === b.floor;
+
 function rendersPanel(ctx: UIContext): Node[] {
   const { doc, renders } = ctx;
-  const background = h('input', { type: 'color', value: doc.renderBackground, title: 'Background of the next render', className: 'color' });
-  background.onchange = () => ctx.commit({ ...doc, renderBackground: background.value });
+  // the next render's background: a preset, or its two colours (the same twice: plain)
+  const bg = doc.renderBackground;
+  const setBg = (next: Backdrop) => ctx.commit({ ...doc, renderBackground: next });
+  const colour = (key: 'top' | 'bottom', title: string) => {
+    const el = h('input', { type: 'color', value: bg[key], title, className: 'color' });
+    el.onchange = () => setBg({ ...bg, [key]: el.value });
+    return el;
+  };
+  const floor = h('input', { type: 'checkbox', checked: bg.floor });
+  floor.onchange = () => setBg({ ...bg, floor: floor.checked });
+  const presets = BACKDROPS.map(([name, b]) => {
+    const el = h('button', { className: `backdrop${sameBackdrop(b, bg) ? ' on' : ''}`, title: name, onclick: () => setBg(b) });
+    el.style.background = backdropCss(b);
+    return el;
+  });
   const shots = doc.renders.map((shot) => {
     const job = renders.jobs.get(shot.id);
     // live while rendering, else this session's picture, the last saved result, or the thumbnail (on the background colour)
     const picture = job?.canvas ?? h('img', { src: job?.url ?? shot.results[0]?.preview ?? shot.thumbnail, alt: 'Render' });
-    picture.style.background = shot.background;
+    picture.style.background = backdropCss(shot.background);
     // rendered more than once: the older results below, newest first
     const older = shot.results.slice(job?.canvas ? 0 : 1).map((r) => h('img', { src: r.preview, title: `Rendered ${new Date(r.at).toLocaleString()}` }));
     const c = shot.camera;
@@ -486,7 +512,7 @@ function rendersPanel(ctx: UIContext): Node[] {
       button('×', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) }), 'Delete this render'),
     ];
     const swatch = h('span', { className: 'swatch' });
-    swatch.style.background = shot.background;
+    swatch.style.background = backdropCss(shot.background);
     return h(
       'section',
       { className: 'render' },
@@ -500,7 +526,16 @@ function rendersPanel(ctx: UIContext): Node[] {
   });
   return [
     h('div', { className: 'head' }, h('h3', {}, 'Renders'), button('×', renders.toggle, 'Close the renders')),
-    h('div', { className: 'row' }, h('label', { className: 'check' }, background, 'Background'), h('button', { className: 'primary', onclick: renders.shoot, title: 'Render the view as it is now; renders queue up' }, 'Render this view')),
+    h('button', { className: 'primary wide', onclick: renders.shoot, title: 'Render the view as it is now; renders queue up' }, 'Render this view'),
+    h('h3', {}, 'Background'),
+    h('div', { className: 'backdrops' }, ...presets),
+    h(
+      'div',
+      { className: 'row' },
+      h('label', { className: 'check' }, colour('top', 'Sky straight up'), 'Top'),
+      h('label', { className: 'check' }, colour('bottom', 'Sky straight down'), 'Bottom'),
+      h('label', { className: 'check', title: 'A floor in the colour at the horizon catches the shadows (and hides the lower sky)' }, floor, 'Floor'),
+    ),
     h('p', { className: 'hint' }, 'Each render keeps its camera: Render again renders the same view with the model as it is now (and saves itself). Full pictures stay until the page reloads; small copies are saved in the file.'),
     ...shots,
   ];

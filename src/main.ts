@@ -1135,7 +1135,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 6, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [], renderBackground: '#f4f4f2' }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 7, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [], renderBackground: { top: '#f4f4f2', bottom: '#f4f4f2', floor: true } }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

@@ -7,7 +7,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import type { BasePlane, CameraState } from '../doc/types';
+import type { Backdrop, BasePlane, CameraState } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
@@ -884,7 +884,7 @@ export class Viewer implements ToolView {
   }
 
   /** A path traced picture (`samples` passes) from a saved camera: shown bodies only, cutters and overlays left out. */
-  renderNice(camera: CameraState, background: string, samples: number, watch: RenderWatch) {
+  renderNice(camera: CameraState, background: Backdrop, samples: number, watch: RenderWatch) {
     const meshes = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children[0] as THREE.Mesh | undefined;
       if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];

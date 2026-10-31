@@ -84,7 +84,7 @@ export function sampleDoc(): Doc {
   };
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
-    schema: 6,
+    schema: 7,
     units: 'mm',
     params: { ply: ex('4mm') },
     bodies: [plate, disc, pin, block, ball, nut],
@@ -102,6 +102,6 @@ export function sampleDoc(): Doc {
     groups: [corner],
     sections: [],
     renders: [],
-    renderBackground: '#f4f4f2',
+    renderBackground: { top: '#f4f4f2', bottom: '#f4f4f2', floor: true },
   };
 }
