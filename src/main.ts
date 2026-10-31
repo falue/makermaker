@@ -99,7 +99,8 @@ function update() {
     }),
   );
   linkErrors = new Map();
-  doc.bodies.forEach((p, i) => {
+  // bodies whose sketches lie on other bodies' faces wait until those bodies are built
+  let pending = doc.bodies.flatMap((p, i) => {
     const position = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
     if (position.every(Number.isFinite)) {
       positions.set(p.id, position);
@@ -107,20 +108,33 @@ function update() {
     }
     const before = exprErrors.size;
     const resolved = resolve(p.features, lookup, `bodies.${i}.features`, exprErrors);
-    if (exprErrors.size !== before) return;
-    const features: BuildFeature[] = [];
-    for (const s of resolved) {
-      const built = toBuild(s, p.id, sketches);
-      if (typeof built === 'string') return linkErrors.set(p.id, { featureId: s.id, error: `Cannot build: ${built}` });
-      features.push(built);
-    }
-    builds.push({ id: p.id, features });
-    const plan = frames(features);
-    for (const s of features) {
-      const f = plan.get(s.id);
-      if (s.type === 'extrude' && f && !s.through) caps.push({ body: p.id, feature: s.id, frame: moved(capFrame(f, s.depth), positions.get(p.id) ?? [0, 0, 0]) });
-    }
+    return exprErrors.size === before ? [{ id: p.id, resolved, at: positions.get(p.id) ?? ([0, 0, 0] as Vec3) }] : [];
   });
+  for (let progress = true; pending.length && progress; ) {
+    progress = false;
+    pending = pending.filter(({ id, resolved, at }) => {
+      const faceOf = (body: string, feature: string) => {
+        const c = caps.find((q) => q.body === body && q.feature === feature);
+        return c && moved(c.frame, scale(at, -1));
+      };
+      const features: BuildFeature[] = [];
+      for (const s of resolved) {
+        const built = toBuild(s, id, sketches, faceOf);
+        if (built === null) return true; // wait for the other body
+        if (typeof built === 'string') return (progress = true), linkErrors.set(id, { featureId: s.id, error: `Cannot build: ${built}` }), false;
+        features.push(built);
+      }
+      progress = true;
+      builds.push({ id, features });
+      const plan = frames(features);
+      for (const s of features) {
+        const f = plan.get(s.id);
+        if (s.type === 'extrude' && f && !s.through) caps.push({ body: id, feature: s.id, frame: moved(capFrame(f, s.depth), at) });
+      }
+      return false;
+    });
+  }
+  for (const { id, resolved } of pending) linkErrors.set(id, { featureId: resolved[0]?.id ?? '', error: "Cannot build: its sketch's face is gone, or bodies depend on each other in a circle" });
   viewer.caps = caps;
   // sketches in the world: base planes as they are, face sketches with their body
   const shown: ViewSketch[] = doc.sketches.flatMap((s) => {
@@ -287,15 +301,9 @@ function remove() {
   commit({ ...doc, bodies: doc.bodies.filter((p) => !selected.includes(p.id)), sketches: doc.sketches.filter((s) => !selected.includes(s.id)) });
 }
 
-/** Before the finishing features, so the list reads in build order. */
-const beforeFinish = (features: Feature[], feature: Feature) => {
-  const at = features.findIndex((s) => s.type === 'finish');
-  return at < 0 ? [...features, feature] : features.toSpliced(at, 0, feature);
-};
-
 /**
- * A tool result: a drawn shape joins its sketch (a new sketch if needed); pulled shapes become an extrusion linked to
- * them, on the body whose face the sketch lies on, else as a new body. One undo step.
+ * A tool result: a drawn shape joins its sketch (a new sketch if needed); pulled shapes become a new body extruded
+ * from them (linked). One undo step.
  */
 function sketched(r: SketchResult): string {
   const doc = history.current;
@@ -316,16 +324,12 @@ function sketched(r: SketchResult): string {
     ids = [profile.id];
   }
   if (r.depth) {
+    // always a new body: joining it to the body it was drawn on is a boolean, done explicitly later
     const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, areas: r.areas };
-    const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), mode: r.mode, through: false };
-    if (t.body) {
-      bodies = bodies.map((p) => (p.id === t.body ? { ...p, features: beforeFinish(p.features, feature) } : p));
-      selected = [t.body];
-    } else {
-      const body: Body = { id: newId(), name: `Body ${bodies.length + 1}`, position: [len(0), len(0), len(0)], features: [feature] };
-      bodies = [...bodies, body];
-      selected = [body.id];
-    }
+    const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), mode: 'add', through: false };
+    const body: Body = { id: newId(), name: `Body ${bodies.length + 1}`, position: [len(0), len(0), len(0)], features: [feature] };
+    bodies = [...bodies, body];
+    selected = [body.id];
     shapeSel = [];
   } else [selected, shapeSel] = [[id], ids];
   commit({ ...doc, sketches, bodies });

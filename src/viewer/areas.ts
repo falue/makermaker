@@ -73,7 +73,7 @@ export class AreaTool implements Tool {
     else if ((e.key === 'Enter' || e.key.toLowerCase() === 'e') && this.picked.size) {
       this.pull = { raw: 0, depth: 0, typed: undefined };
       this.view.lockPointer();
-      this.host.hint(PULL_HINT + (this.target.body ? ' · pulling into the body cuts' : ''));
+      this.host.hint(PULL_HINT);
     } else return false;
     this.update();
     return true;
@@ -95,7 +95,7 @@ export class AreaTool implements Tool {
       areas: picked.map((a) => ({ in: a.in, out: a.out })),
       depth,
       depthTyped: this.pull!.typed !== undefined && this.host.length(this.pull!.typed) !== null ? this.pull!.typed : undefined,
-      mode: this.target.body && depth < 0 ? 'cut' : 'add',
+      mode: 'add',
     });
   }
 
@@ -151,11 +151,10 @@ export class AreaTool implements Tool {
   private update() {
     this.clear();
     const depth = this.pull ? this.depth() : 0;
-    const cut = !!this.target.body && depth < 0;
     this.areas.forEach((a, i) => {
       if (this.picked.has(i)) {
-        this.fill(a, cut ? 0xe04040 : 0xff8c1a, 0.45);
-        if (depth) this.fill(a, cut ? 0xe04040 : 0xff8c1a, 0.3, depth);
+        this.fill(a, 0xff8c1a, 0.45);
+        if (depth) this.fill(a, 0xff8c1a, 0.3, depth);
       } else this.fill(a, 0x3b6fd8, i === this.hover && !this.pull ? 0.35 : 0.08);
     });
     this.labels.replaceChildren();

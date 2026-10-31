@@ -55,11 +55,14 @@ export type Feature =
   | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; mode: 'add' | 'cut'; through: boolean }
   | FinishFeature;
 
+/** A plane given directly (body-local): a sketch on another body's face. */
+export type FramePlane = { kind: 'frame'; o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] };
+
 /** An extrusion with its plane and shapes at hand, as the kernel builds it. */
 export type ExtrudeIn = {
   id: string;
   type: 'extrude';
-  plane: SketchPlane;
+  plane: SketchPlane | FramePlane;
   profiles: Profile[];
   areas?: Area[];
   depth: Expr;

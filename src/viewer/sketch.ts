@@ -407,7 +407,7 @@ export class SketchTool implements Tool {
     this.phase = { kind: 'pull', target, drawn, shapes, ids, raw: 0, depth: 0, typed: undefined };
     this.view.lockPointer();
     const keep = drawn ? ' · click without pulling or [Esc]: keep it flat' : ' · [Esc] cancels';
-    this.host.hint(PULL_HINT + (target.body ? ' · pulling into the body cuts' : '') + keep);
+    this.host.hint(PULL_HINT + keep);
   }
 
   /** Centre of the pulled shapes, on the sketch plane (world). */
@@ -431,7 +431,7 @@ export class SketchTool implements Tool {
       shapes: ph.ids,
       depth,
       depthTyped: flat || this.typed(ph.typed) === undefined ? undefined : ph.typed,
-      mode: ph.target.body && depth < 0 ? 'cut' : 'add',
+      mode: 'add',
     });
   }
 
@@ -467,7 +467,7 @@ export class SketchTool implements Tool {
       const f = ph.target.frame;
       const depth = this.typed(ph.typed) ?? ph.depth;
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
-      if (depth) this.solid(ph.shapes, f, depth, ph.target.body !== null && depth < 0);
+      if (depth) this.solid(ph.shapes, f, depth);
       label('Depth', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), true);
     }
     const r = this.view.el.getBoundingClientRect();
@@ -483,7 +483,7 @@ export class SketchTool implements Tool {
   }
 
   /** Translucent extrusion of the shapes; shapes inside an odd number of others are holes. */
-  private solid(ps: DrawnProfile[], f: Frame, depth: number, cut: boolean) {
+  private solid(ps: DrawnProfile[], f: Frame, depth: number) {
     const level = nesting(ps);
     const shapes = ps.flatMap((p, i) => {
       if (level[i] % 2) return [];
@@ -494,7 +494,7 @@ export class SketchTool implements Tool {
     const geo = new THREE.ExtrudeGeometry(shapes, { depth: Math.abs(depth), bevelEnabled: false, curveSegments: 32 });
     const mesh = new THREE.Mesh(
       geo,
-      new THREE.MeshStandardMaterial({ color: cut ? 0xe04040 : 0x3b6fd8, transparent: true, opacity: 0.45, depthWrite: false }),
+      new THREE.MeshStandardMaterial({ color: 0x3b6fd8, transparent: true, opacity: 0.45, depthWrite: false }),
     );
     mesh.matrixAutoUpdate = false;
     mesh.matrix.makeBasis(v3(f.x), v3(f.y), v3(f.n)).setPosition(v3(f.o).addScaledVector(v3(f.n), Math.min(0, depth)));

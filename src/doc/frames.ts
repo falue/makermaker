@@ -37,6 +37,10 @@ export function frames(features: Resolved<BuildIn>[]): Map<string, Frame> {
   for (const s of features) {
     if (s.type !== 'extrude') continue;
     const p = s.plane;
+    if (p.kind === 'frame') {
+      out.set(s.id, { o: p.o, x: p.x, y: p.y, n: p.n });
+      continue;
+    }
     if (p.kind === 'base') {
       const b = BASE[p.axis];
       out.set(s.id, { ...b, o: scale(b.n, p.offset) });
