@@ -17,24 +17,26 @@ Build a precise, approachable modeling tool for props, fitted parts, and worksho
 | # | Topic | Decision |
 | --- | --- | --- |
 | 1 | Edge/face references | Rule-based references by default (e.g. "all outer vertical edges", "top edges of profile Y"). Clicked edges/faces as fallback, re-matched after recompute. Ambiguous or lost references are reported, never guessed. On failure: keep the last valid geometry, warn, and offer an explicit one-click "bake" to a non-editable result. |
-| 2 | Part core | Each part is a parametric recipe (sketch → extrude → cut → fillet …), recomputed on change, history hidden by default. Direct face edits (push/pull faces) are supported and stored as recipe steps that reference faces under rule 1. |
+| 2 | Part core | Each part is a parametric recipe (sketch → extrude → cut → fillet …), recomputed on change, history hidden by default. Direct face edits are supported on both native and imported parts. On a native part, dragging a face first modifies the feature that owns it (extrusion depth, hole diameter, fillet radius …); only when no parameter can express the edit does it become a face-edit step referencing faces under rule 1. On an imported STEP part, which has no feature history, the same interaction is a real B-rep face edit. |
 | 3 | Sketching | Parametric primitives first (rectangle, rounded rectangle, circle, slot …) plus simple polyline/arc drawing with numeric entry. No constraint solver at MVP. |
 | 4 | Native file | Single self-contained ZIP file. Version history is stored deliberately inside it as JSON snapshots on save plus named checkpoints, capped/compacted. The fine-grained undo stack stays in memory and is not saved. |
 | 5 | Browser | Chromium-only MVP (File System Access for save-in-place and safe saves). File access sits behind a small interface so a desktop wrapper (Tauri/Electron) can replace it later. |
-| 6 | Imported meshes | Reference objects: display, transform, snap, measure, section views, export. Planar sections of meshes produce polyline outlines for laser/SVG export. No mesh booleans or mesh-to-solid conversion. |
+| 6 | Imported meshes | Reference objects: display, transform, snap, measure, section views, export. No mesh booleans or mesh-to-solid conversion. |
 | 7 | Parameters | General expressions with named parameters and references (e.g. `width = 2 * ply + 10`). Material thickness is one referenceable value; changing a material updates linked geometry. |
 | 8 | Instancing | Linked instances: a part definition plus placements; editing one updates all. "Make unique" detaches an instance. Groups have their own transforms and can be instanced too. |
 | 9 | Foundation | Start from scratch on Replicad/OpenCascade + three.js. Harvest individual pieces from ToubkalCAD (or others) only where they fit our model; no fork. |
-| 10 | Visualization | Screenshots, turntable and dolly clips with "okay-ish" renders. Real-time three.js (PBR, HDRI lighting, shadows) first. Nice renderings via Mitsuba 3 (scene export from our document; Mitsuba runs natively, not in the browser). Video via frame-by-frame encoding (WebCodecs). |
+| 10 | Visualization | Screenshots, turntable and dolly clips with "okay-ish" renders. Real-time three.js (PBR, HDRI lighting, shadows) first. Stretch goal: nice renderings via Mitsuba 3 through a local helper process (Mitsuba runs natively, not in the browser). Video via frame-by-frame encoding (WebCodecs). |
 | 11 | Value input | Every numeric field accepts a plain number (current units), a number with an explicit unit that may differ from the design's units (`3in`, `12.5mm`), and simple or complex expressions with or without references (`(80 - 2*ply) / 3`). The entered text is kept, so expressions stay live. |
 | 12 | Units | Display units can be switched on the fly; default mm. Values are stored in one canonical unit internally; switching units never changes geometry. |
 | 13 | Materials and appearance | Optional and lightweight. A material has a name, thickness, color, and appearance (opacity etc.). Appearances also exist independently of materials. An object can have a material, an appearance, both, or neither. Materials can be assigned retroactively (e.g. all 3 mm parts). Low priority compared to modeling and export. |
 | 14 | Sketch placement | Sketches attach to faces and follow them. The face reference follows decision 1; a lost face is reported, never guessed. |
-| 15 | Laser export | Invoked on one or more selected objects. Each selected object yields its outline(s) as SVG. |
+| 15 | Laser export | Select one or more objects in the model browser or the 3D viewer, click "Export laser". Objects without parallel flat sides are refused with a message. Every other object is projected along the normal of its biggest flat face, and the projected outline (outer contour plus holes) is exported as SVG. Section views do not produce exportable outlines. |
+| 16 | Fillet order | Fillets/chamfers always stay the last layer. A face edit made after filleting is inserted before the fillet layer, and the fillet is recomputed on the edited shape. |
+| 17 | Quad view | One viewport or four synchronized top/front/side/perspective viewports. Every view is fully editable (select, draw, drag, edit) at MVP; changes appear live in all views. |
 
 ## Output priorities
 
-1. **Laser cutting:** select one or more objects and export accurately sized outlines (decision 15). SVG is the first target, usable in Illustrator; DXF is desirable. Preserve circles and curves where supported rather than exporting display triangles (exact curves come from solids; mesh sections yield polylines). Write SVG with physical units (`width="…mm"`, viewBox in mm), never bare px. Native Adobe Illustrator format is not required initially. Verify 1:1 scale. Material thickness can drive extrusion depth through expressions (decision 7); automatic fabrication layouts and thickness-driven joint generation require separate scoping.
+1. **Laser cutting:** select one or more objects and export accurately sized outlines (decision 15). SVG is the first target, usable in Illustrator; DXF is desirable. Preserve circles and curves where supported rather than exporting display triangles (exact curves come from solids; meshes can only yield polylines). Write SVG with physical units (`width="…mm"`, viewBox in mm), never bare px. Native Adobe Illustrator format is not required initially. Verify 1:1 scale. Material thickness can drive extrusion depth through expressions (decision 7); automatic fabrication layouts and thickness-driven joint generation require separate scoping.
 2. **3D printing:** export solid objects as STL initially; consider 3MF later. Control tessellation quality and communicate export problems.
 3. **Visualization:** basic materials, lighting, and recognizable scale references or environments so people can understand object size. Screenshot, turntable, and dolly clip export with okay-ish render quality (decision 10).
 4. **Paper drawings:** printable views with scale, dimensions, and page layout.
@@ -60,7 +62,7 @@ Each part is a parametric recipe with hidden history (decision 2). Direct manipu
 - Preserve meaningful primitives: a rounded rectangle retains width, height, and corner radius.
 - Every numeric value can be a number, a number with a unit, or an expression referencing named parameters, other dimensions, or material thickness (decisions 7, 11). Display units switch on the fly, default mm (decision 12).
 - Non-destructive edge finishing is a must-have: retain the underlying shape and allow fillet radius or chamfer depth to be changed or disabled later. Make original geometry available as a reference when needed.
-- Initial implementation may restrict editable fillets/chamfers to a final finishing layer. This is a proposed MVP constraint, not permission to silently bake them into the base shape. Baking happens only as an explicit user action.
+- Editable fillets/chamfers always form the final finishing layer (decision 16). This is not permission to silently bake them into the base shape; baking happens only as an explicit user action.
 - References to edges and faces are rule-based by default, with clicked selections as fallback (decision 1). Stable references after arbitrary topology-changing edits remain a major technical risk. Unsupported or ambiguous references must be reported rather than reassigned silently; a failed recompute keeps the last valid geometry.
 - Imported STEP solids have no recipe; direct face edits are their main editing path.
 - Optional relationships between parts are a later goal; do not make every operation depend on a global constraint system.
@@ -76,7 +78,7 @@ Each part is a parametric recipe with hidden history (decision 2). Direct manipu
 - Modular workspace supporting one viewport or synchronized top/front/side/perspective quadrants. Drawing in a view uses an explicit, understandable work plane, with changes visible in other views.
 - Separate model/part organization, optional history, object properties/dimensions, and view settings. Do not mix everything into one expanding tree.
 - Hide history by default without deleting the data needed for editability. Support useful visibility controls for parts and sketches without requiring hundreds of manual toggles.
-- Important: X/Y/Z section views on the fly, also on custom planes, for solids and meshes. Planar sections can be exported as laser outlines.
+- Important: X/Y/Z section views on the fly, also on custom planes, for solids and meshes. Sections are for viewing only, not laser export.
 
 ## Geometry strategy
 
@@ -91,7 +93,7 @@ References:
 - Replicad: https://github.com/sgenoud/replicad
 - OpenCascade.js: https://github.com/donalffons/opencascade.js
 - three.js: https://github.com/mrdoob/three.js
-- Mitsuba 3 (nice renderings): https://github.com/mitsuba-renderer/mitsuba3
+- Mitsuba 3 (stretch goal, nice renderings): https://github.com/mitsuba-renderer/mitsuba3
 - ToubkalCAD (source of reusable pieces): https://github.com/ToubkalCAD/ToubkalCAD
 - FreeCAD, an established desktop reference: https://github.com/FreeCAD/FreeCAD
 
@@ -143,18 +145,18 @@ Draw a dimensioned plate, extrude it, cut holes, move a second part, and export 
 - Sketches attached to faces.
 - Editable final-layer fillets/chamfers within documented limits.
 - Local native save/open (single ZIP with version history), offline operation, undo/redo, and useful failure messages.
-- Accurate SVG laser export (including planar sections), STEP solid import/export, and STL mesh import/export.
+- Accurate SVG laser export of selected objects, STEP solid import/export, and STL mesh import/export.
 - Section views on X/Y/Z and custom planes.
 - Consistent shortcuts and separated model/properties/history/view controls.
-- A modular viewport architecture; decide whether full quad-view interaction is required at MVP release after the initial usability trial. It remains a requested capability.
+- Quad view: one viewport or four synchronized top/front/side/perspective viewports, all fully editable (decision 17).
 
 ### Visualization milestone (directly after MVP)
 
-Materials and HDRI lighting, scale references, screenshot export, turntable and dolly clip export; Mitsuba 3 scene export for nice stills/frames; GLB import/export.
+Materials and HDRI lighting, scale references, screenshot export, turntable and dolly clip export; stretch goal: Mitsuba 3 renders via a local helper process; GLB import/export.
 
 ### Later releases
 
-Broader direct editing; robust modifier references through more edits; relationships between parts; sketch constraint solver if needed; full quad-view if deferred; printable drawings; richer laser preparation; desktop wrapper; additional interchange formats and browser/platform coverage.
+Broader direct editing; robust modifier references through more edits; relationships between parts; sketch constraint solver if needed; printable drawings; richer laser preparation; desktop wrapper; additional interchange formats and browser/platform coverage.
 
 Expose operations through a shared command layer so mouse, shortcuts, and potential future automation can use the same behavior. Python/LLM integration is not an MVP deliverable.
 
@@ -191,7 +193,7 @@ Run geometry work away from the UI thread; avoid unnecessary copies, share geome
 9. Invalid geometry operations preserve the last valid model and explain the failure; ambiguous references are never silently redirected.
 10. Changing a material's thickness updates extrusions that reference it; editing one linked instance updates all of them, and "make unique" detaches one.
 11. A direct face edit on a native part survives an upstream dimension change, or reports a lost reference without changing the geometry.
-12. A planar section of a 1M-triangle mesh exports as a closed polyline SVG outline at correct scale.
+12. Selecting several objects and exporting laser outlines refuses objects without parallel flat sides with a message and exports all others projected along their biggest flat face at correct scale.
 13. At the visualization milestone, a turntable clip and a dolly clip export as video files with scale reference visible.
 14. Entering `3in`, `2*ply + 1`, or a reference to another dimension in any numeric field gives the correct result; switching display units does not change geometry; save/reopen keeps the expressions.
 
@@ -201,9 +203,12 @@ Earlier planning estimate: several weeks for a narrow prototype and approximatel
 
 ## Open questions
 
-1. **Direct face edits at MVP:** most "direct" feel comes from dragging recipe parameters. True face edits on native parts carry the full reference risk. Decide whether MVP face edits cover native parts, imported STEP solids only, or both.
-2. **Order of face edits vs. fillets:** proposed default: fillets/chamfers always stay the last layer, so a face edit made after filleting is inserted before the fillet layer and the fillet is recomputed on the edited shape. Confirm.
-3. **What "outline of an object" means for laser export:** for a flat part, the profile perpendicular to its thickness (outer contour plus holes). Undefined for non-flat objects: refuse with a message, project along an axis, or use the largest planar face?
-4. **Sections and laser export:** decision 15 exports selected objects only, but decision 6 and the section views produce planar section outlines. Should a section create a selectable 2D outline object that can then be exported?
-5. **Mitsuba 3 integration:** Mitsuba is a native Python/C++ renderer and cannot run in the browser. Options: export a scene bundle (XML + meshes + textures) the user renders locally, a local render helper process, or the desktop wrapper. Decide which, and whether the path-traced fallback (three-gpu-pathtracer) stays for browser-only use.
-6. **Remaining:** quad-view release timing, precise modifier limits, native file extension, measured performance budgets, whether part definitions can be shared across files.
+Deferred, ask again later:
+
+1. **Laser export rule details (decision 15):** must the biggest flat face itself have a parallel opposite face, or is any parallel pair enough? Are imported meshes eligible (polyline output) or always refused?
+2. **Laser export of several objects:** one SVG with all outlines (as positioned in the model, or laid out without overlap) or one SVG per object?
+3. **Mitsuba helper process:** how it is installed and started, and whether the in-browser path tracer (three-gpu-pathtracer) stays as a fallback.
+
+Decide after first measurements or usability trials:
+
+4. Precise modifier limits, native file extension, measured performance budgets, and whether part definitions can be shared across files.
