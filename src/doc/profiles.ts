@@ -94,6 +94,20 @@ export function inside(p: P, u: number, v: number): boolean {
   return odd;
 }
 
+/** Distance (mm) from plane point (u, v) to the outline (rounded corners counted sharp). */
+export function edgeDistance(p: P, u: number, v: number): number {
+  if (p.kind === 'circle') return Math.abs(Math.hypot(u - p.x, v - p.y) - p.d / 2);
+  const pts = corners(p);
+  return Math.min(
+    ...pts.map(([x0, y0], i) => {
+      const [x1, y1] = pts[(i + 1) % pts.length];
+      const [dx, dy] = [x1 - x0, y1 - y0];
+      const t = Math.max(0, Math.min(1, ((u - x0) * dx + (v - y0) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(u - x0 - t * dx, v - y0 - t * dy);
+    }),
+  );
+}
+
 /** How many larger profiles contain each profile's centre: even adds material, odd makes a hole. */
 export function nesting(ps: P[]): number[] {
   return ps.map((p) => {

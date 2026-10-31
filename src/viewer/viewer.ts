@@ -4,7 +4,7 @@ import type { BasePlane } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { centre, inside, type DrawnProfile } from '../doc/profiles';
+import { area, centre, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
 import { angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import type { AreaMesh } from '../kernel/build';
 import { AreaTool } from './areas';
@@ -381,18 +381,25 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The visible sketch shape under the pointer (innermost), unless a body surface is nearer. */
-  private shapeAt(ray: THREE.Ray, partDistance = Infinity) {
-    let best: { sketch: string; shape: string; distance: number; area: number } | null = null;
+  /**
+   * The visible sketch shape under the pointer, unless a body surface is nearer: the one with the nearest outline
+   * within `reachPx`, else the smallest one around the pointer.
+   */
+  private shapeAt(ray: THREE.Ray, partDistance = Infinity, reachPx = 8) {
+    let best: { sketch: string; shape: string; distance: number; edge: number; area: number } | null = null;
     for (const s of this.sketches) {
       const p = planeHit(ray, s.frame);
       if (!p) continue;
       const distance = p.distanceTo(ray.origin);
       if (distance > partDistance + 1e-3 || (best && distance > best.distance + 1e-6)) continue;
       const [u, v] = uvOf(s.frame, p);
+      const reach = reachPx / this.pixelsPerMm(p);
       for (const q of s.shapes) {
-        const area = q.kind === 'circle' ? q.d * q.d : q.kind === 'rect' ? q.w * q.h : Infinity;
-        if (inside(q, u, v) && (!best || distance < best.distance - 1e-6 || area < best.area)) best = { sketch: s.id, shape: q.id, distance, area };
+        const d = edgeDistance(q, u, v);
+        const edge = d <= reach ? d : Infinity; // outside the reach only the inside counts
+        if (edge === Infinity && !inside(q, u, v)) continue;
+        const a = area(q);
+        if (!best || distance < best.distance - 1e-6 || edge < best.edge || (edge === best.edge && a < best.area)) best = { sketch: s.id, shape: q.id, distance, edge, area: a };
       }
     }
     return best;
