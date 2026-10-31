@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import type { Frame } from '../doc/frames';
+import type { V3 } from '../doc/frames';
 import { pullBy, type Tool, type ToolHost, type ToolView } from './sketch';
 
 const HINT = 'Move to push or pull the face · [Ctrl] snaps · type a distance · click or [Enter]: done · [Esc] puts it back';
 
 /**
- * Pulls an extrusion's end face along its outward normal (`frame.n`): reports the distance (mm, outwards positive)
- * live, then once more when done or cancelled (0).
+ * Pulls a face along its outward normal `n`: reports the distance (mm, outwards positive) live, then once more when
+ * done or cancelled (0).
  */
 export class FacePullTool implements Tool {
   readonly kind = null;
@@ -18,12 +18,12 @@ export class FacePullTool implements Tool {
   constructor(
     private view: ToolView,
     private host: ToolHost,
-    private frame: Frame,
+    private n: V3,
     private at: THREE.Vector3,
     private onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void,
   ) {
     view.el.append(this.labels);
-    view.unflatten(new THREE.Vector3(...frame.n));
+    view.unflatten(new THREE.Vector3(...n));
     view.lockPointer();
     host.hint(HINT);
     this.update();
@@ -41,7 +41,7 @@ export class FacePullTool implements Tool {
   }
 
   move(e: PointerEvent) {
-    pullBy(this.view, e, this.frame, this.at, this.pull);
+    pullBy(this.view, e, this.n, this.at, this.pull);
     const step = e.ctrlKey ? this.view.snapStep : 0.1;
     this.dist = Math.round(this.pull.raw / step) * step;
     this.onPull(this.value(), 'live');
@@ -79,7 +79,7 @@ export class FacePullTool implements Tool {
   }
 
   private update() {
-    const [x, y] = this.view.toScreen(this.at.clone().addScaledVector(new THREE.Vector3(...this.frame.n), this.value()));
+    const [x, y] = this.view.toScreen(this.at.clone().addScaledVector(new THREE.Vector3(...this.n), this.value()));
     const el = Object.assign(document.createElement('div'), {
       className: 'size-label active',
       textContent: `Face ${this.typed === undefined ? `${this.value() >= 0 ? '+' : ''}${this.value().toFixed(2)}` : `${this.typed}▏`}`,

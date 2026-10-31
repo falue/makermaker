@@ -117,8 +117,8 @@ export interface PullStart {
  * looking along the normal, moving up pulls towards the viewer. Movement works with the pointer locked, so a pull
  * has no end at the screen edge.
  */
-export function pullBy(view: ToolView, e: PointerEvent, f: Frame, middle: THREE.Vector3, s: PullStart) {
-  const n = v3(f.n);
+export function pullBy(view: ToolView, e: PointerEvent, normal: V3, middle: THREE.Vector3, s: PullStart) {
+  const n = v3(normal);
   const [x0, y0] = view.toScreen(middle);
   const [x1, y1] = view.toScreen(middle.clone().add(n));
   const [dx, dy] = [x1 - x0, y1 - y0]; // screen px per mm along the normal
@@ -242,7 +242,7 @@ export class SketchTool implements Tool {
         Object.assign(ph, { alt: e.altKey, shift: e.shiftKey });
       }
     } else {
-      pullBy(this.view, e, ph.target.frame, this.middle(ph), ph);
+      pullBy(this.view, e, ph.target.frame.n, this.middle(ph), ph);
       ph.depth = this.snap(ph.raw, e.ctrlKey);
     }
     this.update();

@@ -7,7 +7,8 @@ import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
 import { paramLookup, resolve, setIn, UNITLESS } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
-import type { Body, BooleanOp, Doc, ExtrudeSource, Feature, Profile, Sketch, SketchPlacement } from './doc/types';
+import { faceAt, pushed } from './doc/pull';
+import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Profile, Sketch, SketchPlacement } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildFeature } from './kernel/build';
@@ -34,6 +35,8 @@ const kernelErrors = new Map<string, { featureId: string; error: string }>();
 let linkErrors = new Map<string, { featureId: string; error: string }>();
 /** Resolved body positions in mm, from the last update. */
 const positions = new Map<string, Vec3>();
+/** Build features per body (tool bodies inside), from the last update. */
+const built = new Map<string, BuildFeature[]>();
 let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; saved: Doc } = {
   name: `untitled${EXTENSION}`,
   versions: [],
@@ -142,6 +145,7 @@ function update() {
   }
   for (const { id, resolved } of pending) linkErrors.set(id, { featureId: resolved[0]?.id ?? '', error: "Cannot build: its sketch's face is gone, or sketches lie on each other's faces in a circle" });
   // 2: booleans take their tool bodies' full features, moved by the positions
+  built.clear();
   const full = new Map<string, BuildFeature[] | string>();
   const fullOf = (id: string, path: string[] = []): BuildFeature[] | string => {
     const done = full.get(id);
@@ -167,7 +171,7 @@ function update() {
   for (const id of own.keys()) {
     const features = fullOf(id);
     if (typeof features === 'string') linkErrors.set(id, { featureId: resolvedOf.get(id)?.find((f) => f.type === 'boolean')?.id ?? '', error: `Cannot build: ${features}` });
-    else builds.push({ id, features });
+    else builds.push({ id, features }), built.set(id, features);
   }
   viewer.caps = caps;
   // sketches in the world: base planes as they are, face sketches with their body
@@ -472,35 +476,60 @@ function startTool(kind: ToolKind) {
   render();
 }
 
+/** `x` (`mm` now) changed by `by` mm: a plain number stays one, an expression gets `+ by` (`ply` becomes `ply + 5`). */
+function plus(x: Expr, mm: number, by: number): Expr {
+  if (Math.abs(by) < 1e-9) return x;
+  return isPlain(x.e) ? len(mm + by) : { e: `${x.e} ${by < 0 ? '-' : '+'} ${fmt(Math.abs(by) / UNITS[x.u])}`, u: x.u };
+}
+
 /**
- * Pushes or pulls an extrusion's end face: changes that extrusion's depth live (one undo step). An expression stays
- * one: `ply` pulled out by 5 becomes `ply + 5`.
+ * Pushes or pulls a face live (one undo step): an end face changes its extrusion's depth, a side moves that side of
+ * its shape (in the sketch, if linked). Values keep their expressions.
  */
 function pullFace(face: PickedFace) {
-  const cap = viewer.capAt(face);
-  if (!cap) return notify('Only end faces of extrusions can be pushed or pulled so far');
+  const at = positions.get(face.body ?? '');
+  const features = built.get(face.body ?? '');
+  const hit = at && features && faceAt(features, face.point.toArray().map((v, k) => v - at[k]) as Vec3, face.normal.clone().negate().toArray());
+  if (!hit) return notify('Only faces made by extrusions can be pushed or pulled so far');
   const before = history.current;
-  const bi = before.bodies.findIndex((b) => b.id === cap.body);
-  const fi = before.bodies[bi]?.features.findIndex((f) => f.id === cap.feature) ?? -1;
+  const bi = before.bodies.findIndex((b) => b.features.some((f) => f.id === hit.feature));
+  const fi = before.bodies[bi]?.features.findIndex((f) => f.id === hit.feature) ?? -1;
   const feature = before.bodies[bi]?.features[fi];
   if (feature?.type !== 'extrude') return;
-  const old = feature.depth;
-  const oldMm = resolve(old, paramLookup(before.params), '', new Map()) as number;
-  // the face points along the extrusion when the depth is positive
-  const sign = Math.sign(oldMm) || 1;
-  let pushed = false;
-  viewer.startFacePull(toolHost, cap, (mm, phase) => {
+  const lookup = paramLookup(before.params);
+  const featurePath = ['bodies', String(bi), 'features', String(fi)];
+  let apply: (mm: number) => Doc;
+  if (hit.kind === 'cap') {
+    const depth = resolve(feature.depth, lookup, '', new Map()) as number;
+    apply = (mm) => setIn(before, [...featurePath, 'depth'], plus(feature.depth, depth, mm * hit.rate));
+  } else {
+    const src = feature.source;
+    const k = src.kind === 'sketch' ? before.sketches.findIndex((s) => s.id === src.sketch) : -1;
+    const list = src.kind === 'sketch' ? (before.sketches[k]?.shapes ?? []) : src.profiles;
+    const j = list.findIndex((q) => q.id === hit.shape);
+    if (j < 0) return;
+    const path = src.kind === 'sketch' ? ['sketches', String(k), 'shapes', String(j)] : [...featurePath, 'source', 'profiles', String(j)];
+    const shape = list[j] as Record<string, unknown>;
+    const old = resolve(list[j], lookup, '', new Map()) as DrawnProfile;
+    const was = old as Record<string, unknown>;
+    apply = (mm) => {
+      const next = { ...shape };
+      for (const [key, v] of Object.entries(pushed(old, hit.edge, mm * hit.rate)))
+        if (key === 'pts') next.pts = (v as [number, number][]).map(([x, y]) => [+fmt(x), +fmt(y)]);
+        else if (typeof v === 'number') next[key] = plus(shape[key] as Expr, was[key] as number, v - (was[key] as number));
+      return setIn(before, path, next);
+    };
+  }
+  let pushedOnce = false;
+  viewer.startFacePull(toolHost, face.normal.clone().negate().toArray(), face.point, (mm, phase) => {
     if (phase === 'cancel') {
-      if (pushed) history.undo();
+      if (pushedOnce) history.undo();
       stopTool();
       return update();
     }
-    const by = mm * sign;
-    const depth = isPlain(old.e) ? len(oldMm + by) : by ? { e: `${old.e} ${by < 0 ? '-' : '+'} ${fmt(Math.abs(by) / UNITS[old.u])}`, u: old.u } : old;
-    const next = setIn(before, ['bodies', String(bi), 'features', String(fi), 'depth'], depth);
-    if (pushed) history.replace(next);
-    else history.push(next);
-    pushed = true;
+    if (pushedOnce) history.replace(apply(mm));
+    else history.push(apply(mm));
+    pushedOnce = true;
     if (phase === 'done') stopTool();
     update();
   });
@@ -565,7 +594,7 @@ function extrude() {
   if (!activeSketch()) {
     const last = viewer.lastFace;
     if (last?.body && selected.includes(last.body)) return pullFace(last);
-    toolHint = 'Click the end face of an extrusion to push or pull it · [Esc] cancels';
+    toolHint = 'Click a face of an extrusion to push or pull it · [Esc] cancels';
     render();
     return viewer.pickFace((face) => {
       toolHint = null;

@@ -41,14 +41,6 @@ export interface PickedFace {
   body?: string;
 }
 
-/** An extrusion's end face under a point: the feature, its outward frame (normal out of the body), and the point. */
-export interface CapHit {
-  body: string;
-  feature: string;
-  frame: Frame;
-  at: THREE.Vector3;
-}
-
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
 const toCube = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 const fromCube = (v: THREE.Vector3) => new THREE.Vector3(v.x, -v.z, v.y);
@@ -298,21 +290,10 @@ export class Viewer implements ToolView {
   /** The last face clicked on a body (front side), for E after clicking a face. */
   lastFace: PickedFace | null = null;
 
-  /** The extrusion end face at a picked face, if it is one; its frame's normal points out of the body. */
-  capAt(face: PickedFace): CapHit | null {
-    const out = face.normal.clone().negate(); // picked normals point away from the camera
-    const cap = this.caps.find((c) => {
-      const n = new THREE.Vector3(...c.frame.n);
-      return c.body === face.body && Math.abs(out.dot(n)) > 0.999 && Math.abs(face.point.clone().sub(new THREE.Vector3(...c.frame.o)).dot(n)) < 1e-3;
-    });
-    if (!cap) return null;
-    return { body: cap.body, feature: cap.feature, frame: { ...cap.frame, n: out.toArray() }, at: face.point.clone() };
-  }
-
-  /** Pulls an extrusion's end face (E on a face). */
-  startFacePull(host: ToolHost, cap: CapHit, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void) {
+  /** Pushes or pulls a face along its outward normal `n` from `at` (E on a face). */
+  startFacePull(host: ToolHost, n: Vec3, at: THREE.Vector3, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void) {
     this.stopTool();
-    this.tool = new FacePullTool(this, host, cap.frame, cap.at, onPull);
+    this.tool = new FacePullTool(this, host, n, at, onPull);
     this.toolButtons(true);
   }
 

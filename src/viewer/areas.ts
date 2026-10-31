@@ -51,7 +51,7 @@ export class AreaTool implements Tool {
   move(e: PointerEvent) {
     if (this.pull) {
       const step = e.ctrlKey ? this.view.snapStep : 0.1;
-      pullBy(this.view, e, this.target.frame, this.middle(), this.pull);
+      pullBy(this.view, e, this.target.frame.n, this.middle(), this.pull);
       this.pull.depth = Math.round(this.pull.raw / step) * step;
     } else this.hover = this.areaAt(e);
     this.update();
