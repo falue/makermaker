@@ -3,6 +3,7 @@ import { BASE, toWorld, type Frame, type V3 } from '../doc/frames';
 import { centre, corners, inside, nesting, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, SketchPlacement } from '../doc/types';
+import { marks } from './marks';
 
 export type ToolKind = 'rect' | 'circle' | 'polygon';
 export type { DrawnProfile };
@@ -464,7 +465,7 @@ export class SketchTool implements Tool {
       if (profile.kind === 'circle' && ph.kind === 'shape') label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
     }
     if (this.snapped && ph.kind !== 'pull')
-      this.view.overlay.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints([this.snapped]), new THREE.PointsMaterial({ color: 0xff8c1a, size: 10, sizeAttenuation: false, depthTest: false })));
+      this.view.overlay.add(marks([this.snapped], 0xff8c1a, 12));
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
       const depth = this.typed(ph.typed) ?? ph.depth;

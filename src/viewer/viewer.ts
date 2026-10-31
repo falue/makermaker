@@ -8,6 +8,7 @@ import { centre, inside, type DrawnProfile } from '../doc/profiles';
 import { angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import type { AreaMesh } from '../kernel/build';
 import { AreaTool } from './areas';
+import { marks } from './marks';
 import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -341,14 +342,12 @@ export class Viewer implements ToolView {
         this.sketchView.add(outline(this.overrides.get(p.id) ?? p, s.frame, color, lift));
       }
     const handles = this.tool || this.drag?.moved ? [] : this.handles();
-    const dots = (points: THREE.Vector3[], color: number) =>
-      new THREE.Points(new THREE.BufferGeometry().setFromPoints(points), new THREE.PointsMaterial({ color, size: 9, sizeAttenuation: false, depthTest: false }));
     const resize = handles.filter((h) => h.handle.kind === 'resize').map((h) => h.world);
     const turn = handles.filter((h) => h.handle.kind === 'rotate').map((h) => h.world);
-    if (resize.length) this.sketchView.add(dots(resize, 0xff8c1a));
+    if (resize.length) this.sketchView.add(marks(resize, 0xff8c1a));
     if (turn.length) {
       const top = resize[2]; // the handle at (0, 1): the middle of the top edge
-      this.sketchView.add(dots(turn, 0x1d4ed8), new THREE.Line(new THREE.BufferGeometry().setFromPoints([top, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
+      this.sketchView.add(marks(turn, 0x1d4ed8), new THREE.Line(new THREE.BufferGeometry().setFromPoints([top, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
     }
     this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' ? 1e6 : 0));
     this.render();
