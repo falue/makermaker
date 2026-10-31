@@ -209,7 +209,10 @@ export class Viewer implements ToolView {
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
 
-    this.controls.addEventListener('change', this.render);
+    this.controls.addEventListener('change', () => {
+      this.render();
+      this.tool?.refresh(); // labels and markers follow the camera
+    });
     new ResizeObserver(() => this.resize()).observe(el);
     // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
     this.fit();
@@ -281,7 +284,15 @@ export class Viewer implements ToolView {
     this.stopTool();
     this.tool = new SketchTool(kind, this, host, mode);
     if (mode?.kind !== 'pull') this.renderer.domElement.classList.add('drawing');
+    this.toolButtons(true);
     this.renderSketches(); // no handles while a tool runs
+  }
+
+  /** While a tool runs it takes the left button: right-drag turns the view, middle-drag pans. */
+  private toolButtons(on: boolean) {
+    this.controls.mouseButtons = on
+      ? { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE }
+      : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   }
 
   /** The last face clicked on a body (front side), for E after clicking a face. */
@@ -302,6 +313,7 @@ export class Viewer implements ToolView {
   startFacePull(host: ToolHost, cap: CapHit, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void) {
     this.stopTool();
     this.tool = new FacePullTool(this, host, cap.frame, cap.at, onPull);
+    this.toolButtons(true);
   }
 
   /** Pulls existing shapes of a sketch into an extrusion (E). */
@@ -314,6 +326,7 @@ export class Viewer implements ToolView {
   startAreas(host: ToolHost, target: Target, areas: AreaMesh[], all = false) {
     this.stopTool();
     this.tool = new AreaTool(this, host, target, areas, all);
+    this.toolButtons(true);
     this.renderSketches();
   }
 
@@ -437,6 +450,7 @@ export class Viewer implements ToolView {
     this.markFace();
     this.tool?.dispose();
     this.tool = null;
+    this.toolButtons(false);
     this.toolPress = false;
     this.renderer.domElement.classList.remove('drawing');
     this.renderSketches(); // handles come back

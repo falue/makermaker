@@ -102,6 +102,8 @@ export interface Tool {
   dblclick(e: MouseEvent): void;
   /** Returns true if the key was used. */
   key(e: KeyboardEvent): boolean;
+  /** The camera moved: redraw labels and markers. */
+  refresh(): void;
   dispose(): void;
 }
 
@@ -290,7 +292,7 @@ export class SketchTool implements Tool {
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
     const how = this.kind === 'polygon' ? 'Click corners' : 'Drag (or click twice)';
     if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]} · [R] [C] [P] switch · snaps to corners and centres · [Ctrl] grid · [Esc] stops drawing shapes`;
-    return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] snaps · [Esc] stops`;
+    return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] snaps · right-drag turns the view · [Esc] stops`;
   }
 
   /**
@@ -502,6 +504,10 @@ export class SketchTool implements Tool {
       ((o as THREE.Mesh).material as THREE.Material).dispose();
     }
     this.view.overlay.clear();
+  }
+
+  refresh() {
+    this.update();
   }
 
   /** Redraws the preview and the size labels. */

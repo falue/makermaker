@@ -50,6 +50,10 @@ export class FacePullTool implements Tool {
 
   up() {}
 
+  refresh() {
+    this.update();
+  }
+
   dblclick() {}
 
   key(e: KeyboardEvent) {

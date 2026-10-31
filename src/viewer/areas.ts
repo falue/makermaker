@@ -59,6 +59,10 @@ export class AreaTool implements Tool {
 
   up() {}
 
+  refresh() {
+    this.update();
+  }
+
   /** Picks everything inside the shape under the pointer (the smallest there): all areas that lie in it. */
   dblclick(e: MouseEvent) {
     const i = this.pull ? null : this.areaAt(e);

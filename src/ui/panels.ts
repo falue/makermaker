@@ -331,7 +331,7 @@ function right(ctx: UIContext): Node[] {
 }
 
 const SKETCH_HINT =
-  'Sketch: [R] [C] [P] draw shapes (they stay flat) · click a shape to select it, drag to move, handles resize and turn · [E] extrude · [Esc] or ✓ leaves';
+  'Sketch: [R] [C] [P] draw shapes (they stay flat) · click a shape to select it, drag to move, handles resize and turn · right-drag turns the view · [E] extrude · [Esc] or ✓ leaves';
 
 function hint(selected: number, shapes: number) {
   if (shapes)
