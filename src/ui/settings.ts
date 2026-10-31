@@ -1,3 +1,5 @@
+import { UNITS } from '../doc/expr';
+import type { Unit } from '../doc/types';
 import { backdropCss, SKIES } from '../viewer/sky';
 
 /** Settings of this browser (not of the document). */
@@ -16,8 +18,11 @@ export function loadSettings(): Settings {
   return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background } };
 }
 
-/** The settings dialog: changes apply and are saved at once; × or Esc closes it. */
-export function openSettings(settings: Settings, changed: (next: Settings) => void) {
+/**
+ * The settings dialog: changes apply and are saved at once; × or Esc closes it. `doc`: the open document's own
+ * settings (its units), shown under General.
+ */
+export function openSettings(settings: Settings, changed: (next: Settings) => void, doc: { units(): Unit; setUnits(units: Unit): void }) {
   const make = (tag: string, props: object = {}, ...children: (Node | string)[]) => {
     const el = Object.assign(document.createElement(tag), props);
     el.append(...children);
@@ -35,6 +40,17 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   const nav = make('nav', { className: 'chapters' });
   /** Chapters: the left column lists them, the right shows the open one. */
   const chapters: [string, () => Node[]][] = [
+    [
+      'General',
+      () => {
+        const units = make('select', { onchange: () => (doc.setUnits(units.value as Unit), draw()) }, ...Object.keys(UNITS).map((u) => make('option', { value: u, selected: u === doc.units(), textContent: u }))) as HTMLSelectElement;
+        return [
+          make('h3', {}, 'Units'),
+          make('p', { className: 'hint' }, "Of this document (saved in its file): how lengths show, and what plain numbers you type mean. Values keep the unit they were typed in."),
+          make('div', { className: 'row' }, units),
+        ];
+      },
+    ],
     [
       '3D view',
       () => {

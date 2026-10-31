@@ -262,18 +262,13 @@ const GITHUB =
 function topbar(ctx: UIContext): Node[] {
   return [
     h('strong', {}, 'MAKERMAKER'),
-    tool('settings', 'Settings: ambient occlusion, background', ctx.openSettings),
+    tool('settings', 'Settings: units, ambient occlusion, background', ctx.openSettings),
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
     tool('autosave', `Autosave ${ctx.autosave ? 'on' : 'off'}: saves into the file a moment after each change`, ctx.toggleAutosave, ctx.autosave),
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
-    select(
-      ctx.doc.units,
-      Object.fromEntries(Object.keys(UNITS).map((u) => [u, u])) as Record<Unit, string>,
-      (units) => ctx.commit({ ...ctx.doc, units }),
-    ),
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
     h('span', { className: 'status' }, ctx.status),
     tool('print', 'Export for 3D print: one STL per selected body (else all shown ones), as placed in the world; several come zipped', ctx.exportPrint),

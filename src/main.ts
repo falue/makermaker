@@ -1142,10 +1142,14 @@ function render() {
     },
     renderImage: () => run(snapshot),
     openSettings: () =>
-      openSettings(settings, (next) => {
-        settings = next;
-        applySettings();
-      }),
+      openSettings(
+        settings,
+        (next) => {
+          settings = next;
+          applySettings();
+        },
+        { units: () => history.current.units, setUnits: (units) => commit({ ...history.current, units }) },
+      ),
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
