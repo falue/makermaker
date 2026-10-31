@@ -409,7 +409,9 @@ export class Viewer implements ToolView {
     for (const s of this.sketches)
       for (const p of s.shapes) {
         const color = s.id === this.activeSketch && this.selectedShapes.includes(p.id) ? 0xff8c1a : s.color;
-        this.sketchView.add(outline(this.overrides.get(p.id) ?? p, s.frame, color, lift));
+        const q = this.overrides.get(p.id) ?? p;
+        this.sketchView.add(outline(q, s.frame, color, lift));
+        if (q.kind === 'circle') this.sketchView.add(marks([new THREE.Vector3(...toWorld(s.frame, q.x, q.y))], color, 6)); // its centre, clickable
       }
     const refs = this.tool ? [] : this.refMarks();
     const handles = this.tool || this.drag?.moved ? [] : this.handles();
@@ -474,7 +476,7 @@ export class Viewer implements ToolView {
       const [u, v] = uvOf(s.frame, p);
       const reach = reachPx / this.pixelsPerMm(p);
       for (const q of s.shapes) {
-        const d = edgeDistance(q, u, v);
+        const d = q.kind === 'circle' ? Math.min(edgeDistance(q, u, v), Math.hypot(u - q.x, v - q.y)) : edgeDistance(q, u, v); // a circle's centre picks it too
         const edge = d <= reach ? d : Infinity; // outside the reach only the inside counts
         if (edge === Infinity && !inside(q, u, v)) continue;
         const a = area(q);
