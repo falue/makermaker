@@ -806,7 +806,10 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The bodies as a PNG on a transparent background, `scale` times the screen resolution: no grid, origin, sketches, cutters or selection. */
+  /**
+   * The bodies as a PNG on a transparent background, `scale` times the screen resolution, with ambient occlusion if it
+   * is on: no grid, origin, sketches, cutters or selection.
+   */
   async snapshot(scale = 1): Promise<Blob> {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
@@ -819,8 +822,15 @@ export class Viewer implements ToolView {
     this.scene.background = null;
     this.renderer.setPixelRatio(ratio * scale);
     this.renderer.setSize(size.x, size.y, false);
-    this.renderer.render(this.scene, this.camera); // read back right after drawing: the buffer is cleared later
+    if (this.ao.on) {
+      // with ambient occlusion: a composer at this size, twice (its first frame has no occlusion yet)
+      this.dropComposer();
+      this.aoComposer().render();
+      this.aoComposer().render();
+    } else this.renderer.render(this.scene, this.camera);
+    // read back right after drawing: the buffer is cleared later
     const blob = await new Promise<Blob | null>((done) => this.renderer.domElement.toBlob(done, 'image/png'));
+    this.dropComposer(); // back to the screen's size
     this.scene.background = background;
     helpers.forEach((o) => (o.visible = true));
     this.select(selection);
