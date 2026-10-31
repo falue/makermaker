@@ -367,7 +367,7 @@ function left(ctx: UIContext): Node[] {
   const dragged = (id: string) => (ctx.selected.includes(id) ? ctx.selected : [id]);
   const row = (id: string, depth: number, group: boolean, ...cells: HTMLElement[]) => {
     const el = h('div', { className: `listed${dimmed(id)}`, draggable: true }, ...cells);
-    el.style.paddingLeft = `${depth * 14}px`;
+    el.style.paddingLeft = `${depth * 22}px`; // a level: the chevron's width, so contents line up under the group name
     el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
     const where = (e: DragEvent) => {
       const r = el.getBoundingClientRect();
@@ -388,7 +388,9 @@ function left(ctx: UIContext): Node[] {
     };
     return el;
   };
-  const fold = ({ id, open }: Row) => (open === undefined ? h('span', { className: 'fold-space' }) : button(open ? '▾' : '▸', () => ctx.toggleFold(id), open ? 'Fold' : 'Unfold'));
+  // only groups fold: a chevron that turns down when open; other rows start at the left
+  const fold = ({ id, open }: Row) =>
+    open === undefined ? [] : [h('button', { className: `icon fold${open ? ' open' : ''}`, innerHTML: icon('chevron'), title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(id) })];
   const sketchIcon = () => h('span', { className: 'kind', innerHTML: icon('sketch') });
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
   const rows = tree(doc, ctx.folded).map((r) => {
@@ -396,7 +398,7 @@ function left(ctx: UIContext): Node[] {
     if (kind === 'group') {
       const i = doc.groups.findIndex((g) => g.id === id);
       const g = doc.groups[i];
-      return row(id, depth, true, fold(r), listItem(`${selectedClass(id)} group`, (how) => ctx.select(id, how), g.name), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
+      return row(id, depth, true, ...fold(r), listItem(`${selectedClass(id)} group`, (how) => ctx.select(id, how), g.name), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -414,7 +416,7 @@ function left(ctx: UIContext): Node[] {
     const sketch = own.length
       ? h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.select(own[0].id) })
       : h('span', { className: 'fold-space' });
-    return row(id, depth, false, fold(r), listItem(selectedClass(id), (how) => ctx.select(id, how), swatch, p.name), sketch, look);
+    return row(id, depth, false, ...fold(r), listItem(selectedClass(id), (how) => ctx.select(id, how), swatch, p.name), sketch, look);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
