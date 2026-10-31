@@ -42,6 +42,8 @@ export type Profile = (
 export interface Sketch {
   id: string;
   name: string;
+  /** The group it is in (null: none). */
+  group: string | null;
   plane: SketchPlacement;
   shapes: Profile[];
   visible: boolean;
@@ -102,6 +104,8 @@ export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature;
 export interface Body {
   id: string;
   name: string;
+  /** The group it is in (null: none); its position counts from the group's origin. */
+  group: string | null;
   /** Display colour (#rrggbb). */
   color: string;
   visible: boolean;
@@ -119,11 +123,24 @@ export interface Section {
   enabled: boolean;
 }
 
+/**
+ * Groups organise bodies, sketches and other groups. `origin` parent: contents count from the parent's origin;
+ * custom: from `position` (in the parent). Hiding a group hides its contents without changing their own eyes.
+ */
+export interface Group {
+  id: string;
+  name: string;
+  parent: string | null;
+  visible: boolean;
+  origin: { kind: 'parent' } | { kind: 'custom'; position: [Expr, Expr, Expr] };
+}
+
 export interface Doc {
-  schema: 4;
+  schema: 5;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];
   sketches: Sketch[];
+  groups: Group[];
   sections: Section[];
 }

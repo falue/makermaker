@@ -8,7 +8,8 @@ import { alignment, bounds, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Profile, Sketch, SketchPlacement } from './doc/types';
+import { contents, tree, within } from './doc/groups';
+import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, Sketch, SketchPlacement } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildFeature } from './kernel/build';
@@ -35,6 +36,8 @@ const kernelErrors = new Map<string, { featureId: string; error: string }>();
 let linkErrors = new Map<string, { featureId: string; error: string }>();
 /** Resolved body positions in mm, from the last update. */
 const positions = new Map<string, Vec3>();
+/** Group origins in world mm, from the last update (a body's position counts from its group's). */
+const origins = new Map<string, Vec3>();
 /** Build features per body (tool bodies inside), from the last update. */
 const built = new Map<string, BuildFeature[]>();
 /** A sketch placement's world frame, as of the last update. */
@@ -144,10 +147,36 @@ function update() {
     }),
   );
   linkErrors = new Map();
+  // group origins (world mm; a custom origin counts from its parent's) and whether groups are shown with their parents
+  origins.clear();
+  const originOf = (id: string | null, seen: string[] = []): Vec3 => {
+    const i = doc.groups.findIndex((g) => g.id === id);
+    const g = doc.groups[i];
+    if (!g || seen.includes(g.id)) return [0, 0, 0];
+    const done = origins.get(g.id);
+    if (done) return done;
+    const parent = originOf(g.parent, [...seen, g.id]);
+    const own = g.origin.kind === 'custom' ? resolve(g.origin.position, lookup, `groups.${i}.origin.position`, exprErrors) : [0, 0, 0];
+    const at = parent.map((v, k) => v + (Number.isFinite(own[k]) ? own[k] : 0)) as Vec3;
+    origins.set(g.id, at);
+    return at;
+  };
+  doc.groups.forEach((g) => originOf(g.id));
+  const shownIn = (id: string | null) => {
+    for (const seen = new Set<string>(); id && !seen.has(id); ) {
+      const g = doc.groups.find((q) => q.id === id);
+      if (!g) break;
+      if (!g.visible) return false;
+      seen.add(id);
+      id = g.parent;
+    }
+    return true;
+  };
   // 1: own features (sketches on other bodies' faces wait for those faces; faces never depend on booleans)
   const own = new Map<string, Map<string, BuildFeature>>();
   let pending = doc.bodies.flatMap((p, i) => {
-    const position = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
+    const local = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
+    const position = local.map((v, k) => v + originOf(p.group)[k]) as Vec3;
     if (position.every(Number.isFinite)) {
       positions.set(p.id, position);
       viewer.setPosition(p.id, position);
@@ -228,8 +257,8 @@ function update() {
   const shown: ViewSketch[] = doc.sketches.flatMap((s, i) => {
     const r = sketches.get(s.id);
     const p = r?.plane;
-    if (!r || !p || !s.visible) return [];
-    const frame = worldFrame(p);
+    if (!r || !p || !s.visible || !shownIn(s.group)) return [];
+    const frame = p.kind === 'base' ? moved(worldFrame(p)!, originOf(s.group)) : worldFrame(p);
     return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes }] : [];
   });
   viewer.setCustomSections(
@@ -241,13 +270,13 @@ function update() {
   const ids = new Set(doc.bodies.map((p) => p.id));
   for (const id of kernelErrors.keys()) if (!ids.has(id)) kernelErrors.delete(id);
   for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id);
-  selected = selected.filter((id) => ids.has(id) || doc.sketches.some((s) => s.id === id));
+  selected = selected.filter((id) => ids.has(id) || [...doc.sketches, ...doc.groups].some((o) => o.id === id));
   if (isolated && !ids.has(isolated.body)) isolated = null;
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
   const owner = ownersOf(doc);
-  viewer.setLooks(doc.bodies.map((b) => ({ ...b, owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.op === 'subtract' && f.body === b.id)) })));
-  viewer.select(selected);
+  viewer.setLooks(doc.bodies.map((b) => ({ ...b, visible: b.visible && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.op === 'subtract' && f.body === b.id)) })));
+  viewer.select(contents(doc, selected));
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
   if (sketching && !drawn) exitSketch();
@@ -331,7 +360,7 @@ function select(id: string | null, how: Pick = false) {
   if (sketching && id !== sketching) exitSketch();
   const doc = history.current;
   if (id === null) selected = how ? selected : [];
-  else selected = picked(selected, (doc.bodies.some((b) => b.id === id) ? doc.bodies : doc.sketches).map((o) => o.id), id, how);
+  else selected = picked(selected, tree(doc, folded).map((r) => r.id), id, how);
   shapeSel = [];
   showSelection();
 }
@@ -468,7 +497,7 @@ function isolate(id: string) {
 }
 
 function showSelection() {
-  viewer.select(selected);
+  viewer.select(contents(history.current, selected));
   viewer.setSketches(viewer.sketches, activeSketch(), shapeSel);
   render();
 }
@@ -481,9 +510,10 @@ function place(moves: { id: string; position: Vec3 }[]) {
     const i = doc.bodies.findIndex((p) => p.id === id);
     const before = positions.get(id);
     if (i < 0 || !before) continue;
+    const origin = origins.get(doc.bodies[i].group ?? '') ?? [0, 0, 0];
     position.forEach((v, k) => {
       if (Math.abs(v - before[k]) > 1e-9)
-        next = setIn(next, ['bodies', String(i), 'position', String(k)], ex(fmt(v / UNITS[doc.units]), doc.units));
+        next = setIn(next, ['bodies', String(i), 'position', String(k)], ex(fmt((v - origin[k]) / UNITS[doc.units]), doc.units));
     });
   }
   commit(next);
@@ -534,12 +564,47 @@ function remove() {
     shapeSel = [];
     return commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sketch ? { ...s, shapes: s.shapes.filter((q) => !gone.includes(q.id)) } : s)) });
   }
-  // owned tool bodies go with their owner; a deleted tool body takes its boolean along
+  // a group goes with its contents, owned tool bodies with their owner; a deleted tool body takes its boolean along
   const owner = ownersOf(doc);
-  const gone = new Set(selected);
+  const groups = new Set(selected.filter((id) => doc.groups.some((g) => g.id === id)).flatMap((id) => [...within(doc, id)]));
+  const gone = new Set([...selected, ...contents(doc, selected)]);
   for (const id of gone) for (const [tool, o] of owner) if (o === id) gone.add(tool);
   const bodies = doc.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => f.type !== 'boolean' || !gone.has(f.body)) }));
-  commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)) });
+  commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)) });
+}
+
+/** Folded groups in the object list. */
+const folded = new Set<string>();
+
+/**
+ * `doc` with objects put into a group (null: the top level) whose origin is at `target` (world mm). Bodies keep their
+ * place in the world (their positions now count from that origin); a group cannot go into itself.
+ */
+function movedInto(doc: Doc, ids: string[], group: string | null, target: Vec3 = origins.get(group ?? '') ?? [0, 0, 0]): Doc {
+  const lookup = paramLookup(doc.params);
+  const bodies = doc.bodies.map((b) => {
+    if (!ids.includes(b.id) || b.group === group) return b;
+    const was = origins.get(b.group ?? '') ?? [0, 0, 0];
+    const local = resolve(b.position, lookup, '', new Map());
+    return { ...b, group, position: b.position.map((x, k) => plus(x, local[k], was[k] - target[k])) as Body['position'] };
+  });
+  const sketches = doc.sketches.map((s) => (ids.includes(s.id) ? { ...s, group } : s));
+  const groups = doc.groups.map((g) => (ids.includes(g.id) && !(group && within(doc, g.id).has(group)) ? { ...g, parent: group } : g));
+  return { ...doc, bodies, sketches, groups };
+}
+
+/** A new group around the selection (⌘G), in the group they share; empty when nothing is selected. */
+function groupSelection() {
+  const doc = history.current;
+  const parents = new Set([
+    ...[...doc.bodies, ...doc.sketches].filter((o) => selected.includes(o.id)).map((o) => o.group),
+    ...doc.groups.filter((g) => selected.includes(g.id)).map((g) => g.parent),
+  ]);
+  const parent = parents.size === 1 ? [...parents][0] : null;
+  const group: Group = { id: newId(), name: `Group ${doc.groups.length + 1}`, parent, visible: true, origin: { kind: 'parent' } };
+  const ids = selected;
+  [selected, shapeSel] = [[group.id], []];
+  commit(movedInto({ ...doc, groups: [...doc.groups, group] }, ids, group.id, origins.get(parent ?? '') ?? [0, 0, 0]));
 }
 
 /**
@@ -553,8 +618,7 @@ function sketched(r: SketchResult): string {
   let bodies = doc.bodies;
   let id = t.sketch;
   if (!id) {
-    const plane: SketchPlacement = t.placement.kind === 'base' ? { ...t.placement, offset: len(t.placement.offset) } : t.placement;
-    const fresh: Sketch = { id: newId(), name: `Sketch ${sketches.length + 1}`, plane, shapes: [], visible: true };
+    const fresh = sketchAt(t, sketches.length);
     sketches = [...sketches, fresh];
     id = fresh.id;
   }
@@ -568,7 +632,9 @@ function sketched(r: SketchResult): string {
     // always a new body: joining it to the body it was drawn on is a boolean, done explicitly later
     const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, areas: r.areas };
     const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), mode: 'add', through: false };
-    const body = newBody(bodies.length, [feature]);
+    // on a base plane the body shares the sketch's group (so both count from the same origin)
+    const sketch = sketches.find((s) => s.id === id)!;
+    const body = newBody(bodies.length, [feature], sketch.plane.kind === 'base' ? sketch.group : null);
     bodies = [...bodies, body];
     selected = [body.id];
     shapeSel = [];
@@ -622,9 +688,15 @@ const toolHost: ToolHost = {
   cursorTip: (text) => tips.cursorTip(text),
 };
 
-/** The `count`-th body at the origin, with a colour from a small palette. */
-function newBody(count: number, features: Feature[], palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f']): Body {
-  return { id: newId(), name: `Body ${count + 1}`, color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features };
+/** The `count`-th body at the origin (of `group`), with a colour from a small palette. */
+function newBody(count: number, features: Feature[], group: string | null = null, palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f']): Body {
+  return { id: newId(), name: `Body ${count + 1}`, group, color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features };
+}
+
+/** A new, empty sketch at a picked target (the `count`-th sketch). */
+function sketchAt(t: Target, count: number): Sketch {
+  const plane: SketchPlacement = t.placement.kind === 'base' ? { ...t.placement, offset: len(t.placement.offset) } : t.placement;
+  return { id: newId(), name: `Sketch ${count + 1}`, group: null, plane, shapes: [], visible: true };
 }
 
 /** A sphere body centred where it was drawn. */
@@ -799,8 +871,7 @@ function startNewSketch() {
 /** An empty sketch where the plane was picked, in sketch mode, the camera looking at it. */
 function newSketch(t: Target) {
   const doc = history.current;
-  const plane: SketchPlacement = t.placement.kind === 'base' ? { ...t.placement, offset: len(t.placement.offset) } : t.placement;
-  const sketch: Sketch = { id: newId(), name: `Sketch ${doc.sketches.length + 1}`, plane, shapes: [], visible: true };
+  const sketch = sketchAt(t, doc.sketches.length);
   commit({ ...doc, sketches: [...doc.sketches, sketch] });
   enterSketch(sketch.id, 'rect', true);
 }
@@ -892,7 +963,8 @@ function duplicate(offset = 10) {
   const copies = doc.bodies
     .filter((p) => selected.includes(p.id))
     .map((p): Body => {
-      const [x, y] = positions.get(p.id) ?? [0, 0];
+      const origin = origins.get(p.group ?? '') ?? [0, 0, 0];
+      const [x, y] = (positions.get(p.id) ?? [0, 0]).map((v, k) => v - origin[k]);
       const at = (v: number) => ex(fmt((v + offset) / UNITS[doc.units]), doc.units);
       return {
         ...structuredClone(p),
@@ -956,6 +1028,13 @@ function render() {
       return { x, y, w, h, centred: centred(p, ref) };
     },
     transformShape,
+    folded,
+    toggleFold(id) {
+      if (!folded.delete(id)) folded.add(id);
+      render();
+    },
+    moveInto: (ids, group) => commit(movedInto(history.current, ids, group)),
+    group: groupSelection,
     select,
     isolated: isolated?.body ?? null,
     isolate,
@@ -978,7 +1057,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 4, units: history.current.units, params: {}, bodies: [], sketches: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 5, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -1068,6 +1147,7 @@ addEventListener('keydown', (e) => {
   else if (selected.length && e.key === 'Escape') select(null);
   else if (shapeSel.length && mod && key === 'd') duplicateShapes();
   else if (selected.length && mod && key === 'd') duplicate();
+  else if (mod && key === 'g') groupSelection();
   else return;
   e.preventDefault();
 });

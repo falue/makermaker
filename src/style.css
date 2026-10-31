@@ -719,3 +719,28 @@ input.color {
   background: var(--accent);
   border-color: var(--accent);
 }
+
+.tree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tree-head button {
+  font-size: 11px;
+  padding: 1px 8px;
+}
+.listed .fold-space {
+  display: inline-block;
+  width: 22px;
+  flex: none;
+}
+.listed > button.icon {
+  flex: none;
+}
+.listed .item.group {
+  font-weight: 600;
+}
+.drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}

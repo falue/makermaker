@@ -23,6 +23,7 @@ export function sampleDoc(): Doc {
   const outline: Sketch = {
     id: newId(),
     name: 'Plate outline',
+    group: null,
     plane: { kind: 'base', axis: 'xy', offset: ex(0) },
     shapes: [rect(120, 80), circle(-45, -25, 5), circle(45, -25, 5), circle(45, 25, 5), circle(-45, 25, 5)],
     visible: true,
@@ -30,6 +31,7 @@ export function sampleDoc(): Doc {
   const plate: Body = {
     id: newId(),
     name: 'Plate',
+    group: null,
     color: '#d8c3a0',
     visible: true,
     position: [ex(0), ex(0), ex(0)],
@@ -43,6 +45,7 @@ export function sampleDoc(): Doc {
   const disc: Body = {
     id: newId(),
     name: 'Disc',
+    group: null,
     color: '#a9c4d8',
     visible: true,
     position: [ex(110), ex(0), ex(0)],
@@ -52,5 +55,5 @@ export function sampleDoc(): Doc {
       { id: newId(), type: 'finish', mode: 'fillet', size: ex(2), edges: 'top', enabled: true, baked: false, skip: [] },
     ],
   };
-  return { schema: 4, units: 'mm', params: { ply: ex('4mm') }, bodies: [plate, disc], sketches: [outline], sections: [] };
+  return { schema: 5, units: 'mm', params: { ply: ex('4mm') }, bodies: [plate, disc], sketches: [outline], groups: [], sections: [] };
 }

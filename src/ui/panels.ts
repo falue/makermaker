@@ -1,7 +1,8 @@
 import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
-import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Profile, Unit } from '../doc/types';
+import { tree } from '../doc/groups';
+import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { icon, tool } from './icons';
@@ -28,6 +29,13 @@ export interface UIContext {
   setValue(path: string[], value: unknown, live?: boolean): void;
   /** `how`: true toggles the object, 'range' selects from the last selected one in its list to it. */
   select(id: string | null, how?: Pick): void;
+  /** Folded groups in the object list. */
+  folded: Set<string>;
+  toggleFold(group: string): void;
+  /** Puts objects into a group (null: the top level). */
+  moveInto(ids: string[], group: string | null): void;
+  /** A new group around the selection. */
+  group(): void;
   /** The body shown alone (its eye was Ctrl-clicked), if any. */
   isolated: string | null;
   /** Shows only this body; again (or for the isolated body) shows what was shown before. */
@@ -310,10 +318,42 @@ function left(ctx: UIContext): Node[] {
   const dimmed = (id: string) => (ctx.isolated && ctx.isolated !== id ? ' dimmed' : '');
   const eye = (path: string[], on: boolean) =>
     h('button', { className: 'icon', title: on ? 'Hide' : 'Show', innerHTML: icon(on ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, path, !on)) });
-  const bodies = doc.bodies.map((p, i) => {
+  // rows can be dragged (with the rest of the selection) onto a group, or onto the header for the top level
+  const dragged = (id: string) => (ctx.selected.includes(id) ? ctx.selected : [id]);
+  const dropOn = (el: HTMLElement, group: string | null) => {
+    el.ondragover = (e) => (e.preventDefault(), el.classList.add('drop'));
+    el.ondragleave = () => el.classList.remove('drop');
+    el.ondrop = (e) => {
+      e.preventDefault();
+      ctx.moveInto(JSON.parse(e.dataTransfer!.getData('text/plain')), group);
+    };
+  };
+  const row = (id: string, depth: number, ...cells: HTMLElement[]) => {
+    const el = h('div', { className: `listed${dimmed(id)}`, draggable: true }, ...cells);
+    el.style.paddingLeft = `${depth * 14}px`;
+    el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
+    return el;
+  };
+  const fold = (g: Group | null) =>
+    g ? button(ctx.folded.has(g.id) ? '▸' : '▾', () => ctx.toggleFold(g.id), ctx.folded.has(g.id) ? 'Unfold' : 'Fold') : h('span', { className: 'fold-space' });
+  const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
+  const rows = tree(doc, ctx.folded).map(({ id, kind, depth }) => {
+    if (kind === 'group') {
+      const i = doc.groups.findIndex((g) => g.id === id);
+      const g = doc.groups[i];
+      const el = row(id, depth, fold(g), listItem(`${selectedClass(id)} group`, (how) => ctx.select(id, how), g.name), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
+      dropOn(el, id);
+      return el;
+    }
+    if (kind === 'sketch') {
+      const i = doc.sketches.findIndex((q) => q.id === id);
+      const sk = doc.sketches[i];
+      return row(id, depth, fold(null), listItem(selectedClass(id), (how) => ctx.select(id, how), sk.name), eye(['sketches', String(i), 'visible'], sk.visible));
+    }
+    const i = doc.bodies.findIndex((q) => q.id === id);
+    const p = doc.bodies[i];
     const swatch = h('span', { className: 'swatch' });
     swatch.style.background = p.color;
-    const item = listItem(`item${ctx.selected.includes(p.id) ? ' selected' : ''}`, (how) => ctx.select(p.id, how), swatch, p.name);
     const look = eye(['bodies', String(i), 'visible'], p.visible);
     look.title += ' (Ctrl-click: show only this body)';
     // Ctrl-click on macOS is a context menu click: both isolate
@@ -321,8 +361,10 @@ function left(ctx: UIContext): Node[] {
     look.oncontextmenu = isolate;
     look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : ctx.commit(setIn(doc, ['bodies', String(i), 'visible'], !p.visible)));
     if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again', innerHTML: icon('isolate') });
-    return h('div', { className: `listed${dimmed(p.id)}` }, item, look);
+    return row(id, depth, fold(null), listItem(selectedClass(id), (how) => ctx.select(id, how), swatch, p.name), look);
   });
+  const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'), button('+ Group', ctx.group, 'New group (⌘G): around the selected objects, or empty'));
+  dropOn(head, null);
   const params = Object.keys(doc.params).map((name) =>
     h(
       'div',
@@ -346,11 +388,7 @@ function left(ctx: UIContext): Node[] {
   addParam.placeholder = 'name = expression';
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
-  const sketches = doc.sketches.map((s, i) => {
-    const item = listItem(`item${ctx.selected.includes(s.id) ? ' selected' : ''}`, (how) => ctx.select(s.id, how), s.name);
-    return h('div', { className: `listed${dimmed(s.id)}` }, item, eye(['sketches', String(i), 'visible'], s.visible));
-  });
-  return [h('h3', {}, 'Bodies'), ...bodies, ...none, h('h3', {}, 'Sketches'), ...sketches, h('h3', {}, 'Parameters'), ...params, addParam];
+  return [head, ...rows, ...none, h('h3', {}, 'Parameters'), ...params, addParam];
 }
 
 function right(ctx: UIContext): Node[] {
@@ -364,6 +402,8 @@ function right(ctx: UIContext): Node[] {
     ];
   const k = ctx.doc.sketches.findIndex((s) => s.id === ctx.selected[0]);
   if (k >= 0) return sketchPanel(ctx, k);
+  const gi = ctx.doc.groups.findIndex((g) => g.id === ctx.selected[0]);
+  if (gi >= 0) return groupPanel(ctx, gi);
   const i = ctx.doc.bodies.findIndex((p) => p.id === ctx.selected[0]);
   if (i < 0) return [h('p', { className: 'hint' }, 'Select a body or a sketch.')];
   const body = ctx.doc.bodies[i];
@@ -400,6 +440,27 @@ function right(ctx: UIContext): Node[] {
       { className: 'row' },
       button('+ Fillet', () => setBody({ ...body, features: [...body.features, newFinish(ctx.doc.units)] })),
     ),
+  ];
+}
+
+/** A group: name, delete (with its contents), and its origin: the parent's, or a custom point its contents count from. */
+function groupPanel(ctx: UIContext, i: number): Node[] {
+  const g = ctx.doc.groups[i];
+  const set = (next: Partial<Group>) => ctx.commit(setIn(ctx.doc, ['groups', String(i)], { ...g, ...next }));
+  const u = ctx.doc.units;
+  const origin = select(g.origin.kind, { parent: "Parent's origin", custom: 'Custom origin' }, (kind) =>
+    set({ origin: kind === 'custom' ? { kind, position: [ex(0, u), ex(0, u), ex(0, u)] } : { kind } }),
+  );
+  return [
+    h('div', { className: 'head' }, input(`groups.${i}.name`, g.name, (name) => set({ name })), button('Delete', ctx.remove, 'Delete the group with everything in it')),
+    h('h3', {}, 'Origin'),
+    h('div', { className: 'row' }, origin),
+    ...(g.origin.kind === 'custom'
+      ? [
+          h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `groups.${i}.origin.position.${k}`, l))),
+          h('p', { className: 'hint' }, 'Its contents count from this point: changing it moves them all.'),
+        ]
+      : [h('p', { className: 'hint' }, "Its contents count from the parent's origin.")]),
   ];
 }
 
