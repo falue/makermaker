@@ -363,15 +363,6 @@ function applyBoolean(op: BooleanOp) {
   commit({ ...doc, bodies });
 }
 
-/** Switches the selected shapes between help lines and real shapes. */
-function toggleHelp() {
-  const doc = history.current;
-  const k = doc.sketches.findIndex((s) => s.id === activeSketch());
-  if (k < 0 || !shapeSel.length) return;
-  const on = !doc.sketches[k].shapes.find((q) => shapeSel.includes(q.id))?.help;
-  commit(setIn(doc, ['sketches', String(k), 'shapes'], doc.sketches[k].shapes.map((q) => (shapeSel.includes(q.id) ? { ...q, help: on } : q))));
-}
-
 function showSelection() {
   viewer.select(selected);
   viewer.setSketches(viewer.sketches, activeSketch(), shapeSel);
@@ -771,7 +762,6 @@ function render() {
     exitSketch,
     stopTool: () => (stopTool(), render()),
     align: alignShapes,
-    toggleHelp,
     boolean: applyBoolean,
     pickShape,
     lookAt(sketch) {

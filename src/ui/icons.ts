@@ -8,7 +8,6 @@ const ICONS = {
   redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
   ngon: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/>',
   sphere: '<circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="8" ry="3"/>',
-  help: '<path d="M4 20L20 4" stroke-dasharray="3 3"/>',
   boolean: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
   union: '<path d="M12 7.1A6 6 0 1 0 12 16.9A6 6 0 1 0 12 7.1z"/>',
   subtract: '<path d="M12 7.1A6 6 0 1 0 12 16.9A6 6 0 0 1 12 7.1z"/><circle cx="15" cy="12" r="6" stroke-dasharray="2 2"/>',

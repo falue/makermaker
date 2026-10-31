@@ -44,8 +44,6 @@ export interface UIContext {
   lookAt(sketch: string): void;
   /** Lines up (or spaces evenly) the selected shapes of the selected sketch. */
   align(how: Align): void;
-  /** Switches the selected shapes between help lines and real shapes. */
-  toggleHelp(): void;
   /** Joins, cuts or intersects the selected bodies: the first keeps the result. */
   boolean(op: BooleanOp): void;
   toggleAutosave(): void;
@@ -219,7 +217,6 @@ function toolbar(ctx: UIContext): Node[] {
       tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.tool),
       ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), ctx.tool === kind)),
       h('hr'),
-      tool('help', 'Help line: switch the selected shapes (dashed, not extruded)', ctx.toggleHelp, false, !ctx.shapes.length),
       tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude),
       tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
     ];
@@ -395,10 +392,9 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
   const shapes = s.shapes.map((q, j) => {
     const name = h('button', { className: `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, onclick: (e) => ctx.pickShape(s.id, q.id, e.shiftKey) }, kinds[q.kind]);
     const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
-    const help = tool('help', q.help ? 'Help line (dashed, not extruded): click to make it a shape again' : 'Make it a help line: dashed, snapped to, never extruded', () =>
-      set({ shapes: s.shapes.map((r) => (r === q ? { ...r, help: !q.help } : r)) }),
-      !!q.help,
-    );
+    const box = h('input', { type: 'checkbox', checked: !!q.help });
+    box.onchange = () => set({ shapes: s.shapes.map((r) => (r === q ? { ...r, help: box.checked } : r)) });
+    const help = h('label', { className: 'check', title: 'Help line: dashed, snapped to, never extruded' }, box, 'Help');
     return h('div', { className: 'shape' }, h('div', { className: 'listed' }, name, help, drop), h('div', { className: 'row' }, ...shapeFields(ctx, `${at}.shapes.${j}`, q)));
   });
   return [
