@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { BasePlane } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
@@ -61,20 +64,6 @@ function faceOf(hit: THREE.Intersection) {
   let k = 0;
   while (k < groups.length && !(at >= groups[k] && at < groups[k] + groups[k + 1])) k += 2;
   return k / 2;
-}
-
-/** Normals averaged over all vertices at the same place, so a pushed-out hull stays closed at sharp edges. */
-function smoothNormals(vertices: Float32Array, normals: Float32Array) {
-  const sums = new Map<string, THREE.Vector3>();
-  const key = (i: number) => `${vertices[i].toFixed(4)},${vertices[i + 1].toFixed(4)},${vertices[i + 2].toFixed(4)}`;
-  for (let i = 0; i < vertices.length; i += 3) {
-    const k = key(i);
-    if (!sums.has(k)) sums.set(k, new THREE.Vector3());
-    sums.get(k)!.add(new THREE.Vector3(normals[i], normals[i + 1], normals[i + 2]));
-  }
-  const out = new Float32Array(vertices.length);
-  for (let i = 0; i < vertices.length; i += 3) out.set(sums.get(key(i))!.clone().normalize().toArray(), i);
-  return new THREE.BufferAttribute(out, 3);
 }
 
 /** Faint (20 % black) diagonal stripes on white, one per tile; tiles seamlessly. */
@@ -223,24 +212,8 @@ export class Viewer implements ToolView {
   private cutters = new Set<string>();
   private cutterEdges = [0xe5484d, 0xff8c1a].map((color) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
   private ghost = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
-  /** Silhouette of selected bodies: their back faces pushed out along smoothed normals by `width` screen px. */
-  private outline = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    uniforms: { color: { value: new THREE.Color().setHex(0x3b6fd8, THREE.LinearSRGBColorSpace) }, width: { value: 3 }, resolution: { value: new THREE.Vector2(1, 1) } },
-    vertexShader: `
-      uniform float width;
-      uniform vec2 resolution;
-      attribute vec3 smoothNormal;
-      void main() {
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        vec2 dir = (projectionMatrix * vec4(normalMatrix * smoothNormal, 0.0)).xy;
-        if (length(dir) > 1e-6) clip.xy += normalize(dir) * width * 2.0 / resolution * clip.w;
-        gl_Position = clip;
-      }`,
-    fragmentShader: `
-      uniform vec3 color;
-      void main() { gl_FragColor = vec4(color, 1.0); }`,
-  });
+  /** Selected bodies: their edges drawn thick, in cyan. */
+  private selectedEdges = new LineMaterial({ color: 0x00bcd4, linewidth: 3 });
   /** Owner per owned body (a tool body belongs to the body whose boolean uses it): it moves along. */
   private owners = new Map<string, string>();
 
@@ -608,12 +581,8 @@ export class Viewer implements ToolView {
     geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-    geometry.setAttribute('smoothNormal', smoothNormals(mesh.vertices, mesh.normals));
     const solid = new THREE.Mesh(geometry);
     Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes });
-    const silhouette = new THREE.Mesh(geometry, this.outline);
-    silhouette.raycast = () => {}; // never picked
-    silhouette.userData.outline = true;
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
     // edges unbaked finishes made are light grey, the rest near black
@@ -624,7 +593,10 @@ export class Viewer implements ToolView {
     edges.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const lines = new THREE.LineSegments(edges);
     lines.userData.edgeGroups = mesh.edgeGroups;
-    group.add(solid, lines, silhouette);
+    const thick = new LineSegments2(new LineSegmentsGeometry().setPositions(mesh.edges), this.selectedEdges);
+    thick.raycast = () => {}; // never picked
+    thick.userData.outline = true;
+    group.add(solid, lines, thick);
     this.dress(id);
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
     if (!this.fitted) {
@@ -675,12 +647,12 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** Materials of a body: its colour, or a cutter's red outline (orange when selected); selected: the silhouette. */
+  /** Materials of a body: its colour, or a cutter's red outline (orange when selected); selected: thick cyan edges. */
   private dress(id: string) {
-    const [solid, lines, silhouette] = this.bodies.get(id)?.children ?? [];
+    const [solid, lines, thick] = this.bodies.get(id)?.children ?? [];
     if (!solid) return;
     const cutter = this.cutters.has(id);
-    silhouette.visible = !cutter && this.selection.includes(id); // a cutter has no faces to hide its hull
+    thick.visible = !cutter && this.selection.includes(id); // a selected cutter turns orange instead
     (solid as THREE.Mesh).material = cutter ? this.ghost : this.materialOf(id);
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdges[+this.selection.includes(id)] : this.edgeMaterial;
     lines.renderOrder = cutter ? 1e5 : 0;
@@ -838,7 +810,7 @@ export class Viewer implements ToolView {
     const { clientWidth: w, clientHeight: h } = this.el;
     if (!w || !h) return;
     this.renderer.setSize(w, h);
-    this.outline.uniforms.resolution.value.set(w, h);
+    this.selectedEdges.resolution.set(w, h);
     this.updateFrustums(w / h);
     this.render();
   }
