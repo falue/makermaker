@@ -176,21 +176,15 @@ export class Viewer implements ToolView {
   private cube = document.createElement('div');
   private cubeWrap = document.createElement('div');
 
-  private material = new THREE.MeshStandardMaterial({
-    color: 0xd8c3a0,
-    roughness: 0.7,
-    polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
-  });
-  private selectedMaterial = this.material.clone();
+  /** One material per body: its colour; selected bodies glow. */
+  private materials = new Map<string, THREE.MeshStandardMaterial>();
+  private hidden = new Set<string>();
   private edgeMaterial = new THREE.LineBasicMaterial({ color: 0x2a2a2a });
 
   constructor(
     readonly el: HTMLElement,
     private host: ViewerHost,
   ) {
-    this.selectedMaterial.color.set(0x8fb4ff);
     this.renderer.setPixelRatio(devicePixelRatio);
     this.renderer.localClippingEnabled = true;
     const canvas = this.renderer.domElement;
@@ -452,7 +446,7 @@ export class Viewer implements ToolView {
     geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-    const solid = new THREE.Mesh(geometry, this.selection.includes(id) ? this.selectedMaterial : this.material);
+    const solid = new THREE.Mesh(geometry, this.materialOf(id));
     Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
@@ -483,12 +477,26 @@ export class Viewer implements ToolView {
     this.applySection();
   }
 
-  select(ids: string[]) {
+  select(ids: string[], glow = 0x1d3f80) {
     this.selection = ids;
-    for (const [id, group] of this.bodies)
-      for (const c of group.children)
-        if (c instanceof THREE.Mesh) c.material = ids.includes(id) ? this.selectedMaterial : this.material;
+    for (const [id, m] of this.materials) m.emissive.set(ids.includes(id) ? glow : 0);
     this.applySection();
+  }
+
+  /** Colour and visibility per body; hidden bodies are not drawn, picked or snapped to (but still built). */
+  setLooks(looks: { id: string; color: string; visible: boolean }[]) {
+    this.hidden = new Set(looks.filter((l) => !l.visible).map((l) => l.id));
+    for (const l of looks) this.materialOf(l.id).color.set(l.color);
+    this.applySection();
+  }
+
+  private materialOf(id: string) {
+    let m = this.materials.get(id);
+    if (!m) {
+      m = new THREE.MeshStandardMaterial({ color: 0xd8c3a0, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+      this.materials.set(id, m);
+    }
+    return m;
   }
 
   setSection(axis: Axis, from: number, to: number, inverted: boolean) {
@@ -682,17 +690,17 @@ export class Viewer implements ToolView {
   /** Body hits, nearest first, outside cut-away regions; while sectioned back faces count too, so a cut face picks its body. */
   private intersect(ray: THREE.Raycaster) {
     const side = this.boxes.length ? THREE.DoubleSide : THREE.FrontSide;
-    this.material.side = this.selectedMaterial.side = side;
+    for (const m of this.materials.values()) m.side = side;
     const hits = ray.intersectObjects(this.meshes()).filter((h) => this.shown(h.point));
-    this.material.side = this.selectedMaterial.side = THREE.FrontSide;
+    for (const m of this.materials.values()) m.side = THREE.FrontSide;
     return hits;
   }
 
   /** Body edges in the world, each as its segments. */
   edges() {
     const out: [THREE.Vector3, THREE.Vector3][][] = [];
-    for (const g of this.bodies.values())
-      for (const c of g.children) {
+    for (const [id, g] of this.bodies)
+      for (const c of this.hidden.has(id) ? [] : g.children) {
         const groups = c.userData.edgeGroups as Uint32Array | undefined;
         if (!groups) continue;
         const pos = (c as THREE.LineSegments).geometry.attributes.position;
@@ -708,8 +716,8 @@ export class Viewer implements ToolView {
 
   corners() {
     const out: THREE.Vector3[] = [];
-    for (const g of this.bodies.values())
-      for (const c of g.children) {
+    for (const [id, g] of this.bodies)
+      for (const c of this.hidden.has(id) ? [] : g.children) {
         const xyz = c.userData.corners as Float32Array | undefined;
         for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).add(g.position));
       }
@@ -801,7 +809,7 @@ export class Viewer implements ToolView {
         active && !bounds.isEmpty() ? spans('x').flatMap((x) => spans('y').flatMap((y) => spans('z').map((z) => [x, y, z]))) : [];
     }
     const sectioned = this.boxes.length > 0;
-    for (const g of this.bodies.values()) g.visible = !sectioned;
+    for (const [id, g] of this.bodies) g.visible = !sectioned && !this.hidden.has(id);
     if (!sectioned) return this.render();
 
     this.hatch.repeat.set(cap / hatchMm, cap / hatchMm);
@@ -845,7 +853,7 @@ export class Viewer implements ToolView {
         const face = new THREE.Mesh(
           new THREE.PlaneGeometry(cap, cap),
           new THREE.MeshStandardMaterial({
-            color: this.material.color.clone().multiplyScalar(shade),
+            color: new THREE.Color(0xd8c3a0).multiplyScalar(shade),
             map: this.hatch,
             roughness: 0.9,
             clippingPlanes: planes.filter((p) => p !== plane),
@@ -866,9 +874,9 @@ export class Viewer implements ToolView {
       }
       // the bodies clipped to this box, drawn after the caps
       for (const [id, g] of this.bodies)
-        for (const c of g.children) {
+        for (const c of this.hidden.has(id) ? [] : g.children) {
           const solid = c instanceof THREE.Mesh;
-          const material = (solid ? (this.selection.includes(id) ? this.selectedMaterial : this.material) : this.edgeMaterial).clone();
+          const material = (solid ? this.materialOf(id) : this.edgeMaterial).clone();
           material.clippingPlanes = planes;
           const copy = solid ? new THREE.Mesh(c.geometry, material) : new THREE.LineSegments((c as THREE.LineSegments).geometry, material);
           copy.position.copy(g.position);
@@ -921,8 +929,9 @@ export class Viewer implements ToolView {
     this.setOrthographic(on);
   }
 
+  /** Solids of the shown bodies (also while a section draws clipped copies instead). */
   private meshes() {
-    return [...this.bodies.values()].flatMap((g) => g.children.filter((c) => c instanceof THREE.Mesh));
+    return [...this.bodies].flatMap(([id, g]) => (this.hidden.has(id) ? [] : g.children.filter((c) => c instanceof THREE.Mesh)));
   }
 
   private raycaster(e: MouseEvent) {

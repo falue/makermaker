@@ -250,13 +250,14 @@ const RESERVED = new Set([...Object.keys(UNITS), 'pi', 'sqrt', 'abs', 'min', 'ma
 
 function left(ctx: UIContext): Node[] {
   const { doc } = ctx;
-  const bodies = doc.bodies.map((p) =>
-    h(
-      'button',
-      { className: `item${ctx.selected.includes(p.id) ? ' selected' : ''}`, onclick: (e) => ctx.select(p.id, e.shiftKey) },
-      p.name,
-    ),
-  );
+  const eye = (path: string[], on: boolean) =>
+    h('button', { className: 'icon', title: on ? 'Hide' : 'Show', innerHTML: icon(on ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, path, !on)) });
+  const bodies = doc.bodies.map((p, i) => {
+    const swatch = h('span', { className: 'swatch' });
+    swatch.style.background = p.color;
+    const item = h('button', { className: `item${ctx.selected.includes(p.id) ? ' selected' : ''}`, onclick: (e) => ctx.select(p.id, e.shiftKey) }, swatch, p.name);
+    return h('div', { className: 'listed' }, item, eye(['bodies', String(i), 'visible'], p.visible));
+  });
   const params = Object.keys(doc.params).map((name) =>
     h(
       'div',
@@ -281,10 +282,8 @@ function left(ctx: UIContext): Node[] {
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
   const sketches = doc.sketches.map((s, i) => {
-    const eye = h('button', { className: 'icon', title: s.visible ? 'Hide' : 'Show', innerHTML: icon(s.visible ? 'eye' : 'eyeOff') });
-    eye.onclick = () => ctx.commit(setIn(doc, ['sketches', String(i), 'visible'], !s.visible));
     const item = h('button', { className: `item${ctx.selected.includes(s.id) ? ' selected' : ''}`, onclick: (e) => ctx.select(s.id, e.shiftKey) }, s.name);
-    return h('div', { className: 'listed' }, item, eye);
+    return h('div', { className: 'listed' }, item, eye(['sketches', String(i), 'visible'], s.visible));
   });
   return [h('h3', {}, 'Bodies'), ...bodies, ...none, h('h3', {}, 'Sketches'), ...sketches, h('h3', {}, 'Parameters'), ...params, addParam];
 }
@@ -307,6 +306,7 @@ function right(ctx: UIContext): Node[] {
       'div',
       { className: 'head' },
       input(`${at}.name`, body.name, (name) => setBody({ ...body, name })),
+      h('input', { type: 'color', value: body.color, title: 'Colour', className: 'color', onchange: (e) => setBody({ ...body, color: (e.target as HTMLInputElement).value }) }),
       button('Delete', () => {
         ctx.commit({ ...ctx.doc, bodies: ctx.doc.bodies.filter((p) => p.id !== body.id) });
         ctx.select(null);

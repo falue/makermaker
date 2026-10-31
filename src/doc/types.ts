@@ -80,6 +80,9 @@ export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature;
 export interface Body {
   id: string;
   name: string;
+  /** Display colour (#rrggbb). */
+  color: string;
+  visible: boolean;
   position: [Expr, Expr, Expr];
   features: Feature[];
 }

@@ -28,6 +28,8 @@ export function sampleDoc(): Doc {
   const plate: Body = {
     id: newId(),
     name: 'Plate',
+    color: '#d8c3a0',
+    visible: true,
     position: [ex(0), ex(0), ex(0)],
     features: [
       { id: newId(), type: 'extrude', source: { kind: 'sketch', sketch: outline.id, shapes: outline.shapes.map((s) => s.id) }, depth: ex('ply'), mode: 'add', through: false },
@@ -39,6 +41,8 @@ export function sampleDoc(): Doc {
   const disc: Body = {
     id: newId(),
     name: 'Disc',
+    color: '#a9c4d8',
+    visible: true,
     position: [ex(110), ex(0), ex(0)],
     features: [
       { id: base, type: 'extrude', source: { kind: 'own', plane: { kind: 'base', axis: 'xy', offset: ex(0) }, profiles: [circle(0, 0, 50)] }, depth: ex('2 * ply'), mode: 'add', through: false },

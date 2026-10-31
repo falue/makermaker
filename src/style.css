@@ -625,3 +625,19 @@ canvas.drawing {
 .tooltip.follow {
   border-color: var(--accent);
 }
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+input.color {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+}

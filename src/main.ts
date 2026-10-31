@@ -159,6 +159,7 @@ function update() {
   selected = selected.filter((id) => ids.has(id) || doc.sketches.some((s) => s.id === id));
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
+  viewer.setLooks(doc.bodies);
   viewer.select(selected);
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
@@ -330,7 +331,7 @@ function sketched(r: SketchResult): string {
     // always a new body: joining it to the body it was drawn on is a boolean, done explicitly later
     const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, areas: r.areas };
     const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), mode: 'add', through: false };
-    const body: Body = { id: newId(), name: `Body ${bodies.length + 1}`, position: [len(0), len(0), len(0)], features: [feature] };
+    const body = newBody(bodies.length, [feature]);
     bodies = [...bodies, body];
     selected = [body.id];
     shapeSel = [];
@@ -383,11 +384,16 @@ const toolHost: ToolHost = {
   },
 };
 
+/** The `count`-th body at the origin, with a colour from a small palette. */
+function newBody(count: number, features: Feature[], palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f']): Body {
+  return { id: newId(), name: `Body ${count + 1}`, color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features };
+}
+
 /** A sphere body resting where it was drawn. */
 function addSphere({ center, d, typed }: NonNullable<SketchResult['sphere']>) {
   const doc = history.current;
   const sphere: Feature = { id: newId(), type: 'sphere', x: len(center[0]), y: len(center[1]), z: len(center[2]), d: len(d, typed) };
-  const body: Body = { id: newId(), name: `Body ${doc.bodies.length + 1}`, position: [len(0), len(0), len(0)], features: [sphere] };
+  const body = newBody(doc.bodies.length, [sphere]);
   [selected, shapeSel] = [[body.id], []];
   commit({ ...doc, bodies: [...doc.bodies, body] });
 }
