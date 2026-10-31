@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BASE, toWorld, type Frame, type V3 } from '../doc/frames';
 import { centre, corners, inside, nesting, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
-import type { BasePlane, SketchPlacement } from '../doc/types';
+import type { Area, BasePlane, SketchPlacement } from '../doc/types';
 import { along } from './gizmo';
 
 export type ToolKind = 'rect' | 'circle' | 'polygon';
@@ -44,6 +44,8 @@ export interface SketchResult {
   drawn?: Drawn;
   /** Existing shapes to pull (E on a selection). */
   shapes?: string[];
+  /** Only these areas of the shapes. */
+  areas?: Area[];
   depth: number;
   depthTyped?: string;
   mode: 'add' | 'cut';
@@ -76,6 +78,41 @@ export interface ToolView {
 /** draw: flat shapes into a fixed sketch (drawing mode); pull: existing shapes; plane: pick a plane for a new drawing. */
 export type ToolMode = { kind: 'draw'; target: Target } | { kind: 'pull'; target: Target; ids: string[] } | { kind: 'plane' };
 
+/** A tool that takes the pointer and keys in the viewport. */
+export interface Tool {
+  readonly kind: ToolKind | null;
+  /** Returns true if the press belongs to the tool (no orbiting). */
+  down(e: PointerEvent): boolean;
+  move(e: PointerEvent): void;
+  up(): void;
+  dblclick(): void;
+  /** Returns true if the key was used. */
+  key(e: KeyboardEvent): boolean;
+  dispose(): void;
+}
+
+/** Where pulling began: along the normal (`t0`), or the pointer's screen y when looking along it (`y0`); NaN: not yet. */
+export interface PullStart {
+  t0: number;
+  y0: number;
+}
+
+/**
+ * Depth from the pointer: where its ray passes closest to the normal through `middle`, from where pulling began;
+ * looking along the normal that is undefined, so moving the pointer up pulls towards the viewer.
+ */
+export function pullDepth(view: ToolView, e: MouseEvent, f: Frame, middle: THREE.Vector3, s: PullStart) {
+  const n = v3(f.n);
+  const ray = view.ray(e);
+  const facing = n.dot(ray.direction);
+  if (Math.abs(facing) > 0.95) {
+    if (Number.isNaN(s.y0)) s.y0 = e.clientY;
+    return ((s.y0 - e.clientY) / view.pixelsPerMm(middle)) * -Math.sign(facing);
+  }
+  if (Number.isNaN(s.t0)) s.t0 = along(ray, middle, n);
+  return along(ray, middle, n) - s.t0;
+}
+
 export interface ToolHost {
   /** A typed size in mm (expressions and units allowed), or null if invalid. */
   length(text: string): number | null;
@@ -106,7 +143,7 @@ const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle
  * centres; typed sizes and depths are exact (incase-style typing). In drawing mode (`draw`) shapes go flat into its
  * sketch and the tool goes on; `pull` only pulls existing shapes (E); `plane` picks where a new drawing goes.
  */
-export class SketchTool {
+export class SketchTool implements Tool {
   private phase: Phase = { kind: 'hover' };
   /** The point the pointer snapped to (world), shown as a dot. */
   private snapped: THREE.Vector3 | null = null;
@@ -186,19 +223,7 @@ export class SketchTool {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
         Object.assign(ph, { alt: e.altKey, shift: e.shiftKey });
       }
-    } else {
-      // depth: where the pointer ray passes closest to the normal through the shapes' centre, from where pulling began;
-      // looking along the normal that is undefined, so moving the pointer up pulls towards the viewer
-      const n = v3(ph.target.frame.n);
-      const facing = n.dot(this.view.ray(e).direction);
-      if (Math.abs(facing) > 0.95) {
-        if (Number.isNaN(ph.y0)) ph.y0 = e.clientY;
-        ph.depth = this.snap(((ph.y0 - e.clientY) / this.view.pixelsPerMm(this.middle(ph))) * -Math.sign(facing), e.ctrlKey);
-      } else {
-        if (Number.isNaN(ph.t0)) ph.t0 = along(this.view.ray(e), this.middle(ph), n);
-        ph.depth = this.snap(along(this.view.ray(e), this.middle(ph), n) - ph.t0, e.ctrlKey);
-      }
-    }
+    } else ph.depth = this.snap(pullDepth(this.view, e, ph.target.frame, this.middle(ph), ph), e.ctrlKey);
     this.update();
   }
 

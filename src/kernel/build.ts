@@ -2,7 +2,7 @@ import { draw, drawCircle, drawRoundedRectangle, Plane, type Drawing, type Edge,
 import { add, frames, scale, toWorld, type Frame } from '../doc/frames';
 import { centre, nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
-import type { BuildIn, EdgeRule, Profile } from '../doc/types';
+import type { Area, BuildIn, EdgeRule, Profile } from '../doc/types';
 
 export type BuildStep = Resolved<BuildIn>;
 type Of<T extends BuildStep['type']> = Extract<BuildStep, { type: T }>;
@@ -112,6 +112,67 @@ function combine(ps: Resolved<Profile>[]): Drawing {
   return rest.reduce((acc, i) => (depth[i] % 2 ? acc.cut(drawing(ps[i])) : acc.fuse(drawing(ps[i]))), drawing(ps[first]));
 }
 
+const filled = (d: Drawing) => d.toSVGPaths().length > 0;
+
+/** One area: inside all its `in` shapes, outside all its `out` shapes. */
+function area(byId: Map<string, Resolved<Profile>>, a: Area): Drawing {
+  const get = (id: string) => {
+    const p = byId.get(id);
+    if (!p) throw new Error('a shape of a picked area is gone');
+    return drawing(p);
+  };
+  const inside = a.in.map(get).reduce((x, y) => x.intersect(y));
+  return a.out.reduce((d, id) => (byId.has(id) ? d.cut(get(id)) : d), inside);
+}
+
+/** The picked areas together. */
+function areaDrawing(ps: Resolved<Profile>[], areas: Area[]): Drawing {
+  const byId = new Map(ps.map((p) => [p.id, p]));
+  const d = areas.map((a) => area(byId, a)).reduce((x, y) => x.fuse(y));
+  if (!filled(d)) throw new Error('the picked areas are empty');
+  return d;
+}
+
+/** A drawing's areas, as triangles in its plane (x, y per corner). */
+export interface AreaMesh extends Area {
+  tris: Float32Array;
+}
+
+/**
+ * Splits overlapping shapes into areas: each area lies inside some shapes and outside the others (an even/odd
+ * independent overlay), with triangles to show and pick it.
+ */
+export function areasOf(ps: Resolved<Profile>[]): AreaMesh[] {
+  let parts: { in: string[]; out: string[]; d: Drawing }[] = [];
+  let all: Drawing | null = null;
+  const seen: string[] = [];
+  for (const p of ps) {
+    const d = drawing(p);
+    const next: typeof parts = [];
+    for (const r of parts) {
+      const both = r.d.clone().intersect(d.clone());
+      if (filled(both)) next.push({ in: [...r.in, p.id], out: r.out, d: both });
+      const rest = r.d.clone().cut(d.clone());
+      if (filled(rest)) next.push({ in: r.in, out: [...r.out, p.id], d: rest });
+    }
+    const fresh = all ? d.clone().cut(all.clone()) : d.clone();
+    if (filled(fresh)) next.push({ in: [p.id], out: [...seen], d: fresh });
+    all = all ? all.fuse(d) : d;
+    seen.push(p.id);
+    parts = next;
+  }
+  // later shapes count as outside too: an area keeps its place when shapes are added
+  return parts.map((r) => ({ in: r.in, out: seen.filter((id) => !r.in.includes(id)), tris: triangles(r.d) }));
+}
+
+function triangles(d: Drawing): Float32Array {
+  const faces = (d.sketchOnPlane('XY') as unknown as { faces(): Shape3D }).faces();
+  const m = faces.mesh({ tolerance: 0.05, angularTolerance: 0.2 });
+  const out = new Float32Array(m.triangles.length * 2);
+  m.triangles.forEach((v, i) => out.set([m.vertices[v * 3], m.vertices[v * 3 + 1]], i * 2));
+  return out;
+}
+
 /** Cylindrical faces standing on an XY-parallel plane (circles, rounded corners), for the edge rules. */
 function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
   if (Math.abs(Math.abs(f.n[2]) - 1) > EPS) return;
@@ -129,7 +190,7 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
   if (!s.profiles.length) throw new Error('no profile to extrude');
   if (!s.through && s.depth === 0) throw new Error('depth must not be 0');
-  const outline = combine(s.profiles);
+  const outline = s.areas ? areaDrawing(s.profiles, s.areas) : combine(s.profiles);
   // span along the normal; through: beyond the part on both sides
   const bounds = shape?.boundingBox;
   const far = bounds ? Math.hypot(bounds.width, bounds.height, bounds.depth) + Math.hypot(...f.o) + 1 : 0;

@@ -7,7 +7,7 @@ import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
 import { paramLookup, resolve, setIn } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
-import type { Doc, Part, Profile, Sketch, SketchPlacement, Step } from './doc/types';
+import type { Doc, ExtrudeSource, Part, Profile, Sketch, SketchPlacement, Step } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildStep } from './kernel/build';
@@ -316,7 +316,8 @@ function sketched(r: SketchResult): string {
     ids = [profile.id];
   }
   if (r.depth) {
-    const step: Step = { id: newId(), type: 'extrude', source: { kind: 'sketch', sketch: id, shapes: ids }, depth: len(r.depth, r.depthTyped), mode: r.mode, through: false };
+    const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, areas: r.areas };
+    const step: Step = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), mode: r.mode, through: false };
     if (t.part) {
       parts = parts.map((p) => (p.id === t.part ? { ...p, steps: beforeFinish(p.steps, step) } : p));
       selected = [t.part];
@@ -361,6 +362,7 @@ const toolHost: ToolHost = {
     if (was === 'draw') return;
     stopTool();
     if (was === 'direct' && !result.depth) enterDrawing(id, kind);
+    else if (drawing) exitDrawing(); // an extrusion finishes the drawing
     else render();
   },
   hint(text) {
@@ -375,6 +377,17 @@ function startTool(kind: ToolKind) {
   if (s) viewer.startTool(kind, toolHost, { kind: 'draw', target: { sketch: s.id, placement: s.placement, frame: s.frame, part: null, name: 'the drawing' } });
   else viewer.startTool(kind, toolHost);
   toolMode = s ? 'draw' : 'direct';
+  render();
+}
+
+async function extrudeAreas() {
+  const s = viewer.sketches.find((v) => v.id === drawing);
+  if (!s) return;
+  stopTool();
+  const areas = await kernel.areas(s.shapes);
+  if (!areas.length) return notify('Nothing to extrude yet: draw a shape first');
+  viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, part: s.placement.kind === 'cap' ? s.placement.part : null, name: 'the drawing' }, areas);
+  toolMode = 'pull';
   render();
 }
 
@@ -414,8 +427,9 @@ function newDrawing(t: Target) {
   enterDrawing(sketch.id, 'rect', true);
 }
 
-/** E: pulls the selected shapes of the selected sketch, or all of its shapes. */
+/** E: in drawing mode picks areas of the drawing to pull; else pulls the selected shapes of the selected sketch, or all of them. */
 function extrude() {
+  if (drawing) return void extrudeAreas();
   const id = activeSketch();
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return notify(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');

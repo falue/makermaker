@@ -34,8 +34,19 @@ export interface Sketch {
 
 export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical';
 
-/** Shapes taken from a sketch (linked), or kept in the step itself (own; an unlinked copy). */
-export type ExtrudeSource = { kind: 'sketch'; sketch: string; shapes: string[] } | { kind: 'own'; plane: SketchPlane; profiles: Profile[] };
+/** An area of a drawing: inside all `in` shapes and outside all `out` shapes (shape ids). */
+export interface Area {
+  in: string[];
+  out: string[];
+}
+
+/**
+ * Shapes taken from a sketch (linked; `areas`: only these areas of them, else shapes inside shapes are holes), or kept
+ * in the step itself (own; an unlinked copy).
+ */
+export type ExtrudeSource =
+  | { kind: 'sketch'; sketch: string; shapes: string[]; areas?: Area[] }
+  | { kind: 'own'; plane: SketchPlane; profiles: Profile[]; areas?: Area[] };
 
 export type FinishStep = { id: string; type: 'finish'; mode: 'fillet' | 'chamfer'; size: Expr; edges: EdgeRule; enabled: boolean };
 
@@ -45,7 +56,16 @@ export type Step =
   | FinishStep;
 
 /** An extrusion with its plane and shapes at hand, as the kernel builds it. */
-export type ExtrudeIn = { id: string; type: 'extrude'; plane: SketchPlane; profiles: Profile[]; depth: Expr; mode: 'add' | 'cut'; through: boolean };
+export type ExtrudeIn = {
+  id: string;
+  type: 'extrude';
+  plane: SketchPlane;
+  profiles: Profile[];
+  areas?: Area[];
+  depth: Expr;
+  mode: 'add' | 'cut';
+  through: boolean;
+};
 export type BuildIn = ExtrudeIn | FinishStep;
 
 export interface Part {

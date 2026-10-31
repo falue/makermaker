@@ -6,7 +6,9 @@ import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { centre, inside, type DrawnProfile } from '../doc/profiles';
 import { angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
-import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
+import type { AreaMesh } from '../kernel/build';
+import { AreaTool } from './areas';
+import { outline, planeHit, SketchTool, uvOf, type Cap, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -141,7 +143,7 @@ export class Viewer implements ToolView {
   private downOnPart = false; // the last press hit a part: its release is no click on empty space
   private drag: Drag | null = null;
   private fitted = false;
-  private tool: SketchTool | null = null;
+  private tool: Tool | null = null;
   private toolPress = false;
   private projection = document.createElement('span');
   private wheel = axisWheel();
@@ -260,11 +262,19 @@ export class Viewer implements ToolView {
     this.stopTool();
     this.tool = new SketchTool(kind, this, host, mode);
     if (mode?.kind !== 'pull') this.renderer.domElement.classList.add('drawing');
+    this.renderSketches(); // no handles while a tool runs
   }
 
   /** Pulls existing shapes of a sketch into an extrusion (E). */
   startPull(host: ToolHost, target: Target, ids: string[]) {
     this.startTool(null, host, { kind: 'pull', target, ids });
+  }
+
+  /** Picks areas of a drawing and pulls them (E in drawing mode). */
+  startAreas(host: ToolHost, target: Target, areas: AreaMesh[]) {
+    this.stopTool();
+    this.tool = new AreaTool(this, host, target, areas);
+    this.renderSketches();
   }
 
   /** The sketch in drawing mode gets a grid on its plane (null: none). */

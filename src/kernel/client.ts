@@ -1,7 +1,9 @@
-import type { BuildStep } from './build';
-import type { BuildRequest, PartResult } from './worker';
+import type { Resolved } from '../doc/resolve';
+import type { Profile } from '../doc/types';
+import type { AreaMesh, BuildStep } from './build';
+import type { PartResult, Request, Response } from './worker';
 
-type BuildPart = BuildRequest['parts'][number];
+type BuildPart = Extract<Request, { kind: 'build' }>['parts'][number];
 
 /**
  * Sends parts to the geometry worker, skipping parts whose steps did not change since the last send.
@@ -12,14 +14,27 @@ export class Kernel {
   private sent = new Map<string, string>();
   private busy = false;
   private waiting = new Map<string, BuildPart>();
+  private asked = new Map<number, (areas: AreaMesh[]) => void>();
+  private nextAsk = 0;
 
   constructor(onResult: (r: PartResult) => void) {
-    this.worker.onmessage = ({ data }: MessageEvent<PartResult[]>) => {
-      data.forEach(onResult);
+    this.worker.onmessage = ({ data }: MessageEvent<Response>) => {
+      if (data.kind === 'areas') {
+        this.asked.get(data.id)?.(data.areas);
+        return this.asked.delete(data.id);
+      }
+      data.results.forEach(onResult);
       this.busy = false;
       if (this.waiting.size) this.send([...this.waiting.values()]);
       this.waiting.clear();
     };
+  }
+
+  /** The areas of overlapping shapes (see `areasOf`). */
+  areas(shapes: Resolved<Profile>[]): Promise<AreaMesh[]> {
+    const id = this.nextAsk++;
+    this.worker.postMessage({ kind: 'areas', id, shapes } satisfies Request);
+    return new Promise((done) => this.asked.set(id, done));
   }
 
   build(parts: { id: string; steps: BuildStep[] }[]) {
@@ -39,6 +54,6 @@ export class Kernel {
 
   private send(parts: BuildPart[]) {
     this.busy = true;
-    this.worker.postMessage({ parts } satisfies BuildRequest);
+    this.worker.postMessage({ kind: 'build', parts } satisfies Request);
   }
 }

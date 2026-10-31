@@ -115,6 +115,20 @@ describe('buildPart', () => {
     holed.done();
   });
 
+  it('splits overlapping shapes into areas and extrudes only the picked ones', async () => {
+    const { areasOf } = await import('./build');
+    const rect = { id: 'r', kind: 'rect' as const, x: 0, y: 0, w: 20, h: 10, r: 0, rot: 0 };
+    const disc = { id: 'c', kind: 'circle' as const, x: 10, y: 0, d: 8 };
+    const areas = areasOf([rect, disc]);
+    expect(areas.map((a) => `${a.in.join('+')}|${a.out.join('+')}`).sort()).toEqual(['c|r', 'r+c|', 'r|c']);
+    const lens = areas.find((a) => a.in.length === 2)!;
+    const step: BuildStep = { id: 'x', type: 'extrude', plane: ground, profiles: [rect, disc], areas: [{ in: lens.in, out: lens.out }], depth: 3, mode: 'add', through: false };
+    const b = built([step]);
+    expect(b.box.width).toBeCloseTo(4, 3); // the lens: from x 6 to 10
+    expect(b.box.height).toBeCloseTo(8, 3);
+    b.done();
+  });
+
   it('reports a sketch plane whose step is gone', () => {
     const orphan: BuildStep = { ...hole, id: 'o', plane: { kind: 'cap', step: 'gone' } };
     expect(() => buildPart([base(100), orphan])).toThrow(/sketch plane lost/);
