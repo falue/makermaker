@@ -9,6 +9,7 @@
   --field: #ffffff;
   --field-invalid: #fff4f4;
   --selected: #e8efff;
+  --accent-text: #ffffff;
   color-scheme: light dark;
   font: 13px/1.4 system-ui, sans-serif;
   color: var(--text);
@@ -37,8 +38,8 @@ body {
   margin: 0;
   height: 100vh;
   display: grid;
-  grid-template: 40px 1fr / 220px 1fr 300px;
-  grid-template-areas: 'top top top' 'left view right';
+  grid-template: 40px 1fr 24px / 220px 1fr 300px;
+  grid-template-areas: 'top top top' 'left view right' 'hint hint hint';
   background: var(--bg);
 }
 
@@ -204,4 +205,141 @@ section.disabled {
 }
 .hint {
   color: var(--muted);
+}
+
+#hint {
+  grid-area: hint;
+  padding: 0 10px;
+  line-height: 23px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+}
+#hint kbd {
+  font: inherit;
+  color: var(--text);
+}
+
+.segmented {
+  display: inline-flex;
+}
+.segmented button {
+  border-radius: 0;
+}
+.segmented button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.segmented button:last-child {
+  border-radius: 0 4px 4px 0;
+  margin-left: -1px;
+}
+.segmented button.on {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.field span.scrub {
+  cursor: ew-resize;
+  user-select: none;
+}
+body.scrubbing,
+body.scrubbing * {
+  cursor: ew-resize !important;
+  user-select: none;
+}
+
+.viewcube {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  right: 4px;
+  width: 92px;
+  height: 92px;
+}
+.cube {
+  position: absolute;
+  inset: 18px;
+  transform-style: preserve-3d;
+}
+.viewcube .turn {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--muted);
+  visibility: hidden;
+  cursor: pointer;
+}
+.viewcube.aligned .turn {
+  visibility: visible;
+}
+.viewcube .turn:hover {
+  background: var(--accent);
+}
+.viewcube .up {
+  top: 2px;
+  left: 39px;
+  clip-path: polygon(10% 15%, 90% 15%, 50% 85%);
+}
+.viewcube .down {
+  bottom: 2px;
+  left: 39px;
+  clip-path: polygon(50% 15%, 90% 85%, 10% 85%);
+}
+.viewcube .left {
+  left: 2px;
+  top: 39px;
+  clip-path: polygon(15% 10%, 85% 50%, 15% 90%);
+}
+.viewcube .right {
+  right: 2px;
+  top: 39px;
+  clip-path: polygon(15% 50%, 85% 10%, 85% 90%);
+}
+.cube .face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backface-visibility: hidden;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.92;
+}
+.cube .face:hover:not(:has(.corner:hover)),
+.cube .corner.lit {
+  color: var(--accent-text);
+  background: var(--accent);
+}
+.cube .corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+}
+.cube .tl {
+  top: 0;
+  left: 0;
+}
+.cube .tr {
+  top: 0;
+  right: 0;
+}
+.cube .bl {
+  bottom: 0;
+  left: 0;
+}
+.cube .br {
+  bottom: 0;
+  right: 0;
 }

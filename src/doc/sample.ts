@@ -2,7 +2,7 @@ import type { Doc, Expr, Part, Step, Unit } from './types';
 
 export const ex = (e: string | number, u: Unit = 'mm'): Expr => ({ e: String(e), u });
 
-const newId = () => crypto.randomUUID().slice(0, 8);
+export const newId = () => crypto.randomUUID().slice(0, 8);
 
 export const newHole = (u: Unit): Step => ({ id: newId(), type: 'hole', x: ex(0, u), y: ex(0, u), d: ex(5, 'mm') });
 

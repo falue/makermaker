@@ -16,6 +16,12 @@ export class History<T> {
     this.current = next;
   }
 
+  /** Replaces the current state without a new undo step (live edits such as scrubbing). */
+  replace(next: T) {
+    this.current = next;
+    this.future = [];
+  }
+
   undo() {
     const prev = this.past.pop();
     if (prev === undefined) return false;

@@ -1,20 +1,25 @@
-import { displayText, isPlain, UNITS } from '../doc/expr';
+import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish, newHole, newPart } from '../doc/sample';
 import type { Doc, EdgeRule, Expr, Part, Profile, Step, Unit } from '../doc/types';
 
 export interface UIContext {
   doc: Doc;
-  selected: string | null;
+  selected: string[];
   exprErrors: Map<string, string>;
   kernelErrors: Map<string, { stepId: string; error: string }>;
   title: string;
   dirty: boolean;
   status: string;
+  orthographic: boolean;
   notify(message: string): void;
   paramValue(name: string): string;
   commit(doc: Doc): void;
-  select(id: string | null): void;
+  /** `live`: replaces the current undo step (scrubbing). */
+  setValue(path: string[], value: unknown, live?: boolean): void;
+  select(id: string | null, add?: boolean): void;
+  setOrthographic(on: boolean): void;
+  fit(): void;
   newDoc(): void;
   open(): void;
   save(): void;
@@ -46,6 +51,7 @@ export function renderUI(ctx: UIContext) {
   $('topbar').replaceChildren(...topbar(ctx));
   $('left').replaceChildren(...left(ctx));
   $('right').replaceChildren(...right(ctx));
+  $('hint').innerHTML = hint(ctx.selected.length).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   rendering = false;
   const el = path && document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
   if (!el) return;
@@ -83,17 +89,40 @@ function input(path: string, shown: string, apply: (text: string) => void, error
   return el;
 }
 
+/** Expression input; dragging the label of a plain number scrubs it (Shift: fine). */
 function exprField(ctx: UIContext, path: string, label: string, raw = false) {
   const keys = path.split('.');
   const x = getIn(ctx.doc, keys) as Expr;
-  const el = input(
-    path,
-    raw ? x.e : displayText(x, ctx.doc.units),
-    (e) => ctx.commit(setIn(ctx.doc, keys, { e, u: ctx.doc.units })),
-    ctx.exprErrors.get(path),
-  );
-  if (!el.title && !isPlain(x.e) && x.u !== ctx.doc.units) el.title = `plain numbers in ${x.u}`;
-  return h('label', { className: 'field' }, h('span', {}, label), el);
+  const u = ctx.doc.units;
+  const shown = raw ? x.e : displayText(x, u);
+  const el = input(path, shown, (e) => ctx.setValue(keys, { e, u }), ctx.exprErrors.get(path));
+  if (!el.title && !isPlain(x.e) && x.u !== u) el.title = `plain numbers in ${x.u}`;
+  const name = h('span', {}, label);
+  if (isPlain(shown)) {
+    name.className = 'scrub';
+    name.onpointerdown = (e) => {
+      e.preventDefault();
+      const start = e.clientX;
+      const base = parseFloat(shown);
+      const step = { mm: 1, cm: 0.1, m: 0.001, in: 0.05, ft: 0.005 }[u]; // per px
+      let last = shown;
+      // on window: the panels are rebuilt while scrubbing
+      const move = (m: PointerEvent) => {
+        const text = fmt(base + Math.round((m.clientX - start) / (m.shiftKey ? 10 : 1)) * step);
+        if (text === last) return;
+        ctx.setValue(keys, { e: text, u }, last !== shown);
+        last = text;
+      };
+      const end = () => {
+        removeEventListener('pointermove', move);
+        document.body.classList.remove('scrubbing');
+      };
+      addEventListener('pointermove', move);
+      addEventListener('pointerup', end, { once: true });
+      document.body.classList.add('scrubbing');
+    };
+  }
+  return h('label', { className: 'field' }, name, el);
 }
 
 function select<T extends string>(value: T, options: Record<T, string>, onChange: (v: T) => void) {
@@ -112,6 +141,17 @@ function topbar(ctx: UIContext): Node[] {
     button('Save', ctx.save, 'Cmd+S'),
     button('Undo', ctx.undo, 'Cmd+Z'),
     button('Redo', ctx.redo, 'Cmd+Shift+Z'),
+    h(
+      'span',
+      { className: 'segmented' },
+      ...([
+        [true, 'Ortho', 'Orthographic: no perspective distortion, sizes compare directly'],
+        [false, 'Persp', 'Perspective'],
+      ] as const).map(([on, label, title]) =>
+        h('button', { className: ctx.orthographic === on ? 'on' : '', title, onclick: () => ctx.setOrthographic(on) }, label),
+      ),
+    ),
+    button('Fit', ctx.fit, 'F'),
     select(
       ctx.doc.units,
       Object.fromEntries(Object.keys(UNITS).map((u) => [u, u])) as Record<Unit, string>,
@@ -127,7 +167,11 @@ const RESERVED = new Set([...Object.keys(UNITS), 'pi', 'sqrt', 'abs', 'min', 'ma
 function left(ctx: UIContext): Node[] {
   const { doc } = ctx;
   const parts = doc.parts.map((p) =>
-    h('button', { className: `item${p.id === ctx.selected ? ' selected' : ''}`, onclick: () => ctx.select(p.id) }, p.name),
+    h(
+      'button',
+      { className: `item${ctx.selected.includes(p.id) ? ' selected' : ''}`, onclick: (e) => ctx.select(p.id, e.shiftKey) },
+      p.name,
+    ),
   );
   const addPart = button('+ Part', () => {
     const part = newPart(`Part ${doc.parts.length + 1}`, doc.units);
@@ -161,7 +205,10 @@ function left(ctx: UIContext): Node[] {
 }
 
 function right(ctx: UIContext): Node[] {
-  const i = ctx.doc.parts.findIndex((p) => p.id === ctx.selected);
+  const n = ctx.selected.length;
+  if (n > 1)
+    return [h('p', { className: 'hint' }, `${n} parts selected: drag, nudge, duplicate or delete them together; select one to edit it.`)];
+  const i = ctx.doc.parts.findIndex((p) => p.id === ctx.selected[0]);
   if (i < 0) return [h('p', { className: 'hint' }, 'Select a part.')];
   const part = ctx.doc.parts[i];
   const at = `parts.${i}`;
@@ -193,6 +240,14 @@ function right(ctx: UIContext): Node[] {
       button('+ Fillet', () => setPart({ ...part, steps: [...part.steps, newFinish(ctx.doc.units)] })),
     ),
   ];
+}
+
+function hint(selected: number) {
+  if (selected > 1)
+    return 'Drag one to move them all · [Shift]-click adds or removes · [Ctrl] snaps · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect · [⌘Z] undo';
+  if (selected)
+    return 'Drag to move · [Shift]-click selects more · [Ctrl] snaps · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect · [⌘Z] undo';
+  return '[Tab] next part under the click · [F] fit · drag to orbit, right-drag to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
 function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (p: Part) => void) {
