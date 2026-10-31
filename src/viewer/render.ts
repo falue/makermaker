@@ -6,6 +6,7 @@ import * as THREE from 'three';
  * path tracer loads on first use.
  */
 export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, samples: number, progress: (done: number) => boolean) {
+  if (!meshes.length) throw new Error('Nothing to render: no body is shown');
   const { WebGLPathTracer, GradientEquirectTexture } = await import('three-gpu-pathtracer');
   const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
   renderer.setSize(width, height, false);
@@ -30,6 +31,14 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   scene.background = sky;
   scene.environment = sky;
   const view = camera.clone();
+  if (view instanceof THREE.OrthographicCamera) {
+    // the viewer's ortho camera sees behind itself (negative near); the tracer starts rays at the camera: step back
+    const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+    const back = view.position.distanceTo(box.getCenter(new THREE.Vector3())) + radius * 2;
+    view.position.add(view.getWorldDirection(new THREE.Vector3()).multiplyScalar(-back));
+    Object.assign(view, { near: 0.1, far: back + radius * 4 });
+    view.updateProjectionMatrix();
+  }
   view.applyMatrix4(turn);
   view.updateMatrixWorld();
   const tracer = new WebGLPathTracer(renderer);
@@ -49,5 +58,6 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     (floor.material as THREE.Material).dispose();
     for (const m of meshes) (m.material as THREE.Material).dispose(); // their geometry belongs to the viewer
     renderer.dispose();
+    renderer.forceContextLoss(); // browsers keep only a few contexts: the viewer's must not be the one dropped
   }
 }
