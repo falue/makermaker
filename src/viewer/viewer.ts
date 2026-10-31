@@ -182,6 +182,12 @@ export class Viewer implements ToolView {
   private materials = new Map<string, THREE.MeshStandardMaterial>();
   private hidden = new Set<string>();
   private edgeMaterial = new THREE.LineBasicMaterial({ color: 0x2a2a2a });
+  /** Cutters (tool bodies of cuts): red outlines seen through everything, no fill (still picked by their faces). */
+  private cutters = new Set<string>();
+  private cutterEdges = [0xe5484d, 0xff8c1a].map((color) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
+  private ghost = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  /** Owner per owned body (a tool body belongs to the body whose boolean uses it): it moves along. */
+  private owners = new Map<string, string>();
 
   constructor(
     readonly el: HTMLElement,
@@ -472,13 +478,14 @@ export class Viewer implements ToolView {
     geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-    const solid = new THREE.Mesh(geometry, this.materialOf(id));
+    const solid = new THREE.Mesh(geometry);
     Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
-    const lines = new THREE.LineSegments(edges, this.edgeMaterial);
+    const lines = new THREE.LineSegments(edges);
     lines.userData.edgeGroups = mesh.edgeGroups;
     group.add(solid, lines);
+    this.dress(id);
     if (!this.fitted) {
       this.fitted = true;
       requestAnimationFrame(() => this.fit()); // after the other bodies of this batch
@@ -487,7 +494,7 @@ export class Viewer implements ToolView {
   }
 
   setPosition(id: string, [x, y, z]: number[]) {
-    if (this.drag?.moved && this.selection.includes(id)) return; // being dragged
+    if (this.drag?.moved && this.withOwned(this.selection).includes(id)) return; // being dragged
     this.group(id).position.set(x, y, z);
     this.applySection();
   }
@@ -506,14 +513,43 @@ export class Viewer implements ToolView {
   select(ids: string[], glow = 0x1d3f80) {
     this.selection = ids;
     for (const [id, m] of this.materials) m.emissive.set(ids.includes(id) ? glow : 0);
+    for (const id of this.cutters) this.dress(id);
     this.applySection();
   }
 
   /** Colour and visibility per body; hidden bodies are not drawn, picked or snapped to (but still built). */
-  setLooks(looks: { id: string; color: string; visible: boolean }[]) {
+  setLooks(looks: { id: string; color: string; visible: boolean; cutter: boolean; owner?: string }[]) {
     this.hidden = new Set(looks.filter((l) => !l.visible).map((l) => l.id));
-    for (const l of looks) this.materialOf(l.id).color.set(l.color);
+    this.cutters = new Set(looks.filter((l) => l.cutter).map((l) => l.id));
+    this.owners = new Map(looks.flatMap((l) => (l.owner ? [[l.id, l.owner]] : [])));
+    for (const l of looks) {
+      this.materialOf(l.id).color.set(l.color);
+      this.dress(l.id);
+    }
     this.applySection();
+  }
+
+  /** A body's colour while the colour picker is open (not in the document yet). */
+  previewColor(id: string, color: string) {
+    this.materialOf(id).color.set(color);
+    this.render();
+  }
+
+  /** Solid and edge materials of a body: its colour, or a cutter's red outline (orange when selected). */
+  private dress(id: string) {
+    const [solid, lines] = this.bodies.get(id)?.children ?? [];
+    if (!solid) return;
+    const cutter = this.cutters.has(id);
+    (solid as THREE.Mesh).material = cutter ? this.ghost : this.materialOf(id);
+    (lines as THREE.LineSegments).material = cutter ? this.cutterEdges[+this.selection.includes(id)] : this.edgeMaterial;
+    lines.renderOrder = cutter ? 1e5 : 0;
+  }
+
+  /** `ids` and the bodies they own, all the way down. */
+  private withOwned(ids: string[]) {
+    const out = [...ids];
+    for (let i = 0; i < out.length; i++) for (const [owned, owner] of this.owners) if (owner === out[i] && !out.includes(owned)) out.push(owned);
+    return out;
   }
 
   private materialOf(id: string) {
@@ -851,9 +887,9 @@ export class Viewer implements ToolView {
       planes.push(...this.custom.map((c) => new THREE.Plane(c.normal.clone(), c.constant - eps)));
       for (const plane of planes) {
         order++;
-        for (const g of this.bodies.values()) {
+        for (const [id, g] of this.bodies) {
           const solid = g.children.find((c) => c instanceof THREE.Mesh);
-          if (!solid) continue;
+          if (!solid || this.hidden.has(id) || this.cutters.has(id)) continue;
           for (const side of [THREE.BackSide, THREE.FrontSide]) {
             const op = side === THREE.BackSide ? THREE.IncrementWrapStencilOp : THREE.DecrementWrapStencilOp;
             const mark = new THREE.Mesh(
@@ -902,7 +938,8 @@ export class Viewer implements ToolView {
       for (const [id, g] of this.bodies)
         for (const c of this.hidden.has(id) ? [] : g.children) {
           const solid = c instanceof THREE.Mesh;
-          const material = (solid ? this.materialOf(id) : this.edgeMaterial).clone();
+          if (solid && this.cutters.has(id)) continue;
+          const material = ((c as THREE.Mesh).material as THREE.Material).clone();
           material.clippingPlanes = planes;
           const copy = solid ? new THREE.Mesh(c.geometry, material) : new THREE.LineSegments((c as THREE.LineSegments).geometry, material);
           copy.position.copy(g.position);
@@ -1007,7 +1044,7 @@ export class Viewer implements ToolView {
     const member = this.selection.includes(id);
     if (!member) this.host.select(id, false);
     const start = hit.point.clone();
-    const group = this.selection.map((g) => ({ id: g, from: this.group(g).position.clone() }));
+    const group = this.withOwned(this.selection).map((g) => ({ id: g, from: this.group(g).position.clone() }));
     this.startDrag(e, ray.ray, start, {
       axes: [0, 1, 2],
       lead: group[0].from,

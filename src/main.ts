@@ -195,7 +195,8 @@ function update() {
   selected = selected.filter((id) => ids.has(id) || doc.sketches.some((s) => s.id === id));
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
-  viewer.setLooks(doc.bodies);
+  const owner = ownersOf(doc);
+  viewer.setLooks(doc.bodies.map((b) => ({ ...b, owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.op === 'subtract' && f.body === b.id)) })));
   viewer.select(selected);
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
@@ -208,8 +209,46 @@ function update() {
 }
 
 function commit(next: Doc) {
-  history.push(next);
+  history.push(follow(history.current, next));
   update();
+}
+
+/** Owner per tool body: the (first) body whose boolean uses it. */
+function ownersOf(doc: Doc) {
+  const out = new Map<string, string>();
+  for (const b of doc.bodies) for (const f of b.features) if (f.type === 'boolean' && !out.has(f.body)) out.set(f.body, b.id);
+  return out;
+}
+
+/** Tool bodies stick to their owner: an owner moved from `before` to `next` takes those that did not move themselves along. */
+function follow(before: Doc, next: Doc): Doc {
+  const owner = ownersOf(next);
+  if (!owner.size) return next;
+  const at = (doc: Doc, id: string) => {
+    const b = doc.bodies.find((q) => q.id === id);
+    return b && (resolve(b.position, paramLookup(doc.params), '', new Map()) as Vec3);
+  };
+  const by = (id: string) => {
+    const [p, q] = [at(before, id), at(next, id)];
+    return p && q && (q.map((v, k) => v - p[k]) as Vec3);
+  };
+  const still = (v: Vec3 | undefined) => !v || v.every((x) => !(Math.abs(x) > 1e-9));
+  let out = next;
+  const drag = (id: string, d: Vec3, seen: Set<string>) => {
+    for (const [tool, o] of owner) {
+      if (o !== id || seen.has(tool) || !still(by(tool))) continue;
+      seen.add(tool);
+      const i = out.bodies.findIndex((b) => b.id === tool);
+      const p = at(out, tool)!;
+      out = setIn(out, ['bodies', String(i), 'position'], out.bodies[i].position.map((x, k) => plus(x, p[k], d[k])));
+      drag(tool, d, seen);
+    }
+  };
+  for (const b of next.bodies) {
+    const d = by(b.id);
+    if (d && !still(d) && d.every(Number.isFinite)) drag(b.id, d, new Set([b.id]));
+  }
+  return out;
 }
 
 /** The selected sketch, if it is the only selection. */
@@ -306,8 +345,9 @@ function duplicateShapes(offset = 10) {
 }
 
 /**
- * Joins, cuts or intersects: the first selected body keeps the result, the others become its tool bodies (hidden,
- * editable). The boolean comes last, so it cuts through finishes made before it (they are baked under it).
+ * Joins, cuts or intersects: the first selected body keeps the result, the others become its tool bodies (owned by it,
+ * editable; cutters show as red outlines, others hide). The boolean comes last, so it cuts through finishes made
+ * before it (they are baked under it).
  */
 function applyBoolean(op: BooleanOp) {
   const doc = history.current;
@@ -315,7 +355,7 @@ function applyBoolean(op: BooleanOp) {
   if (ids.length < 2) return notify('Select two or more bodies: the first one keeps the result');
   const [target, ...tools] = ids;
   const bodies = doc.bodies.map((b) => {
-    if (tools.includes(b.id)) return { ...b, visible: false };
+    if (tools.includes(b.id)) return { ...b, visible: op === 'subtract' }; // cutters show as red outlines
     if (b.id !== target) return b;
     return { ...b, features: [...b.features, ...tools.map((body): Feature => ({ id: newId(), type: 'boolean', op, body }))] };
   });
@@ -370,7 +410,12 @@ function remove() {
     shapeSel = [];
     return commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sketch ? { ...s, shapes: s.shapes.filter((q) => !gone.includes(q.id)) } : s)) });
   }
-  commit({ ...doc, bodies: doc.bodies.filter((p) => !selected.includes(p.id)), sketches: doc.sketches.filter((s) => !selected.includes(s.id)) });
+  // owned tool bodies go with their owner; a deleted tool body takes its boolean along
+  const owner = ownersOf(doc);
+  const gone = new Set(selected);
+  for (const id of gone) for (const [tool, o] of owner) if (o === id) gone.add(tool);
+  const bodies = doc.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => f.type !== 'boolean' || !gone.has(f.body)) }));
+  commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)) });
 }
 
 /**
@@ -711,12 +756,13 @@ function render() {
     },
     commit,
     setValue(path, value, live = false) {
-      const next = setIn(history.current, path, value);
+      const next = follow(history.current, setIn(history.current, path, value));
       if (live) history.replace(next);
       else history.push(next);
       update();
     },
     select,
+    previewColor: (id, color) => viewer.previewColor(id, color),
     startTool,
     extrude,
     sketching,

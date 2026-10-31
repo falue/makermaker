@@ -27,6 +27,8 @@ export interface UIContext {
   /** `live`: replaces the current undo step (scrubbing). */
   setValue(path: string[], value: unknown, live?: boolean): void;
   select(id: string | null, add?: boolean): void;
+  /** Shows a body in a colour without changing the document (while the colour picker is open). */
+  previewColor(id: string, color: string): void;
   startTool(kind: ToolKind): void;
   /** Pulls the selected shapes (or all) of the selected sketch. */
   extrude(): void;
@@ -319,7 +321,7 @@ function right(ctx: UIContext): Node[] {
     return [
       h('p', { className: 'hint' }, `${n} bodies selected: drag, nudge, duplicate or delete them together; select one to edit it.`),
       h('h3', {}, 'Boolean'),
-      h('p', { className: 'hint' }, 'The first selected body keeps the result; the others become its tool bodies (hidden, still editable).'),
+      h('p', { className: 'hint' }, 'The first selected body keeps the result; the others become its tool bodies: they move with it and stay editable (cutters show as red outlines).'),
       h('div', { className: 'aligns' }, ...booleanTools(ctx)),
     ];
   const k = ctx.doc.sketches.findIndex((s) => s.id === ctx.selected[0]);
@@ -336,11 +338,16 @@ function right(ctx: UIContext): Node[] {
       'div',
       { className: 'head' },
       input(`${at}.name`, body.name, (name) => setBody({ ...body, name })),
-      h('input', { type: 'color', value: body.color, title: 'Colour', className: 'color', onchange: (e) => setBody({ ...body, color: (e.target as HTMLInputElement).value }) }),
-      button('Delete', () => {
-        ctx.commit({ ...ctx.doc, bodies: ctx.doc.bodies.filter((p) => p.id !== body.id) });
-        ctx.select(null);
+      h('input', {
+        type: 'color',
+        value: body.color,
+        title: 'Colour',
+        className: 'color',
+        // the panel is not rebuilt while picking: that would close the picker
+        oninput: (e) => ctx.previewColor(body.id, (e.target as HTMLInputElement).value),
+        onchange: (e) => setBody({ ...body, color: (e.target as HTMLInputElement).value }),
       }),
+      button('Delete', ctx.remove, 'Delete the body (with its cutters)'),
     ),
     h('h3', {}, 'Position'),
     h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `${at}.position.${k}`, l))),
@@ -504,7 +511,9 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const other = ctx.doc.bodies.find((b) => b.id === feature.body);
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
       const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error' }, 'its tool body was deleted');
-      return h('section', {}, h('h4', {}, op, remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'with'), tool));
+      // without the boolean the tool body is a body of its own again: shown
+      const drop = button('×', () => ctx.commit({ ...ctx.doc, bodies: ctx.doc.bodies.map((b) => (b.id === body.id ? { ...b, features: b.features.filter((s) => s !== feature) } : b.id === feature.body ? { ...b, visible: true } : b)) }), 'Remove: the tool body becomes a body of its own');
+      return h('section', {}, h('h4', {}, op, drop), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'with'), tool));
     }
     case 'sphere':
       return h('section', {}, h('h4', {}, 'Sphere', remove), h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('z', 'Z'), f('d', 'Ø')));
