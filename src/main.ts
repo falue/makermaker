@@ -5,7 +5,7 @@ import { toBuild } from './doc/expand';
 import { BASE, capFrame, frames, moved, scale } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
-import { paramLookup, resolve, setIn, UNITLESS } from './doc/resolve';
+import { getIn, paramLookup, resolve, setIn, UNITLESS } from './doc/resolve';
 import { ex, newId, sampleDoc } from './doc/sample';
 import { faceAt, pushed } from './doc/pull';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Profile, Sketch, SketchPlacement } from './doc/types';
@@ -13,11 +13,11 @@ import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, type Pick, type UIContext } from './ui/panels';
+import { renderUI, type Pick, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
-import { moved as shifted } from './viewer/shapes';
+import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import { Viewer, type PickedFace, type Vec3 } from './viewer/viewer';
 
 const tips = installTooltips();
@@ -559,6 +559,58 @@ function plus(x: Expr, mm: number, by: number): Expr {
 }
 
 /**
+ * `shape` changed from `old` to `next` (mm): `keep` values are written as typed, other changed lengths keep their
+ * expressions (`+ delta`), corners are plain numbers.
+ */
+function rewrite(shape: Profile, old: DrawnProfile, next: DrawnProfile, keep: Record<string, Expr> = {}): Profile {
+  const out = { ...shape } as Record<string, unknown>;
+  const was = old as Record<string, unknown>;
+  for (const [key, v] of Object.entries(next))
+    if (keep[key]) out[key] = keep[key];
+    else if (key === 'pts') out.pts = (v as [number, number][]).map(([x, y]) => [+fmt(x), +fmt(y)]);
+    else if (typeof v === 'number' && !UNITLESS.includes(key)) out[key] = plus(out[key] as Expr, was[key] as number, v - (was[key] as number));
+  return out as Profile;
+}
+
+/** Reference point of the shape fields (-1, 0, 1 per own axis) and whether width and height change together. */
+let shapeRef: [number, number] = JSON.parse(localStorage.getItem('makermaker.shapeRef') ?? '[0,0]');
+let linkSize = false;
+
+/**
+ * A shape field typed or scrubbed (the shape at `path`): X / Y place the reference point, size and turn keep it
+ * where it is; `live`: replaces the current undo step.
+ */
+function transformShape(path: string[], field: ShapeField, value: Expr, live: boolean) {
+  const doc = history.current;
+  const shape = getIn(doc, path) as Profile;
+  const lookup = paramLookup(doc.params);
+  const errors = new Map<string, string>();
+  const v = resolve(value, lookup, field, errors) as number;
+  if (errors.size) return notify(errors.get(field)!);
+  const old = resolve(shape, lookup, '', new Map()) as DrawnProfile;
+  const [w, h] = sizeOf(old);
+  let next: DrawnProfile;
+  const keep: Record<string, Expr> = { [field]: value };
+  if (field === 'x' || field === 'y') {
+    const at = anchorAt(old, shapeRef);
+    at[field === 'x' ? 0 : 1] = v;
+    next = placed(old, shapeRef, at);
+    if (!centred(old)) delete keep[field]; // the stored centre is not what was typed
+  } else if (field === 'rot') next = turnedTo(old, shapeRef, v);
+  else {
+    const size: [number, number] = field === 'd' ? [v, v] : field === 'w' ? [v, linkSize && w ? (h * v) / w : h] : [linkSize && h ? (w * v) / h : w, v];
+    next = sizedTo(old, shapeRef, size);
+  }
+  const changed = setIn(doc, path, rewrite(shape, old, next, keep));
+  if (live) history.replace(changed);
+  else history.push(changed);
+  update();
+}
+
+/** The reference point is the stored centre: X / Y fields then edit the stored expressions. */
+const centred = (p: DrawnProfile) => !shapeRef[0] && !shapeRef[1] && p.kind !== 'polygon';
+
+/**
  * Pushes or pulls a face live (one undo step): an end face changes its extrusion's depth, a side moves that side of
  * its shape (in the sketch, if linked). Values keep their expressions.
  */
@@ -585,16 +637,8 @@ function pullFace(face: PickedFace) {
     const j = list.findIndex((q) => q.id === hit.shape);
     if (j < 0) return;
     const path = src.kind === 'sketch' ? ['sketches', String(k), 'shapes', String(j)] : [...featurePath, 'source', 'profiles', String(j)];
-    const shape = list[j] as Record<string, unknown>;
     const old = resolve(list[j], lookup, '', new Map()) as DrawnProfile;
-    const was = old as Record<string, unknown>;
-    apply = (mm) => {
-      const next = { ...shape };
-      for (const [key, v] of Object.entries(pushed(old, hit.edge, mm * hit.rate)))
-        if (key === 'pts') next.pts = (v as [number, number][]).map(([x, y]) => [+fmt(x), +fmt(y)]);
-        else if (typeof v === 'number') next[key] = plus(shape[key] as Expr, was[key] as number, v - (was[key] as number));
-      return setIn(before, path, next);
-    };
+    apply = (mm) => setIn(before, path, rewrite(list[j], old, pushed(old, hit.edge, mm * hit.rate)));
   }
   let pushedOnce = false;
   viewer.startFacePull(toolHost, face.normal.clone().negate().toArray(), face.point, (mm, phase) => {
@@ -791,6 +835,24 @@ function render() {
       else history.push(next);
       update();
     },
+    shapeRef,
+    linkSize,
+    setShapeRef(r) {
+      shapeRef = r;
+      localStorage.setItem('makermaker.shapeRef', JSON.stringify(r));
+      render();
+    },
+    toggleLinkSize() {
+      linkSize = !linkSize;
+      render();
+    },
+    measure(path) {
+      const p = resolve(getIn(history.current, path), lookup, '', new Map()) as DrawnProfile;
+      const [x, y] = anchorAt(p, shapeRef);
+      const [w, h] = sizeOf(p);
+      return { x, y, w, h, centred: centred(p) };
+    },
+    transformShape,
     select,
     isolated: isolated?.body ?? null,
     isolate,

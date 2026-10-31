@@ -52,6 +52,15 @@ export interface UIContext {
   /** Joins, cuts or intersects the selected bodies: the first keeps the result. */
   boolean(op: BooleanOp): void;
   toggleAutosave(): void;
+  /** Reference point of the shape fields (-1, 0, 1 per own axis): X / Y measure it, sizes and turns keep it. */
+  shapeRef: [number, number];
+  setShapeRef(ref: [number, number]): void;
+  /** Width and height change together. */
+  linkSize: boolean;
+  toggleLinkSize(): void;
+  /** The shape at `path`: its reference point and own size (mm); `centred`: the reference point is its stored centre. */
+  measure(path: string[]): { x: number; y: number; w: number; h: number; centred: boolean };
+  transformShape(path: string[], field: ShapeField, value: Expr, live: boolean): void;
   duplicate(): void;
   remove(): void;
   newDoc(): void;
@@ -64,6 +73,7 @@ export interface UIContext {
 const $ = (id: string) => document.getElementById(id)!;
 
 export type Pick = boolean | 'range';
+export type ShapeField = 'x' | 'y' | 'w' | 'h' | 'd' | 'rot';
 
 /** A list click as in file lists: Shift a range, ⌘ / Ctrl toggles. Ctrl-click on macOS (a context menu click) toggles too. */
 function listItem(className: string, pick: (how: Pick) => void, ...children: (Node | string)[]) {
@@ -136,13 +146,17 @@ function input(path: string, shown: string, apply: (text: string) => void, error
   return el;
 }
 
-/** Expression input; dragging the label of a number scrubs it (Shift: fine). */
-function exprField(ctx: UIContext, path: string, label: string, raw = false) {
+/**
+ * Expression input for the value at `path`; dragging the label of a number scrubs it (Shift: fine). `own`: a value
+ * that is not stored as it is shown (path only names the field), with its setter and error.
+ */
+function exprField(ctx: UIContext, path: string, label: string, raw = false, own?: { value: Expr; set: (x: Expr, live: boolean) => void; error?: string }) {
   const keys = path.split('.');
-  const x = getIn(ctx.doc, keys) as Expr;
+  const x = own?.value ?? (getIn(ctx.doc, keys) as Expr);
+  const set = own?.set ?? ((v: Expr, live: boolean) => ctx.setValue(keys, v, live));
   const u = ctx.doc.units;
   const shown = raw ? x.e : displayText(x, u);
-  const el = input(path, shown, (e) => ctx.setValue(keys, { e, u }), ctx.exprErrors.get(path));
+  const el = input(path, shown, (e) => set({ e, u }, false), own ? own.error : ctx.exprErrors.get(path));
   if (!el.title && !isPlain(x.e) && x.u !== u) el.title = `plain numbers in ${x.u}`;
   const name = h('span', {}, label);
   // a number with an optional unit (`12`, `4mm`) keeps its unit while scrubbed
@@ -165,7 +179,7 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false) {
         }
         const text = fmt(base + Math.round((m.clientX - origin) / (m.shiftKey ? 10 : 1)) * step) + num[2];
         if (text === last) return;
-        ctx.setValue(keys, { e: text, u }, last !== shown);
+        set({ e: text, u }, last !== shown);
         last = text;
       };
       const end = () => {
@@ -440,7 +454,13 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       tool('extrude', 'Extrude (E): the selected shapes, or all', ctx.extrude),
     ),
     ...(ctx.shapes.length > 1 ? [alignRow(ctx)] : []),
-    h('h3', {}, `Shapes (${s.shapes.length})`),
+    h(
+      'div',
+      { className: 'shapes-head' },
+      h('h3', {}, `Shapes (${s.shapes.length})`),
+      refGrid(ctx),
+      tool('link', ctx.linkSize ? 'Width and height change together: click to unlink' : 'Link width and height: they change together', ctx.toggleLinkSize, ctx.linkSize),
+    ),
     ...shapes,
   ];
 }
@@ -460,14 +480,33 @@ function alignRow(ctx: UIContext) {
   return h('div', { className: 'aligns' }, ...aligns.map(([how, title]) => tool(how, title, () => ctx.align(how), false, how.startsWith('distribute') && ctx.shapes.length < 3)));
 }
 
-/** Fields of one shape at `path`: position, size, corner radius, rotation (degrees). */
+/**
+ * Fields of one shape at `path`, as in Illustrator's transform panel: X / Y of the reference point, size and turn
+ * (degrees) around it, corner radius. Stored values show their expressions; measured ones show numbers.
+ */
 function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
-  const pf = (key: string, label: string) => exprField(ctx, `${path}.${key}`, label);
-  if (p.kind === 'circle') return [pf('x', 'X'), pf('y', 'Y'), pf('d', 'Ø')];
-  const rot = exprField(ctx, `${path}.rot`, '°', true); // degrees: shown as typed, never unit-converted
-  if (p.kind === 'ngon') return [pf('x', 'X'), pf('y', 'Y'), pf('d', 'Ø'), exprField(ctx, `${path}.sides`, 'Sides', true), rot];
-  if (p.kind === 'rect') return [pf('x', 'X'), pf('y', 'Y'), pf('w', 'W'), pf('h', 'H'), pf('r', 'R'), rot];
-  return [h('span', { className: 'hint' }, `${p.pts.length} corners`), pf('r', 'R'), rot];
+  const keys = path.split('.');
+  const m = ctx.measure(keys);
+  const u = ctx.doc.units;
+  const stored = (k: string) => (p as unknown as Record<string, Expr>)[k];
+  const mm = (v: number): Expr => ({ e: fmt(v / UNITS[u]), u });
+  const tf = (field: ShapeField, label: string, value: Expr, raw = false) =>
+    exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
+  const pf = (key: string, label: string, raw = false) => exprField(ctx, `${path}.${key}`, label, raw);
+  const pos = [tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
+  if (p.kind === 'circle') return [...pos, tf('d', 'Ø', stored('d'))];
+  const rot = tf('rot', '°', stored('rot'), true); // degrees: shown as typed, never unit-converted
+  if (p.kind === 'ngon') return [...pos, tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true), rot];
+  if (p.kind === 'rect') return [...pos, tf('w', 'W', stored('w')), tf('h', 'H', stored('h')), pf('r', 'R'), rot];
+  return [...pos, tf('w', 'W', mm(m.w)), tf('h', 'H', mm(m.h)), pf('r', 'R'), rot];
+}
+
+/** Illustrator's reference point locator: which point of a shape's box X / Y give, and which point stays when sizing or turning. */
+function refGrid(ctx: UIContext) {
+  const cells = [1, 0, -1].flatMap((sy) =>
+    [-1, 0, 1].map((sx) => h('button', { className: `cell${ctx.shapeRef[0] === sx && ctx.shapeRef[1] === sy ? ' on' : ''}`, onclick: () => ctx.setShapeRef([sx, sy]) })),
+  );
+  return h('div', { className: 'ref-grid', title: 'Reference point: X / Y measure it; changing size or turn keeps it in place' }, ...cells);
 }
 
 function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, setBody: (p: Body) => void) {

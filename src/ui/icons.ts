@@ -32,6 +32,7 @@ const ICONS = {
   bottom: '<path d="M3 20h18"/><rect x="6" y="5" width="4" height="12" rx="1"/><rect x="14" y="10" width="4" height="7" rx="1"/>',
   distributeX: '<path d="M3 4v16M21 4v16"/><rect x="6" y="8" width="3" height="8" rx="1"/><rect x="15" y="8" width="3" height="8" rx="1"/><rect x="10.5" y="8" width="3" height="8" rx="1"/>',
   distributeY: '<path d="M4 3h16M4 21h16"/><rect x="8" y="6" width="8" height="3" rx="1"/><rect x="8" y="15" width="8" height="3" rx="1"/><rect x="8" y="10.5" width="8" height="3" rx="1"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   unlink: '<path d="M15 9l3-3a3 3 0 0 0-4.2-4.2l-3 3M9 15l-3 3a3 3 0 0 0 4.2 4.2l3-3M4 8h3M8 4v3M20 16h-3M16 20v-3"/>',
   fit: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
   section: '<path d="M4 20L20 4"/><path d="M4 12l8-8M12 20l8-8" stroke-dasharray="2 2"/>',

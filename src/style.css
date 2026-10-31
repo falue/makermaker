@@ -683,3 +683,31 @@ input.color {
   background: var(--panel);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
+
+.shapes-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shapes-head h3 {
+  flex: 1;
+}
+/* Illustrator's reference point locator */
+.ref-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 8px);
+  gap: 3px;
+  padding: 3px;
+}
+.ref-grid .cell {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+  background: none;
+}
+.ref-grid .cell.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}

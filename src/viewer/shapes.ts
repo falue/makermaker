@@ -99,6 +99,27 @@ export function moved(p: DrawnProfile, du: number, dv: number): DrawnProfile {
   return { ...p, x: p.x + du, y: p.y + dv };
 }
 
+/** Reference point `ref` of the shape's box (-1, 0, 1 per own axis, as Illustrator's reference point locator), in plane coordinates. */
+export function anchorAt(p: DrawnProfile, ref: UV): UV {
+  const [cx, cy] = centre(p);
+  const { half, mid } = box(p);
+  const [x, y] = turn([mid[0] + ref[0] * half[0], mid[1] + ref[1] * half[1]], rotOf(p));
+  return [cx + x, cy + y];
+}
+
+/** The shape moved so its reference point `ref` lies at `at`. */
+export function placed(p: DrawnProfile, ref: UV, at: UV): DrawnProfile {
+  const [x, y] = anchorAt(p, ref);
+  return moved(p, at[0] - x, at[1] - y);
+}
+
+/** The shape at `size` (own width, height) with its reference point `ref` staying. */
+export const sizedTo = (p: DrawnProfile, ref: UV, size: UV) =>
+  resized(p, { sx: -ref[0], sy: -ref[1] }, [0, 0], [0, 0], { alt: false, shift: false, step: 1e-6, typed: size });
+
+/** The shape turned to `deg` around its reference point `ref`. */
+export const turnedTo = (p: DrawnProfile, ref: UV, deg: number) => placed(rotated(p, deg - rotOf(p)), ref, anchorAt(p, ref));
+
 /** Width and height in the shape's own frame (circles: the diameter twice). */
 export function sizeOf(p: DrawnProfile): UV {
   const { half } = box(p);
