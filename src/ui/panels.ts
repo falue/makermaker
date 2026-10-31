@@ -27,6 +27,10 @@ export interface UIContext {
   /** `live`: replaces the current undo step (scrubbing). */
   setValue(path: string[], value: unknown, live?: boolean): void;
   select(id: string | null, add?: boolean): void;
+  /** The body shown alone (its eye was Ctrl-clicked), if any. */
+  isolated: string | null;
+  /** Shows only this body; again (or for the isolated body) shows what was shown before. */
+  isolate(id: string): void;
   /** Shows a body in a colour without changing the document (while the colour picker is open). */
   previewColor(id: string, color: string): void;
   startTool(kind: ToolKind): void;
@@ -280,7 +284,14 @@ function left(ctx: UIContext): Node[] {
     const swatch = h('span', { className: 'swatch' });
     swatch.style.background = p.color;
     const item = h('button', { className: `item${ctx.selected.includes(p.id) ? ' selected' : ''}`, onclick: (e) => ctx.select(p.id, e.shiftKey) }, swatch, p.name);
-    return h('div', { className: 'listed' }, item, eye(['bodies', String(i), 'visible'], p.visible));
+    const look = eye(['bodies', String(i), 'visible'], p.visible);
+    look.title += ' (Ctrl-click: show only this body)';
+    // Ctrl-click on macOS is a context menu click: both isolate
+    const isolate = (e: MouseEvent) => (e.preventDefault(), ctx.isolate(p.id));
+    look.oncontextmenu = isolate;
+    look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : ctx.commit(setIn(doc, ['bodies', String(i), 'visible'], !p.visible)));
+    if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again' });
+    return h('div', { className: 'listed' }, item, look);
   });
   const params = Object.keys(doc.params).map((name) =>
     h(

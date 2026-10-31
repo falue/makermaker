@@ -46,6 +46,8 @@ let status = '';
 let toolHint: string | null = null;
 let autosave = localStorage.getItem('makermaker.autosave') === 'on';
 let autosaveTimer = 0;
+/** The body shown alone, and what was visible before (bodies and sketches by id). */
+let isolated: { body: string; before: Map<string, boolean> } | null = null;
 
 const len = (mm: number, typed?: string) => ex(typed ?? fmt(mm / UNITS[history.current.units]), history.current.units);
 
@@ -193,6 +195,7 @@ function update() {
   for (const id of kernelErrors.keys()) if (!ids.has(id)) kernelErrors.delete(id);
   for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id);
   selected = selected.filter((id) => ids.has(id) || doc.sketches.some((s) => s.id === id));
+  if (isolated && !ids.has(isolated.body)) isolated = null;
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
   const owner = ownersOf(doc);
@@ -361,6 +364,29 @@ function applyBoolean(op: BooleanOp) {
   });
   [selected, shapeSel] = [[target], []];
   commit({ ...doc, bodies });
+}
+
+/** Shows only body `id` (its tool bodies stay as they are); for the isolated body: shows what was shown before. */
+function isolate(id: string) {
+  const doc = history.current;
+  if (isolated?.body === id) {
+    const { before } = isolated;
+    isolated = null;
+    const back = <T extends { id: string; visible: boolean }>(o: T) => ({ ...o, visible: before.get(o.id) ?? o.visible });
+    return commit({ ...doc, bodies: doc.bodies.map(back), sketches: doc.sketches.map(back) });
+  }
+  const before = isolated?.before ?? new Map([...doc.bodies, ...doc.sketches].map((o) => [o.id, o.visible]));
+  isolated = { body: id, before };
+  const owner = ownersOf(doc);
+  const mine = (b: string) => {
+    for (const seen = new Set<string>(); !seen.has(b); b = owner.get(b) ?? b) if (seen.add(b), b === id) return true;
+    return false;
+  };
+  commit({
+    ...doc,
+    bodies: doc.bodies.map((b) => ({ ...b, visible: mine(b.id) ? (b.id === id || b.visible) : false })),
+    sketches: doc.sketches.map((s) => ({ ...s, visible: false })),
+  });
 }
 
 function showSelection() {
@@ -753,6 +779,8 @@ function render() {
       update();
     },
     select,
+    isolated: isolated?.body ?? null,
+    isolate,
     previewColor: (id, color) => viewer.previewColor(id, color),
     startTool,
     extrude,
@@ -801,6 +829,7 @@ function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   selected = [];
   status = '';
   sketching = null;
+  isolated = null;
   stopTool();
   viewer.setSketchGrid(null);
   viewer.fitNext();

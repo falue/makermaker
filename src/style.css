@@ -588,6 +588,10 @@ canvas.drawing {
 .listed .item {
   margin-bottom: 0;
 }
+.listed .isolated {
+  color: var(--accent);
+  background: var(--selected);
+}
 .shape {
   margin-top: 6px;
 }
