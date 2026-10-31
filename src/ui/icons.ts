@@ -21,6 +21,7 @@ const ICONS = {
   extrude: '<path d="M4 17l8 4 8-4-8-4z"/><path d="M12 15V3M8 7l4-4 4 4"/>',
   look: '<rect x="4" y="4" width="16" height="16" rx="1"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
   eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  isolate: '<path d="M3 7V3h4M17 3h4v4M21 17v4h-4M7 21H3v-4"/><path d="M5 12s3-4.5 7-4.5 7 4.5 7 4.5-3 4.5-7 4.5S5 12 5 12z"/><circle cx="12" cy="12" r="2" fill="currentColor"/>',
   eyeOff: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" opacity=".35"/><path d="M4 4l16 16"/>',
   duplicate: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
   delete: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',

@@ -306,6 +306,8 @@ const RESERVED = new Set([...Object.keys(UNITS), 'pi', 'sqrt', 'abs', 'min', 'ma
 
 function left(ctx: UIContext): Node[] {
   const { doc } = ctx;
+  // while a body is isolated the others grey out; their eyes still show or hide them
+  const dimmed = (id: string) => (ctx.isolated && ctx.isolated !== id ? ' dimmed' : '');
   const eye = (path: string[], on: boolean) =>
     h('button', { className: 'icon', title: on ? 'Hide' : 'Show', innerHTML: icon(on ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, path, !on)) });
   const bodies = doc.bodies.map((p, i) => {
@@ -318,8 +320,8 @@ function left(ctx: UIContext): Node[] {
     const isolate = (e: MouseEvent) => (e.preventDefault(), ctx.isolate(p.id));
     look.oncontextmenu = isolate;
     look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : ctx.commit(setIn(doc, ['bodies', String(i), 'visible'], !p.visible)));
-    if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again' });
-    return h('div', { className: 'listed' }, item, look);
+    if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again', innerHTML: icon('isolate') });
+    return h('div', { className: `listed${dimmed(p.id)}` }, item, look);
   });
   const params = Object.keys(doc.params).map((name) =>
     h(
@@ -346,7 +348,7 @@ function left(ctx: UIContext): Node[] {
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
   const sketches = doc.sketches.map((s, i) => {
     const item = listItem(`item${ctx.selected.includes(s.id) ? ' selected' : ''}`, (how) => ctx.select(s.id, how), s.name);
-    return h('div', { className: 'listed' }, item, eye(['sketches', String(i), 'visible'], s.visible));
+    return h('div', { className: `listed${dimmed(s.id)}` }, item, eye(['sketches', String(i), 'visible'], s.visible));
   });
   return [h('h3', {}, 'Bodies'), ...bodies, ...none, h('h3', {}, 'Sketches'), ...sketches, h('h3', {}, 'Parameters'), ...params, addParam];
 }

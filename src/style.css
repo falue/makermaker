@@ -599,6 +599,9 @@ canvas.drawing {
 .listed .item {
   margin-bottom: 0;
 }
+.listed.dimmed > * {
+  opacity: 0.4;
+}
 .listed .isolated {
   color: var(--accent);
   background: var(--selected);
