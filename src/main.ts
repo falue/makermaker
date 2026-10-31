@@ -1,3 +1,4 @@
+import { zipSync } from 'fflate';
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, fmt, isPlain, UNITS } from './doc/expr';
@@ -1086,6 +1087,7 @@ function render() {
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
     },
     toggleAutosave: () => run(toggleAutosave),
+    exportPrint: () => run(exportPrint),
     toggleTheme() {
       const theme = viewer.isDark ? 'light' : 'dark';
       document.documentElement.dataset.theme = theme;
@@ -1104,6 +1106,30 @@ function render() {
     redo: () => undo(true),
   };
   renderUI(ctx);
+}
+
+/**
+ * Export for 3D print: one binary STL per selected body (else per shown body), placed as in the world; several come
+ * as one ZIP. Tool bodies are left out: their cuts and joins are in their owners.
+ */
+async function exportPrint() {
+  const doc = history.current;
+  const tools = new Set(ownersOf(doc).keys());
+  const chosen = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
+  const bodies = doc.bodies.filter((b) => (chosen.length ? chosen.includes(b.id) : b.visible) && !tools.has(b.id) && built.has(b.id));
+  if (!bodies.length) return notify('Nothing to export: select bodies that build (tool bodies are part of their owner)');
+  const taken = new Map<string, number>();
+  const nameOf = (b: Body) => {
+    const base = b.name.replace(/[^\w.-]+/g, '_') || 'body';
+    const n = (taken.get(base) ?? 0) + 1;
+    taken.set(base, n);
+    return n > 1 ? `${base}_${n}` : base;
+  };
+  const { files, failed } = await kernel.stl(bodies.map((b) => ({ name: nameOf(b), features: built.get(b.id)!, place: bodyPlace(b.id) })));
+  const project = file.name.replace(/\.[^.]*$/, '');
+  if (files.length === 1) download(new Blob([files[0].data], { type: 'model/stl' }), `${files[0].name}.stl`);
+  else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.stl`, new Uint8Array(f.data)])))]), `${project}-stl.zip`);
+  notify(`Exported ${files.length} STL file${files.length === 1 ? '' : 's'}${failed.length ? `; could not build: ${failed.join(', ')}` : ''}`);
 }
 
 /** Saves `blob` as a download named `name`. */

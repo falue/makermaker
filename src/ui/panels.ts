@@ -61,6 +61,8 @@ export interface UIContext {
   boolean(op: BooleanOp): void;
   toggleAutosave(): void;
   toggleTheme(): void;
+  /** Downloads STL files of the selected (else shown) bodies. */
+  exportPrint(): void;
   /** Downloads the view as a PNG. */
   renderImage(): void;
   /** Reference point of a shape's fields (-1, 0, 1 per own axis): X / Y measure it, sizes and turns keep it. */
@@ -245,6 +247,7 @@ function topbar(ctx: UIContext): Node[] {
     ),
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
     h('span', { className: 'status' }, ctx.status),
+    tool('print', 'Export for 3D print: one STL per selected body (else all shown ones), as placed in the world; several come zipped', ctx.exportPrint),
     tool('render', 'Render: download the view as a PNG (twice the screen resolution)', ctx.renderImage),
     tool('theme', 'Light / dark', ctx.toggleTheme),
     h('a', { className: 'link', href: 'https://github.com/falue/makermaker', target: '_blank', rel: 'noopener', title: 'Source code on GitHub', innerHTML: GITHUB }),

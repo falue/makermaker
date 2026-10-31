@@ -1,7 +1,7 @@
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { AreaMesh, BuildFeature } from './build';
-import type { BodyResult, Request, Response } from './worker';
+import type { BodyResult, Request, Response, StlFile } from './worker';
 
 type BuildPart = Extract<Request, { kind: 'build' }>['bodies'][number];
 
@@ -14,13 +14,14 @@ export class Kernel {
   private sent = new Map<string, string>();
   private busy = false;
   private waiting = new Map<string, BuildPart>();
-  private asked = new Map<number, (areas: AreaMesh[]) => void>();
+  /** Answers awaited from the worker, by request id. */
+  private asked = new Map<number, (answer: Response) => void>();
   private nextAsk = 0;
 
   constructor(onResult: (r: BodyResult) => void) {
     this.worker.onmessage = ({ data }: MessageEvent<Response>) => {
-      if (data.kind === 'areas') {
-        this.asked.get(data.id)?.(data.areas);
+      if (data.kind !== 'build') {
+        this.asked.get(data.id)?.(data);
         return this.asked.delete(data.id);
       }
       data.results.forEach(onResult);
@@ -31,10 +32,20 @@ export class Kernel {
   }
 
   /** The areas of overlapping shapes (see `areasOf`). */
-  areas(shapes: Resolved<Profile>[]): Promise<AreaMesh[]> {
-    const id = this.nextAsk++;
-    this.worker.postMessage({ kind: 'areas', id, shapes } satisfies Request);
-    return new Promise((done) => this.asked.set(id, done));
+  async areas(shapes: Resolved<Profile>[]): Promise<AreaMesh[]> {
+    const answer = await this.ask({ kind: 'areas', id: this.nextAsk++, shapes });
+    return answer.kind === 'areas' ? answer.areas : [];
+  }
+
+  /** Binary STLs of bodies placed in the world, and the names of those that could not be built. */
+  async stl(bodies: Extract<Request, { kind: 'stl' }>['bodies']): Promise<{ files: StlFile[]; failed: string[] }> {
+    const answer = await this.ask({ kind: 'stl', id: this.nextAsk++, bodies });
+    return answer.kind === 'stl' ? answer : { files: [], failed: [] };
+  }
+
+  private ask(request: Extract<Request, { id: number }>): Promise<Response> {
+    this.worker.postMessage(request);
+    return new Promise((done) => this.asked.set(request.id, done));
   }
 
   build(bodies: { id: string; features: BuildFeature[] }[]) {
