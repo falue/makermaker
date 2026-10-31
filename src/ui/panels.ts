@@ -220,7 +220,7 @@ function toolbar(ctx: UIContext): Node[] {
   return [
     tool('sketch', 'New sketch (S): click a top face or empty space, then draw shapes on it', ctx.newSketch),
     ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), ctx.tool === kind)),
-    tool('sphere', 'Sphere (O): drag its size on a face or the ground; it rests there', () => ctx.startTool('sphere'), ctx.tool === 'sphere'),
+    tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), ctx.tool === 'sphere'),
     tool('extrude', 'Extrude (E): pull the selected shapes, or the whole selected sketch', ctx.extrude, false, !sketch),
     h('hr'),
     tool('duplicate', 'Duplicate (⌘D)', ctx.duplicate, false, none),

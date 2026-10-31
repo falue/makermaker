@@ -389,7 +389,7 @@ function newBody(count: number, features: Feature[], palette = ['#d8c3a0', '#a9c
   return { id: newId(), name: `Body ${count + 1}`, color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features };
 }
 
-/** A sphere body resting where it was drawn. */
+/** A sphere body centred where it was drawn. */
 function addSphere({ center, d, typed }: NonNullable<SketchResult['sphere']>) {
   const doc = history.current;
   const sphere: Feature = { id: newId(), type: 'sphere', x: len(center[0]), y: len(center[1]), z: len(center[2]), d: len(d, typed) };

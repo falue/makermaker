@@ -51,7 +51,7 @@ export interface SketchResult {
   shapes?: string[];
   /** Only these areas of the shapes. */
   areas?: Area[];
-  /** A ball resting on the plane (world centre), instead of shapes. */
+  /** A ball (world centre on the plane), instead of shapes. */
   sphere?: { center: V3; d: number; typed?: string };
   depth: number;
   depthTyped?: string;
@@ -436,9 +436,8 @@ export class SketchTool implements Tool {
     if (!(size > 0)) return this.host.hint('Too small: drag further or type a size · [Esc] cancels');
     const [a, b] = ph.typed.map((t) => (this.typed(t) === undefined ? undefined : t));
     if (this.kind === 'sphere' && profile.kind === 'circle') {
-      // the ball rests on the plane: its centre a radius above where it was drawn
-      const f = ph.target.frame;
-      const center = v3(toWorld(f, profile.x, profile.y)).addScaledVector(v3(f.n), profile.d / 2).toArray();
+      // drawn from its centre: the ball's centre is where dragging started, on the plane
+      const center = toWorld(ph.target.frame, profile.x, profile.y);
       this.phase = { kind: 'hover' };
       return this.host.done({ target: ph.target, sphere: { center, d: profile.d, typed: a }, depth: 0, mode: 'add' });
     }
