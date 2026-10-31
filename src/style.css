@@ -675,6 +675,7 @@ canvas.drawing {
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
+  border: none;
 }
 .switch .track {
   position: relative;
