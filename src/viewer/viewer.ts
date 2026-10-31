@@ -3,6 +3,10 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import type { BasePlane, CameraState } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
@@ -229,6 +233,8 @@ export class Viewer implements ToolView {
   private cutters = new Set<string>();
   private cutterEdges = [0xe5484d, 0xff8c1a].map((color) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
   private ghost = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  /** Ambient occlusion (three's GTAO pass) on or off; its composer is made for the current camera when needed. */
+  private ao = { on: localStorage.getItem('makermaker.ao') === 'on', composer: null as EffectComposer | null };
   /** Selected bodies: their edges drawn thick, in cyan. */
   private selectedEdges = new LineMaterial({ color: 0x00bcd4, linewidth: 3 });
   /** Owner per owned body (a tool body belongs to the body whose boolean uses it): it moves along. */
@@ -748,6 +754,7 @@ export class Viewer implements ToolView {
     }
     to.updateProjectionMatrix();
     this.camera = to;
+    this.dropComposer();
     this.controls.object = to;
     this.controls.update();
     this.projection.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 0) === on));
@@ -878,11 +885,36 @@ export class Viewer implements ToolView {
     return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, samples, watch);
   }
 
+  /** The ambient occlusion composer for the current camera (stencil kept for the section caps). */
+  private aoComposer() {
+    if (this.ao.composer) return this.ao.composer;
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, stencilBuffer: true, samples: 4 });
+    const composer = new EffectComposer(this.renderer, target);
+    composer.setPixelRatio(this.renderer.getPixelRatio());
+    composer.setSize(...this.renderer.getSize(new THREE.Vector2()).toArray());
+    composer.addPass(new RenderPass(this.scene, this.camera));
+    const gtao = new GTAOPass(this.scene, this.camera, size.x, size.y);
+    gtao.updateGtaoMaterial({ radius: 15, thickness: 15, scale: 1.6, samples: 16 }); // three's defaults are for metres: mm here
+    composer.addPass(gtao);
+    composer.addPass(new OutputPass());
+    this.render(); // its first frame has no occlusion yet: draw one more
+    return (this.ao.composer = composer);
+  }
+
+  /** Drops the ambient occlusion composer (camera or size changed): the next frame makes a new one. */
+  private dropComposer() {
+    this.ao.composer?.passes.forEach((p) => p.dispose());
+    this.ao.composer?.dispose();
+    this.ao.composer = null;
+  }
+
   render = () => {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
       this.placeWheel();
-      this.renderer.render(this.scene, this.camera);
+      if (this.ao.on) this.aoComposer().render();
+      else this.renderer.render(this.scene, this.camera);
       // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
       const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.camera.quaternion)).invert().elements;
       this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
@@ -894,6 +926,7 @@ export class Viewer implements ToolView {
     if (!w || !h) return;
     this.renderer.setSize(w, h);
     this.selectedEdges.resolution.set(w, h);
+    this.dropComposer();
     (this.axes.material as LineMaterial).resolution.set(w, h);
     this.updateFrustums(w / h);
     this.render();
@@ -1249,7 +1282,15 @@ export class Viewer implements ToolView {
       b.append(Object.assign(document.createElement('span'), { className: 'track' }), name);
       return b;
     };
-    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes));
+    const ao = button('', 'Ambient occlusion: soft shadows in corners and creases', () => {
+      this.ao.on = !this.ao.on;
+      localStorage.setItem('makermaker.ao', this.ao.on ? 'on' : 'off');
+      ao.classList.toggle('on', this.ao.on);
+      this.render();
+    });
+    ao.className = `switch${this.ao.on ? ' on' : ''}`;
+    ao.append(Object.assign(document.createElement('span'), { className: 'track' }), 'AO');
+    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes), ao);
     return bar;
   }
 
