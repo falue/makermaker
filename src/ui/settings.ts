@@ -30,24 +30,36 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     if (redraw) draw();
   };
   const body = make('div', { className: 'body' });
+  const nav = make('nav', { className: 'chapters' });
+  /** Chapters: the left column lists them, the right shows the open one. */
+  const chapters: [string, () => Node[]][] = [
+    [
+      '3D view',
+      () => {
+        const ao = input({ type: 'checkbox', checked: s.ao, onchange: () => set({ ...s, ao: ao.checked }) });
+        const bg = s.background;
+        const mode = (value: Settings['background']['mode'], label: string) =>
+          make('label', { className: 'check' }, input({ type: 'radio', name: 'bg', checked: bg.mode === value, onchange: () => set({ ...s, background: { ...bg, mode: value } }) }), label);
+        const colour = (key: 'top' | 'bottom', label: string) => {
+          const el = input({ type: 'color', value: bg[key], className: 'color' });
+          el.oninput = () => set({ ...s, background: { ...s.background, [key]: el.value } }, false); // a redraw would close the picker
+          return make('label', { className: 'check' }, el, label);
+        };
+        return [
+          make('h3', {}, 'Ambient occlusion'),
+          make('label', { className: 'check' }, ao, 'Soft shadows in corners and creases (off while a section cuts)'),
+          make('h3', {}, 'Background'),
+          make('p', { className: 'hint' }, 'Of the 3D view, and of new renders (each render keeps its own).'),
+          make('div', { className: 'row' }, mode('solid', 'Solid (the theme grey)'), mode('gradient', 'Gradient')),
+          ...(bg.mode === 'gradient' ? [make('div', { className: 'row' }, colour('top', 'Top (looking up)'), colour('bottom', 'Bottom (looking down)'))] : []),
+        ];
+      },
+    ],
+  ];
+  let open = 0;
   const draw = () => {
-    const ao = input({ type: 'checkbox', checked: s.ao, onchange: () => set({ ...s, ao: ao.checked }) });
-    const bg = s.background;
-    const mode = (value: Settings['background']['mode'], label: string) =>
-      make('label', { className: 'check' }, input({ type: 'radio', name: 'bg', checked: bg.mode === value, onchange: () => set({ ...s, background: { ...bg, mode: value } }) }), label);
-    const colour = (key: 'top' | 'bottom', label: string) => {
-      const el = input({ type: 'color', value: bg[key], className: 'color' });
-      el.oninput = () => set({ ...s, background: { ...s.background, [key]: el.value } }, false); // a redraw would close the picker
-      return make('label', { className: 'check' }, el, label);
-    };
-    body.replaceChildren(
-      make('h3', {}, '3D view'),
-      make('label', { className: 'check' }, ao, 'Ambient occlusion (soft shadows in corners; off while a section cuts)'),
-      make('h3', {}, 'Background'),
-      make('p', { className: 'hint' }, 'Of the 3D view, and of new renders (each render keeps its own).'),
-      make('div', { className: 'row' }, mode('solid', 'Solid (the theme grey)'), mode('gradient', 'Gradient')),
-      ...(bg.mode === 'gradient' ? [make('div', { className: 'row' }, colour('top', 'Top'), colour('bottom', 'Bottom'))] : []),
-    );
+    nav.replaceChildren(...chapters.map(([name], i) => make('button', { className: `chapter${i === open ? ' on' : ''}`, textContent: name, onclick: () => ((open = i), draw()) })));
+    body.replaceChildren(...chapters[open][1]());
   };
   draw();
   const close = () => {
@@ -64,7 +76,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         if (e.target === dialog) close();
       },
     },
-    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Settings'), make('button', { className: 'icon', textContent: '×', title: 'Close', onclick: close })), body),
+    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Settings'), make('button', { className: 'icon', textContent: '×', title: 'Close', onclick: close })), make('div', { className: 'columns' }, nav, body)),
   );
   addEventListener('keydown', esc, { capture: true });
   document.body.append(dialog);

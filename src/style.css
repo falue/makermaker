@@ -912,7 +912,7 @@ button.primary.wide {
   background: rgb(0 0 0 / 0.35);
 }
 .settings .box {
-  width: min(460px, 92vw);
+  width: min(620px, 94vw);
   padding: 18px 22px;
   border-radius: 12px;
   background: var(--panel);
@@ -925,4 +925,35 @@ button.primary.wide {
 }
 .settings .check {
   margin: 4px 0;
+}
+
+.settings .columns {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 18px;
+  margin-top: 10px;
+  min-height: 220px;
+}
+.settings .chapters {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+}
+.settings .chapter {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.settings .chapter.on {
+  background: var(--selected);
+  color: var(--accent);
+  font-weight: 600;
+}
+.settings .body h3:first-child {
+  margin-top: 0;
 }
