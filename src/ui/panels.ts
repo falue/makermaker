@@ -165,7 +165,8 @@ function select<T extends string>(value: T, options: Record<T, string>, onChange
   return el;
 }
 
-const button = (label: string, onclick: () => void, title = '') => h('button', { onclick, title }, label);
+/** A one-character label (×, ⇄, ✎) makes an icon button: no outline. */
+const button = (label: string, onclick: () => void, title = '') => h('button', { onclick, title, className: label.length === 1 ? 'icon' : '' }, label);
 
 function topbar(ctx: UIContext): Node[] {
   return [

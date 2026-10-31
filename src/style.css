@@ -126,6 +126,16 @@ button {
 button:hover {
   border-color: var(--muted);
 }
+button.icon {
+  padding: 3px 6px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+button.icon:hover {
+  background: var(--selected);
+  color: var(--text);
+}
 input:not([type]),
 select {
   width: 100%;
@@ -383,8 +393,6 @@ body.scrubbing * {
 }
 .sections button.icon {
   padding: 0 5px;
-  border: 0;
-  background: none;
 }
 .sections button.icon.active {
   color: var(--accent);
