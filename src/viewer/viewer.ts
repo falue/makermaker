@@ -752,11 +752,13 @@ export class Viewer implements ToolView {
     return hit?.face && hit.face.normal.dot(ray.ray.direction) < 0 ? hit : undefined;
   }
 
+  /** A face under the pointer, else the base plane facing the camera through the origin; the normal points away from the camera. */
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
-    if (!hit) return;
-    // faces point at the camera: keep the side behind the face
-    this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate() });
+    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate() });
+    const look = this.camera.getWorldDirection(new THREE.Vector3());
+    const k = this.facingAxis();
+    this.endFacePick({ point: new THREE.Vector3(), normal: unit(k).multiplyScalar(Math.sign(look.getComponent(k)) || 1) });
   }
 
   private endFacePick(face: PickedFace | null) {

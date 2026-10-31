@@ -5,7 +5,7 @@ import type { Axis } from '../viewer/viewer';
  * reset and invert (show only what is outside the handles); double-click a slider to reset it. Below: custom
  * sections (rows rendered into #custom-sections by the panels) and a button that starts a new one.
  */
-export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void, add: () => void) {
+export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void, add: () => void): (picking: boolean) => void {
   const panel = Object.assign(document.createElement('div'), { className: 'overlay bottom-left sections' });
   const tips: Record<Axis, [string, string]> = {
     x: ['Show only a slice left to right', 'Drag the handles to cut the 3D view left / right · double-click to reset'],
@@ -61,4 +61,9 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
   const more = Object.assign(document.createElement('button'), { textContent: '+ Section', title: 'A section parallel to a face you click: slanted planes too', onclick: add });
   panel.append(custom, more);
   host.append(panel);
+  // while a face is being picked the button says what to do
+  return (picking) => {
+    more.textContent = picking ? 'Click any face or plane' : '+ Section';
+    more.classList.toggle('on', picking);
+  };
 }

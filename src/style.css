@@ -602,3 +602,9 @@ canvas.drawing {
   background: var(--panel);
   border-radius: 6px;
 }
+
+.sections > button.on {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
