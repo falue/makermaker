@@ -22,6 +22,15 @@ describe('groups', () => {
     expect(tree(doc(), new Set(['a'])).map((r) => r.id).slice(0, 2)).toEqual(['a', 'p0']);
   });
 
+  it('shows sketches under the body that uses them, when unfolded', () => {
+    const d = sampleDoc();
+    const plate = d.bodies[0].id;
+    const ids = (t: Set<string>) => tree(d, t).map((r) => r.id);
+    expect(ids(new Set())).not.toContain(d.sketches[0].id); // Plate outline: folded under the Plate
+    expect(ids(new Set([plate]))).toContain(d.sketches[0].id);
+    expect(tree(d, new Set()).find((r) => r.id === plate)?.open).toBe(false);
+  });
+
   it('expands groups into what is inside', () => {
     expect(contents(doc(), ['a'])).toEqual(['p1']);
   });

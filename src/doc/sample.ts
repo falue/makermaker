@@ -32,7 +32,7 @@ const solid = (name: string, color: string, at: [number, number, number], profil
 /**
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
- * corner (both in a group), and a hex nut sunk into the disc.
+ * corner (both in a group), a hex nut sunk into the disc, and a free sketch on the front plane that no body uses yet.
  */
 export function sampleDoc(): Doc {
   const outline: Sketch = {
@@ -88,7 +88,17 @@ export function sampleDoc(): Doc {
     units: 'mm',
     params: { ply: ex('4mm') },
     bodies: [plate, disc, pin, block, ball, nut],
-    sketches: [outline],
+    sketches: [
+      outline,
+      {
+        id: newId(),
+        name: 'Free sketch',
+        group: null,
+        plane: { kind: 'base', axis: 'xz', offset: ex(60) },
+        shapes: [circle(-20, 20, 24), { ...rect(50, 30), help: true }],
+        visible: true,
+      },
+    ],
     groups: [corner],
     sections: [],
   };
