@@ -102,16 +102,21 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false) {
   const num = /^\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*([a-z]*)\s*$/i.exec(shown);
   const unit = (num?.[2] || u) as Unit;
   if (num && unit in UNITS) {
-    name.className = 'scrub';
-    name.onpointerdown = (e) => {
+    const step = { mm: 0.5, cm: 0.05, m: 0.0005, in: 0.02, ft: 0.002 }[unit]; // per px, as in incase
+    /** Scrubs once the pointer moved more than `threshold` px sideways; a press without that is a `click`. */
+    const press = (e: PointerEvent, threshold: number, click: () => void) => {
       e.preventDefault();
-      const start = e.clientX;
       const base = parseFloat(num[1]);
-      const step = { mm: 0.5, cm: 0.05, m: 0.0005, in: 0.02, ft: 0.002 }[unit]; // per px, as in incase
+      let origin: number | null = null;
       let last = shown;
       // on window: the panels are rebuilt while scrubbing
       const move = (m: PointerEvent) => {
-        const text = fmt(base + Math.round((m.clientX - start) / (m.shiftKey ? 10 : 1)) * step) + num[2];
+        if (origin === null) {
+          if (Math.abs(m.clientX - e.clientX) <= threshold) return;
+          origin = m.clientX;
+          document.body.classList.add('scrubbing');
+        }
+        const text = fmt(base + Math.round((m.clientX - origin) / (m.shiftKey ? 10 : 1)) * step) + num[2];
         if (text === last) return;
         ctx.setValue(keys, { e: text, u }, last !== shown);
         last = text;
@@ -119,11 +124,22 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false) {
       const end = () => {
         removeEventListener('pointermove', move);
         document.body.classList.remove('scrubbing');
+        if (origin === null) click();
       };
       addEventListener('pointermove', move);
       addEventListener('pointerup', end, { once: true });
-      document.body.classList.add('scrubbing');
     };
+    name.className = 'scrub';
+    name.onpointerdown = (e) => press(e, 0, () => {});
+    // in the field: drag scrubs, a click edits (once focused, the field takes text selection as usual)
+    el.classList.add('scrub');
+    el.onpointerdown = (e) =>
+      document.activeElement !== el &&
+      press(e, 3, () => {
+        const field = document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
+        field?.focus();
+        field?.select();
+      });
   }
   return h('label', { className: 'field' }, name, el);
 }

@@ -242,6 +242,9 @@ section.disabled {
   border-color: var(--accent);
 }
 
+input.scrub:not(:focus) {
+  cursor: ew-resize;
+}
 .field span.scrub {
   cursor: ew-resize;
   user-select: none;
