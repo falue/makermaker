@@ -38,8 +38,8 @@ body {
   margin: 0;
   height: 100vh;
   display: grid;
-  grid-template: 40px 1fr 24px / 220px 1fr 300px;
-  grid-template-areas: 'top top top' 'left view right' 'hint hint hint';
+  grid-template: 40px 1fr 24px / 220px 44px 1fr 300px;
+  grid-template-areas: 'top top top top' 'left tools view right' 'hint hint hint hint';
   background: var(--bg);
 }
 
@@ -484,4 +484,70 @@ canvas.drawing {
 }
 .size-label.active {
   border-color: var(--accent);
+}
+
+/* incase-style icons */
+.tool {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+.tool:hover:not(:disabled) {
+  background: var(--selected);
+  color: var(--text);
+}
+.tool.on {
+  color: var(--accent-text);
+  background: var(--accent);
+}
+.tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.tool svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+#topbar .tool {
+  width: 30px;
+  height: 30px;
+}
+#toolbar {
+  grid-area: tools;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+#toolbar hr {
+  width: 24px;
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 4px 0;
+}
+#custom-sections,
+.sections > button:last-child {
+  grid-column: 1 / -1;
+  width: 0; /* spans the columns without widening them */
+  min-width: 100%;
+}
+#custom-sections .custom {
+  display: grid;
+  grid-template-columns: auto 1fr 64px auto auto;
+  align-items: end;
+  gap: 4px;
+  margin-top: 4px;
 }

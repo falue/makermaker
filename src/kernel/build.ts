@@ -1,5 +1,6 @@
 import { draw, drawCircle, drawRoundedRectangle, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
 import { add, frames, scale, toWorld, type Frame } from '../doc/frames';
+import { nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { EdgeRule, Profile, Step } from '../doc/types';
 
@@ -90,6 +91,13 @@ function drawing(p: Resolved<Profile>): Drawing {
   }
 }
 
+/** Profiles inside an odd number of others are holes (even-odd), so a circle drawn inside a rectangle cuts it. */
+function combine(ps: Resolved<Profile>[]): Drawing {
+  const depth = nesting(ps);
+  const [first, ...rest] = ps.map((_, i) => i).sort((a, b) => depth[a] - depth[b]);
+  return rest.reduce((acc, i) => (depth[i] % 2 ? acc.cut(drawing(ps[i])) : acc.fuse(drawing(ps[i]))), drawing(ps[first]));
+}
+
 /** Cylindrical faces standing on an XY-parallel plane (circles, rounded corners), for the edge rules. */
 function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
   if (Math.abs(Math.abs(f.n[2]) - 1) > EPS) return;
@@ -107,7 +115,7 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
   if (!s.profiles.length) throw new Error('no profile to extrude');
   if (!s.through && s.depth === 0) throw new Error('depth must not be 0');
-  const outline = s.profiles.map(drawing).reduce((a, b) => a.fuse(b));
+  const outline = combine(s.profiles);
   // span along the normal; through: beyond the part on both sides
   const bounds = shape?.boundingBox;
   const far = bounds ? Math.hypot(bounds.width, bounds.height, bounds.depth) + Math.hypot(...f.o) + 1 : 0;

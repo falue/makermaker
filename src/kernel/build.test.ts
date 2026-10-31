@@ -93,6 +93,21 @@ describe('buildPart', () => {
     cut.done();
   });
 
+  it('makes shapes inside other shapes holes (even-odd)', () => {
+    const plateWithHole: BuildStep = {
+      ...(base(100) as Extract<BuildStep, { type: 'extrude' }>),
+      profiles: [
+        { id: 'r', kind: 'rect', x: 0, y: 0, w: 100, h: 60, r: 0 },
+        { id: 'c', kind: 'circle', x: 0, y: 0, d: 20 },
+      ],
+    };
+    const raw = built([base(100)]);
+    const holed = built([plateWithHole]);
+    expect(holed.faces).toBeGreaterThan(raw.faces); // the hole wall (the 2D cut may split it in two)
+    raw.done();
+    holed.done();
+  });
+
   it('reports a sketch plane whose step is gone', () => {
     const orphan: BuildStep = { ...hole, id: 'o', plane: { kind: 'cap', step: 'gone' } };
     expect(() => buildPart([base(100), orphan])).toThrow(/sketch plane lost/);

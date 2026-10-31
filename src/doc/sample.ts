@@ -48,5 +48,5 @@ export function sampleDoc(): Doc {
       { id: newId(), type: 'finish', mode: 'fillet', size: ex(2), edges: 'top', enabled: true },
     ],
   };
-  return { schema: 2, units: 'mm', params: { ply: ex('4mm') }, parts: [plate, disc] };
+  return { schema: 2, units: 'mm', params: { ply: ex('4mm') }, parts: [plate, disc], sections: [] };
 }

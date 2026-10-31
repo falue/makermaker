@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { BasePlane } from '../doc/types';
 import type { PartMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
-import { SketchTool, type Cap, type ToolHost, type ToolKind, type ToolView } from './sketch';
+import { SketchTool, type Cap, type SketchEdit, type ToolHost, type ToolKind, type ToolView } from './sketch';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -16,6 +16,17 @@ export interface ViewerHost {
   select(id: string | null, add: boolean): void;
   /** Parts were dragged to new positions (mm). */
   move(moves: { id: string; position: Vec3 }[]): void;
+  /** A typed distance in mm, or null if invalid. */
+  length(text: string): number | null;
+  /** A length in mm, as shown to the user. */
+  format(mm: number): string;
+}
+
+/** A face picked for a section: a point on it, the normal pointing away from the camera, and how deep its part reaches along that. */
+export interface PickedFace {
+  point: THREE.Vector3;
+  normal: THREE.Vector3;
+  depth: number;
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -51,8 +62,11 @@ interface Drag {
   t0: number[];
   /** Alt: free in the base plane facing the camera, through `start`. */
   plane: THREE.Plane;
-  /** Picked live by the drag direction; null while in the plane. */
+  /** Picked by the drag direction when leaving the wheel's dead zone; null inside it or in the plane. */
   axis: number | null;
+  /** A distance typed while dragging, moved exactly along the axis. */
+  typed: string | undefined;
+  last: PointerEvent | null;
   group: { id: string; from: THREE.Vector3 }[];
   moved: boolean;
   /** A click on a member of a multi-selection that does not move selects just that one. */
@@ -61,7 +75,8 @@ interface Drag {
 
 /**
  * Z-up viewport. Dragging a part moves it along one axis, picked by the drag direction like a weapon wheel (shown at
- * the press point; Alt: free in the base plane facing the camera; Ctrl snaps to `snapStep`). Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
+ * the press point; leaving its dead zone picks the axis, going back through it frees it; typing sets the distance;
+ * Alt: free in the base plane facing the camera; Ctrl snaps to `snapStep`). Clicking a cut face picks its part. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
  * to orthographic until the next rotation. Top left: Ortho / Persp and Fit. A sketch tool takes the pointer while active.
  */
 export class Viewer implements ToolView {
@@ -91,6 +106,12 @@ export class Viewer implements ToolView {
   private toolPress = false;
   private projection = document.createElement('span');
   private wheel = axisWheel();
+  private wheelPx = 70; // spoke length on screen
+  private deadPx = 24; // dead zone radius: no axis until the pointer leaves it
+  private moveLabel = Object.assign(document.createElement('div'), { className: 'size-label active', hidden: true });
+  private facePick: ((face: PickedFace | null) => void) | null = null;
+  /** Custom section planes; each keeps its positive side. */
+  private custom: THREE.Plane[] = [];
   private axes = new THREE.AxesHelper(30);
 
   /** Visible range per axis as fractions of the parts' bounding box (0..1); inverted shows only what is outside. */
@@ -124,7 +145,7 @@ export class Viewer implements ToolView {
     this.renderer.setPixelRatio(devicePixelRatio);
     this.renderer.localClippingEnabled = true;
     const canvas = this.renderer.domElement;
-    el.append(canvas, this.viewCube(), this.cameraControls());
+    el.append(canvas, this.viewCube(), this.cameraControls(), this.moveLabel);
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
@@ -145,6 +166,10 @@ export class Viewer implements ToolView {
       'pointerdown',
       (e) => {
         if (e.target !== canvas) return;
+        if (this.facePick && e.button === 0) {
+          e.stopPropagation();
+          return this.pickFaceAt(e);
+        }
         if (this.tool?.down(e)) {
           this.toolPress = true;
           canvas.setPointerCapture(e.pointerId);
@@ -161,12 +186,13 @@ export class Viewer implements ToolView {
     });
     canvas.addEventListener('dblclick', () => this.tool?.dblclick());
     canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // Ctrl+click on macOS would open it
-    // while a tool runs it sees keys first (not those typed into fields)
+    // a move, a face pick or a tool sees keys first (not those typed into fields)
     addEventListener(
       'keydown',
       (e) => {
-        if (!this.tool || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-        if (!this.tool.key(e)) return;
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+        const used = this.drag?.moved ? this.dragKey(e) : this.facePick ? e.key === 'Escape' && (this.endFacePick(null), true) : this.tool?.key(e);
+        if (!used) return;
         e.preventDefault();
         e.stopPropagation();
       },
@@ -174,14 +200,49 @@ export class Viewer implements ToolView {
     );
   }
 
+  /** The running tool: its drawing kind (null: selecting) and whether it is a sketch session. */
   get activeTool() {
-    return this.tool?.kind ?? null;
+    return this.tool ? { kind: this.tool.kind, session: this.tool.inSession } : null;
   }
 
   startTool(kind: ToolKind, host: ToolHost) {
     this.stopTool();
     this.tool = new SketchTool(kind, this, host);
     this.renderer.domElement.classList.add('drawing');
+  }
+
+  /** A sketch session: pick a plane (or reopen `edit`), draw several shapes, finish. */
+  startSketch(host: ToolHost, edit?: SketchEdit) {
+    this.stopTool();
+    this.tool = new SketchTool('rect', this, host, edit ?? true);
+    this.renderer.domElement.classList.add('drawing');
+  }
+
+  setToolKind(kind: ToolKind | null) {
+    this.tool?.setKind(kind);
+  }
+
+  finishSketch() {
+    this.tool?.finish();
+  }
+
+  lookAlong(n: THREE.Vector3) {
+    // straight up/down is a pole for the orbit controls: tilt a hair towards the front
+    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone());
+  }
+
+  /** The next click on a part picks a face (null: Esc). */
+  pickFace(done: (face: PickedFace | null) => void) {
+    this.facePick = done;
+    this.renderer.domElement.classList.add('drawing');
+  }
+
+  setCustomSections(planes: { point: Vec3; normal: Vec3 }[]) {
+    this.custom = planes.map((p) => {
+      const n = new THREE.Vector3(...p.normal).normalize();
+      return new THREE.Plane(n, -n.dot(new THREE.Vector3(...p.point)));
+    });
+    this.applySection();
   }
 
   stopTool() {
@@ -196,7 +257,7 @@ export class Viewer implements ToolView {
   }
 
   hit(e: MouseEvent) {
-    return this.raycaster(e).intersectObjects(this.meshes()).find((h) => this.shown(h.point));
+    return this.intersect(this.raycaster(e))[0];
   }
 
   facing(): BasePlane {
@@ -279,10 +340,7 @@ export class Viewer implements ToolView {
     if (!this.pick) return;
     const ids = [
       ...new Set(
-        new THREE.Raycaster(this.pick.origin, this.pick.direction)
-          .intersectObjects(this.meshes())
-          .filter((h) => this.shown(h.point))
-          .map((h) => h.object.userData.partId as string),
+        this.intersect(new THREE.Raycaster(this.pick.origin, this.pick.direction)).map((h) => h.object.userData.partId as string),
       ),
     ];
     if (!ids.length) return;
@@ -407,13 +465,16 @@ export class Viewer implements ToolView {
     this.render();
   };
 
-  /** While a move runs: at its press point, spokes a constant `px` long on screen. */
-  private placeWheel(px = 70) {
+  /** While a move runs: at its press point, spokes `wheelPx` long on screen, the dead zone ring facing the camera. */
+  private placeWheel() {
     const d = this.drag;
     this.wheel.visible = !!d?.moved;
     if (!d?.moved) return;
     this.wheel.position.copy(d.start);
-    this.wheel.scale.setScalar(px / this.pixelsPerMm(d.start));
+    this.wheel.scale.setScalar(this.wheelPx / this.pixelsPerMm(d.start));
+    const ring = this.wheel.getObjectByName('dead')!;
+    ring.quaternion.copy(this.camera.quaternion);
+    ring.scale.setScalar(this.deadPx / this.wheelPx);
   }
 
   /** The axis whose spoke points most along the drag on screen; spokes pointing at the camera (short on screen) are skipped. */
@@ -438,7 +499,40 @@ export class Viewer implements ToolView {
 
   /** Hit points in a cut-away region do not count. */
   private shown(p: THREE.Vector3) {
-    return !this.boxes.length || this.boxes.some((box) => box.every(([lo, hi], k) => p.getComponent(k) >= lo && p.getComponent(k) <= hi));
+    if (!this.boxes.length) return true;
+    return (
+      this.boxes.some((box) => box.every(([lo, hi], k) => p.getComponent(k) >= lo && p.getComponent(k) <= hi)) &&
+      this.custom.every((c) => c.distanceToPoint(p) >= 0)
+    );
+  }
+
+  /** Part hits, nearest first, outside cut-away regions; while sectioned back faces count too, so a cut face picks its part. */
+  private intersect(ray: THREE.Raycaster) {
+    const side = this.boxes.length ? THREE.DoubleSide : THREE.FrontSide;
+    this.material.side = this.selectedMaterial.side = side;
+    const hits = ray.intersectObjects(this.meshes()).filter((h) => this.shown(h.point));
+    this.material.side = this.selectedMaterial.side = THREE.FrontSide;
+    return hits;
+  }
+
+  private pickFaceAt(e: PointerEvent) {
+    const ray = this.raycaster(e);
+    const hit = this.intersect(ray)[0];
+    if (!hit?.face || hit.face.normal.dot(ray.ray.direction) > 0) return;
+    const normal = hit.face.normal.clone().negate(); // faces point at the camera: keep the side behind the face
+    const box = new THREE.Box3().setFromObject(hit.object);
+    let depth = 0;
+    for (const x of [box.min.x, box.max.x])
+      for (const y of [box.min.y, box.max.y])
+        for (const z of [box.min.z, box.max.z]) depth = Math.max(depth, normal.dot(new THREE.Vector3(x, y, z).sub(hit.point)));
+    this.endFacePick({ point: hit.point.clone(), normal, depth });
+  }
+
+  private endFacePick(face: PickedFace | null) {
+    const done = this.facePick;
+    this.facePick = null;
+    if (!this.tool) this.renderer.domElement.classList.remove('drawing');
+    done?.(face);
   }
 
   /**
@@ -455,7 +549,7 @@ export class Viewer implements ToolView {
     });
     this.sectionView.clear();
     const axes = ['x', 'y', 'z'] as const;
-    const active = axes.some((a) => this.inverted[a] || this.sections[a][0] > 0 || this.sections[a][1] < 1);
+    const active = this.custom.length > 0 || axes.some((a) => this.inverted[a] || this.sections[a][0] > 0 || this.sections[a][1] < 1);
     if (rebound) {
       const bounds = new THREE.Box3();
       for (const g of this.parts.values()) bounds.expandByObject(g);
@@ -486,6 +580,7 @@ export class Viewer implements ToolView {
           ...(Number.isFinite(hi) ? [new THREE.Plane(n.clone().negate(), hi - eps)] : []),
         ];
       });
+      planes.push(...this.custom.map((c) => new THREE.Plane(c.normal.clone(), c.constant - eps)));
       for (const plane of planes) {
         order++;
         for (const g of this.parts.values()) {
@@ -619,6 +714,8 @@ export class Viewer implements ToolView {
     const start = hit.point.clone();
     this.controls.enabled = false;
     this.drag = {
+      typed: undefined,
+      last: null,
       start,
       t0: [0, 1, 2].map((k) => along(ray.ray, start, unit(k))),
       // the base plane facing the camera most (top view: XY, front: XZ, side: YZ)
@@ -631,7 +728,6 @@ export class Viewer implements ToolView {
     this.renderer.domElement.setPointerCapture(e.pointerId);
   }
 
-  /** Moves the dragged parts together along the wheel's axis (Alt: in the plane); the first one lands on the snap step (Ctrl). */
   private move(e: PointerEvent) {
     const d = this.drag;
     if (!d) {
@@ -639,37 +735,83 @@ export class Viewer implements ToolView {
       if (e.buttons === 1 && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.dragged(e)) this.leaveSideView();
       return;
     }
-    if (!d.moved && !this.dragged(e, 8)) return; // a few pixels first, so the direction is clear
+    if (!d.moved && !this.dragged(e)) return;
     d.moved = true;
+    d.last = e;
+    this.applyDrag(d);
+  }
+
+  /**
+   * Moves the dragged parts together: inside the dead zone they stay put and the axis is free; leaving it picks the axis
+   * whose spoke points most along the drag, kept until the pointer comes back through. A typed distance moves exactly
+   * that far (in the direction dragged); else the first part lands on the snap step (Ctrl). Alt: free in the plane.
+   */
+  private applyDrag(d: Drag) {
+    const e = d.last!;
     this.placeWheel();
     const ray = this.raycaster(e).ray;
-    let delta: THREE.Vector3 | null;
+    const typed = d.typed === undefined ? null : this.host.length(d.typed);
+    let delta: THREE.Vector3 | null = new THREE.Vector3();
+    let text: string;
     if (e.altKey) {
       d.axis = null;
       delta = ray.intersectPlane(d.plane, new THREE.Vector3())?.sub(d.start) ?? null;
+      text = 'free';
+    } else if (Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) < this.deadPx) {
+      d.axis = null;
+      text = 'pick a direction';
     } else {
-      d.axis = this.wheelAxis(e, d.start);
-      delta = unit(d.axis).multiplyScalar(along(ray, d.start, unit(d.axis)) - d.t0[d.axis]);
+      d.axis ??= this.wheelAxis(e, d.start);
+      const pulled = along(ray, d.start, unit(d.axis)) - d.t0[d.axis];
+      delta = unit(d.axis).multiplyScalar(typed === null ? pulled : typed * (Math.sign(pulled) || 1));
+      text = 'XYZ'[d.axis];
     }
     choose(this.wheel, d.axis);
-    if (!delta) return;
-    const step = e.ctrlKey ? this.snapStep : 0.1;
-    const lead = d.group[0].from;
-    const by = new THREE.Vector3(
-      round(lead.x + delta.x, step) - lead.x,
-      round(lead.y + delta.y, step) - lead.y,
-      round(lead.z + delta.z, step) - lead.z,
-    );
-    for (const g of d.group) this.group(g.id).position.copy(g.from).add(by);
+    if (delta) {
+      const step = e.ctrlKey ? this.snapStep : 0.1;
+      const lead = d.group[0].from;
+      const by =
+        (typed !== null && d.axis !== null) || !delta.lengthSq()
+          ? delta
+          : new THREE.Vector3(round(lead.x + delta.x, step) - lead.x, round(lead.y + delta.y, step) - lead.y, round(lead.z + delta.z, step) - lead.z);
+      for (const g of d.group) this.group(g.id).position.copy(g.from).add(by);
+      if (d.axis !== null) text += ` ${d.typed === undefined ? this.host.format(by.getComponent(d.axis)) : `${d.typed}▏`}`;
+    }
+    const [x, y] = this.toScreen(d.start);
+    Object.assign(this.moveLabel, { hidden: false, textContent: text });
+    this.moveLabel.style.cssText = `left:${x + 60}px;top:${y + 40}px`;
     this.applySection(false);
+  }
+
+  /** Keys during a move: typing sets the distance, Enter keeps the move, Esc undoes it. */
+  private dragKey(e: KeyboardEvent): boolean {
+    const d = this.drag!;
+    if (e.key === 'Enter' || e.key === 'Escape') this.endDrag(e.key === 'Enter');
+    else if (e.key === 'Backspace') d.typed = d.typed?.slice(0, -1) || undefined;
+    else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) d.typed = (d.typed ?? '') + e.key;
+    else return false;
+    if (this.drag) this.applyDrag(d);
+    return true;
+  }
+
+  /** Ends a move: hands the new positions over, or puts the parts back. */
+  private endDrag(keep: boolean) {
+    const d = this.drag;
+    this.drag = null;
+    this.controls.enabled = true;
+    this.moveLabel.hidden = true;
+    if (!d) return;
+    if (keep && d.moved) this.host.move(d.group.map((g) => ({ id: g.id, position: this.group(g.id).position.toArray() })));
+    else for (const g of d.group) this.group(g.id).position.copy(g.from);
+    this.applySection();
   }
 
   /** Ends a move, or handles a click: on empty space it deselects (unless Shift). */
   private up(e: PointerEvent) {
     const d = this.drag;
+    if (d?.moved) return this.endDrag(true);
     this.drag = null;
     this.controls.enabled = true;
-    if (d?.moved) return this.host.move(d.group.map((g) => ({ id: g.id, position: this.group(g.id).position.toArray() })));
     if (d?.only) return this.host.select(d.only, false);
     if (!d && !this.downOnPart && e.button === 0 && !e.shiftKey && !this.dragged(e)) this.host.select(null, false);
   }

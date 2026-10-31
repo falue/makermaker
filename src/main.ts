@@ -11,7 +11,7 @@ import type { BuildStep } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
-import type { Cap, SketchResult, ToolKind } from './viewer/sketch';
+import type { Cap, Drawn, SketchResult, ToolHost, ToolKind } from './viewer/sketch';
 import { Viewer, type Vec3 } from './viewer/viewer';
 
 const history = new History<Doc>(sampleDoc());
@@ -27,10 +27,32 @@ let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; sa
 };
 let status = '';
 let toolHint: string | null = null;
+let autosave = localStorage.getItem('makermaker.autosave') === 'on';
+let autosaveTimer = 0;
 
-const viewer = new Viewer(document.getElementById('viewport')!, { select, move: place });
+const len = (mm: number, typed?: string) => ex(typed ?? fmt(mm / UNITS[history.current.units]), history.current.units);
 
-sectionControls(document.getElementById('viewport')!, (axis, from, to, inverted) => viewer.setSection(axis, from, to, inverted));
+/** A typed length in mm, or null if invalid. */
+function length(text: string) {
+  try {
+    return evalLength({ e: text, u: history.current.units }, paramLookup(history.current.params));
+  } catch {
+    return null;
+  }
+}
+
+const viewer = new Viewer(document.getElementById('viewport')!, {
+  select,
+  move: place,
+  length,
+  format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
+});
+
+sectionControls(
+  document.getElementById('viewport')!,
+  (axis, from, to, inverted) => viewer.setSection(axis, from, to, inverted),
+  newSection,
+);
 
 const kernel = new Kernel((r) => {
   if (!history.current.parts.some((p) => p.id === r.id)) return; // deleted while it was built
@@ -71,6 +93,12 @@ function update() {
     }
   });
   viewer.caps = caps;
+  viewer.setCustomSections(
+    doc.sections.flatMap((c, i) => {
+      const offset = resolve(c.offset, lookup, `sections.${i}.offset`, exprErrors);
+      return c.enabled && Number.isFinite(offset) ? [{ point: c.origin.map((v, k) => v + c.normal[k] * offset) as Vec3, normal: c.normal }] : [];
+    }),
+  );
   const ids = new Set(doc.parts.map((p) => p.id));
   for (const id of kernelErrors.keys()) if (!ids.has(id)) kernelErrors.delete(id);
   for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id);
@@ -78,6 +106,7 @@ function update() {
   viewer.select(selected);
   viewer.retain(ids);
   kernel.build(builds);
+  scheduleAutosave();
   render();
 }
 
@@ -122,23 +151,20 @@ function remove() {
   commit({ ...history.current, parts: history.current.parts.filter((p) => !selected.includes(p.id)) });
 }
 
-/** A drawn and pulled shape becomes an extrude step: on the part it was drawn on, or as a new part. */
+/** Drawn shapes become an extrude step: on the part they were drawn on, or as a new part; or they replace an edited step's shapes. */
 function sketched(r: SketchResult) {
   const doc = history.current;
-  const u = doc.units;
-  const len = (mm: number, typed?: string) => ex(typed ?? fmt(mm / UNITS[u]), u);
-  const p = r.profile;
-  const t = r.typed;
-  const id = newId();
-  const profile: Profile =
-    p.kind === 'rect'
-      ? { id, kind: 'rect', x: len(p.x), y: len(p.y), w: len(p.w, t.w), h: len(p.h, t.h), r: len(p.r) }
-      : p.kind === 'circle'
-        ? { id, kind: 'circle', x: len(p.x), y: len(p.y), d: len(p.d, t.d) }
-        : { id, kind: 'polygon', pts: p.pts.map(([x, y]) => [+fmt(x), +fmt(y)]), r: len(p.r) };
-  const plane: SketchPlane = r.plane.kind === 'base' ? { ...r.plane, offset: len(r.plane.offset) } : r.plane;
-  const step: Step = { id: newId(), type: 'extrude', plane, profiles: [profile], depth: len(r.depth, t.depth), mode: r.mode, through: false };
   const i = doc.parts.findIndex((q) => q.id === r.part);
+  const editing = i >= 0 && r.edit ? doc.parts[i].steps.find((s) => s.id === r.edit) : undefined;
+  const kept = editing?.type === 'extrude' ? editing.profiles : [];
+  const profiles = r.shapes.map((d) => kept.find((k) => k.id === d.id) ?? profileOf(d));
+  if (editing) {
+    selected = [r.part!];
+    const steps = doc.parts[i].steps.map((s) => (s === editing ? { ...editing, profiles } : s));
+    return commit(setIn(doc, ['parts', String(i), 'steps'], steps));
+  }
+  const plane: SketchPlane = r.plane.kind === 'base' ? { ...r.plane, offset: len(r.plane.offset) } : r.plane;
+  const step: Step = { id: newId(), type: 'extrude', plane, profiles, depth: len(r.depth, r.depthTyped), mode: r.mode, through: false };
   if (i >= 0) {
     // before the finishing steps, so the list reads in build order
     const steps = doc.parts[i].steps;
@@ -151,26 +177,96 @@ function sketched(r: SketchResult) {
   commit({ ...doc, parts: [...doc.parts, part] });
 }
 
+function profileOf({ profile: p, typed: t }: Drawn): Profile {
+  const id = newId();
+  if (p.kind === 'rect') return { id, kind: 'rect', x: len(p.x), y: len(p.y), w: len(p.w, t.w), h: len(p.h, t.h), r: len(p.r) };
+  if (p.kind === 'circle') return { id, kind: 'circle', x: len(p.x), y: len(p.y), d: len(p.d, t.d) };
+  return { id, kind: 'polygon', pts: p.pts.map(([x, y]) => [+fmt(x), +fmt(y)]), r: len(p.r) };
+}
+
+const toolHost: ToolHost = {
+  length,
+  done(result) {
+    viewer.stopTool();
+    toolHint = null;
+    if (result) sketched(result);
+    else render();
+  },
+  hint(text) {
+    toolHint = text;
+    render();
+  },
+};
+
 function startTool(kind: ToolKind) {
-  viewer.startTool(kind, {
-    length(text) {
-      try {
-        return evalLength({ e: text, u: history.current.units }, paramLookup(history.current.params));
-      } catch {
-        return null;
-      }
-    },
-    done(result) {
-      viewer.stopTool();
-      toolHint = null;
-      if (result) sketched(result);
-      else render();
-    },
-    hint(text) {
-      toolHint = text;
-      render();
-    },
+  viewer.startTool(kind, toolHost);
+  render();
+}
+
+/** Reopens an extrude step's sketch (`step`), or starts a new sketch session. */
+function startSketch(edit?: { part: string; step: string }) {
+  const part = history.current.parts.find((p) => p.id === edit?.part);
+  if (!edit || !part) return viewer.startSketch(toolHost), render();
+  const steps = resolve(part.steps, paramLookup(history.current.params), '', new Map());
+  const step = steps.find((s) => s.id === edit.step);
+  const frame = frames(steps).get(edit.step);
+  if (step?.type !== 'extrude' || !frame) return notify('This sketch cannot be opened: its plane is lost or a value is invalid');
+  viewer.startSketch(toolHost, {
+    step: step.id,
+    part: part.id,
+    plane: step.plane,
+    frame: moved(frame, positions.get(part.id) ?? [0, 0, 0]),
+    shapes: step.profiles.map(({ id, ...profile }) => ({ profile, typed: {}, id })),
   });
+  render();
+}
+
+/** Picks a face; a section parallel to it cuts through the middle of its part, removing the side towards the camera. */
+function newSection() {
+  toolHint = 'Click a face: the new section runs parallel to it · [Esc] cancels';
+  render();
+  viewer.pickFace((face) => {
+    toolHint = null;
+    if (!face) return render();
+    const doc = history.current;
+    const section = {
+      id: newId(),
+      name: `Section ${doc.sections.length + 1}`,
+      origin: face.point.toArray(),
+      normal: face.normal.toArray(),
+      offset: len(face.depth / 2),
+      enabled: true,
+    };
+    commit({ ...doc, sections: [...doc.sections, section] });
+  });
+}
+
+/** Autosave writes in place (no history snapshot) a moment after the last change; it needs a file handle. */
+function scheduleAutosave(delay = 1500) {
+  clearTimeout(autosaveTimer);
+  if (!autosave || !file.handle || history.current === file.saved) return;
+  autosaveTimer = window.setTimeout(
+    () =>
+      run(async () => {
+        const doc = history.current;
+        await saveFile(pack(doc, file.versions), file.name, file.handle);
+        file = { ...file, saved: doc };
+        notify(`Autosaved ${new Date().toLocaleTimeString()}`);
+      }),
+    delay,
+  );
+}
+
+async function toggleAutosave() {
+  autosave = !autosave;
+  if (autosave && !window.showSaveFilePicker) {
+    autosave = false;
+    return notify('Autosave needs a Chromium browser');
+  }
+  if (autosave && !file.handle) await save(); // asks where to save once
+  if (!file.handle) autosave = false;
+  localStorage.setItem('makermaker.autosave', autosave ? 'on' : 'off');
+  scheduleAutosave();
   render();
 }
 
@@ -207,6 +303,7 @@ function render() {
     status,
     tool: viewer.activeTool,
     hint: toolHint,
+    autosave,
     notify,
     paramValue(name) {
       try {
@@ -225,8 +322,15 @@ function render() {
     },
     select,
     startTool,
+    startSketch,
+    setToolKind: (kind) => viewer.setToolKind(kind),
+    finishSketch: () => viewer.finishSketch(),
+    cancelTool: () => toolHost.done(null),
+    toggleAutosave: () => run(toggleAutosave),
+    duplicate: () => duplicate(),
+    remove,
     newDoc() {
-      load({ schema: 2, units: history.current.units, params: {}, parts: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 2, units: history.current.units, params: {}, parts: [], sections: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -293,10 +397,12 @@ addEventListener('keydown', (e) => {
   if (mod && key === 's') run(save);
   else if (mod && key === 'o') run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+  else if (viewer.activeTool?.session) return; // the sketch takes its own keys
   else if (mod && key === 'z') undo(e.shiftKey);
   else if (mod && key === 'y') undo(true);
   else if (plain && key === 'f') viewer.fit();
   else if (plain && TOOL_KEYS[key]) startTool(TOOL_KEYS[key]);
+  else if (plain && key === 's') startSketch();
   else if (e.key === 'Tab') viewer.cycle(e.shiftKey ? -1 : 1);
   else if (selected.length && arrows[e.key]) {
     // nudges along the world axis nearest to the arrow's screen direction

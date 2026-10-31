@@ -43,14 +43,15 @@ function fromV1(doc: { params: Doc['params']; units: Doc['units']; parts: (Omit<
       return s;
     }),
   }));
-  return { schema: 2, units: doc.units, params: doc.params, parts };
+  return { schema: 2, units: doc.units, params: doc.params, parts, sections: [] };
 }
 
 export function migrate(raw: unknown): Doc {
   const doc = raw as { schema?: number };
   if (doc?.schema === 1) return fromV1(raw as Parameters<typeof fromV1>[0]);
   if (doc?.schema !== 2) throw new Error(`unsupported document schema: ${doc?.schema}`);
-  return raw as Doc;
+  const doc2 = raw as Doc;
+  return { ...doc2, sections: doc2.sections ?? [] }; // sections came later within schema 2
 }
 
 /** ZIP with document.json plus one history snapshot per save. */

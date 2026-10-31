@@ -9,8 +9,8 @@ export function along(ray: THREE.Ray, o: THREE.Vector3, d: THREE.Vector3) {
 }
 
 /**
- * Axis wheel for moving, 1 unit per spoke (the viewer scales it to a constant screen size): a double arrow per axis
- * and a ball in the middle. Drawn over everything.
+ * Axis wheel for moving, 1 unit per spoke (the viewer scales it to a constant screen size): a double arrow per axis,
+ * a ball in the middle and a ring for the dead zone. Drawn over everything.
  */
 export function axisWheel(colors = [0xe0503c, 0x4caf50, 0x3b7be0], centre = 0x9e9e9e): THREE.Group {
   const wheel = new THREE.Group();
@@ -27,7 +27,9 @@ export function axisWheel(colors = [0xe0503c, 0x4caf50, 0x3b7be0], centre = 0x9e
     spoke.userData.axis = k;
     wheel.add(spoke);
   });
-  wheel.add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 8), look(centre)));
+  const dead = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 48), look(centre));
+  dead.name = 'dead'; // the dead zone, radius 1 (the viewer scales it and turns it to the camera)
+  wheel.add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 8), look(centre)), dead);
   wheel.traverse((o) => (o.renderOrder = 1e7));
   wheel.visible = false;
   return wheel;

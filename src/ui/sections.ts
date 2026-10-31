@@ -2,9 +2,10 @@ import type { Axis } from '../viewer/viewer';
 
 /**
  * Section panel (bottom left of the 3D view), as in incase: per axis a two-handle slider for the shown range,
- * reset and invert (show only what is outside the handles); double-click a slider to reset it.
+ * reset and invert (show only what is outside the handles); double-click a slider to reset it. Below: custom
+ * sections (rows rendered into #custom-sections by the panels) and a button that starts a new one.
  */
-export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void) {
+export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void, add: () => void) {
   const panel = Object.assign(document.createElement('div'), { className: 'overlay bottom-left sections' });
   const tips: Record<Axis, [string, string]> = {
     x: ['Show only a slice left to right', 'Drag the handles to cut the 3D view left / right · double-click to reset'],
@@ -56,5 +57,8 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
     tools.append(button('↺', 'Show the whole range again', reset), invert);
     panel.append(Object.assign(document.createElement('span'), { textContent: axis.toUpperCase(), title: tips[axis][0] }), tools, slider);
   }
+  const custom = Object.assign(document.createElement('div'), { id: 'custom-sections' });
+  const more = Object.assign(document.createElement('button'), { textContent: '+ Section', title: 'A section parallel to a face you click: slanted planes too', onclick: add });
+  panel.append(custom, more);
   host.append(panel);
 }

@@ -3,6 +3,7 @@ import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
 import type { BasePlane, Doc, EdgeRule, Expr, Part, Profile, Step, Unit } from '../doc/types';
 import type { ToolKind } from '../viewer/sketch';
+import { tool } from './icons';
 
 export interface UIContext {
   doc: Doc;
@@ -12,9 +13,11 @@ export interface UIContext {
   title: string;
   dirty: boolean;
   status: string;
-  tool: ToolKind | null;
+  /** The running tool: its drawing kind (null: selecting) and whether it is a sketch session. */
+  tool: { kind: ToolKind | null; session: boolean } | null;
   /** Replaces the hint bar text while a tool runs. */
   hint: string | null;
+  autosave: boolean;
   notify(message: string): void;
   paramValue(name: string): string;
   commit(doc: Doc): void;
@@ -22,6 +25,14 @@ export interface UIContext {
   setValue(path: string[], value: unknown, live?: boolean): void;
   select(id: string | null, add?: boolean): void;
   startTool(kind: ToolKind): void;
+  /** A new sketch session, or reopening an extrude step's sketch. */
+  startSketch(edit?: { part: string; step: string }): void;
+  setToolKind(kind: ToolKind | null): void;
+  finishSketch(): void;
+  cancelTool(): void;
+  toggleAutosave(): void;
+  duplicate(): void;
+  remove(): void;
   newDoc(): void;
   open(): void;
   save(): void;
@@ -51,6 +62,8 @@ export function renderUI(ctx: UIContext) {
   const typing = active?.dataset.dirty ? { value: active.value, from: active.selectionStart, to: active.selectionEnd } : null;
   rendering = true;
   $('topbar').replaceChildren(...topbar(ctx));
+  $('toolbar').replaceChildren(...toolbar(ctx));
+  $('custom-sections').replaceChildren(...customSections(ctx));
   $('left').replaceChildren(...left(ctx));
   $('right').replaceChildren(...right(ctx));
   $('hint').innerHTML = (ctx.hint ?? hint(ctx.selected.length)).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
@@ -157,22 +170,12 @@ const button = (label: string, onclick: () => void, title = '') => h('button', {
 function topbar(ctx: UIContext): Node[] {
   return [
     h('strong', {}, 'MAKERMAKER'),
-    button('New', ctx.newDoc),
-    button('Open', ctx.open, 'Cmd+O, or drop a file'),
-    button('Save', ctx.save, 'Cmd+S'),
-    button('Undo', ctx.undo, 'Cmd+Z'),
-    button('Redo', ctx.redo, 'Cmd+Shift+Z'),
-    h(
-      'span',
-      { className: 'segmented' },
-      ...([
-        ['rect', 'Rectangle', 'R'],
-        ['circle', 'Circle', 'C'],
-        ['polygon', 'Polygon', 'P'],
-      ] as const).map(([kind, label, key]) =>
-        h('button', { className: ctx.tool === kind ? 'on' : '', title: `Draw a ${label.toLowerCase()} and pull it up (${key})`, onclick: () => ctx.startTool(kind) }, label),
-      ),
-    ),
+    tool('new', 'New', ctx.newDoc),
+    tool('open', 'Open (⌘O, or drop a file)', ctx.open),
+    tool('save', 'Save (⌘S)', ctx.save),
+    tool('autosave', `Autosave ${ctx.autosave ? 'on' : 'off'}: saves into the file a moment after each change`, ctx.toggleAutosave, ctx.autosave),
+    tool('undo', 'Undo (⌘Z)', ctx.undo),
+    tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
     select(
       ctx.doc.units,
       Object.fromEntries(Object.keys(UNITS).map((u) => [u, u])) as Record<Unit, string>,
@@ -181,6 +184,50 @@ function topbar(ctx: UIContext): Node[] {
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
     h('span', { className: 'status' }, ctx.status),
   ];
+}
+
+/** Left of the 3D view (incase's toolbar): drawing tools, or the sketch session's tools while sketching. */
+function toolbar(ctx: UIContext): Node[] {
+  const t = ctx.tool;
+  const shapes = [
+    ['rect', 'Rectangle (R)'],
+    ['circle', 'Circle (C)'],
+    ['polygon', 'Polygon (P)'],
+  ] as const;
+  if (t?.session)
+    return [
+      tool('select', 'Select shapes (Esc)', () => ctx.setToolKind(null), t.kind === null),
+      ...shapes.map(([kind, title]) => tool(kind, title, () => ctx.setToolKind(kind), t.kind === kind)),
+      h('hr'),
+      tool('finish', 'Finish the sketch and pull it (Enter)', ctx.finishSketch),
+      tool('cancel', 'Cancel the sketch', ctx.cancelTool),
+    ];
+  const none = !ctx.selected.length;
+  return [
+    ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up`, () => ctx.startTool(kind), t?.kind === kind)),
+    tool('sketch', 'Sketch (S): pick a plane, draw several shapes, then pull them', () => ctx.startSketch()),
+    h('hr'),
+    tool('duplicate', 'Duplicate (⌘D)', ctx.duplicate, false, none),
+    tool('delete', 'Delete (Del)', ctx.remove, false, none),
+  ];
+}
+
+/** Rows of the custom sections, in the section panel: on/off, name, offset, flip, delete. */
+function customSections(ctx: UIContext): Node[] {
+  const { doc } = ctx;
+  const set = (i: number, next: Partial<(typeof doc.sections)[number]>) =>
+    ctx.commit({ ...doc, sections: doc.sections.map((c, k) => (k === i ? { ...c, ...next } : c)) });
+  return doc.sections.map((c, i) => {
+    const on = h('input', { type: 'checkbox', checked: c.enabled, title: 'Show this section' });
+    on.onchange = () => set(i, { enabled: on.checked });
+    const name = input(`sections.${i}.name`, c.name, (text) => set(i, { name: text }));
+    // flipping keeps the plane where it is: the offset turns with the normal
+    const e = c.offset.e.trim();
+    const negated = isPlain(e) ? fmt(-parseFloat(e)) : /^-\(.*\)$/.test(e) ? e.slice(2, -1) : `-(${e})`;
+    const flip = button('⇄', () => set(i, { normal: c.normal.map((v) => -v) as typeof c.normal, offset: { ...c.offset, e: negated } }), 'Keep the other side');
+    const drop = button('×', () => ctx.commit({ ...doc, sections: doc.sections.filter((_, k) => k !== i) }), 'Delete this section');
+    return h('div', { className: 'custom' }, on, name, exprField(ctx, `sections.${i}.offset`, 'Offset'), flip, drop);
+  });
 }
 
 const RESERVED = new Set([...Object.keys(UNITS), 'pi', 'sqrt', 'abs', 'min', 'max']);
@@ -300,10 +347,11 @@ function stepCard(ctx: UIContext, part: Part, step: Step, at: string, setPart: (
         };
         return h('div', { className: 'row profile' }, ...fields[p.kind](), ...(step.profiles.length > 1 ? [drop] : []));
       });
+      const edit = button('✎', () => ctx.startSketch({ part: part.id, step: step.id }), 'Edit the sketch: add or remove shapes');
       return h(
         'section',
         {},
-        h('h4', {}, name(step), mode, remove),
+        h('h4', {}, name(step), mode, edit, remove),
         h('div', { className: 'row' }, plane, ...(step.plane.kind === 'base' ? [f('plane.offset', 'Offset')] : [])),
         ...profiles,
         h('div', { className: 'row' }, ...reach),

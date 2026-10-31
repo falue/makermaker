@@ -31,9 +31,20 @@ export interface Part {
   steps: Step[];
 }
 
+/** Custom section plane (world coordinates): keeps the side `normal` points to, cut at `origin` moved `offset` along it. */
+export interface Section {
+  id: string;
+  name: string;
+  origin: [number, number, number];
+  normal: [number, number, number];
+  offset: Expr;
+  enabled: boolean;
+}
+
 export interface Doc {
   schema: 2;
   units: Unit;
   params: Record<string, Expr>;
   parts: Part[];
+  sections: Section[];
 }
