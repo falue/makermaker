@@ -28,6 +28,11 @@ describe('pushed', () => {
     expect(pushed({ kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: 0, rot: 90 }, 1, 4)).toMatchObject({ y: 2, w: 44 });
   });
 
+  it('pushes a rect side on through the opposite one', () => {
+    // the right side (x 20) pushed 60 inwards: it ends at -40, the left side (-20) stays
+    expect(pushed({ kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: 0, rot: 0 }, 1, -60)).toMatchObject({ x: -30, w: 20, h: 20 });
+  });
+
   it('moves both corners of a polygon side', () => {
     const p = pushed({ kind: 'polygon', pts: [[0, 0], [10, 0], [0, 10]], r: 0, rot: 0 }, 0, 2);
     expect(p.kind === 'polygon' && p.pts).toEqual([[0, -2], [10, -2], [0, 10]]);

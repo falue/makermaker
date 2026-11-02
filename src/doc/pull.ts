@@ -104,17 +104,20 @@ export function sideOf(p: DrawnProfile, [u, v]: UV, n: UV, eps: number): { edge:
   return null;
 }
 
-/** Shape `p` with side `edge` moved `by` mm outwards: rect sides move alone, circles and regular polygons grow evenly. */
+/**
+ * Shape `p` with side `edge` moved `by` mm outwards: rect sides move alone, circles and regular polygons grow evenly.
+ * A side pushed past the opposite one goes on through it: the shape lies beyond it (sizes stay positive).
+ */
 export function pushed(p: DrawnProfile, edge: number, by: number): DrawnProfile {
   if (p.kind === 'line') return p; // never extruded: no side
-  if (p.kind === 'circle') return { ...p, d: p.d + 2 * by };
-  if (p.kind === 'ngon') return { ...p, d: p.d + (2 * by) / Math.cos(Math.PI / Math.max(3, Math.round(p.sides))) };
+  if (p.kind === 'circle') return { ...p, d: Math.abs(p.d + 2 * by) };
+  if (p.kind === 'ngon') return { ...p, d: Math.abs(p.d + (2 * by) / Math.cos(Math.PI / Math.max(3, Math.round(p.sides)))) };
   const a = (p.rot * Math.PI) / 180;
   const turn = ([x, y]: UV, k: number): UV => [x * Math.cos(k) - y * Math.sin(k), x * Math.sin(k) + y * Math.cos(k)];
   if (p.kind === 'rect') {
     const dir: UV = ([[0, -1], [1, 0], [0, 1], [-1, 0]] as UV[])[edge]; // corners run bottom, right, top, left
     const [gx, gy] = turn([(dir[0] * by) / 2, (dir[1] * by) / 2], a);
-    return { ...p, x: p.x + gx, y: p.y + gy, w: p.w + Math.abs(dir[0]) * by, h: p.h + Math.abs(dir[1]) * by };
+    return { ...p, x: p.x + gx, y: p.y + gy, w: Math.abs(p.w + Math.abs(dir[0]) * by), h: Math.abs(p.h + Math.abs(dir[1]) * by) };
   }
   // polygon: both corners of the side move; corners are stored unturned around their (new) centre
   const pts = corners(p);
