@@ -96,17 +96,12 @@ export function placeFrame(pl: Place, f: Frame, back = false): Frame {
   return { o: map(pl, f.o), x: map(pl, f.x, true), y: map(pl, f.y, true), n: map(pl, f.n, true) };
 }
 
-/** A cut plane's frame: turned `tilt` degrees around the body's X, then Y, then Z (about `o`), moved `offset` along its normal. */
-export function cutPlane(c: { o: V3; x: V3; n: V3; tilt: [number, number, number]; offset: number }): Frame {
-  // v turned by `deg` around unit axis `k` (Rodrigues)
-  const turn = (v: V3, k: V3, deg: number): V3 => {
-    const [a, cos, sin] = [(deg * Math.PI) / 180, Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180)];
-    const kv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
-    const kx: V3 = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
-    return a ? [0, 1, 2].map((i) => v[i] * cos + kx[i] * sin + k[i] * kv * (1 - cos)) as V3 : v;
-  };
-  const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  let [x, n] = [c.x, c.n];
-  ([[1, 0, 0], [0, 1, 0], [0, 0, 1]] as V3[]).forEach((axis, k) => ([x, n] = [turn(x, axis, c.tilt[k]), turn(n, axis, c.tilt[k])]));
-  return { o: add(c.o, scale(n, c.offset)), x, y: cross(n, x), n };
+/** A cut plane's frame: moved `offset` along its normal, turned `turn` degrees around `axis` (none: its x through its moved `o`). */
+export function cutPlane(c: { o: V3; x: V3; n: V3; turn: number; axis: { at: V3; dir: V3 } | null; offset: number }): Frame {
+  const { at, dir } = c.axis ?? { at: add(c.o, scale(c.n, c.offset)), dir: c.x };
+  const k = scale(dir, 1 / Math.hypot(...dir));
+  const [x, n] = [turned(c.x, k, c.turn), turned(c.n, k, c.turn)];
+  const o = add(at, turned(add(add(c.o, scale(c.n, c.offset)), scale(at, -1)), k, c.turn)); // the moved point turned around the axis line
+  const y: V3 = [n[1] * x[2] - n[2] * x[1], n[2] * x[0] - n[0] * x[2], n[0] * x[1] - n[1] * x[0]];
+  return { o, x, y, n };
 }

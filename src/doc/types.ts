@@ -115,14 +115,14 @@ export type Feature =
 
 /**
  * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the
- * other) of a plane (body-local through `o`, normal `n`, `x` along it; turned `tilt` degrees around the body's X, then
- * Y, then Z, then moved `offset` along its normal) or of a sketch shape cut straight through along its sketch's normal (linked;
+ * other) of a plane (body-local through `o`, normal `n`, `x` along it; moved `offset` along its normal, then turned
+ * `turn` degrees around `axis`: a line through `at` along `dir`, none: its own x through its moved `o`) or of a sketch shape cut straight through along its sketch's normal (linked;
  * a line moved `offset` to its left).
  */
 export interface SplitFeature {
   id: string;
   type: 'split';
-  cutter: { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; n: [number, number, number]; tilt: [Expr, Expr, Expr]; offset: Expr } | { kind: 'shape'; sketch: string; shape: string; offset: Expr };
+  cutter: { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; n: [number, number, number]; turn: Expr; axis: { at: [number, number, number]; dir: [number, number, number] } | null; offset: Expr } | { kind: 'shape'; sketch: string; shape: string; offset: Expr };
   side: 1 | -1;
 }
 

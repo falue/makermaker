@@ -11,7 +11,7 @@ import type { Backdrop, BasePlane, CameraState } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { area, bounds, centre, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
+import { area, bounds, centre, corners, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
 import { lineFaceAt, type Face } from '../doc/arrangement';
 import { anchorAt, angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
@@ -76,6 +76,9 @@ export type Aim = { at: THREE.Vector3; what: string };
 /** A sketch shape under the pointer for Extrude (`onLine`: on its outline), or a face its lines enclose there. */
 type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number]; onLine: boolean } | { sketch: ViewSketch; face: Face };
 
+/** A line to turn around (world): through `at` along unit `dir`; `what` it was taken from. */
+export type TurnAxis = { at: THREE.Vector3; dir: THREE.Vector3; what: string };
+
 export interface PickedFace {
   point: THREE.Vector3;
   normal: THREE.Vector3;
@@ -113,7 +116,7 @@ function faceArea(mesh: THREE.Mesh, face: number) {
 /** Picked faces and edges: the accent blue (hover previews are orange). */
 const PICKED = 0x2f6bff;
 
-/** The diameter of the circle the points lie on (within `tol` mm), else null (a straight or other edge). */
+/** The circle the points lie on (within `tol` mm): centre, normal, diameter; else null (a straight or other edge). */
 function circleOf(pts: THREE.Vector3[], tol = 0.05) {
   if (pts.length < 4) return null;
   const [a, b, c] = [pts[0], pts[Math.floor(pts.length / 3)], pts[Math.floor((2 * pts.length) / 3)]];
@@ -124,7 +127,7 @@ function circleOf(pts: THREE.Vector3[], tol = 0.05) {
   const centre = a.clone().add(n.clone().cross(ab).multiplyScalar(ac.lengthSq()).add(ac.clone().cross(n).multiplyScalar(ab.lengthSq())).divideScalar(2 * n.lengthSq()));
   const r = centre.distanceTo(a);
   const normal = n.normalize();
-  return pts.every((p) => Math.abs(p.distanceTo(centre) - r) < tol && Math.abs(p.clone().sub(a).dot(normal)) < tol) ? 2 * r : null;
+  return pts.every((p) => Math.abs(p.distanceTo(centre) - r) < tol && Math.abs(p.clone().sub(a).dot(normal)) < tol) ? { centre, normal, d: 2 * r } : null;
 }
 
 function faceOf(hit: THREE.Intersection) {
@@ -387,7 +390,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark, this.cutMark);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark, this.cutMark, this.axisMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -449,7 +452,7 @@ export class Viewer implements ToolView {
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
       if (this.facePick && !this.drag) {
-        if (this.quietPick) return void (this.aiming && this.aiming(this.aimAt(e))); // a gizmo drag moves on
+        if (this.quietPick) return void (this.axisHover ? this.axisHover(this.axisAt(e)) : this.aiming?.(this.aimAt(e))); // a gizmo drag moves on
         const hit = this.frontHit(e);
         const s = this.sketchShapeAt(e, hit);
         this.markSketch(s);
@@ -933,6 +936,59 @@ export class Viewer implements ToolView {
     return s;
   }
 
+  /** Picking an axis (see `pickAxis`): told what a click at the pointer would take. */
+  private axisHover: ((a: TurnAxis | null) => void) | null = null;
+
+  /**
+   * The next click picks an axis (`show`n while hovering): on a round edge or sketch circle the line through its centre
+   * square to it, on a straight edge or sketch line that line; null: nothing there, or Esc.
+   */
+  pickAxis(done: (a: TurnAxis | null) => void, show: (a: TurnAxis | null) => void) {
+    let last: TurnAxis | null = null;
+    this.axisHover = (a) => show((last = a));
+    this.axisHover(this.hover && this.axisAt(this.hover));
+    this.pickFace((face) => {
+      this.axisHover = null;
+      done(face && last);
+    }, true);
+  }
+
+  /** The axis a click there takes: a body edge near the pointer, else the outline of a sketch shape. */
+  private axisAt(e: MouseEvent): TurnAxis | null {
+    const ray = this.ray(e);
+    const nearest = (segs: [THREE.Vector3, THREE.Vector3][]) => segs.reduce((best, s) => (ray.distanceSqToSegment(...s) < ray.distanceSqToSegment(...best) ? s : best));
+    const line = ([a, b]: [THREE.Vector3, THREE.Vector3], what: string) => ({ at: a.clone(), dir: b.clone().sub(a).normalize(), what });
+    const edge = this.edgeAt(e);
+    if (edge) {
+      const circle = circleOf(edge.segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)]));
+      return circle ? { at: circle.centre, dir: circle.normal, what: 'round edge: its centre' } : line(nearest(edge.segs), 'edge');
+    }
+    const s = this.shapeAt(ray, this.frontHit(e)?.distance);
+    const sketch = s && s.edge < Infinity ? this.sketches.find((k) => k.id === s.sketch) : undefined;
+    const q = sketch?.shapes.find((x) => x.id === s!.shape);
+    if (!sketch || !q) return null;
+    const f = sketch.frame;
+    if (q.kind === 'circle') return { at: new THREE.Vector3(...toWorld(f, q.x, q.y)), dir: new THREE.Vector3(...f.n), what: 'circle: its centre' };
+    const pts = (q.kind === 'line' ? q.pts : [...corners(q), corners(q)[0]]).map(([u, v]) => new THREE.Vector3(...toWorld(f, u, v)));
+    return line(nearest(pts.slice(1).map((p, k): [THREE.Vector3, THREE.Vector3] => [pts[k], p])), q.kind === 'line' ? 'line' : 'side');
+  }
+
+  private axisMark = new THREE.Group();
+
+  /** An axis drawn dashed in the cut's red, `half` mm both ways from the point on it nearest `mid` (null: gone). */
+  showAxis(a: TurnAxis | null, mid = new THREE.Vector3(), half = 50) {
+    for (const o of this.axisMark.children) ((o as THREE.Line).geometry.dispose(), ((o as THREE.Line).material as THREE.Material).dispose());
+    this.axisMark.clear();
+    if (a) {
+      const c = a.at.clone().addScaledVector(a.dir, mid.clone().sub(a.at).dot(a.dir));
+      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([c.clone().addScaledVector(a.dir, -half), c.clone().addScaledVector(a.dir, half)]), new THREE.LineDashedMaterial({ color: 0xe5484d, dashSize: half / 20, gapSize: half / 30, depthTest: false }));
+      l.computeLineDistances();
+      l.renderOrder = 1e6;
+      this.axisMark.add(l);
+    }
+    this.render();
+  }
+
   /** The cut tool's cutting surfaces (quads, 4 world corners each; null: gone): red, half see-through, with their outlines. */
   showCut(quads: THREE.Vector3[][] | null) {
     for (const o of this.cutMark.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
@@ -1087,7 +1143,7 @@ export class Viewer implements ToolView {
     const [solid, lines] = this.bodies.get(id)?.children ?? [];
     if (!solid) return;
     const cutter = this.cutters.has(id);
-    const faded = !cutter && !!this.focus && !this.focus.solid.has(id);
+    const faded = !cutter && ((!!this.focus && !this.focus.solid.has(id)) || this.seeThrough.has(id));
     (solid as THREE.Mesh).material = cutter ? this.ghost : faded ? this.fadedOf(id) : this.materialOf(id);
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
     // a see-through body's depth, drawn before the see-through colours (sections and picking skip it)
@@ -1100,6 +1156,15 @@ export class Viewer implements ToolView {
     }
     if (depth) depth.visible = faded;
     lines.renderOrder = cutter ? 1e5 : 0;
+  }
+
+  private seeThrough = new Set<string>();
+
+  /** Bodies `ids` see-through (as behind an open sketch group), the others as they are. */
+  setSeeThrough(ids: string[]) {
+    this.seeThrough = new Set(ids);
+    for (const id of this.bodies.keys()) this.dress(id);
+    this.render();
   }
 
   /** `ids` and the bodies they own, all the way down. */
@@ -1800,8 +1865,8 @@ export class Viewer implements ToolView {
     this.markEdge(picked.edges.flat(), this.pickedEdgeMark, PICKED);
     const size = picked.edges.flat().reduce((n, [a, b]) => n + a.distanceTo(b), 0);
     // one circle, maybe in parts (segment middles too: a rectangle's corners alone lie on a circle)
-    const diameter = circleOf(picked.edges.flatMap((segs) => segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)])));
-    this.host.pickedPart({ kind: 'edge', body: picked.body, size, count: picked.edges.length, diameter: diameter ?? undefined });
+    const circle = circleOf(picked.edges.flatMap((segs) => segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)])));
+    this.host.pickedPart({ kind: 'edge', body: picked.body, size, count: picked.edges.length, diameter: circle?.d });
   }
 
   /**

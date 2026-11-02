@@ -985,7 +985,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const shape = sketch?.shapes.find((q) => c.kind === 'shape' && q.id === c.shape);
       const what =
         c.kind === 'plane'
-          ? h('div', { className: 'row' }, f('cutter.offset', 'Offset'), ...[0, 1, 2].map((k) => exprField(ctx, `${at}.cutter.tilt.${k}`, `Turn ${'XYZ'[k]}°`, true)))
+          ? h('div', { className: 'row' }, f('cutter.offset', 'Offset'), exprField(ctx, `${at}.cutter.turn`, 'Turn °', true))
           : h('div', { className: 'row' }, h('span', { className: 'hint' }, shape ? `Along ${sketch!.name}: ${shape.kind}` : 'Its cutting shape was deleted'), ...(shape?.kind === 'line' ? [f('cutter.offset', 'Offset')] : []));
       return h('section', {}, h('h4', {}, side, remove), what);
     }

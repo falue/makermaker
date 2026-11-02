@@ -3,7 +3,7 @@ import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
-import { BASE, capFrame, cutPlane, frames, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place } from './doc/frames';
+import { BASE, capFrame, cutPlane, frames, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, closedLoop, corners, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -26,7 +26,7 @@ import { installTooltips } from './ui/tooltip';
 import { keepInside } from './ui/inside';
 import { SketchTool, uvOf, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
-import { Viewer, type FinishPick, type PickedFace, type PickedPart, type Vec3 } from './viewer/viewer';
+import { Viewer, type FinishPick, type PickedFace, type PickedPart, type TurnAxis, type Vec3 } from './viewer/viewer';
 
 // over the 3D view, the pointer's note stays inside it
 const tips = installTooltips(500, () => document.getElementById('viewport')!.getBoundingClientRect());
@@ -1226,7 +1226,7 @@ function cutTool() {
     const x = new Vector3(0, 0, 1).cross(n);
     if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
     x.normalize();
-    cutPanel(body, { kind: 'plane', o: unplaced(pl, face.point.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), tilt: [ex(0), ex(0), ex(0)], offset: len(0) });
+    cutPanel(body, { kind: 'plane', o: unplaced(pl, face.point.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), turn: ex(0), axis: null, offset: len(0) });
   }, false, 'outlines');
 }
 
@@ -1236,10 +1236,11 @@ let cutting: { chunk: string } | null = null;
 /**
  * The cut being set up, shown as it will be: the body (chunk A: the side the cutter faces, into the body from a face,
  * a line's left, a shape's inside) and its copy (chunk B, the other side, its own colour, not listed yet) cut, the
- * one to be deleted hidden, the cutting surface red and half see-through, a bit larger than the body. A panel at the
- * top middle of the view has the offset from the plane, face or line (from 0, the cursor in it; T or To object: click
- * a point it goes through), a plane's turn around the body's X / Y / Z (each field scrubbed by dragging its label
- * sideways), and what stays (Delete B first). ✓ or Enter keeps it (one undo step), Esc leaves the body as it was.
+ * one to be deleted see-through, the cutting surface red and half see-through, a bit larger than the body. A panel at
+ * the top middle of the view has the offset from the plane, face or line (from 0, the cursor in it; T or To object:
+ * click a point it goes through), a plane's turn around its axis (dashed; Set axis: click an edge, line or circle),
+ * each field scrubbed by dragging its label sideways, and what stays (Delete B first). ✓ or Enter keeps it (one undo
+ * step), Esc leaves the body as it was.
  */
 function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
@@ -1247,14 +1248,16 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   const r = viewer.el.getBoundingClientRect();
   const u = history.current.units;
   const lookup = paramLookup(history.current.params);
-  const values = { offset: '0', tilt: ['0', '0', '0'] };
+  const values = { offset: '0', turn: '0' };
+  let axis: { at: V3; dir: V3 } | null = null; // body-local; none: the plane's own x
+  let picking = false; // waiting for To object or Set axis: Esc ends only that
   const whole = viewer.measure(body)?.box.clone(); // the body before the cut: the surface's size and place
   let keep: 'both' | 'A' | 'B' = 'A';
   /** The cutter with the values typed, if they are valid. */
   const current = (): SplitFeature['cutter'] | null => {
-    if ([values.offset, ...values.tilt].some((t) => length(t) === null)) return null;
+    if (length(values.offset) === null || length(values.turn) === null) return null;
     const offset = { e: values.offset, u };
-    return cutter.kind === 'plane' ? { ...cutter, offset, tilt: values.tilt.map((e) => ({ e, u: 'mm' as Unit })) as [Expr, Expr, Expr] } : { ...cutter, offset };
+    return cutter.kind === 'plane' ? { ...cutter, offset, turn: { e: values.turn, u: 'mm' }, axis } : { ...cutter, offset };
   };
   // the chunks: the body (A) and its copy (B) right after it, in one undo step
   const doc0 = history.current;
@@ -1265,8 +1268,9 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   history.push({ ...doc0, bodies: [...doc0.bodies.slice(0, i), { ...doc0.bodies[i], features: [...doc0.bodies[i].features, split(1)] }, chunkB, ...doc0.bodies.slice(i + 1)] });
   cutting = { chunk: chunkB.id };
   [selected, shapeSel] = [[body], []];
-  toolHint = 'Type or scrub the offset (T: to object)' + (cutter.kind === 'plane' ? ' and the turns' : '') + ', pick what stays · [Enter] cuts · [Esc] leaves the body as it was';
-  /** Both chunks cut by the cutter as typed, the one to be deleted hidden; the cutting surface shown. */
+  const hint = 'Type or scrub the offset (T: to object)' + (cutter.kind === 'plane' ? ' and the turn (Set axis: what it turns around)' : '') + ', pick what stays · [Enter] cuts · [Esc] leaves the body as it was';
+  toolHint = hint;
+  /** Both chunks cut by the cutter as typed, the one to be deleted see-through; the cutting surface shown. */
   const show = () => {
     const c = current();
     if (c) {
@@ -1275,13 +1279,19 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
         if (x.id !== body && x.id !== chunkB.id) return x;
         const cut = structuredClone(x.features.at(-1)!);
         if (cut.type === 'split') cut.cutter = structuredClone(c);
-        return { ...x, features: [...x.features.slice(0, -1), cut], visible: !((keep === 'A' && x.id === chunkB.id) || (keep === 'B' && x.id === body)) };
+        return { ...x, features: [...x.features.slice(0, -1), cut] };
       });
       history.replace({ ...doc, bodies });
       update();
     }
+    viewer.setSeeThrough(keep === 'A' ? [chunkB.id] : keep === 'B' ? [body] : []);
     surface(c);
   };
+  /** A plane's axis in the world: the one set, else its own x through its point. */
+  const axisOf = (c: SplitFeature['cutter'] & { kind: 'plane' }, f: Frame): TurnAxis =>
+    c.axis
+      ? { at: new Vector3(...inWorld(bodyPlace(body), c.axis.at)), dir: new Vector3(...inWorld(bodyPlace(body), c.axis.dir, true)).normalize(), what: '' }
+      : { at: new Vector3(...f.o), dir: new Vector3(...f.x), what: '' };
   /** The cutting surface: a plane as a square a bit larger than the body, a line as a band along it through the body. */
   const surface = (c: SplitFeature['cutter'] | null) => {
     if (!c || !whole) return;
@@ -1292,6 +1302,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
       const f = placeFrame(bodyPlace(body), cutPlane(resolve(c, lookup, '', new Map()) as Parameters<typeof cutPlane>[0]));
       const n = new Vector3(...f.n);
       const g: Frame = { ...f, o: mid.clone().addScaledVector(n, -mid.clone().sub(new Vector3(...f.o)).dot(n)).toArray() }; // the body's middle on the plane
+      if (!picking) viewer.showAxis(axisOf(c, f), mid, size * 1.2);
       return viewer.showCut([[at(g, -size, -size), at(g, size, -size), at(g, size, size), at(g, -size, size)]]);
     }
     const s = viewer.sketches.find((k) => k.id === c.sketch);
@@ -1330,13 +1341,18 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   /** "To object": the next click sets the offset so the cut goes through that point (shown while aiming). */
   const aim = () => {
     const before = values.offset;
+    picking = true;
     const through = (p?: Vector3) => {
       const c = current();
       const s = c?.kind === 'shape' ? viewer.sketches.find((k) => k.id === c.sketch) : undefined;
       const line = s?.shapes.find((q) => c?.kind === 'shape' && q.id === c.shape && q.kind === 'line');
+      const frame = (mm: number) => placeFrame(bodyPlace(body), cutPlane(resolve({ ...c!, offset: len(mm) }, lookup, '', new Map()) as Parameters<typeof cutPlane>[0]));
       if (p && c?.kind === 'plane') {
-        const f = placeFrame(bodyPlace(body), cutPlane(resolve({ ...c, offset: len(0) }, lookup, '', new Map()) as Parameters<typeof cutPlane>[0]));
-        values.offset = fmt(p.clone().sub(new Vector3(...f.o)).dot(new Vector3(...f.n)) / UNITS[u]);
+        // how far each mm of offset moves the turned plane along its normal (a set axis: 1)
+        const [f0, f1] = [frame(0), frame(1)];
+        const n = new Vector3(...f0.n);
+        const per = new Vector3(...f1.o).sub(new Vector3(...f0.o)).dot(n);
+        values.offset = Math.abs(per) > 1e-6 ? fmt(p.clone().sub(new Vector3(...f0.o)).dot(n) / per / UNITS[u]) : before;
       } else if (p && s && line?.kind === 'line') {
         // a line: the point's distance from it in the sketch's plane, on its left positive (the way the offset moves it)
         const [x, y] = uvOf(s.frame, p);
@@ -1356,12 +1372,38 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     viewer.aiming = (a) => (tips.cursorTip([a?.what, 'Click a corner, edge or face: the cut goes through it'].filter(Boolean).join('\n')), through(a?.at));
     viewer.aiming(viewer.aimHere());
     viewer.pickFace((face) => {
+      picking = false;
       viewer.aiming = null;
       viewer.aimAt(null);
       tips.cursorTip(null);
       through(face?.snap);
       fields[0].focus();
     }, true);
+  };
+  /** Set axis: the next click on an edge, line or circle is what the plane turns around (shown while hovering). */
+  const setAxis = () => {
+    picking = true;
+    toolHint = 'Click an edge or line (the plane turns around it) or a circle (around its centre) · [Esc] keeps the axis';
+    render();
+    const mid = whole?.getCenter(new Vector3());
+    const size = (whole?.getSize(new Vector3()).length() ?? 100) * 0.72;
+    viewer.pickAxis(
+      (a) => {
+        picking = false;
+        tips.cursorTip(null);
+        toolHint = hint;
+        if (a) axis = { at: unplaced(bodyPlace(body), a.at.toArray()), dir: unplaced(bodyPlace(body), a.dir.toArray(), true) };
+        show();
+        render();
+        fields[1].focus();
+        fields[1].select();
+      },
+      (a) => {
+        tips.cursorTip(a ? `${a.what}\nClick: the plane turns around it` : null);
+        if (a) viewer.showAxis(a, mid, size);
+        else show(); // the axis as it is
+      },
+    );
   };
   // what stays: one selector of three, the one picked coloured
   const choices = (['B', 'A', 'both'] as const).map((k) => {
@@ -1378,11 +1420,13 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   };
   /** Kept: the chunk to be deleted goes, the other (or both) stay and are listed; else everything as it was. */
   const finish = (ok: boolean) => {
+    viewer.aiming = null;
+    viewer.cancelFacePick(); // a pick under way ends first: it shows the cut once more
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
     viewer.showCut(null);
-    viewer.aiming = null;
-    viewer.cancelFacePick();
+    viewer.showAxis(null);
+    viewer.setSeeThrough([]);
     [toolHint, cutting] = [null, null];
     if (!ok || !current()) return undo();
     const drop = keep === 'A' ? chunkB.id : keep === 'B' ? body : null;
@@ -1391,11 +1435,19 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     selected = keep === 'both' ? [body, chunkB.id] : [keep === 'A' ? body : chunkB.id];
     update();
   };
-  const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
+  const keys = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return; // the view's Esc ending a pick
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    if (picking && pressed(e, 'cancel')) viewer.cancelFacePick();
+    else finish(pressed(e, 'confirm'));
+  };
   box.append(
     ...field('Offset', () => values.offset, (t) => (values.offset = t)),
     Object.assign(document.createElement('button'), { textContent: 'To object', title: 'Click a corner, edge or face: the cut goes through it (T)', onclick: aim }),
-    ...(cutter.kind === 'plane' ? [0, 1, 2].flatMap((k) => field(`Turn ${'XYZ'[k]}°`, () => values.tilt[k], (t) => (values.tilt[k] = t))) : []),
+    ...(cutter.kind === 'plane'
+      ? [...field('Turn °', () => values.turn, (t) => (values.turn = t)), Object.assign(document.createElement('button'), { textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
+      : []),
     segmented,
     Object.assign(document.createElement('button'), { textContent: '✓', title: 'Cut (Enter); Esc leaves the body as it was', onclick: () => finish(true) }),
   );
