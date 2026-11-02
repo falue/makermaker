@@ -96,4 +96,4 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 ### Design notes
 
 - Shift does the opposite of a tool where that makes sense.
-- Editing 2D and 3D objects uses the same tools wherever possible (booleans work on both, for example). There is no special sketch mode: sketches can be drawn at any time. Still to work out: how sketch objects are grouped together into a sketch.
+- Editing 2D and 3D objects uses the same tools wherever possible (booleans work on both, for example). There is no special sketch mode: sketches can be drawn at any time. Sketch objects are then grouped like 3D objects: plain groups of sketch objects instead of a separate sketch container. How they get grouped automatically is still to be decided.
