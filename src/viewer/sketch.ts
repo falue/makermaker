@@ -167,8 +167,11 @@ type Phase =
   | { kind: 'hover' }
   /** Rectangle or circle from `anchor`; typed sizes per axis (circle: only 0, the diameter). */
   | { kind: 'shape'; target: Target; anchor: UV; cur: UV; px: [number, number]; dragged: boolean; typed: (string | undefined)[]; axis: number; alt: boolean; shift: boolean }
-  /** Line or polygon: corners so far and the open side's end; typed length (0) and angle (1) of the open side. */
-  | { kind: 'polygon'; target: Target; pts: UV[]; cur: UV; typed: (string | undefined)[]; axis: number }
+  /**
+   * Line or polygon: corners so far and the open side's end; typed length (0) and angle (1) of the open side;
+   * `chained`: a line started at the last one's end by holding ⌘ (else Ctrl).
+   */
+  | { kind: 'polygon'; target: Target; pts: UV[]; cur: UV; typed: (string | undefined)[]; axis: number; chained?: boolean }
   | { kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[]; raw: number; depth: number; typed: string | undefined };
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
@@ -318,6 +321,7 @@ export class SketchTool implements Tool {
       const r = this.view.el.getBoundingClientRect();
       const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...ph.pts[0])));
       this.corner(ph, at, Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8);
+      if (this.phase.kind === 'hover' && this.kind === 'line' && mod(e)) this.chain(e, ph.target); // ⌘ still held: on from this end
     } else if (ph.kind === 'pull' && this.reaching) {
       // "to object": the depth to the clicked point, along the plane's normal
       const p = this.view.pointAt(e);
@@ -384,6 +388,19 @@ export class SketchTool implements Tool {
     const more = pressed(e, 'moreSnaps');
     const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined); // not while typing a size
     const guide = this.hoveredGuide();
+    const modKey = MAC ? 'Meta' : 'Control';
+    if (ph.kind === 'hover' && this.kind === 'line' && SketchTool.lineEnd && e.key === modKey && this.lastPoint) {
+      this.chain(...this.lastPoint);
+      this.update();
+      return false;
+    }
+    // ⌘ was for a shortcut (⌘Z …), not for a line on from the last
+    if (ph.kind === 'polygon' && ph.chained && ph.pts.length === 1 && !ph.typed.some((t) => t !== undefined) && (MAC ? e.metaKey : e.ctrlKey) && e.key !== modKey) {
+      this.phase = { kind: 'hover' };
+      this.host.hint(this.hoverHint());
+      this.update();
+      return false;
+    }
     if (free && guide && pressed(e, 'fixGuide')) guide.fixed = !guide.fixed;
     else if (free && (more || pressed(e, 'fewerSnaps')) && this.snapKey && this.lastPoint) {
       const k = this.snapKey;
@@ -722,6 +739,14 @@ export class SketchTool implements Tool {
     const step = this.view.step(v3(toWorld(ph.target.frame, ...at)), e, false);
     const len = this.typed(ph.typed[0]) ?? (this.snapped ? along : Math.round(along / step) * step);
     return [x0 + len * Math.cos(a), y0 + len * Math.sin(a)];
+  }
+
+  /** ⌘ (else Ctrl) after a line: the next one starts at its end, shown, snapped and typed into like the first. */
+  private chain(e: MouseEvent, t: Target) {
+    const ph: Extract<Phase, { kind: 'polygon' }> = { kind: 'polygon', target: t, pts: [uvOf(t.frame, SketchTool.lineEnd!)], cur: uvOf(t.frame, SketchTool.lineEnd!), typed: [], axis: 0, chained: true };
+    this.phase = ph;
+    ph.cur = this.sideEnd(e, ph) ?? ph.cur;
+    this.host.hint(LINE_HINT);
   }
 
   /** Adds a corner: a line is done at its second, a polygon when it `closes` (on its first corner, from the 4th). */
