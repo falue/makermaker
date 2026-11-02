@@ -20,12 +20,14 @@ import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } 
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { pressed, type Action } from './ui/keys';
+import { installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
 import { SketchTool, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import { Viewer, type FinishPick, type PickedFace, type Vec3 } from './viewer/viewer';
 
 const tips = installTooltips();
+installCompletion(() => Object.keys(history.current.params));
 let settings = loadSettings();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
@@ -608,57 +610,69 @@ function nudge(by: Vec3) {
 }
 
 /**
- * X / Y / Z: a field at the pointer takes a distance (expressions, units) per axis; X / Y / Z in it switch the axis
- * (not inside a word: names may hold those letters), the others' values show beside it. While typing the selection
- * shows moved; Enter moves it by all of them, Esc cancels all.
+ * X / Y / Z: a field at the pointer takes a distance (expressions, units) along that axis; X / Y / Z in it add or go
+ * to that axis' field (always in X Y Z order), unless in the middle of a name, or where a name could start and a
+ * parameter starts with the letter (then it is typed: Tab completes the name). While typing the selection shows moved; Enter moves it by all of them,
+ * Esc or leaving cancels all.
  */
 function moveAlong(first: number) {
   if (!selected.length) return notify('Select something to move first');
-  const texts = ['', '', ''];
-  let axis = first;
-  const letter = document.createElement('span');
-  const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}` });
-  const others = Object.assign(document.createElement('span'), { className: 'others' });
-  const box = Object.assign(document.createElement('label'), { className: 'axis-move' });
-  box.append(letter, input, others);
+  const fields: (HTMLInputElement | null)[] = [null, null, null];
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move' });
   const at = viewer.pointer() ?? { x: innerWidth / 2, y: innerHeight / 2 };
   box.style.cssText = `left:${at.x + 14}px;top:${at.y + 14}px`;
   document.body.append(box);
-  input.focus();
   /** The move so far (null: a value is not a distance); empty axes stay. */
   const by = () => {
-    texts[axis] = input.value;
-    const mm = texts.map((t) => (t.trim() ? length(t) : 0));
+    const mm = fields.map((f) => (f?.value.trim() ? length(f.value) : 0));
     return mm.includes(null) ? null : new Vector3(...(mm as number[]));
   };
   const show = () => {
-    const name = 'XYZ'[axis];
-    Object.assign(letter, { className: `axis-${name.toLowerCase()}`, textContent: name });
-    others.replaceChildren(...texts.flatMap((t, k) => (k === axis || !t.trim() ? [] : [Object.assign(document.createElement('span'), { className: `axis-${'xyz'[k]}`, textContent: 'XYZ'[k] }), ` ${t} `])));
+    for (const f of fields) f?.classList.toggle('invalid', !!f.value.trim() && length(f.value) === null);
     const b = by();
-    input.classList.toggle('invalid', !b);
     viewer.previewMove(b ?? new Vector3(), b ? (shapeMoves(b)?.updates ?? []) : []);
   };
-  show();
-  input.oninput = show;
-  input.onblur = () => (box.remove(), viewer.previewMove(null)); // leaving the field cancels
-  input.onkeydown = (e) => {
-    const k = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
-    const word = input.value.slice(0, input.selectionStart ?? 0).match(/[A-Za-z_]\w*$/)?.[0];
-    if (k >= 0 && (!word || word in UNITS)) {
-      e.preventDefault();
-      texts[axis] = input.value;
-      axis = k;
-      input.value = texts[k];
-      return show();
+  let closed = false; // removing the box fires focusout: close once
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    box.remove();
+    viewer.previewMove(null);
+  };
+  const open = (k: number) => {
+    if (!fields[k]) {
+      const name = 'XYZ'[k];
+      const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}` });
+      input.dataset.complete = '';
+      input.oninput = show;
+      input.onkeydown = (e) => keys(e, input);
+      const next = fields.slice(k + 1).find(Boolean);
+      const letter = Object.assign(document.createElement('span'), { className: `axis-${name.toLowerCase()}`, textContent: name });
+      box.insertBefore(letter, next?.previousSibling ?? null);
+      box.insertBefore(input, next?.previousSibling ?? null);
+      fields[k] = input;
     }
-    if (pressed(e, 'cancel')) return input.blur();
+    fields[k]!.focus();
+  };
+  const keys = (e: KeyboardEvent, input: HTMLInputElement) => {
+    const k = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
+    const before = input.value.slice(0, input.selectionStart ?? 0);
+    const word = before.match(/[A-Za-z_]\w*$/)?.[0];
+    // a name could start here and one starts with the letter: typed, Tab completes it
+    const name = !/[\w.]$/.test(before) && Object.keys(history.current.params).some((p) => p.startsWith(e.key));
+    if (k >= 0 && (!word || word in UNITS) && !name) return e.preventDefault(), open(k);
+    if (e.key === 'Tab') return e.preventDefault(); // (a completion took it already) leaving would cancel
+    if (pressed(e, 'cancel')) return close();
     if (!pressed(e, 'confirm')) return;
     const b = by();
-    if (!b) return input.classList.add('invalid');
-    input.blur();
+    if (!b) return show();
+    close();
     moveBy(b);
   };
+  // focus moving between the fields stays; leaving the box cancels
+  box.addEventListener('focusout', (e) => box.contains(e.relatedTarget as Node) || close());
+  open(first);
+  show();
 }
 
 /** The selected sketch's shapes (the selected ones, else all) moved by `by` (world, mm) within its plane; null: no sketch selected, or across its plane. */

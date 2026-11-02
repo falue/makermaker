@@ -232,6 +232,7 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
   const u = ctx.doc.units;
   const shown = raw ? x.e : displayText(x, u);
   const el = input(path, shown, (e) => set({ e, u }, false), own ? own.error : ctx.exprErrors.get(path));
+  el.dataset.complete = ''; // parameter names
   if (!el.title && !isPlain(x.e) && x.u !== u) el.title = `plain numbers in ${x.u}`;
   const name = h('span', { innerHTML: axisHtml(label) });
   // a number with an optional unit (`12`, `4mm`) keeps its unit while scrubbed
@@ -494,6 +495,7 @@ function left(ctx: UIContext): Node[] {
     ctx.commit({ ...doc, params: { ...doc.params, [name]: { e: m[2], u: doc.units } } });
   });
   addParam.placeholder = 'name = expression';
+  addParam.dataset.complete = '';
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
   return [head, ...rows, ...none, h('h3', {}, 'Sketches'), ...sketchRows, h('h3', {}, 'Parameters'), ...params, addParam];

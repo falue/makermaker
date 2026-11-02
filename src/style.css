@@ -1107,3 +1107,14 @@ button.primary.wide {
 .axis-move .others:empty {
   display: none;
 }
+
+/* the rest of a parameter name, after the typed text (Tab writes it out) */
+.completion {
+  position: fixed;
+  z-index: 2001;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  color: var(--muted);
+  white-space: pre;
+}
