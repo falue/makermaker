@@ -233,6 +233,8 @@ export class Viewer implements ToolView {
   private autoOrtho = false;
   /** The camera direction before the last flat view (cube side, look at a face or sketch). */
   private angledView: THREE.Vector3 | null = null;
+  /** Looking straight at a face or a cube side (a flat view): pulling turns back to `angledView`. */
+  private flat = false;
   private cube = document.createElement('div');
   private cubeWrap = document.createElement('div');
 
@@ -569,7 +571,7 @@ export class Viewer implements ToolView {
   /** Looking straight along `n` (a flat view), turns back to the last angled view: pulling along `n` needs depth to see. */
   unflatten(n: THREE.Vector3) {
     const look = this.camera.getWorldDirection(new THREE.Vector3());
-    if (this.angledView && this.cubeWrap.classList.contains('aligned') && Math.abs(look.dot(n)) > 0.95) this.viewFrom(this.angledView, false);
+    if (this.angledView && this.flat && Math.abs(look.dot(n)) > 0.95) this.viewFrom(this.angledView, false);
   }
 
   lockPointer() {
@@ -1890,6 +1892,7 @@ export class Viewer implements ToolView {
 
   /** The user rotated away from a cube side: hide the arrows, back to perspective if the cube switched to orthographic. */
   private leaveSideView() {
+    this.flat = false;
     this.cubeWrap.classList.remove('aligned');
     if (!this.autoOrtho) return;
     this.autoOrtho = false;
@@ -1899,9 +1902,13 @@ export class Viewer implements ToolView {
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
   private viewFrom(dir: THREE.Vector3, side = true, ms = 600, at?: THREE.Vector3) {
     // leaving an angled view for a flat one: remember it, so pulling can return to it
-    if (side && !this.cubeWrap.classList.contains('aligned')) this.angledView = this.camera.position.clone().sub(this.controls.target).normalize();
+    if (side && !this.flat) this.angledView = this.camera.position.clone().sub(this.controls.target).normalize();
     if (!side) this.leaveSideView();
-    else this.cubeWrap.classList.add('aligned');
+    else {
+      this.flat = true;
+      // the cube's turn arrows only for one of its 6 sides
+      this.cubeWrap.classList.toggle('aligned', Math.max(...dir.toArray().map(Math.abs)) / dir.length() > 0.999);
+    }
     if (side && !this.isOrthographic) {
       this.setOrthographic(true);
       this.autoOrtho = true;
