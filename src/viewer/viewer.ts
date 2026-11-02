@@ -409,8 +409,8 @@ export class Viewer implements ToolView {
     });
     canvas.addEventListener('dblclick', (e) => {
       if (this.tool) return this.tool.dblclick(e);
-      // near an edge: its loop; on a sketch shape: into its sketch group; on a finish face: the whole finish
-      const loop = this.focus ? null : this.edgeLoop(e);
+      // Ctrl near an edge: its loop; on a sketch shape: into its sketch group; on a finish face: the whole finish
+      const loop = this.focus || !picksFace(e) ? null : this.edgeLoop(e);
       if (loop) return this.host.select(loop.body, false), this.pickEdges(loop);
       const hit = this.frontHit(e);
       const shape = this.shapeAt(this.ray(e), this.focus ? undefined : hit?.distance);
@@ -1228,6 +1228,11 @@ export class Viewer implements ToolView {
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
       this.drawSilhouette();
+      // picked edges and measures stay over the outline
+      const autoClear = this.renderer.autoClear;
+      this.renderer.autoClear = false;
+      for (const mark of [this.edgeMark, this.measureMark]) if (mark.children.length) this.renderer.render(mark, this.camera);
+      this.renderer.autoClear = autoClear;
       // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
       const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.camera.quaternion)).invert().elements;
       this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;

@@ -1636,7 +1636,7 @@ function render() {
       (finishSel
         ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · drag it to resize (past 0: the other kind) · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
         : pickedPart?.kind === 'edge'
-          ? 'Drag a picked edge up: fillet, down: chamfer · [Ctrl]-click another edge, double-click: its loop · [Esc] deselect'
+          ? 'Drag a picked edge up: fillet, down: chamfer · [Ctrl]-click another edge, [Ctrl] double-click: its loop · [Esc] deselect'
           : null),
     autosave,
     notify: fail,
