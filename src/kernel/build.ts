@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawRoundedRectangle, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
+import { draw, drawCircle, drawRoundedRectangle, importSTEP, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
 import { add, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { centre, corners, nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
@@ -67,6 +67,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
     for (const s of features) {
       if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
       if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
+      if (s.type === 'step') apply(s.id, (cur) => step(cur, s));
       if (s.type === 'boolean') apply(s.id, (cur) => boolean(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
@@ -273,6 +274,29 @@ function boolean(shape: Shape3D | null, s: Of<'boolean'>): Shape3D {
 export function placeShape(shape: Shape3D, pl: Place): Shape3D {
   const turned = pl.angle ? shape.rotate(pl.angle, [0, 0, 0], pl.axis) : shape;
   return pl.offset.some((v) => v) ? turned.translate(...pl.offset) : turned;
+}
+
+/** STEP solids by feature id, read once (`loadImports`) before building; null: the file could not be read. */
+const imported = new Map<string, Shape3D | null>();
+
+/** Reads the STEP files of `features` (tool bodies' too) not read yet: reading is async, building is not. */
+export async function loadImports(features: BuildFeature[]) {
+  for (const f of features) {
+    if (f.type === 'boolean') await loadImports(f.features);
+    if (f.type !== 'step' || imported.has(f.id)) continue;
+    imported.set(f.id, await importSTEP(new Blob([f.data])).then((s) => s as Shape3D, () => null));
+  }
+}
+
+function step(shape: Shape3D | null, s: Of<'step'>): Shape3D {
+  const solid = imported.get(s.id)?.clone();
+  if (!solid) throw new Error('the STEP file could not be read');
+  if (!shape) return solid;
+  try {
+    return shape.fuse(solid);
+  } finally {
+    solid.delete();
+  }
 }
 
 function sphere(shape: Shape3D | null, s: Of<'sphere'>): Shape3D {

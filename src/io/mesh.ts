@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { BodyMesh } from '../kernel/build';
 
@@ -26,6 +27,14 @@ export function parseObj(text: string): { vertices: Float32Array; triangles: Uin
   parts.reduce((at, g) => (all.set(g.attributes.position.array, at), at + g.attributes.position.array.length), 0);
   const merged = mergeVertices(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(all, 3)));
   merged.rotateX(Math.PI / 2); // y up → z up
+  return { vertices: merged.attributes.position.array as Float32Array, triangles: new Uint32Array(merged.index!.array) };
+}
+
+/** The triangles of an STL file (binary or text; z up, as STL usually is), corners shared. */
+export function parseStl(data: ArrayBuffer): { vertices: Float32Array; triangles: Uint32Array } {
+  const g = new STLLoader().parse(data);
+  if (!g.attributes.position?.count) throw new Error('no triangles in this STL file');
+  const merged = mergeVertices(new THREE.BufferGeometry().setAttribute('position', g.getAttribute('position')));
   return { vertices: merged.attributes.position.array as Float32Array, triangles: new Uint32Array(merged.index!.array) };
 }
 

@@ -5,7 +5,7 @@ import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
 import { laserSvg } from './laser';
-import { areasOf, buildBody, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
+import { areasOf, buildBody, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
 
 /** export: one file per body: stl (binary, placed in the world) or svg (laser outline of its biggest flat face). */
 export type ExportFile = { name: string; data: ArrayBuffer };
@@ -30,6 +30,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
     return postMessage({ kind: 'areas', id: data.id, areas } satisfies Response, { transfer: areas.map((a) => a.tris.buffer) });
   }
   if (data.kind === 'export') {
+    for (const b of data.bodies) await loadImports(b.features);
     const files: ExportFile[] = [];
     const failed: string[] = [];
     for (const { name, features, place } of data.bodies) {
@@ -53,6 +54,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
     }
     return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
   }
+  for (const b of data.bodies) await loadImports(b.features);
   const results = data.bodies.map(({ id, features }): BodyResult => {
     try {
       const finishing: Finishing = { base: null, edges: [] };

@@ -72,7 +72,7 @@ export interface UIContext {
   toggleAutosave(): void;
   toggleTheme(): void;
   /** Imports a mesh file (OBJ) as a body. */
-  importMesh(): void;
+  importFile(): void;
   /** Downloads STL files (3D print) or SVG outlines (laser) of the selected (else shown) bodies. */
   exportPrint(): void;
   exportLaser(): void;
@@ -301,7 +301,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
-    tool('import', 'Import a mesh (OBJ, or drop the file): it becomes a body that stays a mesh', ctx.importMesh),
+    tool('import', 'Import STEP, STL or OBJ (or drop the file): STEP becomes a solid body, STL and OBJ stay meshes', ctx.importFile),
     tool('autosave', `Autosave ${ctx.autosave ? 'on' : 'off'}: saves into the file a moment after each change`, ctx.toggleAutosave, ctx.autosave),
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
@@ -849,6 +849,8 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         h('div', { className: 'row' }, exprField(ctx, `${at}.scale`, 'Scale', true)),
       );
     }
+    case 'step':
+      return h('section', {}, h('h4', {}, 'STEP solid', remove), h('p', { className: 'hint' }, `Imported from ${feature.source}`));
     case 'sphere':
       return h('section', {}, h('h4', {}, 'Sphere', remove), h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('z', 'Z'), f('d', 'Ø')));
     case 'finish': {

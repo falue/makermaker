@@ -13,7 +13,7 @@ import { contents, ownerOf, tree, within } from './doc/groups';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
-import { meshBody, parseObj, toBase64 } from './io/mesh';
+import { meshBody, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
@@ -1328,7 +1328,7 @@ function render() {
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
     },
     toggleAutosave: () => run(toggleAutosave),
-    importMesh: pickMesh,
+    importFile: pickImport,
     exportPrint: () => run(() => exportBodies('stl')),
     exportLaser: () => run(() => exportBodies('svg')),
     toggleTheme() {
@@ -1506,11 +1506,10 @@ async function previewOf(image: Blob, width = 320, type = 'image/jpeg') {
 }
 
 /**
- * Imports an OBJ file as a mesh body at the origin (proof of concept: it stays a mesh). OBJ files have no unit: 1 is
- * taken as 1 mm, but something under 10 mm big is scaled to about 100 mm (the scale is in its card).
+ * Imports an OBJ or STL file's triangles as a mesh body at the origin (it stays a mesh). They have no unit: 1 is taken
+ * as 1 mm, but something under 10 mm big is scaled to about 100 mm (the scale is in its card).
  */
-function importMesh(name: string, text: string) {
-  const { vertices, triangles } = parseObj(text);
+function importMesh(name: string, { vertices, triangles }: { vertices: Float32Array; triangles: Uint32Array }) {
   let size = 0;
   for (let k = 0; k < 3; k++) {
     let [lo, hi] = [Infinity, -Infinity];
@@ -1523,16 +1522,33 @@ function importMesh(name: string, text: string) {
   const body = { ...newBody(doc.bodies.length, [mesh]), name: name.replace(/\.[^.]*$/, '') };
   [selected, shapeSel] = [[body.id], []];
   commit({ ...doc, bodies: [...doc.bodies, body] });
-  notify(`Imported ${name}: ${triangles.length / 3} triangles${scale !== 1 ? `, scaled ×${fmt(scale)} (OBJ has no unit)` : ''}`);
+  notify(`Imported ${name}: ${triangles.length / 3} triangles${scale !== 1 ? `, scaled ×${fmt(scale)} (the file has no unit)` : ''}`);
 }
 
-/** Asks for an OBJ file and imports it. */
-function pickMesh() {
-  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.obj' });
-  input.onchange = () => {
-    const f = input.files?.[0];
-    if (f) run(async () => importMesh(f.name, await f.text()));
-  };
+/** Imports a STEP file as a solid body at the origin (in mm, as the file says); the kernel reads it. */
+function importStep(name: string, data: string) {
+  const doc = history.current;
+  const step: Feature = { id: newId(), type: 'step', source: name, data };
+  const body = { ...newBody(doc.bodies.length, [step]), name: name.replace(/\.[^.]*$/, '') };
+  [selected, shapeSel] = [[body.id], []];
+  commit({ ...doc, bodies: [...doc.bodies, body] });
+  notify(`Reading ${name}: big files take a while`);
+}
+
+const IMPORTS = ['.step', '.stp', '.stl', '.obj'];
+
+/** Imports a STEP, STL or OBJ file by its extension; false: not one of those. */
+function importFile(f: File) {
+  const ext = f.name.toLowerCase().match(/\.[^.]*$/)?.[0] ?? '';
+  if (!IMPORTS.includes(ext)) return false;
+  run(async () => (ext === '.obj' ? importMesh(f.name, parseObj(await f.text())) : ext === '.stl' ? importMesh(f.name, parseStl(await f.arrayBuffer())) : importStep(f.name, await f.text())));
+  return true;
+}
+
+/** Asks for a file to import. */
+function pickImport() {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: IMPORTS.join(',') });
+  input.onchange = () => input.files?.[0] && importFile(input.files[0]);
   input.click();
 }
 
@@ -1653,8 +1669,8 @@ addEventListener('drop', (e) => {
   // DataTransfer items are only readable during the event, so request both now.
   const pending = item.getAsFileSystemHandle?.();
   const f = item.getAsFile();
-  // an OBJ file is imported into the design
-  if (f?.name.toLowerCase().endsWith('.obj')) return run(async () => importMesh(f.name, await f.text()));
+  // a STEP, STL or OBJ file is imported into the design
+  if (f && importFile(f)) return;
   run(async () => {
     const handle = await pending;
     if (handle instanceof FileSystemFileHandle) loadFile(await readHandle(handle));

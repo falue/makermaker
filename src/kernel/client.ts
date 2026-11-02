@@ -53,7 +53,7 @@ export class Kernel {
     for (const id of this.sent.keys()) if (!ids.has(id)) this.sent.delete(id);
     for (const id of this.waiting.keys()) if (!ids.has(id)) this.waiting.delete(id);
     const changed = bodies.filter((p) => {
-      const key = JSON.stringify(p.features);
+      const key = JSON.stringify(p.features, (k, v) => (k === 'data' ? undefined : v)); // a STEP file's text never changes (megabytes)
       if (this.sent.get(p.id) === key) return false;
       this.sent.set(p.id, key);
       return true;

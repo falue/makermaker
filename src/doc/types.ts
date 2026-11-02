@@ -85,13 +85,17 @@ export type BooleanOp = 'union' | 'subtract' | 'intersect';
  */
 export type MeshFeature = { id: string; type: 'mesh'; source: string; vertices: string; triangles: string; scale: Expr };
 
+/** A solid read from a STEP file (`data`: the file's text, in mm); `source`: the file it came from. */
+export type StepFeature = { id: string; type: 'step'; source: string; data: string };
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; mode: 'add' | 'cut'; through: boolean }
   | SphereFeature
   | BooleanFeature
   | FinishFeature
-  | MeshFeature;
+  | MeshFeature
+  | StepFeature;
 
 /** A plane given directly (body-local): a sketch on another body's face. */
 export type FramePlane = { kind: 'frame'; o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] };
@@ -107,7 +111,7 @@ export type ExtrudeIn = {
   mode: 'add' | 'cut';
   through: boolean;
 };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature;
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature;
 
 export interface Body {
   id: string;
