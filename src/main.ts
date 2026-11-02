@@ -1708,6 +1708,87 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
 }
 
 /**
+ * Mirror: selected sketch shapes across a line or edge clicked next (mirrored copies beside them); else the selected
+ * bodies (or those clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored
+ * copies as new bodies (a Mirror step ends each). One undo step; Esc leaves nothing.
+ */
+function mirrorTool() {
+  const sketch = activeSketch();
+  const frame = viewer.sketches.find((v) => v.id === sketch)?.frame;
+  if (sketch && frame && shapeSel.length) {
+    toolHint = 'Mirror: click the line or edge to mirror across · [Esc] cancels';
+    render();
+    return viewer.pickAxis(
+      (a) => {
+        tips.cursorTip(null);
+        viewer.showAxis(null);
+        toolHint = null;
+        if (!a) return render();
+        const [pu, pv] = uvOf(frame, a.at);
+        const [du, dv] = [a.dir.dot(new Vector3(...frame.x)), a.dir.dot(new Vector3(...frame.y))];
+        const l = Math.hypot(du, dv);
+        if (l < 0.5) return fail("The line has to lie in the sketch's plane");
+        const [ux, uy] = [du / l, dv / l];
+        const flip = ([x, y]: [number, number]): [number, number] => {
+          const k = (x - pu) * ux + (y - pv) * uy;
+          return [+fmt(2 * (pu + k * ux) - x), +fmt(2 * (pv + k * uy) - y)];
+        };
+        const deg = (Math.atan2(uy, ux) * 180) / Math.PI;
+        const doc = history.current;
+        const k = doc.sketches.findIndex((s) => s.id === sketch);
+        const shown = viewer.sketches.find((v) => v.id === sketch)!.shapes;
+        const copies = doc.sketches[k].shapes.filter((q) => shapeSel.includes(q.id)).map((q): Profile => {
+          const p = shown.find((x) => x.id === q.id)!;
+          const id = newId();
+          if (p.kind === 'line' || p.kind === 'polygon') return { ...q, id, ...(p.kind === 'polygon' ? { rot: ex(0) } : {}), pts: (p.kind === 'polygon' ? corners(p) : p.pts).map(flip) } as Profile;
+          const [x, y] = flip([p.x, p.y]);
+          const rot = p.kind === 'rect' ? { rot: ex(fmt(2 * deg - p.rot)) } : p.kind === 'ngon' ? { rot: ex(fmt(2 * deg - p.rot - 180)) } : {};
+          return { ...q, id, x: len(x), y: len(y), ...rot } as Profile;
+        });
+        shapeSel = copies.map((q) => q.id);
+        commit(setIn(doc, ['sketches', String(k), 'shapes'], [...doc.sketches[k].shapes, ...copies]));
+      },
+      (a) => (tips.cursorTip(a ? `${a.what}\nClick: mirror across it` : null), viewer.showAxis(a, a?.at, 60)),
+    );
+  }
+  const bodies = selected.filter((id) => history.current.bodies.some((b) => b.id === id));
+  if (!bodies.length) {
+    const picked: string[] = [];
+    pending = {
+      tool: 'shell',
+      pick(id) {
+        picked.splice(0, picked.length, ...(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]));
+        selected = [...picked];
+        showSelection();
+      },
+      apply() {
+        cancelPending();
+        if (picked.length) mirrorTool();
+        else render();
+      },
+    };
+    toolHint = 'Mirror: click the bodies to mirror (again: not), then [Enter] · or select sketch shapes first · [Esc] cancels';
+    return render();
+  }
+  toolHint = 'Mirror: click the face to mirror across (empty space: the base plane facing you) · [Esc] cancels';
+  render();
+  viewer.pickFace((face) => {
+    toolHint = null;
+    if (!face) return render();
+    const doc = history.current;
+    const sources = doc.bodies.filter((b) => bodies.includes(b.id));
+    const { bodies: copies } = copiesOf(sources, [], ' mirrored');
+    const made = copies.map((c, i) => {
+      // the plane in the copy's coordinates: those of the body it was copied from
+      const pl = bodyPlace(sources[i].id);
+      return { ...c, features: [...c.features, { id: newId(), type: 'mirror' as const, o: unplaced(pl, face.point.toArray()), n: unplaced(pl, face.normal.toArray(), true) }] };
+    });
+    selected = made.map((b) => b.id);
+    commit({ ...doc, bodies: [...doc.bodies, ...made] });
+  });
+}
+
+/**
  * Offset / Shell: the selected sketch shapes get new outlines a distance outside them (negative: inside; a line moves
  * to its left); else a body (selected, or clicked next) is hollowed: its faces clicked one by one are left open
  * (Enter), then its wall thickness. Both live, one undo step; Esc leaves nothing.
@@ -3281,6 +3362,7 @@ function render() {
     revolveTool,
     sweepTool,
     offsetTool,
+    mirrorTool,
     rotateTool,
     alignObjects,
     jointTool,

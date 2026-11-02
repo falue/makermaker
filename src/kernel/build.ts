@@ -54,8 +54,8 @@ type Circle = [number, number, number];
 const EPS = 1e-3;
 
 /**
- * Features run in order, except unbaked finishes: they run last, so they also finish edges of later booleans. A baked
- * finish stays in place: a later boolean cuts through it. `finishing` gets what the unbaked ones did.
+ * Features run in order, except unbaked finishes: they run last, so they also finish edges of later booleans (and
+ * mirrors after them, so finishes keep their picked edges). A baked finish stays in place: a later boolean cuts through it. `finishing` gets what the unbaked ones did.
  */
 export function buildBody(features: BuildFeature[], finishing?: Finishing): Shape3D {
   const plan = frames(features.filter((f) => f.type !== 'boolean'));
@@ -82,6 +82,12 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
     if (finishing) finishing.base = (shape as Shape3D).clone();
     for (const s of features) if (s.type === 'finish' && s.enabled && !s.baked) apply(s.id, (cur) => finish(cur, s, circles, finishing));
+    // mirrors last: finishes keep working on the edges they were picked on
+    for (const s of features)
+      if (s.type === 'mirror') {
+        apply(s.id, (cur) => cur!.clone().mirror(s.n, s.o));
+        if (finishing?.base) finishing.base = finishing.base.mirror(s.n, s.o);
+      }
   } catch (err) {
     (shape as Shape3D | null)?.delete();
     throw err;

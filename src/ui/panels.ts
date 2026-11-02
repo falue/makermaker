@@ -65,6 +65,7 @@ export interface UIContext {
   revolveTool(): void;
   sweepTool(): void;
   offsetTool(): void;
+  mirrorTool(): void;
   rotateTool(): void;
   /** Aligns the selected objects (bodies, groups as one, whole sketches) by their boxes; see `alignObjects` in main. */
   alignObjects(how: ObjectAlign): void;
@@ -427,6 +428,7 @@ function toolbar(ctx: UIContext): Node[] {
       ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), on(kind))),
       h('hr'),
       tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude, on('extrude')),
+      tool('mirror', 'Mirror: the selected shapes across a line or edge clicked next: mirrored copies', ctx.mirrorTool),
       tool('offset', 'Offset: the selected shapes get outlines a distance outside (negative: inside; a line moves to its left)', ctx.offsetTool),
       tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
     ];
@@ -457,6 +459,7 @@ function toolbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
+    tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
     tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
     tool('sweep', 'Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path it runs along)', ctx.sweepTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
@@ -1131,6 +1134,8 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const sketch = src.kind === 'sketch' ? ctx.doc.sketches.find((k) => k.id === src.sketch) : undefined;
       return h('section', {}, h('h4', {}, mode, remove), h('div', { className: 'row' }, f('angle', 'Angle °'), h('span', { className: 'hint' }, sketch ? `From ${sketch.name}` : 'Its sketch was deleted')));
     }
+    case 'mirror':
+      return h('section', {}, h('h4', {}, 'Mirror', remove), h('p', { className: 'hint' }, 'Mirrored across the plane it was made with'));
     case 'shell':
       return h('section', {}, h('h4', {}, 'Shell', remove), h('div', { className: 'row' }, f('thickness', 'Wall'), h('span', { className: 'hint' }, `${feature.open.length} face${feature.open.length === 1 ? '' : 's'} open`)));
     case 'sweep': {

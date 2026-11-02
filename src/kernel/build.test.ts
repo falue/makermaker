@@ -93,6 +93,12 @@ describe('buildBody', () => {
     down.done();
   });
 
+  it('mirrors a body across a plane', () => {
+    const m = built([base(100), { id: 'm', type: 'mirror', o: [60, 0, 0], n: [1, 0, 0] } as BuildFeature]);
+    expect(m.box.bounds[0][0]).toBeCloseTo(70, 3); // -50..50 mirrored at x = 60: 70..170
+    m.done();
+  });
+
   it('hollows a body to walls, its top left open', () => {
     const box = built([base(100, 20), { id: 'h', type: 'shell', thickness: 2, open: [[0, 0, 20]] } as BuildFeature]);
     expect(box.box.width).toBeCloseTo(100, 3); // the walls go inside: the outside stays
