@@ -246,13 +246,15 @@ export class SketchTool implements Tool {
   static guideMs = 333;
   /** The straight line or edge the pointer is on (world), for a guide. */
   private snapSeg: Segment | null = null;
+  /** The corner, line end or centre the pointer snapped to (world): resting there gives guides along both plane axes. */
+  private snapPoint: THREE.Vector3 | null = null;
   /** Drops all guide lines, fixed ones too (sketch mode ended). */
   static dropGuides() {
     SketchTool.guides = [];
   }
   /** The guide the pointer is on. */
   private onGuide: (typeof SketchTool.guides)[number] | null = null;
-  private dwell: { seg: Segment | null; timer: number } = { seg: null, timer: 0 };
+  private dwell: { seg: Segment | null; point: THREE.Vector3 | null; timer: number } = { seg: null, point: null, timer: 0 };
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
   /** Letting Shift go hides the angle rays without waiting for the pointer to move. */
   private shiftUp = (e: KeyboardEvent) => e.key === 'Shift' && this.shiftHeld && ((this.shiftHeld = false), this.update());
@@ -682,6 +684,7 @@ export class SketchTool implements Tool {
     }
     this.snapLine = null;
     this.snapped = near ? v3(toWorld(t.frame, ...near.at)) : null;
+    this.snapPoint = near && !near.key ? this.snapped : null; // not a point along a line (that line gives the guide)
     this.snapWhat = near?.what ?? null;
     this.snapKey = near?.key ?? null;
     this.snapSeg = near?.key && !near.key.startsWith('circle:') ? near.line![0] : null;
@@ -931,11 +934,14 @@ export class SketchTool implements Tool {
 
   /** Redraws the preview and the size labels. */
   private update() {
-    // a line hovered long enough gets a guide
-    if (!sameSeg(this.snapSeg, this.dwell.seg)) {
+    // a line hovered long enough gets a guide, a point two (along the plane's axes)
+    const point = this.snapSeg ? null : this.snapPoint;
+    const frame = this.lastPoint?.[1].frame;
+    if (!sameSeg(this.snapSeg, this.dwell.seg) || !(point === this.dwell.point || (point && this.dwell.point?.equals(point)))) {
       clearTimeout(this.dwell.timer);
       const seg = this.snapSeg;
-      this.dwell = { seg, timer: seg ? window.setTimeout(() => this.addGuide(seg), SketchTool.guideMs) : 0 };
+      const guide = seg ? () => this.addGuide(seg) : point && frame ? () => [frame.x, frame.y].forEach((d) => this.addGuide([point, point.clone().add(v3(d))])) : null;
+      this.dwell = { seg, point, timer: guide ? window.setTimeout(guide, SketchTool.guideMs) : 0 };
     }
     this.clearPreview();
     const labels: [string, THREE.Vector3, boolean][] = []; // text, where, typed into
