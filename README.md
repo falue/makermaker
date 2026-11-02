@@ -32,7 +32,7 @@ To run it yourself, see [STATUS.md](STATUS.md#develop).
 MAKERMAKER is young: some parts are proofs of concept, see [STATUS.md](STATUS.md) for what works and what is planned.
 
 ## Why not Fusion 360?
-
+Inconsistent tools, fragile semantics, poor interoperability/lock-in, and geometry editing that is much less direct than it ought to be, too much state/history management where no history is wiscalledhed for..
 - No subscription, no account, no cloud: Your designs are files on your disk, and it works offline.
 - The view cube does not freak out.
 - Less clicking: tools stay on until ESC, works tool first or object first, values are typed in place without dialogs, and autosave writes the file a moment after each change.

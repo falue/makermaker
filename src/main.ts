@@ -692,7 +692,12 @@ function selectAll() {
 function infoOf(): { title: string; rows: [string, string][] } | null {
   const doc = history.current;
   const u = doc.units;
-  const num = (mm: number, power = 1) => `${fmt(+(mm / UNITS[u] ** power).toFixed(3))} ${u}${power === 2 ? '²' : power === 3 ? '³' : ''}`;
+  // areas and volumes one unit up (mm → cm², cm³), else the numbers get long
+  const up: Record<Unit, [string, number]> = { mm: ['cm', 10], cm: ['dm', 100], m: ['m', 1000], in: ['ft', 304.8], ft: ['ft', 304.8] };
+  const num = (mm: number, power = 1) => {
+    const [name, size] = power === 1 ? [u, UNITS[u]] : up[u];
+    return `${fmt(+(mm / size ** power).toFixed(3))} ${name}${power === 2 ? '²' : power === 3 ? '³' : ''}`;
+  };
   if (pickedPart) return pickedPart.kind === 'edge' ? { title: 'Edge', rows: [['Length', num(pickedPart.size)]] } : { title: 'Face', rows: [['Area', num(pickedPart.size, 2)]] };
   const lookup = paramLookup(doc.params);
   const s = doc.sketches.find((x) => x.id === activeSketch());
