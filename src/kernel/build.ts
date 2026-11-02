@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, Plane, type Drawing, type Edge, type Shape3D, type Sketch } from 'replicad';
+import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Shape3D, type Sketch } from 'replicad';
 import { add, cutPlane, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { beside, centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
@@ -399,12 +399,27 @@ function sweep(shape: Shape3D | null, s: Of<'sweep'>): Shape3D {
   return joined(shape, tool, 'add');
 }
 
-/** The body hollowed to walls `thickness` thick inside it, the faces through the `open` points taken away. */
+/**
+ * The body hollowed to walls `thickness` thick inside it, the faces through the `open` points taken away; none open: a
+ * closed body, hollow inside (shelled with its biggest flat face open, then that face's wall put back).
+ */
 function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
   if (!shape) throw new Error('nothing to hollow yet');
-  if (!s.open.length) throw new Error('pick a face to leave open');
   if (!(s.thickness > 0)) throw new Error('the wall thickness must be greater than 0');
-  return shape.shell(s.thickness, (f) => f.either(s.open.map((p) => (g: typeof f) => g.containsPoint(p))));
+  if (s.open.length) return shape.shell(s.thickness, (f) => f.either(s.open.map((p) => (g: typeof f) => g.containsPoint(p))));
+  const flat = shape.faces.filter((f) => f.geomType === 'PLANE').sort((a, b) => measureArea(b) - measureArea(a))[0];
+  if (!flat) throw new Error('a closed shell needs a flat face (or pick faces to leave open)');
+  const at = flat.center;
+  const n = flat.normalAt(at);
+  const hollow = shape.shell(s.thickness, (f) => f.containsPoint(at.toTuple()));
+  // the wall that face was: the body within the thickness of it
+  const b = shape.boundingBox;
+  const far = 2 * Math.hypot(b.width, b.height, b.depth) + 10;
+  const x = Math.abs(n.z) < 0.9 ? new Vector([0, 0, 1]).cross(n).normalized() : new Vector([1, 0, 0]);
+  const band = drawRectangle(2 * far, 2 * far).sketchOnPlane(new Plane(at.toTuple(), x.toTuple(), n.multiply(-1).toTuple())).extrude(s.thickness) as Shape3D;
+  const wall = shape.clone().intersect(band);
+  band.delete();
+  return joined(hollow, wall, 'add');
 }
 
 /**

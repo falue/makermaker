@@ -2098,7 +2098,7 @@ function offsetTool() {
   const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), walls());
   const stop = () => ((ended = true), removeEventListener('keydown', keys, { capture: true }), viewer.cancelFacePick());
   const next = () => {
-    toolHint = `Shell: click the faces to leave open (${open.length} so far) · [Enter] then the wall thickness · [Esc] cancels`;
+    toolHint = `Shell: click the faces to leave open (${open.length} so far; none: closed, hollow inside) · [Enter] then the wall thickness · [Esc] cancels`;
     render();
     viewer.pickFace((face) => {
       if (ended) return;
@@ -2109,7 +2109,6 @@ function offsetTool() {
   };
   const walls = () => {
     stop();
-    if (!open.length) return (toolHint = null), fail('Click at least one face to leave open');
     const doc = history.current;
     const i = doc.bodies.findIndex((b) => b.id === body);
     const feature = { id: newId(), type: 'shell' as const, thickness: len(2), open };

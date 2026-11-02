@@ -117,6 +117,10 @@ describe('buildBody', () => {
     expect(box.box.width).toBeCloseTo(100, 3); // the walls go inside: the outside stays
     expect(box.faces).toBe(11); // 5 outside, 5 inside, the rim on top
     box.done();
+    const closed = built([base(100, 20), { id: 'h', type: 'shell', thickness: 2, open: [] } as BuildFeature]);
+    expect(closed.faces).toBe(12); // 6 outside, 6 inside: hollow, closed
+    expect(closed.box.width).toBeCloseTo(100, 3);
+    closed.done();
   });
 
   it('sweeps a circle along a bent line', () => {

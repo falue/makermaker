@@ -1247,7 +1247,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
     case 'mirror':
       return h('section', {}, h('h4', {}, 'Mirror', remove), h('p', { className: 'hint' }, 'Mirrored across the plane it was made with'));
     case 'shell':
-      return h('section', {}, h('h4', {}, 'Shell', remove), h('div', { className: 'row' }, f('thickness', 'Wall'), h('span', { className: 'hint' }, `${feature.open.length} face${feature.open.length === 1 ? '' : 's'} open`)));
+      return h('section', {}, h('h4', {}, 'Shell', remove), h('div', { className: 'row' }, f('thickness', 'Wall'), h('span', { className: 'hint' }, feature.open.length ? `${feature.open.length} face${feature.open.length === 1 ? '' : 's'} open` : 'closed, hollow inside')));
     case 'sweep': {
       const name = (q: { sketch: string }) => ctx.doc.sketches.find((k) => k.id === q.sketch)?.name ?? '?';
       return h('section', {}, h('h4', {}, 'Sweep', remove), h('p', { className: 'hint' }, `${name(feature.profile)} along ${name(feature.path)} (linked: editing either changes it)`));
