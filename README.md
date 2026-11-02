@@ -44,4 +44,5 @@ Inconsistent tools, fragile semantics, poor interoperability/lock-in, and geomet
 - Smart and automatic exports for laser cutters, 3d printers
 - Non-destructive chamfers and bevels. Because - chamfers are what seperates us from the animals.
 - If a value is too big, assume the biggest working value
-- negative boolean objects!
+- Negative boolean objects!
+- No user interface overlays the thing you want to change.
