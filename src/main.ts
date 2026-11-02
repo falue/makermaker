@@ -11,7 +11,7 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, Unit } from './doc/types';
+import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -136,7 +136,7 @@ let finishSel: FinishPick | null = null;
 /** A face pick running for the extrude tool (E, then a face). */
 let extrudePick = false;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
-let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
+let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
 let autosave = localStorage.getItem('makermaker.autosave') === 'on';
 let autosaveTimer = 0;
 /** The body shown alone, and what was visible before (bodies and sketches by id). */
@@ -399,6 +399,11 @@ function update() {
     pending = pending.filter(({ id, resolved, at }) => {
       // a sketch on this body's own face is unplaced into its coordinates; one elsewhere counts in them as it is (as base
       // planes do): the body moves away from it freely, and its sketch is shown moved along
+      // a cutting sketch where it is in the world (a base-plane one placed by its group), in this body's coordinates
+      const cutterFrame = (sk: Resolved<Sketch>) => {
+        const w = sk.plane.kind === 'base' ? placeFrame(toPlace(groupAt(sk.group)), worldFrame(sk.plane)!) : worldFrame(sk.plane);
+        return w && placeFrame(at, w, true);
+      };
       const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
         const f = worldFrame(p);
         return f && (p.kind !== 'plane' && p.body === id ? placeFrame(at, f, true) : f);
@@ -406,7 +411,7 @@ function update() {
       const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
         if (s.type === 'boolean' || s.type === 'mesh') continue; // meshes are shown as they are
-        const b = toBuild(s, id, sketches, faceOf);
+        const b = toBuild(s, id, sketches, faceOf, cutterFrame);
         if (b === null) return true; // wait for the other body
         if (typeof b === 'string') return (progress = true), linkErrors.set(id, { featureId: s.id, error: `Cannot build: ${b}` }), false;
         built.set(s.id, b);
@@ -567,7 +572,7 @@ function picked(sel: string[], list: string[], id: string, how: Pick) {
 function picks(id: string) {
   if (!pending) return false;
   const { bodies, sketches, groups } = history.current;
-  const lists = [bodies, ...(pending.tool === 'boolean' || pending.tool === 'group' ? [] : [sketches]), ...(pending.tool === 'move' ? [groups] : [])];
+  const lists = [bodies, ...(['boolean', 'group', 'cut'].includes(pending.tool) ? [] : [sketches]), ...(pending.tool === 'move' ? [groups] : [])];
   return lists.some((list) => list.some((o) => o.id === id));
 }
 
@@ -1193,6 +1198,132 @@ function paste() {
   placeCopies(copiesOf(copied.bodies, copied.sketches, cut ? '' : ' copy'), cut ? [0, 0, 0] : [5, 5, 0]);
 }
 
+/**
+ * Cut (toolbar): a body (the selected one, else the one clicked next), then a face or empty space (a straight cut
+ * parallel to it through the body's middle) or the outline of a sketch line or shape (cut along it, linked): the body
+ * becomes chunk A (the side the cutter faces, a line's left, a shape's inside) and its copy chunk B (the other side),
+ * shown at once; then `cutPanel`.
+ */
+function cutTool() {
+  const doc = history.current;
+  const body = selected.find((id) => doc.bodies.some((b) => b.id === id));
+  if (!body) {
+    pending = { tool: 'cut', pick: (id) => (cancelPending(), (selected = [id]), cutTool()) };
+    toolHint = 'Click the body to cut · [Esc] cancels';
+    return render();
+  }
+  toolHint = 'Click a face or empty space (a straight cut through the middle, parallel to it), or a sketch line or shape (cut along it) · [Esc] cancels';
+  render();
+  viewer.pickFace((face) => {
+    toolHint = null;
+    if (face) startCut(body, face);
+    else render();
+  }, false, 'outlines');
+}
+
+function startCut(body: string, face: PickedFace) {
+  const doc = history.current;
+  const i = doc.bodies.findIndex((b) => b.id === body);
+  const pl = bodyPlace(body);
+  let cutter: SplitFeature['cutter'];
+  if (face.sketch?.shape) cutter = { kind: 'shape', sketch: face.sketch.id, shape: face.sketch.shape };
+  else {
+    const mid = viewer.measure(body)?.box.getCenter(new Vector3()) ?? face.point;
+    const n = face.normal.clone().normalize();
+    const x = new Vector3(0, 0, 1).cross(n);
+    if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+    x.normalize();
+    cutter = { kind: 'plane', o: unplaced(pl, mid.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), tilt: [ex(0), ex(0)], offset: len(0) };
+  }
+  const split = (side: 1 | -1): Feature => ({ id: newId(), type: 'split', cutter: structuredClone(cutter), side });
+  const a = { ...doc.bodies[i], features: [...doc.bodies[i].features, split(1)] };
+  const [copy] = copiesOf([doc.bodies[i]], [], ' B').bodies;
+  const b: Body = { ...copy, color: newBody(doc.bodies.length + 1, []).color, features: [...copy.features, split(-1)] };
+  history.push({ ...doc, bodies: [...doc.bodies.slice(0, i), a, b, ...doc.bodies.slice(i + 1)] });
+  [selected, shapeSel] = [[a.id, b.id], []];
+  update();
+  cutPanel(a.id, b.id, cutter.kind === 'plane');
+}
+
+type PlaneCutter = Extract<SplitFeature['cutter'], { kind: 'plane' }>;
+
+/**
+ * The open cut's panel at the bottom of the view: a plane's turn (X° / Y° around its own axes) and offset, both
+ * chunks kept or A or B deleted (hidden meanwhile); ✓ or Enter keeps it, Esc undoes the whole cut.
+ */
+function cutPanel(a: string, b: string, plane: boolean) {
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
+  document.body.append(box);
+  const r = viewer.el.getBoundingClientRect();
+  /** Both chunks' cut (their last feature) changed by `edit`, in the cut's undo step; `drop`: the chunk hidden, to be deleted. */
+  let drop: string | null = null;
+  const change = (edit: (c: PlaneCutter) => void) => {
+    const doc = history.current;
+    const bodies = doc.bodies.map((x) => {
+      if (x.id !== a && x.id !== b) return x;
+      const cut = structuredClone(x.features.at(-1)!);
+      if (cut.type === 'split' && cut.cutter.kind === 'plane') edit(cut.cutter);
+      return { ...x, features: [...x.features.slice(0, -1), cut], visible: x.id !== drop };
+    });
+    history.replace({ ...doc, bodies });
+    update();
+  };
+  const field = (label: string, value: string, set: (c: PlaneCutter, e: Expr) => void, unit: Unit) => {
+    const input = Object.assign(document.createElement('input'), { value, spellcheck: false });
+    input.dataset.complete = '';
+    input.oninput = () => {
+      const e = { e: input.value || '0', u: unit };
+      input.classList.toggle('invalid', length(e.e) === null);
+      if (length(e.e) !== null) change((c) => set(c, e));
+    };
+    return [Object.assign(document.createElement('span'), { textContent: label }), input];
+  };
+  const keep = (choice: string | null) => {
+    drop = choice;
+    buttons.forEach((btn) => btn.classList.toggle('on', btn.dataset.drop === String(choice)));
+    change(() => {});
+  };
+  const buttons = (
+    [
+      ['Keep both', null],
+      ['Delete A', a],
+      ['Delete B', b],
+    ] as const
+  ).map(([text, id]) => {
+    const btn = Object.assign(document.createElement('button'), { textContent: text, onclick: () => keep(id) });
+    btn.dataset.drop = String(id);
+    return btn;
+  });
+  const finish = (ok: boolean) => {
+    box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    if (!ok) return undo();
+    if (drop) {
+      const doc = history.current;
+      history.replace({ ...doc, bodies: doc.bodies.filter((x) => x.id !== drop) });
+      selected = selected.filter((id) => id !== drop);
+      update();
+    }
+  };
+  const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
+  const u = history.current.units;
+  box.append(
+    ...(plane
+      ? [
+          ...field('Turn X°', '0', (c, e) => (c.tilt[0] = { ...e, u: 'mm' }), 'mm'), // degrees: plain numbers, never unit-converted
+          ...field('Turn Y°', '0', (c, e) => (c.tilt[1] = { ...e, u: 'mm' }), 'mm'),
+          ...field('Offset', '0', (c, e) => (c.offset = e), u),
+        ]
+      : []),
+    ...buttons,
+    Object.assign(document.createElement('button'), { textContent: '✓', title: 'Done (Enter); Esc undoes the cut', onclick: () => finish(true) }),
+  );
+  keep(null);
+  // at the bottom middle of the view: not over the body being cut
+  keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.bottom - box.offsetHeight - 16, false, [r.left, r.top, r.right, r.bottom]);
+  addEventListener('keydown', keys, { capture: true });
+}
+
 /** Tool first: the next clicked body gets `act`. */
 function pickFor(tool: 'delete' | 'duplicate' | 'hide', act: () => void) {
   pending = {
@@ -1617,7 +1748,7 @@ function pickFaceToPull() {
     if (face?.sketch) return enterSketch(face.sketch.id), void extrudeAreas(false, face.sketch);
     if (face?.body) pullFace(face);
     else render(); // empty space: the tool just ends
-  }, false, true);
+  }, false, 'areas');
 }
 
 /** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already, `first`: a click whose area (or shape) is. */
@@ -1899,6 +2030,7 @@ function render() {
     moveInto: (ids, group) => commit(movedInto(history.current, ids, group)),
     groupTool,
     moveTool: () => moveAlong(0, true),
+    cutTool,
     groupSelected: selected.some((id) => doc.groups.some((g) => g.id === id)),
     arrange,
     select,

@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawRoundedRectangle, importSTEP, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
+import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
 import { add, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
@@ -72,6 +72,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
       if (s.type === 'step') apply(s.id, (cur) => step(cur, s));
       if (s.type === 'boolean') apply(s.id, (cur) => boolean(cur, s));
+      if (s.type === 'split') apply(s.id, (cur) => split(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -356,6 +357,61 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   } finally {
     tool.delete();
   }
+}
+
+/** Keeps one side of the cutter (see `SplitFeature`): the body against a solid that fills that side far beyond it. */
+function split(shape: Shape3D | null, s: Of<'split'>): Shape3D {
+  if (!shape) throw new Error('nothing to cut yet');
+  const b = shape.boundingBox;
+  const far = 2 * (Math.hypot(b.width, b.height, b.depth) + Math.hypot(...b.center)) + 10;
+  const kept = cutterSide(s.cutter, far);
+  try {
+    const out = s.side === 1 ? shape.intersect(kept) : shape.cut(kept);
+    if (!out.faces.length) throw new Error('the cut keeps nothing of the body on this side');
+    return out;
+  } finally {
+    kept.delete();
+  }
+}
+
+/** The solid on the cutter's kept side (+1), `far` mm beyond everything: past a plane, left of a line, inside a shape. */
+function cutterSide(c: Of<'split'>['cutter'], far: number): Shape3D {
+  if (c.kind === 'shape') throw new Error('its cutting shape is not found');
+  if (c.kind === 'plane') {
+    const f = cutPlane(c);
+    return drawRectangle(2 * far, 2 * far).sketchOnPlane(new Plane(f.o, f.x, f.n)).extrude(far) as Shape3D;
+  }
+  const { frame: f, profile: p } = c;
+  return (p.kind === 'line' ? leftOf(p.pts, far) : drawing(p)).sketchOnPlane(new Plane(add(f.o, scale(f.n, -far)), f.x, f.n)).extrude(2 * far) as Shape3D;
+}
+
+/** A cut plane's frame: turned `tilt` degrees around its x, then its y, moved `offset` along its normal. */
+export function cutPlane(c: { o: V3; x: V3; n: V3; tilt: [number, number]; offset: number }): Frame {
+  // v turned by `deg` around unit axis `k` (Rodrigues)
+  const turn = (v: V3, k: V3, deg: number): V3 => {
+    const [a, cos, sin] = [(deg * Math.PI) / 180, Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180)];
+    const kv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+    const kx: V3 = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
+    return a ? [0, 1, 2].map((i) => v[i] * cos + kx[i] * sin + k[i] * kv * (1 - cos)) as V3 : v;
+  };
+  const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  let [x, n] = [c.x, turn(c.n, c.x, c.tilt[0])];
+  const y = cross(n, x);
+  [x, n] = [turn(x, y, c.tilt[1]), turn(n, y, c.tilt[1])];
+  return { o: add(c.o, scale(n, c.offset)), x, y: cross(n, x), n };
+}
+
+/** The region left of an open line (plane coordinates), its ends drawn on `far` mm and closed far to the left. */
+function leftOf(pts: [number, number][], far: number): Drawing {
+  const unit = (a: [number, number], b: [number, number]): [number, number] => {
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+  };
+  const [d0, d1] = [unit(pts[0], pts[1]), unit(pts.at(-2)!, pts.at(-1)!)];
+  const start: [number, number] = [pts[0][0] - d0[0] * far, pts[0][1] - d0[1] * far];
+  const end: [number, number] = [pts.at(-1)![0] + d1[0] * far, pts.at(-1)![1] + d1[1] * far];
+  const ring = [start, ...pts, end, [end[0] - d1[1] * far, end[1] + d1[0] * far], [start[0] - d0[1] * far, start[1] + d0[0] * far]] as [number, number][];
+  return ring.slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(ring[0])).close();
 }
 
 function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finishing?: Finishing): Shape3D {

@@ -57,6 +57,8 @@ export interface UIContext {
   groupTool(): void;
   /** M: the move fields for X, Y and Z (nothing selected: click what moves first). */
   moveTool(): void;
+  /** Cut a body in two (see `cutTool` in main). */
+  cutTool(): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
   /** Moves objects before or after another one (into its group), or into a group. */
@@ -386,6 +388,7 @@ function toolbar(ctx: UIContext): Node[] {
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
     tool('move', 'Move (M): type distances along X, Y and Z (Tab: the next); the selection, or what is clicked next', ctx.moveTool, on('move')),
+    tool('cut', 'Cut: a body (selected, or clicked next) in two along a face\'s plane (turn and move it) or a sketch line or shape; keep both or delete one side', ctx.cutTool, on('cut')),
     h('hr'), // shaping above, organizing below
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? 'Ungroup (⇧⌘G): the contents move to the group\'s parent, staying where they are' : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
     tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
@@ -963,6 +966,18 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
     }
     case 'step':
       return h('section', {}, h('h4', {}, 'STEP solid', remove), h('p', { className: 'hint' }, `Imported from ${feature.source}`));
+    case 'split': {
+      // which side stays; a plane's turn and offset, or the shape it cuts along
+      const c = feature.cutter;
+      const side = select(String(feature.side) as '1' | '-1', { '1': 'Cut: keep side A', '-1': 'Cut: keep side B' }, (v) => setFeature({ ...feature, side: v === '1' ? 1 : -1 }));
+      const sketch = c.kind === 'shape' ? ctx.doc.sketches.find((k) => k.id === c.sketch) : undefined;
+      const shape = sketch?.shapes.find((q) => c.kind === 'shape' && q.id === c.shape);
+      const what =
+        c.kind === 'plane'
+          ? h('div', { className: 'row' }, exprField(ctx, `${at}.cutter.tilt.0`, 'Turn X°', true), exprField(ctx, `${at}.cutter.tilt.1`, 'Turn Y°', true), f('cutter.offset', 'Offset'))
+          : h('p', { className: 'hint' }, shape ? `Along ${sketch!.name}: ${shape.kind}` : 'Its cutting shape was deleted');
+      return h('section', {}, h('h4', {}, side, remove), what);
+    }
     case 'sphere':
       return h('section', {}, h('h4', {}, 'Sphere', remove), h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('z', 'Z'), f('d', 'Ø')));
     case 'finish': {

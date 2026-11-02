@@ -93,6 +93,29 @@ describe('buildBody', () => {
     down.done();
   });
 
+  it('cuts a body by a plane, turned, or along a line, keeping either side', () => {
+    const plane = (side: 1 | -1, tilt: [number, number] = [0, 0]) =>
+      ({ id: 's', type: 'split', cutter: { kind: 'plane', o: [0, 0, 0], x: [0, 1, 0], n: [1, 0, 0], tilt, offset: 10 }, side }) as BuildFeature;
+    const right = built([base(100), plane(1)]);
+    expect(right.box.width).toBeCloseTo(40, 3); // x from 10 to 50
+    right.done();
+    const left = built([base(100), plane(-1)]);
+    expect(left.box.width).toBeCloseTo(60, 3);
+    left.done();
+    const turned = built([base(100), plane(1, [0, 45])]); // turned 45° around its y (z): a slanted cut across the plate
+    expect(turned.box.width).toBeGreaterThan(40);
+    turned.done();
+    // a zig-zag line across the plate (y from -30 to 30), along y: its left is -x
+    const zig = { id: 'z', kind: 'line' as const, pts: [[0, -40], [5, -10], [-5, 10], [0, 40]] as [number, number][] };
+    const line = (side: 1 | -1) => ({ id: 's', type: 'split', cutter: { kind: 'frame', frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, profile: zig }, side }) as BuildFeature;
+    const west = built([base(100), line(1)]);
+    const [[x0], [x1]] = west.box.bounds;
+    expect(x0).toBeCloseTo(-50, 3);
+    expect(x1).toBeGreaterThan(0);
+    expect(x1).toBeLessThan(5.01);
+    west.done();
+  });
+
   it('cuts a blind pocket into the top face', () => {
     const pocket: BuildFeature = {
       id: 'pocket',

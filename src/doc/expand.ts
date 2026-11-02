@@ -13,7 +13,19 @@ export function toBuild(
   body: string,
   sketches: Map<string, Resolved<Sketch>>,
   faceOf: (placement: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => Frame | undefined,
+  cutterFrame: (sketch: Resolved<Sketch>) => Frame | undefined = () => undefined,
 ): Resolved<BuildIn> | string | null {
+  if (feature.type === 'split') {
+    // a sketch shape cuts where the sketch is in the world (`cutterFrame`: its plane in this body's coordinates)
+    const c = feature.cutter;
+    if (c.kind !== 'shape') return feature;
+    const sketch = sketches.get(c.sketch);
+    const profile = sketch?.shapes.find((s) => s.id === c.shape);
+    if (!sketch || !profile) return 'its cutting shape was deleted';
+    const frame = cutterFrame(sketch);
+    if (!frame) return null;
+    return { ...feature, cutter: { kind: 'frame', frame, profile } };
+  }
   if (feature.type !== 'extrude') return feature;
   const { source, ...rest } = feature;
   if (source.kind === 'own') return { ...rest, plane: source.plane, profiles: source.profiles, areas: source.areas };

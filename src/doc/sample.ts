@@ -58,6 +58,13 @@ function cutTest(): Body[] {
   return [{ ...block, features: [...block.features, op(ball, 'subtract'), op(pipe, 'subtract'), op(post, 'union')] }, ball, pipe, post];
 }
 
+/** A test piece for the cut tool: a block with a zig-zag line across it on the ground (cut along it, or by a plane). */
+function splitTest(): { body: Body; sketch: Sketch } {
+  const line: Profile = { id: newId(), kind: 'line', pts: [[-165, -10], [-145, 8], [-130, -8], [-112, 10], [-95, -2]] };
+  const sketch: Sketch = { id: newId(), name: 'Cut line', group: null, groups: [], plane: { kind: 'base', axis: 'xy', offset: ex(0) }, shapes: [line], visible: true };
+  return { body: solid('Cut me', '#c4b5e0', [-130, 0, 0], [rect(50, 40)], 30), sketch };
+}
+
 /**
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
@@ -65,6 +72,7 @@ function cutTest(): Body[] {
  * test pieces for newer features.
  */
 export function sampleDoc(): Doc {
+  const split = splitTest();
   const outline: Sketch = {
     id: newId(),
     name: 'Plate outline',
@@ -121,7 +129,7 @@ export function sampleDoc(): Doc {
     schema: 11,
     units: 'mm',
     params: { ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests(), ...cutTest()],
+    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests(), ...cutTest(), split.body],
     sketches: [
       outline,
       {
@@ -133,6 +141,7 @@ export function sampleDoc(): Doc {
         shapes: [circle(-20, 20, 24), { ...rect(50, 30), construction: true }],
         visible: true,
       },
+      split.sketch,
     ],
     groups: [corner],
     sections: [],

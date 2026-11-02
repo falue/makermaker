@@ -279,7 +279,7 @@ export class Viewer implements ToolView {
   private clickAt: { x: number; y: number } | null = null;
   private faceMark: THREE.Mesh | null = null;
   /** Picking a face for Extrude: closed sketch shapes count too, and what a click on one pulls is lit here. */
-  private pickSketches = false;
+  private pickSketches: false | 'areas' | 'outlines' = false;
   private sketchMark = new THREE.Group();
   private aimMark = new THREE.Group();
   /** A tool locked the pointer; the browser freeing it (its Esc) counts as Esc for the tool. */
@@ -768,6 +768,7 @@ export class Viewer implements ToolView {
     const s = this.shapeAt(ray, hit?.distance);
     const sketch = s && this.sketches.find((k) => k.id === s.sketch);
     const q = sketch?.shapes.find((x) => x.id === s!.shape);
+    if (this.pickSketches === 'outlines') return sketch && q && s!.edge < Infinity ? { sketch, q, onLine: true } : null; // any shape, lines too
     const closed = q && !q.construction && q.kind !== 'line' ? q : null;
     if (sketch && closed && s!.edge < Infinity) return { sketch, q: closed, onLine: true };
     // inside lines' faces: the nearest sketch with lines that close a face around the pointer
@@ -792,6 +793,7 @@ export class Viewer implements ToolView {
       const poly = (pts: [number, number][]) => new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
       let shape: THREE.Shape;
       if ('face' in at) (shape = poly(at.face.outer)).holes = at.face.holes.map(poly);
+      else if (at.q.kind === 'line') shape = new THREE.Shape(); // a line: only its outline lights
       else {
         const { sketch, q, onLine } = at;
         shape = shape2d(q);
@@ -869,7 +871,7 @@ export class Viewer implements ToolView {
 
   /** The next click on a body picks a face (null: Esc). */
   /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view). */
-  pickFace(done: (face: PickedFace | null) => void, quiet = false, sketches = false) {
+  pickFace(done: (face: PickedFace | null) => void, quiet = false, sketches: false | 'areas' | 'outlines' = false) {
     this.facePick = done;
     this.quietPick = quiet;
     this.pickSketches = sketches;

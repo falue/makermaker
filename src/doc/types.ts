@@ -110,7 +110,28 @@ export type Feature =
   | BooleanFeature
   | FinishFeature
   | MeshFeature
-  | StepFeature;
+  | StepFeature
+  | SplitFeature;
+
+/**
+ * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the
+ * other) of a plane (body-local through `o`, normal `n`, `x` along it; turned `tilt` degrees around its x, then its y,
+ * then moved `offset` along its normal) or of a sketch shape cut straight through along its sketch's normal (linked).
+ */
+export interface SplitFeature {
+  id: string;
+  type: 'split';
+  cutter: { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; n: [number, number, number]; tilt: [Expr, Expr]; offset: Expr } | { kind: 'shape'; sketch: string; shape: string };
+  side: 1 | -1;
+}
+
+/** A cut as the kernel builds it: a plane, or a shape on a frame (body-local), with the side kept. */
+export type SplitIn = {
+  id: string;
+  type: 'split';
+  cutter: SplitFeature['cutter'] | { kind: 'frame'; frame: { o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] }; profile: Profile };
+  side: 1 | -1;
+};
 
 /** A plane given directly (body-local): a sketch on another body's face. */
 export type FramePlane = { kind: 'frame'; o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] };
@@ -127,7 +148,7 @@ export type ExtrudeIn = {
   mode: 'add' | 'cut';
   through: boolean;
 };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature;
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn;
 
 export interface Body {
   id: string;

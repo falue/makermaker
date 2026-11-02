@@ -12,6 +12,7 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 
 - **Draw and pull**: rectangles, circles, polygons, lines and spheres, drawn on the ground, on any flat face or on a sketch, then pulled into solid bodies. Their faces can be pushed and pulled afterwards.
 - **Round, chamfer, cut and join**: fillets and chamfers stay editable; bodies cut, join or intersect each other and stay movable while they do.
+- **Cut in two**: split a body along a plane (turned and moved as you like) or along a sketch line; keep both halves or just one.
 - **Type instead of fiddling**: every number can be a unit or a formula with named values (`2*ply + 10`); change `ply` once and everything that uses it follows. Names complete as you type.
 - **Snap to what matters**: corners, centres, middles, crossings, evenly spaced points along any line, and guide lines that extend an edge across the whole view.
 - **Move precisely**: drag along an axis, or press X, Y or Z (M: all three) and type a distance; the part shows where it goes before you confirm.
