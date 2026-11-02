@@ -528,7 +528,7 @@ function left(ctx: UIContext): Node[] {
     const own = sketchesOf(doc, p.id);
     const bools = fold(r); // an owner of tool bodies: the red boolean button folds them, where a group has its ⚙
     const sketch = own.length
-      ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')} (draw into it)`, onclick: () => ctx.editSketch(own[0].id) })]
+      ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Based on sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.editSketch(own[0].id) })]
       : bools.length ? [] : [h('span', { className: 'fold-space' })];
     // a boolean's tool body: the op, and whose
     const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id));
@@ -548,7 +548,7 @@ function left(ctx: UIContext): Node[] {
     item.title = `${whose(doc, sk.id)} · click to draw into it`;
     // its body, like a body's sketch button: a click selects it
     const body = owner
-      ? h('button', { className: 'icon', innerHTML: icon('body'), title: `${owner.name}: click to select it`, onclick: () => ctx.select(owner.id) })
+      ? h('button', { className: 'icon', innerHTML: icon('body'), title: `Object derived: ${owner.name}`, onclick: () => ctx.select(owner.id) })
       : h('span', { className: 'fold-space' });
     return h('div', { className: `listed${dimmed(sk.id)}` }, item, body, eye('sketches', sk.id, sk.visible));
   });
