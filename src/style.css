@@ -743,7 +743,7 @@ input.rename {
 
 .tooltip {
   position: fixed;
-  z-index: 20;
+  z-index: 2000; /* above the settings dialog */
   max-width: 360px;
   padding: 4px 8px;
   border-radius: 6px;
