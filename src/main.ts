@@ -266,6 +266,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     const s = history.current.sketches.find((x) => x.id === sketch);
     const q = s?.shapes.find((x) => x.id === shape);
     if (!s || !q) return;
+    if (pending?.tool === 'move') return pickShape(sketch, shape, false); // that shape moves, without entering
     if (picks(sketch)) return select(sketch);
     if (sketching !== sketch) enterSketch(sketch, null, true);
     sketchPath = chainOf(s, q.group);
@@ -610,6 +611,8 @@ function pickShape(sketch: string, shape: string, how: Pick) {
   const ids = unit!.shapes;
   if (how === true) shapeSel = ids.every((id) => shapeSel.includes(id)) ? shapeSel.filter((id) => !ids.includes(id)) : [...shapeSel, ...ids.filter((id) => !shapeSel.includes(id))];
   else shapeSel = how === 'range' ? picked(shapeSel, s.shapes.map((q) => q.id), shape, how) : ids;
+  // X / Y / Z waiting: a plain click opens the field for the shapes picked
+  if (pending?.tool === 'move' && !how) return pending.pick(sketch, false);
   showSelection();
 }
 
@@ -956,7 +959,8 @@ function moveAlong(first: number) {
   const show = () => {
     for (const f of fields) f?.classList.toggle('invalid', !!f.value.trim() && length(f.value) === null);
     const b = by();
-    viewer.previewMove(b ?? new Vector3(), b ? (shapeMoves(b)?.updates ?? []) : []);
+    const m = b && sketchMove(b);
+    viewer.previewMove(b ?? new Vector3(), m?.updates ?? [], m?.across ?? null);
   };
   let closed = false; // removing the box fires focusout: close once
   let last: HTMLInputElement | null = null; // the field typed in last
@@ -1063,42 +1067,48 @@ function extentAlong(axis: number): [number, number] | null {
   return [box.min.getComponent(axis) - shift, box.max.getComponent(axis) - shift];
 }
 
-/** The selected sketch's shapes (the selected ones, else all) moved by `by` (world, mm) within its plane; null: no sketch selected, or across its plane. */
-function shapeMoves(by: Vector3) {
+/**
+ * The selected sketch moved by `by` (world, mm): its shapes within its plane (the selected ones, else all; all when
+ * it moves across too), and across it (`d` along its normal `n`): a base-plane or free-plane sketch with the bodies
+ * extruded from it, one on a face with the body carrying it (`across`: what the preview moves; null: none or it
+ * cannot). Null: no sketch selected, or hidden.
+ */
+function sketchMove(by: Vector3) {
   const doc = history.current;
   const s = doc.sketches.find((x) => x.id === activeSketch());
   const f = viewer.sketches.find((v) => v.id === s?.id)?.frame;
   if (!s || !f) return null;
+  const n = new Vector3(...f.n);
+  const d = Math.abs(by.dot(n)) > 1e-9 ? by.dot(n) : 0;
   const [du, dv] = [f.x, f.y].map((v) => by.dot(new Vector3(...v)));
-  if (Math.abs(du) < 1e-9 && Math.abs(dv) < 1e-9) return null;
-  const shapes = resolve(s, paramLookup(doc.params), '', new Map()).shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id));
-  return { sketch: s.id, updates: shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })) };
+  const flat = Math.abs(du) > 1e-9 || Math.abs(dv) > 1e-9;
+  const shapes = flat ? resolve(s, paramLookup(doc.params), '', new Map()).shapes.filter((q) => d || !shapeSel.length || shapeSel.includes(q.id)) : [];
+  const carrier = carrierOf(doc, s.id);
+  const onFace = s.plane.kind === 'cap' || s.plane.kind === 'side';
+  const users = doc.bodies.filter((b) => b.features.some((x) => x.type === 'extrude' && x.source.kind === 'sketch' && x.source.sketch === s.id)).map((b) => b.id);
+  const bodies = onFace ? (carrier ? [carrier] : null) : users;
+  return { sketch: s, n, d, carrier, updates: shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })), across: d && bodies ? { sketch: s.id, by: n.clone().multiplyScalar(d), bodies } : null };
 }
 
 /**
- * Moves the selection by `by` (world, mm): bodies; a sketch's shapes within its plane (the selected ones, else all),
- * and across it the whole sketch (no shapes selected): a base-plane one by its offset, one extruded into a body with that body, a free
- * plane itself. A sketch on a face without a body of its own stays on it.
+ * Moves the selection by `by` (world, mm): bodies, or a sketch (see `sketchMove`): across its plane the whole sketch
+ * goes, selected shapes or not. A sketch on a face without a body of its own stays on it.
  */
 function moveBy(by: Vector3) {
-  const id = activeSketch();
-  if (!id) return nudge(by.toArray());
-  const f = viewer.sketches.find((v) => v.id === id)?.frame;
-  if (!f) return fail('The sketch is hidden: show it to move it');
+  if (!activeSketch()) return nudge(by.toArray());
+  const m = sketchMove(by);
+  if (!m) return fail('The sketch is hidden: show it to move it');
+  const { sketch, n, d, carrier } = m;
   const doc = history.current;
-  const moves = shapeMoves(by);
-  let next = moves ? withShapes(doc, moves.sketch, moves.updates) : doc;
-  const n = new Vector3(...f.n);
-  const d = by.dot(n);
-  if (Math.abs(d) > 1e-9) {
-    if (shapeSel.length) return fail('Shapes move within their sketch plane: select the whole sketch to move it across');
-    const k = doc.sketches.findIndex((s) => s.id === id);
-    const p = doc.sketches[k].plane;
-    const carrier = carrierOf(doc, id);
+  let next = m.updates.length ? withShapes(doc, sketch.id, m.updates) : doc;
+  if (d) {
+    const k = doc.sketches.indexOf(sketch);
+    const p = sketch.plane;
     if (p.kind === 'base') next = setIn(next, ['sketches', String(k), 'plane', 'offset'], plus(p.offset, resolve(p.offset, paramLookup(doc.params), '', new Map()), d));
     else if (carrier && positions.has(carrier)) next = withPlaces(next, [{ id: carrier, position: new Vector3(...positions.get(carrier)!).addScaledVector(n, d).toArray() }]);
     else if (p.kind === 'plane') next = setIn(next, ['sketches', String(k), 'plane', 'o'], new Vector3(...p.o).addScaledVector(n, d).toArray());
     else return fail('A sketch on a face stays on it: pull a body from it, then they move together');
+    shapeSel = []; // the whole sketch went
   }
   commit(next);
 }
