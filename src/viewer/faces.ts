@@ -41,6 +41,8 @@ export class FacePullTool implements Tool {
 
   dispose() {
     this.view.unlockPointer();
+    this.view.aimAt(null);
+    this.host.cursorTip(null);
     this.labels.remove();
   }
 
@@ -51,6 +53,7 @@ export class FacePullTool implements Tool {
       const p = this.view.pointAt(e);
       if (!p) return true;
       this.reaching = false;
+      this.view.aimAt(null);
       [this.dist, this.typed] = [p.sub(this.at).dot(new THREE.Vector3(...this.n)), undefined];
     }
     this.finish('done');
@@ -58,7 +61,7 @@ export class FacePullTool implements Tool {
   }
 
   move(e: PointerEvent) {
-    if (this.reaching) return; // aiming at what to reach
+    if (this.reaching) return this.host.cursorTip(this.view.aimAt(e)); // aiming at what to reach
     pullBy(this.view, e, this.n, this.at, this.pull);
     const step = this.view.step(this.at, e);
     this.dist = Math.round(this.pull.raw / step) * step;

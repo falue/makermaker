@@ -82,6 +82,8 @@ export interface ToolView {
   hit(e: MouseEvent): THREE.Intersection | undefined;
   /** What a click points at (world): a corner, an edge point or a face point; null: empty space. */
   pointAt(e: MouseEvent): THREE.Vector3 | null;
+  /** Marks what a click at the pointer reaches (as `pointAt` finds it) and returns what it is; null: clears. */
+  aimAt(e: MouseEvent | null): string | null;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   toScreen(p: THREE.Vector3): [number, number];
@@ -277,6 +279,7 @@ export class SketchTool implements Tool {
   dispose() {
     clearTimeout(this.dwell.timer);
     removeEventListener('keyup', this.shiftUp);
+    this.view.aimAt(null);
     SketchTool.guides = SketchTool.guides.filter((g) => g.fixed);
     this.view.unlockPointer();
     this.view.markFace();
@@ -334,6 +337,7 @@ export class SketchTool implements Tool {
       const p = this.view.pointAt(e);
       if (!p) return true;
       this.reaching = false;
+      this.view.aimAt(null);
       ph.depth = p.sub(v3(ph.target.frame.o)).dot(v3(ph.target.frame.n));
       ph.typed = undefined;
       this.commit();
@@ -363,7 +367,7 @@ export class SketchTool implements Tool {
         Object.assign(ph, { alt: e.altKey, shift: e.shiftKey });
       }
     } else {
-      if (this.reaching) return; // aiming at what to reach
+      if (this.reaching) return this.host.cursorTip(this.view.aimAt(e)); // aiming at what to reach
       pullBy(this.view, e, ph.target.frame.n, this.middle(ph), ph);
       const step = this.view.step(this.middle(ph), e);
       ph.depth = Math.round(ph.raw / step) * step;

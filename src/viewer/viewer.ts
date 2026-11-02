@@ -274,6 +274,7 @@ export class Viewer implements ToolView {
   /** Picking a face for Extrude: closed sketch shapes count too, and what a click on one pulls is lit here. */
   private pickSketches = false;
   private sketchMark = new THREE.Group();
+  private aimMark = new THREE.Group();
   /** A tool locked the pointer; the browser freeing it (its Esc) counts as Esc for the tool. */
   private locked = false;
   private escFreed = 0;
@@ -374,7 +375,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -419,7 +420,7 @@ export class Viewer implements ToolView {
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
       if (this.facePick && !this.drag) {
-        if (this.quietPick) return; // a gizmo drag moves on
+        if (this.quietPick) return void this.aiming?.(this.aimAt(e)); // a gizmo drag moves on
         const hit = this.frontHit(e);
         const s = this.sketchShapeAt(e, hit);
         this.markSketch(s);
@@ -792,17 +793,32 @@ export class Viewer implements ToolView {
   }
 
   /** What a click points at (world): a body corner within `cornerPx`, else the nearest point of an edge within 6 px, else the face point; null: empty space. */
-  pointAt(e: MouseEvent, cornerPx = 10) {
+  pointAt(e: MouseEvent) {
+    return this.snapAt(e)?.at ?? null;
+  }
+
+  /**
+   * What a click points at (world) and what it is: a body corner or sphere centre within `px`, else on the edge
+   * within 6 px its middle (within `px` of it) or the nearest point, else the face point; null: empty space.
+   */
+  private snapAt(e: MouseEvent, px = 10): { at: THREE.Vector3; what: string } | null {
     const r = this.el.getBoundingClientRect();
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
-    const corner = this.corners().find((c) => {
-      const [x, y] = this.toScreen(c);
-      return Math.hypot(mx - x, my - y) < cornerPx;
-    });
-    if (corner) return corner;
+    const near = (p: THREE.Vector3) => {
+      const [x, y] = this.toScreen(p);
+      return Math.hypot(mx - x, my - y) < px;
+    };
+    const corner = this.corners().find(near);
+    if (corner) return { at: corner, what: this.balls.some((b) => b.center.equals(corner)) ? 'centre' : 'corner' };
     const edge = this.edgeAt(e);
     if (edge) {
-      // the edge point nearest the pointer's ray
+      // an open edge's middle, else the edge point nearest the pointer's ray
+      const lengths = edge.segs.map(([a, b]) => a.distanceTo(b));
+      let half = lengths.reduce((n, l) => n + l, 0) / 2;
+      const k = Math.max(0, lengths.findIndex((l) => (half -= l) <= 0));
+      const mid = edge.segs[k][0].clone().lerp(edge.segs[k][1], 1 + half / (lengths[k] || 1));
+      const open = edge.segs[0][0].distanceTo(edge.segs.at(-1)![1]) > 1e-6;
+      if (open && near(mid)) return { at: mid, what: '1/2' };
       const ray = this.ray(e);
       let best: [number, THREE.Vector3] | null = null;
       for (const [a, b] of edge.segs) {
@@ -810,9 +826,23 @@ export class Viewer implements ToolView {
         const d = ray.distanceSqToSegment(a, b, undefined, p);
         if (!best || d < best[0]) best = [d, p];
       }
-      return best![1];
+      return { at: best![1], what: 'on edge' };
     }
-    return this.frontHit(e)?.point.clone() ?? null;
+    const hit = this.frontHit(e);
+    return hit ? { at: hit.point.clone(), what: 'on face' } : null;
+  }
+
+  /** Waiting for "to object" (the move fields): told what a click at the pointer would reach (see `aimAt`). */
+  aiming: ((what: string | null) => void) | null = null;
+
+  /** Marks what a click at the pointer reaches ("to object") and returns what it is ('corner', '1/2' …); null: clears. */
+  aimAt(e: MouseEvent | null) {
+    for (const o of this.aimMark.children) ((o as THREE.Points).geometry.dispose(), ((o as THREE.Points).material as THREE.Material).dispose());
+    this.aimMark.clear();
+    const s = e && this.snapAt(e);
+    if (s) this.aimMark.add(Object.assign(marks([s.at], 0xff8c1a, s.what.startsWith('on ') ? 8 : 12), { renderOrder: 1e6 }));
+    this.render();
+    return s?.what ?? null;
   }
 
   setCustomSections(planes: { point: Vec3; normal: Vec3 }[]) {

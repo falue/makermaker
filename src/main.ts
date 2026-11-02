@@ -999,6 +999,8 @@ function moveAlong(first: number, all = false) {
     viewer.cancelFacePick();
     viewer.previewMove(null);
     viewer.showGizmo(null);
+    viewer.aiming = null;
+    viewer.aimAt(null);
   };
   // the view keeps turning meanwhile: a click in it does not select (it only picks for "To object"), the field gets focus back
   const refocus = () => setTimeout(() => !closed && !box.contains(document.activeElement) && last?.focus());
@@ -1013,6 +1015,8 @@ function moveAlong(first: number, all = false) {
   /** "To object": the selection moves along the field's axis until its nearest side reaches the clicked point. */
   const reach = (p?: Vector3) => {
     target = false;
+    viewer.aiming = null;
+    viewer.aimAt(null);
     box.classList.remove('targeting');
     tips.cursorTip(null);
     const k = Math.max(0, fields.indexOf(last));
@@ -1065,6 +1069,8 @@ function moveAlong(first: number, all = false) {
     title: 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it',
     onclick: () => {
       target = true;
+      // what a click reaches first in the pointer's note
+      viewer.aiming = (what) => tips.cursorTip([what, 'Click a corner, edge or face to move to'].filter(Boolean).join('\n'));
       box.classList.add('targeting');
       tips.cursorTip('Click a corner, edge or face to move to');
       last?.focus();
