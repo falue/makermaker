@@ -629,8 +629,8 @@ function toggleVisible() {
 }
 
 /**
- * X / Y / Z: a field at the pointer takes a distance (expressions, units) along that axis; X / Y / Z in it add or go
- * to that axis' field (always in X Y Z order), unless in the middle of a name, or where a name could start and a
+ * X / Y / Z: a field at the pointer takes a distance (expressions, units) along that axis; X / Y / Z in it (or Tab:
+ * the next axis) add or go to that axis' field (always in X Y Z order), unless in the middle of a name, or where a name could start and a
  * parameter starts with the letter (then it is typed: Tab completes the name). While typing the selection shows moved; Enter moves it by all of them,
  * Esc or leaving cancels all.
  */
@@ -680,7 +680,8 @@ function moveAlong(first: number) {
     // a name could start here and one starts with the letter: typed, Tab completes it
     const name = !/[\w.]$/.test(before) && Object.keys(history.current.params).some((p) => p.startsWith(e.key));
     if (k >= 0 && (!word || word in UNITS) && !name) return e.preventDefault(), open(k);
-    if (e.key === 'Tab') return e.preventDefault(); // (a completion took it already) leaving would cancel
+    // Tab (a completion took it already): the next axis' field (Shift: the previous), added if needed; leaving would cancel
+    if (e.key === 'Tab') return e.preventDefault(), open((fields.indexOf(input) + (e.shiftKey ? 2 : 1)) % 3);
     if (pressed(e, 'cancel')) return close();
     if (!pressed(e, 'confirm')) return;
     const b = by();
