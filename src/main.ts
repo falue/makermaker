@@ -1524,8 +1524,8 @@ function pickFaceToPull() {
     extrudePick = false;
     // a sketch's area clicked: its areas to pick, that one picked already (as the sketch first, then E)
     if (face?.sketch) return enterSketch(face.sketch.id), void extrudeAreas(false, face.sketch.at);
-    if (face) pullFace(face);
-    else render();
+    if (face?.body) pullFace(face);
+    else render(); // empty space: the tool just ends
   });
 }
 
