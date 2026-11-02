@@ -5,6 +5,8 @@ import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { comboText, KEYS, pressed } from '../ui/keys';
@@ -581,11 +583,17 @@ export class SketchTool implements Tool {
     let best: { at: THREE.Vector3; line: Segment[]; what: string; key?: string; seg?: Segment; guide?: (typeof SketchTool.guides)[number]; d: number } | null = null;
     const close: { line: number; a: UV; b: UV }[] = [];
     // along lines and at their crossings only in the plane drawn on: a line off it would snap to its projection, away from the pointer
+    let off: { seg: Segment; d: number } | null = null; // the nearest straight line off the plane: hovered, it gives a guide (projected)
     for (const [line, { segs, what, shape, guide }] of lines.entries())
       for (const [a, b] of segs) {
-        if (!inPlane(t.frame, a) || !inPlane(t.frame, b)) continue;
+        const flat = inPlane(t.frame, a) && inPlane(t.frame, b);
+        if (!flat && (guide || shape?.p.kind === 'circle' || (!shape && segs.length > 1))) continue;
         const { d, k } = this.screenDist(mx, my, a, b);
         if (d >= linePx) continue;
+        if (!flat) {
+          if (!off || d < off.d) off = { seg: [a, b], d };
+          continue;
+        }
         close.push({ line, a: uvOf(t.frame, a), b: uvOf(t.frame, b) });
         // the line for A / Shift A: a circle, a straight side, or a straight body edge
         const key = guide ? undefined : shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : shape || segs.length === 1 ? sideKey(a, b) : undefined;
@@ -607,6 +615,10 @@ export class SketchTool implements Tool {
       this.snapSeg = best.seg ?? null;
       this.onGuide = best.guide ?? null;
       return uv;
+    }
+    if (off) {
+      const seg = off.seg.map((v) => v3(toWorld(t.frame, ...uvOf(t.frame, v)))) as Segment;
+      if (seg[0].distanceTo(seg[1]) > 1e-3) this.snapSeg = seg; // not seen end-on
     }
     if (grid) this.snapWhat = 'grid';
     const [u, v] = uvOf(t.frame, p);
@@ -776,7 +788,7 @@ export class SketchTool implements Tool {
     if (this.dots.length && ph.kind !== 'pull') this.view.overlay.add(marks(this.dots, 0xff8c1a, 7));
     for (const g of ph.kind === 'pull' ? [] : SketchTool.guides) {
       // dashed like construction lines (mm)
-      const m = new LineMaterial({ color: GUIDE_COLOR, linewidth: g.fixed ? 2 : 1, depthTest: false, dashed: true, dashSize: 1.5, gapSize: 1.5 });
+      const m = new LineMaterial({ color: GUIDE_COLOR, linewidth: g.fixed ? 1.4 : 0.8, depthTest: false, dashed: true, dashSize: 1.5, gapSize: 1.5 });
       m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
       this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(guideSeg(g).flatMap((v) => v.toArray())), m).computeLineDistances());
     }
@@ -854,14 +866,14 @@ export function shape2d(p: DrawnProfile): THREE.Shape {
   return new THREE.Shape(corners(p).map(([x, y]) => new THREE.Vector2(x, y)));
 }
 
-/** The shape's outline on the frame's plane, lifted `lift` mm along the normal (0: drawn over everything, for previews); construction lines dashed. */
-export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0, dashMm = 1.5) {
+/**
+ * The shape's outline on the frame's plane, `width` px wide, lifted `lift` mm along the normal (0: drawn over
+ * everything, for previews); construction lines dashed.
+ */
+export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0, dashMm = 1.5, width = 2) {
   const n = v3(f.n).multiplyScalar(lift);
   const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)).add(n));
-  if (p.kind !== 'line') pts.push(pts[0]); // closed by its own last segment, so dashes count it (a LineLoop's closing segment is left out)
-  const material = p.construction
-    ? new THREE.LineDashedMaterial({ color, dashSize: dashMm, gapSize: dashMm, depthTest: lift !== 0 })
-    : new THREE.LineBasicMaterial({ color, depthTest: lift !== 0 });
-  const geometry = new THREE.BufferGeometry().setFromPoints(pts);
-  return new THREE.Line(geometry, material).computeLineDistances();
+  if (p.kind !== 'line') pts.push(pts[0]); // closed by its own last segment
+  const material = new LineMaterial({ color, linewidth: width, depthTest: lift !== 0, dashed: !!p.construction, dashSize: dashMm, gapSize: dashMm });
+  return new Line2(new LineGeometry().setPositions(pts.flatMap((v) => v.toArray())), material).computeLineDistances();
 }

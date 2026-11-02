@@ -482,7 +482,7 @@ export class Viewer implements ToolView {
       const top = resize[2]; // the handle at (0, 1): the middle of the top edge
       this.sketchView.add(marks(turn, 0x1d4ed8), new THREE.Line(new THREE.BufferGeometry().setFromPoints([top, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
     }
-    this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' ? 1e6 : 0));
+    this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' || o.type === 'Line2' ? 1e6 : 0));
     if (refs.length) this.sketchView.add(...refs); // under the handles: a handle on the reference point gets a blue ring
     for (const o of refs) o.renderOrder = 1e6 - 1;
     this.render();
