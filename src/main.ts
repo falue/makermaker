@@ -28,7 +28,19 @@ import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from '.
 import { Viewer, type FinishPick, type PickedFace, type Vec3 } from './viewer/viewer';
 
 const tips = installTooltips();
-installCompletion(() => Object.keys(history.current.params));
+// a calculation's result: turns in degrees, sides and scales bare, else lengths in the document's units
+installCompletion(
+  () => Object.keys(history.current.params),
+  (text, field) => {
+    if (!text.trim() || isPlain(text)) return null;
+    const mm = length(text);
+    if (mm === null || !Number.isFinite(mm)) return null;
+    const u = history.current.units;
+    const path = field.dataset.path ?? '';
+    const v = fmt(+(mm / UNITS[u]).toFixed(4));
+    return /\.(rot|rx|ry|rz)$/.test(path) ? `${v}°` : /\.(sides|scale)$/.test(path) ? v : `${v} ${u}`;
+  },
+);
 let settings = loadSettings();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
