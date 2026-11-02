@@ -3468,6 +3468,7 @@ function render() {
     importFile: pickImport,
     exportPrint: () => run(() => exportBodies('stl')),
     exportLaser: () => run(() => exportBodies('svg')),
+    exportStep: () => run(() => exportBodies('step')),
     toggleTheme() {
       const theme = viewer.isDark ? 'light' : 'dark';
       document.documentElement.dataset.theme = theme;
@@ -3528,7 +3529,7 @@ function render() {
  * and joins are in their owners). stl: for 3D print, placed as in the world; svg: for the laser, the outline of the
  * body's biggest flat face at 1:1 without fillets and chamfers.
  */
-async function exportBodies(format: 'stl' | 'svg') {
+async function exportBodies(format: 'stl' | 'svg' | 'step') {
   const doc = history.current;
   const tools = new Set(ownersOf(doc).keys());
   const chosen = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
@@ -3541,11 +3542,12 @@ async function exportBodies(format: 'stl' | 'svg') {
     taken.set(base, n);
     return n > 1 ? `${base}_${n}` : base;
   };
-  const { files, failed } = await kernel.export(format, bodies.map((b) => ({ name: nameOf(b), features: built.get(b.id)!, place: bodyPlace(b.id) })));
-  const type = format === 'stl' ? 'model/stl' : 'image/svg+xml';
-  if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
+  const { files, failed } = await kernel.export(format, bodies.map((b) => ({ name: nameOf(b), color: b.color, features: built.get(b.id)!, place: bodyPlace(b.id) })));
+  const type = format === 'stl' ? 'model/stl' : format === 'step' ? 'model/step' : 'image/svg+xml';
+  if (format === 'step' && files.length) download(new Blob([files[0].data], { type }), `${project()}.step`);
+  else if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
   else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, new Uint8Array(f.data)])))]), `${project()}_${format}.zip`);
-  notify(`Exported ${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}`, failed.length > 0);
+  notify(`Exported ${format === 'step' ? `${bodies.length - failed.length} bodies as one STEP file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}`, failed.length > 0);
 }
 
 /** The right column shows the renders. */

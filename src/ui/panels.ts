@@ -122,6 +122,7 @@ export interface UIContext {
   /** Downloads STL files (3D print) or SVG outlines (laser) of the selected (else shown) bodies. */
   exportPrint(): void;
   exportLaser(): void;
+  exportStep(): void;
   /** Snapshot: downloads the view as a PNG (and keeps it in the renders). */
   renderImage(): void;
   openSettings(): void;
@@ -406,6 +407,7 @@ function topbar(ctx: UIContext): Node[] {
     ...(ctx.busy.length ? [h('span', { className: 'busy' }, ctx.busy.join(', '), h('span', { className: 'bar' }))] : []),
     h('span', { className: `status${ctx.statusError && ctx.status ? ' error' : ''}` }, ctx.status),
     tool('print', 'Export for 3D print: one STL per selected body (else all shown ones), as placed in the world; several come zipped', ctx.exportPrint),
+    tool('step', 'Export STEP: one file with the selected bodies (else all shown ones) as named, coloured parts, as placed in the world (for other CAD tools)', ctx.exportStep),
     tool('laser', 'Export for the laser: one SVG per selected body (else all shown ones), the outline of its biggest flat face at 1:1, without fillets and chamfers; several come zipped', ctx.exportLaser),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),
     tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),

@@ -38,7 +38,7 @@ export class Kernel {
   }
 
   /** One file per body (see the worker's export), and the names of those that could not be made. */
-  async export(format: 'stl' | 'svg', bodies: Extract<Request, { kind: 'export' }>['bodies']): Promise<{ files: ExportFile[]; failed: string[] }> {
+  async export(format: 'stl' | 'svg' | 'step', bodies: Extract<Request, { kind: 'export' }>['bodies']): Promise<{ files: ExportFile[]; failed: string[] }> {
     const answer = await this.ask({ kind: 'export', format, id: this.nextAsk++, bodies });
     return answer.kind === 'export' ? answer : { files: [], failed: [] };
   }
