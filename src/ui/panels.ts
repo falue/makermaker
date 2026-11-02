@@ -55,6 +55,8 @@ export interface UIContext {
   moveInto(ids: string[], group: string | null): void;
   /** Groups the selection, or ungroups a selected group (nothing selected: waits for clicked objects). */
   groupTool(): void;
+  /** M: the move fields for X, Y and Z (nothing selected: click what moves first). */
+  moveTool(): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
   /** Moves objects before or after another one (into its group), or into a group. */
@@ -381,6 +383,7 @@ function toolbar(ctx: UIContext): Node[] {
       }, flyout || on('boolean')),
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
+    tool('move', 'Move (M): type distances along X, Y and Z (Tab: the next); the selection, or what is clicked next', ctx.moveTool, on('move')),
     h('hr'), // shaping above, organizing below
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? 'Ungroup (⇧⌘G): the contents move to the group\'s parent, staying where they are' : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
     tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),

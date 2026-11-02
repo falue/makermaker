@@ -47,6 +47,7 @@ export const KEYS = {
   deselect: { name: 'Deselect', order: 54, default: [{ key: 'escape' }], hint: 'Clear the selection; in sketch mode leave the sketch' },
   selectAll: { name: 'Select all', order: 54.2, default: [{ key: 'a', mod: true }], hint: 'Select all bodies (in sketch mode: all shapes of the sketch); in a field: all its text' },
   toggleVisible: { name: 'Hide / show', order: 54.5, default: [{ key: 'v' }], hint: 'Hide the selected bodies, sketches and groups, or show them again' },
+  move: { name: 'Move', order: 54.8, default: [{ key: 'm' }], hint: 'Fields at the pointer for X, Y and Z at once (the cursor in X): type distances, Enter moves the selection (nothing selected: click what moves)' },
   moveX: { name: 'Move along X', order: 55, default: [{ key: 'x' }], hint: 'A field at the pointer: type a distance along X (X / Y / Z or Tab in it switch the axis), Enter moves the selection by all of them' },
   moveY: { name: 'Move along Y', order: 56, default: [{ key: 'y' }], hint: 'A field at the pointer: type a distance along Y (X / Y / Z or Tab in it switch the axis), Enter moves the selection by all of them' },
   moveZ: { name: 'Move along Z', order: 57, default: [{ key: 'z' }], hint: 'A field at the pointer: type a distance along Z (X / Y / Z or Tab in it switch the axis), Enter moves the selection by all of them' },

@@ -923,9 +923,9 @@ function toggleVisible() {
  * X / Y / Z: a field at the pointer takes a distance (expressions, units) along that axis; X / Y / Z in it (or Tab:
  * the next axis) add or go to that axis' field (always in X Y Z order), unless in the middle of a name, or where a name could start and a
  * parameter starts with the letter (then it is typed: Tab completes the name). While typing the selection shows moved; Enter moves it by all of them,
- * Esc or leaving cancels all.
+ * Esc or leaving cancels all. `all` (M): all three fields at once, X first.
  */
-function moveAlong(first: number) {
+function moveAlong(first: number, all = false) {
   if (!selected.length) {
     // tool first: a click picks what moves and opens the field; Shift / ⌘ clicks collect several, Enter then
     pending = {
@@ -935,15 +935,15 @@ function moveAlong(first: number) {
         if (!selected.includes(id)) selected = [...selected, id];
         cancelPending();
         showSelection();
-        moveAlong(first);
+        moveAlong(first, all);
       },
       apply() {
         cancelPending();
         render();
-        if (selected.length) moveAlong(first);
+        if (selected.length) moveAlong(first, all);
       },
     };
-    toolHint = `Click what to move along ${'XYZ'[first]} · Shift / ${MAC ? '⌘' : 'Ctrl'}-click several, then [Enter] · [Esc] cancels`;
+    toolHint = `Click what to move${all ? '' : ` along ${'XYZ'[first]}`} · Shift / ${MAC ? '⌘' : 'Ctrl'}-click several, then [Enter] · [Esc] cancels`;
     return render();
   }
   const fields: (HTMLInputElement | null)[] = [null, null, null];
@@ -1043,6 +1043,7 @@ function moveAlong(first: number) {
     },
   });
   box.append(toObject);
+  if (all) [2, 1].forEach(open); // Z and Y open behind X
   open(first);
   show();
 }
@@ -1792,6 +1793,7 @@ function render() {
     },
     moveInto: (ids, group) => commit(movedInto(history.current, ids, group)),
     groupTool,
+    moveTool: () => moveAlong(0, true),
     groupSelected: selected.some((id) => doc.groups.some((g) => g.id === id)),
     arrange,
     select,
@@ -2183,6 +2185,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'cycle')) viewer.cycle(1);
   else if (pressed(e, 'cycleBack')) viewer.cycle(-1);
   else if (axis >= 0) (e.preventDefault(), moveAlong(axis)); // the key is not typed into the field
+  else if (pressed(e, 'move')) (e.preventDefault(), moveAlong(0, true));
   // arrows: 1 mm, Shift 10, Ctrl the minimum step
   else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.ctrlKey ? settings.minStep : e.shiftKey ? 10 : 1);
   // nudges along the world axis nearest to the arrow's screen direction

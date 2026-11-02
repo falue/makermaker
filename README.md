@@ -14,7 +14,7 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 - **Round, chamfer, cut and join**: fillets and chamfers stay editable; bodies cut, join or intersect each other and stay movable while they do.
 - **Type instead of fiddling**: every number can be a unit or a formula with named values (`2*ply + 10`); change `ply` once and everything that uses it follows. Names complete as you type.
 - **Snap to what matters**: corners, centres, middles, crossings, evenly spaced points along any line, and guide lines that extend an edge across the whole view.
-- **Move precisely**: drag along an axis, or press X, Y or Z and type a distance; the part shows where it goes before you confirm.
+- **Move precisely**: drag along an axis, or press X, Y or Z (M: all three) and type a distance; the part shows where it goes before you confirm.
 - **Look inside**: section views along X, Y, Z and any face, on the fly.
 - **Groups**: nest, fold and turn groups of parts with their own origin; sketches are sketch groups with nested sub-groups, opened by double-click like in Illustrator.
 - **Import** with the import button or by dropping a file:
