@@ -1044,3 +1044,34 @@ button.primary.wide {
 .listed .fold.open svg {
   transform: rotate(90deg);
 }
+
+.settings .body {
+  max-height: 60vh;
+  overflow: auto;
+}
+.settings .hotkeys {
+  border-collapse: collapse;
+  width: 100%;
+}
+.settings .hotkeys td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.settings .hotkeys td:first-child {
+  white-space: nowrap;
+}
+.settings .hotkeys td:nth-child(2) {
+  white-space: nowrap;
+}
+.settings .hotkeys .hint {
+  font-size: 12px;
+}
+.settings kbd {
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+}

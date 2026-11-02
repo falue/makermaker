@@ -1,7 +1,7 @@
 import { UNITS } from '../doc/expr';
 import type { Unit } from '../doc/types';
 import { backdropCss, SKIES } from '../viewer/sky';
-import { pressed } from './keys';
+import { comboText, KEYS, pressed, type Binding } from './keys';
 
 /** Settings of this browser (not of the document). */
 export interface Settings {
@@ -84,6 +84,20 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
                 ),
               ]
             : []),
+        ];
+      },
+    ],
+    [
+      'Hotkeys',
+      () => {
+        // read from the key table: every key the app reacts to is listed there
+        const rows = (Object.values(KEYS) as Binding[])
+          .sort((a, b) => a.order - b.order)
+          .map((k) => make('tr', { title: k.hint }, make('td', {}, k.name), make('td', {}, ...k.default.flatMap((c, i) => [...(i ? [' / '] : []), make('kbd', {}, comboText(c))])), make('td', { className: 'hint' }, k.hint)));
+        return [
+          make('h3', {}, 'Hotkeys'),
+          make('p', { className: 'hint' }, 'The keys as they are set now (changing them comes later).'),
+          make('table', { className: 'hotkeys' }, make('tbody', {}, ...rows)),
         ];
       },
     ],
