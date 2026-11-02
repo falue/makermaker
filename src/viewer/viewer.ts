@@ -390,7 +390,7 @@ export class Viewer implements ToolView {
     });
     new ResizeObserver(() => this.resize()).observe(el);
     // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
-    this.home();
+    this.home(0);
 
     // capture: runs before the orbit controls, so grabbing a body or drawing does not orbit
     el.addEventListener(
@@ -937,7 +937,7 @@ export class Viewer implements ToolView {
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
     if (!this.fitted) {
       this.fitted = true;
-      requestAnimationFrame(() => this.home()); // after the other bodies of this batch
+      requestAnimationFrame(() => this.home(0)); // after the other bodies of this batch
     }
     this.applySection();
   }
@@ -1127,68 +1127,60 @@ export class Viewer implements ToolView {
     return box.isEmpty() ? box.set(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 20)) : box;
   }
 
+  /** Fit (F): the camera keeps its direction and the point it looks at, and glides back or forth (zooms, in ortho) until all bodies are in view. */
+  fit() {
+    this.frameAll(this.controls.target.clone(), this.camera.quaternion.clone());
+  }
+
+  /** Home (H): all bodies framed from the front-right corner (`ms`: how long the camera glides there; 0: at once). */
+  home(ms = 600) {
+    // seen from the front-right corner: 45° around the vertical axis, ~40° above the horizon
+    const dir = new THREE.Vector3(1.1 * Math.SQRT1_2, -1.1 * Math.SQRT1_2, 0.9).normalize();
+    const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), this.camera.up));
+    this.frameAll(this.allBox().getCenter(new THREE.Vector3()), turn, ms);
+  }
+
   /**
-   * Fit (F): the camera keeps its direction and the point it looks at, and only moves along its line of sight (zooms,
-   * in ortho) until all bodies are in the view, with a `margin`.
+   * Glides the camera (both, ortho and perspective; `ms` long, as views turn) to look at `target` turned as `turn`,
+   * so far back (ortho: zoomed so) that all bodies are in view with a `margin`.
    */
-  fit(margin = 1.1) {
+  private frameAll(target: THREE.Vector3, turn: THREE.Quaternion, ms = 600, margin = 1.1) {
     const box = this.allBox();
-    const target = this.controls.target.clone();
-    const dir = this.camera.position.clone().sub(target).normalize();
-    const turn = this.camera.quaternion.clone().invert();
+    const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(turn); // towards the camera
+    const inverse = turn.clone().invert();
     const aspect = this.el.clientHeight ? this.el.clientWidth / this.el.clientHeight : 1;
     const tan = Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
     // the box corners in the camera's axes, from the point looked at (z: towards the camera)
-    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(target).applyQuaternion(turn));
-    const half = Math.max(...corners.map((v) => Math.max(Math.abs(v.y), Math.abs(v.x) / aspect)));
-    this.viewHeight = 2 * half * margin;
-    this.updateFrustums(aspect);
-    this.orthographic.zoom = 1;
-    this.orthographic.updateProjectionMatrix();
-    // perspective: far enough back that every corner lies inside the view's cone
+    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(target).applyQuaternion(inverse));
+    const height = 2 * margin * Math.max(...corners.map((v) => Math.max(Math.abs(v.y), Math.abs(v.x) / aspect)));
+    // perspective: far enough back that every corner lies inside the view's cone; ortho: only clear of the box
     const dist = Math.max(...corners.map((v) => v.z + (margin * Math.max(Math.abs(v.y), Math.abs(v.x) / aspect)) / tan));
-    const size = box.getSize(new THREE.Vector3()).length();
-    this.orthographic.position.copy(target).addScaledVector(dir, Math.max(dist, size)); // ortho: only clear of the box
-    this.perspective.position.copy(target).addScaledVector(dir, dist);
-    this.controls.update();
-    this.render();
-  }
-
-  /** Home (H): all bodies framed from the front-right corner, so they fit both the width and the height of the view. */
-  home() {
-    const box = this.allBox();
-    const target = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    // seen from the front-right corner: 45° around the vertical axis, ~40° above the horizon
-    const dir = new THREE.Vector3(1.1 * Math.SQRT1_2, -1.1 * Math.SQRT1_2, 0.9).normalize();
-    const o = this.orthographic;
-    o.position.copy(target).addScaledVector(dir, Math.max(size.x, size.y, size.z) * 2);
-    o.lookAt(target);
-    o.updateMatrixWorld();
-    // half extents of the box as seen from the camera
-    let halfW = 0;
-    let halfH = 0;
-    for (const x of [box.min.x, box.max.x])
-      for (const y of [box.min.y, box.max.y])
-        for (const z of [box.min.z, box.max.z]) {
-          const v = new THREE.Vector3(x, y, z).applyMatrix4(o.matrixWorldInverse);
-          halfW = Math.max(halfW, Math.abs(v.x));
-          halfH = Math.max(halfH, Math.abs(v.y));
-        }
-    const { clientWidth: w, clientHeight: h } = this.el;
-    const aspect = h ? w / h : 1;
-    const margin = 1.1;
-    this.viewHeight = 2 * Math.max(halfH, halfW / aspect) * margin;
-    this.updateFrustums(aspect);
-    o.zoom = 1;
-    o.updateProjectionMatrix();
-    // perspective: same direction, far enough that the same height fits (near corners appear larger, hence the margin)
-    const dist = (this.viewHeight * margin) / (2 * Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2)));
-    this.perspective.position.copy(target).addScaledVector(dir, dist);
-    this.perspective.quaternion.copy(o.quaternion);
-    this.controls.target.copy(target);
-    this.controls.update();
-    this.render();
+    const ends = [Math.max(dist, box.getSize(new THREE.Vector3()).length()), dist];
+    const cams = [this.orthographic, this.perspective];
+    const t0 = this.controls.target.clone();
+    const from = cams.map((c) => ({ off: c.position.clone().sub(t0), q: c.quaternion.clone() }));
+    const h0 = this.viewHeight / this.orthographic.zoom; // the same picture at zoom 1
+    this.orthographic.zoom = 1;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = ms ? Math.min(1, (now - start) / ms) : 1;
+      const k = t * t * (3 - 2 * t);
+      this.controls.target.lerpVectors(t0, target, k);
+      cams.forEach((c, i) => {
+        // the direction turns along an arc, the distance and the turn ease over
+        const u0 = from[i].off.lengthSq() > 1e-12 ? from[i].off.clone().normalize() : dir; // a camera still on its target (at load): no turn
+        const u = u0.clone().applyQuaternion(new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(u0, dir), k));
+        c.position.copy(this.controls.target).addScaledVector(u, from[i].off.length() + (ends[i] - from[i].off.length()) * k);
+        c.quaternion.slerpQuaternions(from[i].q, turn, k);
+      });
+      this.viewHeight = h0 + (height - h0) * k;
+      this.updateFrustums(aspect);
+      if (t < 1) {
+        this.controls.dispatchEvent({ type: 'change' }); // renders, tools follow
+        requestAnimationFrame(step);
+      } else (this.controls.update(), this.render());
+    };
+    step(start);
   }
 
   /**
