@@ -119,3 +119,24 @@ export function nesting(ps: P[]): number[] {
     return ps.filter((q) => q !== p && area(q) > a && inside(q, u, v)).length;
   });
 }
+
+/**
+ * The loop that open lines close (each its points, joined end to end either way round, ends within `tol` mm) with
+ * line `start` in it: the lines' ids and the loop's corners, each once; null: they do not close.
+ */
+export function closedLoop(lines: { id: string; pts: [number, number][] }[], start: string, tol = 1e-3) {
+  const same = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < tol;
+  const first = lines.find((l) => l.id === start);
+  if (!first) return null;
+  const ids = [start];
+  const pts = [...first.pts];
+  // closed: back at the first point, with at least three corners
+  while (pts.length < 4 || !same(pts[0], pts.at(-1)!)) {
+    const end = pts.at(-1)!;
+    const next = lines.find((l) => !ids.includes(l.id) && (same(l.pts[0], end) || same(l.pts.at(-1)!, end)));
+    if (!next) return null;
+    ids.push(next.id);
+    pts.push(...(same(next.pts[0], end) ? next.pts : [...next.pts].reverse()).slice(1));
+  }
+  return { ids, pts: pts.slice(0, -1) };
+}

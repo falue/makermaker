@@ -5,7 +5,7 @@ import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
 import { BASE, capFrame, frames, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, bounds, corners, type Align } from './doc/profiles';
+import { alignment, area, bounds, closedLoop, corners, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
@@ -1324,6 +1324,14 @@ function sketched(r: SketchResult): string {
     const profile = profileOf(r.drawn);
     sketches = sketches.map((s) => (s.id === id ? { ...s, shapes: [...s.shapes, profile] } : s));
     ids = [profile.id];
+    // a line that closes a loop with others: they become one polygon, which can be extruded
+    const shapes = sketches.find((s) => s.id === id)!.shapes;
+    const loop = profile.kind === 'line' && !profile.construction && closedLoop(shapes.flatMap((q) => (q.kind === 'line' && !q.construction ? [q] : [])), profile.id);
+    if (loop) {
+      const polygon: Profile = { id: newId(), kind: 'polygon', pts: loop.pts, r: len(0), rot: ex('0'), ...(profile.group ? { group: profile.group } : {}) };
+      sketches = sketches.map((s) => (s.id === id ? { ...s, shapes: [...shapes.filter((q) => !loop.ids.includes(q.id)), polygon] } : s));
+      ids = [polygon.id];
+    }
   }
   if (r.depth) {
     // always a new body: joining it to the body it was drawn on is a boolean, done explicitly later
