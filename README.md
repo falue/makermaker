@@ -16,7 +16,7 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 - **Snap to what matters**: corners, centres, middles, crossings, evenly spaced points along any line, and guide lines that extend an edge across the whole view.
 - **Move precisely**: drag along an axis, or press X, Y or Z and type a distance; the part shows where it goes before you confirm.
 - **Look inside**: section views along X, Y, Z and any face, on the fly.
-- **Groups**: nest, fold and turn groups of parts with their own origin.
+- **Groups**: nest, fold and turn groups of parts with their own origin; sketches are sketch groups with nested sub-groups, opened by double-click like in Illustrator.
 - **Import** with the import button or by dropping a file:
   - **STEP** (`.step`, `.stp`) becomes a real solid: round and chamfer its edges, cut or join it with other parts, sketch on its faces, export it. It has no history to edit, and its faces cannot be pushed or pulled yet.
   - **STL** and **OBJ** stay meshes: move, group, colour, section and render them; no cutting, joining or export yet. Tiny meshes (no unit in the file) are scaled up, the scale stays editable.
@@ -41,3 +41,4 @@ MAKERMAKER is young: some parts are proofs of concept, see [STATUS.md](STATUS.md
 - Actual keyboard controls
 - Hotkey editing: soon!
 - Smart and automatic exports for laser cutters, 3d printers
+- Non-destructive chamfers and bevels. Because - chamfers are what seperates us from the animals.

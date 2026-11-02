@@ -2,6 +2,7 @@ import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, type Row } from '../doc/groups';
+import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
 import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
@@ -69,6 +70,8 @@ export interface UIContext {
   exitSketch(): void;
   stopTool(): void;
   pickShape(sketch: string, shape: string, how: Pick): void;
+  /** Shapes of a sketch group picked together (a sub-group's row); `how` as for one shape. */
+  pickShapes(sketch: string, ids: string[], how: Pick): void;
   /** Turns the camera to look straight at a sketch. */
   lookAt(sketch: string): void;
   /** Lines up (or spaces evenly) the selected shapes of the selected sketch. */
@@ -512,7 +515,7 @@ function left(ctx: UIContext): Node[] {
   addParam.dataset.complete = '';
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
-  return [head, ...rows, ...none, h('h3', {}, 'Sketches'), ...sketchRows, h('h3', {}, 'Parameters'), ...params, addParam];
+  return [head, ...rows, ...none, h('h3', {}, 'Sketch groups'), ...sketchRows, h('h3', {}, 'Parameters'), ...params, addParam];
 }
 
 function right(ctx: UIContext): Node[] {
@@ -682,7 +685,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
 }
 
 const SKETCH_HINT =
-  'Sketch: [R] [C] [P] draw shapes (they stay flat) · click a shape to select it, drag to move, handles resize and turn · [X] [Y] [Z] move shapes by a typed distance · right-drag turns the view · [E] extrude · [Esc] or ✓ leaves';
+  'Sketch group: [R] [C] [P] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
 
 function hint(selected: number, shapes: number) {
   if (shapes)
@@ -710,16 +713,35 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
   const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon', line: 'Line' };
   // in sketch mode with shapes selected, only those show
   const only = ctx.sketching === s.id && ctx.shapes.length > 0;
-  const shapes = s.shapes.flatMap((q, j) => {
-    if (only && !ctx.shapes.includes(q.id)) return [];
+  const shapeRow = (q: (typeof s.shapes)[number], depth: number) => {
+    const j = s.shapes.indexOf(q);
     const name = listItem(q.id, `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
     const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
     const box = h('input', { type: 'checkbox', checked: !!q.construction });
     // the next objects are drawn as this one now is
     box.onchange = () => (ctx.setDrawConstruction(box.checked), set({ shapes: s.shapes.map((r) => (r === q ? { ...r, construction: box.checked } : r)) }));
     const construction = h('label', { className: 'check', title: 'Construction line: dashed, snapped to, never extruded' }, box, 'Construction');
-    return [h('div', { className: 'shape' }, h('div', { className: 'listed' }, name, construction, drop), ...shapeFields(ctx, `${at}.shapes.${j}`, q))];
-  });
+    const row = h('div', { className: 'listed' }, name, construction, drop);
+    row.style.paddingLeft = `${depth * 22}px`;
+    return h('div', { className: 'shape' }, row, ...shapeFields(ctx, `${at}.shapes.${j}`, q));
+  };
+  // sub-groups first, then the shapes, per level; a group row picks all its shapes and folds
+  const level = (parent: string | null, depth: number): Node[] => [
+    ...s.groups
+      .filter((g) => g.parent === parent)
+      .flatMap((g) => {
+        const ids = shapesIn(s, g.id);
+        const picked = ids.length > 0 && ids.every((id) => ctx.shapes.includes(id));
+        const open = !ctx.folded.has(g.id);
+        const chevron = h('button', { className: `icon fold${open ? ' open' : ''}`, innerHTML: icon('chevron'), title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(g.id) });
+        const row = h('div', { className: 'listed' }, chevron, listItem(g.id, `item group${picked ? ' selected' : ''}`, (how) => ctx.pickShapes(s.id, ids, how), `${g.name} (${ids.length})`));
+        row.style.paddingLeft = `${depth * 22}px`;
+        return [row, ...(open ? level(g.id, depth + 1) : [])];
+      }),
+    ...s.shapes.filter((q) => (q.group ?? null) === parent).map((q) => shapeRow(q, depth)),
+  ];
+  // in sketch mode with shapes selected, only those show
+  const shapes = only ? s.shapes.filter((q) => ctx.shapes.includes(q.id)).map((q) => shapeRow(q, 0)) : level(null, 0);
   return [
     h(
       'div',

@@ -37,16 +37,25 @@ export type Profile = (
 ) & {
   /** A construction line: drawn dashed, snapped to, never extruded. */
   construction?: boolean;
+  /** The sub-group of its sketch group it is in (none: directly in the sketch group). */
+  group?: string;
 };
 
-/** Editable 2D geometry: shapes on one plane. Extrusions can use its shapes and follow their changes. */
+/** A group of shapes inside a sketch group; `parent`: the sub-group it is in (null: directly in the sketch group). */
+export type ShapeGroup = { id: string; name: string; parent: string | null };
+
+/**
+ * A sketch group: shapes on one plane, in nested sub-groups (`groups`). Extrusions can use its shapes and follow their
+ * changes.
+ */
 export interface Sketch {
   id: string;
   name: string;
-  /** The group it is in (null: none). */
+  /** The group of objects it is in (null: none). */
   group: string | null;
   plane: SketchPlacement;
   shapes: Profile[];
+  groups: ShapeGroup[];
   visible: boolean;
 }
 
@@ -186,7 +195,7 @@ export interface RenderShot {
 }
 
 export interface Doc {
-  schema: 10;
+  schema: 11;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

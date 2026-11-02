@@ -1220,3 +1220,23 @@ button.primary.wide {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+/* where in the open sketch group the view is: under the projection buttons */
+.overlay.crumbs {
+  top: 44px;
+  left: 8px;
+  gap: 4px;
+}
+.overlay.crumbs[hidden] {
+  display: none; /* .overlay's display: flex would show it */
+}
+.overlay.crumbs button {
+  padding: 2px 8px;
+}
+.overlay.crumbs button.here {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.overlay.crumbs .sep {
+  color: var(--muted);
+}

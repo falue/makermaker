@@ -7,6 +7,7 @@ const sketch = (constructionCircle: boolean): Resolved<Sketch> => ({
   id: 's',
   name: 'S',
   group: null,
+  groups: [],
   visible: true,
   plane: { kind: 'base', axis: 'xy', offset: 0 },
   shapes: [

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BASE, toWorld, type Frame, type V3 } from '../doc/frames';
 import { centre, corners, inside, nesting, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
-import type { Area, BasePlane, SketchPlacement } from '../doc/types';
+import type { Area, BasePlane, ShapeGroup, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
@@ -29,6 +29,8 @@ export interface ViewSketch {
   frame: Frame;
   placement: Resolved<SketchPlacement>;
   shapes: (DrawnProfile & { id: string })[];
+  /** Its sub-groups of shapes. */
+  groups: ShapeGroup[];
 }
 
 /** A drawn shape; sizes typed as text are kept as expressions. */
@@ -900,12 +902,12 @@ export function shape2d(p: DrawnProfile): THREE.Shape {
 
 /**
  * The shape's outline on the frame's plane, `width` px wide, lifted `lift` mm along the normal (0: drawn over
- * everything, for previews); construction lines dashed.
+ * everything, for previews); construction lines dashed; `opacity` below 1: faint.
  */
-export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0, dashMm = 1.5, width = 2) {
+export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0, dashMm = 1.5, width = 2, opacity = 1) {
   const n = v3(f.n).multiplyScalar(lift);
   const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)).add(n));
   if (p.kind !== 'line') pts.push(pts[0]); // closed by its own last segment
-  const material = new LineMaterial({ color, linewidth: width, depthTest: lift !== 0, dashed: !!p.construction, dashSize: dashMm, gapSize: dashMm });
+  const material = new LineMaterial({ color, linewidth: width, depthTest: lift !== 0, dashed: !!p.construction, dashSize: dashMm, gapSize: dashMm, transparent: opacity < 1, opacity });
   return new Line2(new LineGeometry().setPositions(pts.flatMap((v) => v.toArray())), material).computeLineDistances();
 }

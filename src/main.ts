@@ -10,6 +10,7 @@ import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './d
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { contents, ownerOf, tree, within } from './doc/groups';
+import { chainOf, unitAt } from './doc/shapegroups';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
@@ -37,6 +38,8 @@ let selected: string[] = history.current.bodies.slice(0, 1).map((p) => p.id);
 let shapeSel: string[] = [];
 /** The sketch in sketch mode: shapes drawn into it stay flat. */
 let sketching: string | null = null;
+/** The open sub-groups of the sketch group in sketch mode, outermost first (none: the sketch group itself). */
+let sketchPath: string[] = [];
 /** What the running tool does: one shape then pull, sketch mode, pulling shapes, or picking a plane for a new sketch. */
 let toolMode: 'direct' | 'draw' | 'pull' | 'plane' | null = null;
 let exprErrors = new Map<string, string>();
@@ -152,6 +155,15 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     render();
   },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
+  enterShape(sketch, shape) {
+    const s = history.current.sketches.find((x) => x.id === sketch);
+    const q = s?.shapes.find((x) => x.id === shape);
+    if (!s || !q) return;
+    if (sketching !== sketch) enterSketch(sketch, null, true);
+    sketchPath = chainOf(s, q.group);
+    [selected, shapeSel] = [[sketch], [shape]];
+    showSelection();
+  },
   pickedPart(part) {
     pickedPart = part;
     render();
@@ -339,7 +351,7 @@ function update() {
     // a base-plane sketch moves with the body that extrudes it (its extrusion lies in that body's coordinates), else with its group
     const owner = p.kind === 'base' ? ownerOf(doc, s.id) : null;
     const frame = p.kind === 'base' ? placeFrame(owner && bodyPlaces.has(owner) ? bodyPlace(owner) : toPlace(groupAt(s.group)), worldFrame(p)!) : worldFrame(p);
-    return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes }] : [];
+    return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes, groups: s.groups }] : [];
   });
   viewer.setCustomSections(
     doc.sections.flatMap((c, i) => {
@@ -471,8 +483,38 @@ function select(id: string | null, how: Pick = false) {
 function pickShape(sketch: string, shape: string, how: Pick) {
   if (sketching && sketch !== sketching) exitSketch();
   if (activeSketch() !== sketch) [selected, shapeSel] = [[sketch], []];
-  shapeSel = picked(shapeSel, history.current.sketches.find((s) => s.id === sketch)?.shapes.map((q) => q.id) ?? [], shape, how);
+  const s = history.current.sketches.find((x) => x.id === sketch);
+  if (!s) return;
+  // a shape in a sub-group that is not open picks the whole sub-group (a shape outside the open one closes it)
+  let unit = unitAt(s, shape, sketching === sketch ? (sketchPath.at(-1) ?? null) : null);
+  if (!unit) [sketchPath, unit] = [[], unitAt(s, shape, null)];
+  const ids = unit!.shapes;
+  if (how === true) shapeSel = ids.every((id) => shapeSel.includes(id)) ? shapeSel.filter((id) => !ids.includes(id)) : [...shapeSel, ...ids.filter((id) => !shapeSel.includes(id))];
+  else shapeSel = how === 'range' ? picked(shapeSel, s.shapes.map((q) => q.id), shape, how) : ids;
   showSelection();
+}
+
+/**
+ * ⌘G in sketch mode: the selected shapes (and sub-groups wholly selected) go into a new sub-group of the open one;
+ * ⇧⌘G (`apart`) dissolves the selected sub-group into its parent.
+ */
+function groupShapes(apart = false) {
+  const doc = history.current;
+  const k = doc.sketches.findIndex((x) => x.id === sketching);
+  const s = doc.sketches[k];
+  if (!s || !shapeSel.length) return;
+  const level = sketchPath.at(-1) ?? null;
+  // the selection as units at the open level: whole sub-groups, else single shapes
+  const units = [...new Map(shapeSel.flatMap((id) => (unitAt(s, id, level) ? [unitAt(s, id, level)!] : [])).map((u) => [u.group ?? u.shapes[0], u])).values()];
+  if (apart) {
+    const g = units.length === 1 ? s.groups.find((x) => x.id === units[0].group) : undefined;
+    if (!g) return fail('Select one sub-group (all its shapes) to ungroup');
+    return commit(setIn(doc, ['sketches', String(k)], { ...s, groups: s.groups.filter((x) => x !== g).map((x) => (x.parent === g.id ? { ...x, parent: g.parent } : x)), shapes: s.shapes.map((q) => (q.group === g.id ? { ...q, group: g.parent ?? undefined } : q)) }));
+  }
+  const g = { id: newId(), name: `Group ${s.groups.length + 1}`, parent: level };
+  const groups = new Set(units.flatMap((u) => (u.group ? [u.group] : [])));
+  const loose = new Set(units.flatMap((u) => (u.group ? [] : u.shapes)));
+  commit(setIn(doc, ['sketches', String(k)], { ...s, groups: [...s.groups.map((x) => (groups.has(x.id) ? { ...x, parent: g.id } : x)), g], shapes: s.shapes.map((q) => (loose.has(q.id) ? { ...q, group: g.id } : q)) }));
 }
 
 /**
@@ -843,6 +885,12 @@ function movedInto(doc: Doc, ids: string[], group: string | null, target: Matrix
 /** Group tool: ungroups a selected group, groups the selection, or (nothing selected) groups the objects clicked next on Enter. */
 function groupTool() {
   const doc = history.current;
+  // in sketch mode: shapes into a sub-group, or one sub-group selected apart
+  if (sketching && shapeSel.length) {
+    const s = doc.sketches.find((x) => x.id === sketching)!;
+    const u = unitAt(s, shapeSel[0], sketchPath.at(-1) ?? null);
+    return groupShapes(!!u?.group && u.shapes.length === shapeSel.length && u.shapes.every((id) => shapeSel.includes(id)));
+  }
   if (selected.some((id) => doc.groups.some((g) => g.id === id))) return ungroup();
   if (selected.length) return groupSelection();
   pending = {
@@ -1032,7 +1080,7 @@ function newBody(count: number, features: Feature[], group: string | null = null
 /** A new, empty sketch at a picked target (the `count`-th sketch). */
 function sketchAt(t: Target, count: number): Sketch {
   const plane: SketchPlacement = t.placement.kind === 'base' ? { ...t.placement, offset: len(t.placement.offset) } : t.placement;
-  return { id: newId(), name: `Sketch ${count + 1}`, group: null, plane, shapes: [], visible: true };
+  return { id: newId(), name: `Sketch ${count + 1}`, group: null, plane, shapes: [], groups: [], visible: true };
 }
 
 /** A sphere body centred where it was drawn. */
@@ -1193,6 +1241,7 @@ async function extrudeAreas(all = false) {
 function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return fail('Show the sketch to draw on it');
+  if (sketching !== id) sketchPath = [];
   sketching = id;
   [selected, shapeSel] = [[id], shapeSel];
   if (look) viewer.lookAlong(new Vector3(...s.frame.n));
@@ -1203,6 +1252,7 @@ function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
 
 function exitSketch() {
   sketching = null;
+  sketchPath = [];
   SketchTool.dropGuides();
   stopTool();
   viewer.setSketchGrid(null);
@@ -1320,8 +1370,25 @@ function duplicate(offset = 10) {
   commit({ ...doc, bodies: [...doc.bodies, ...copies] });
 }
 
+/** Sketch mode's open sub-group: the view fades the rest and shows the way down (when it changed). */
+let focused = '';
+function syncFocus() {
+  const s = history.current.sketches.find((x) => x.id === sketching);
+  if (s) sketchPath = sketchPath.filter((id) => s.groups.some((g) => g.id === id)); // sub-groups undone meanwhile
+  const crumbs = s ? [s.name, ...sketchPath.map((id) => s.groups.find((g) => g.id === id)?.name ?? '?')] : [];
+  const key = `${sketching} ${sketchPath.join()} ${crumbs.join('›')}`;
+  if (key === focused) return;
+  focused = key;
+  viewer.setFocus(s ? { sketch: s.id, group: sketchPath.at(-1) ?? null } : null, crumbs, (level) => {
+    sketchPath = sketchPath.slice(0, level);
+    shapeSel = [];
+    showSelection();
+  });
+}
+
 function render() {
   viewer.el.classList.toggle('picking', !!pending); // objects to pick: crosshair
+  syncFocus();
   const doc = history.current;
   const lookup = paramLookup(doc.params);
   const ctx: UIContext = {
@@ -1404,6 +1471,11 @@ function render() {
     align: alignShapes,
     boolean: applyBoolean,
     pickShape,
+    pickShapes(sketch, ids, how) {
+      if (activeSketch() !== sketch) [selected, shapeSel] = [[sketch], []];
+      shapeSel = how === true ? (ids.every((id) => shapeSel.includes(id)) ? shapeSel.filter((id) => !ids.includes(id)) : [...new Set([...shapeSel, ...ids])]) : ids;
+      showSelection();
+    },
     lookAt(sketch) {
       const s = viewer.sketches.find((v) => v.id === sketch);
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
@@ -1456,7 +1528,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 10, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 11, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -1765,7 +1837,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'construction')) toggleConstruction();
   else if (pressed(e, 'extrude')) extrude();
   else if (pressed(e, 'sketch')) startNewSketch();
-  else if (sketching && pressed(e, 'deselect')) exitSketch();
+  else if (sketching && pressed(e, 'deselect')) sketchPath.length ? ((sketchPath = sketchPath.slice(0, -1)), (shapeSel = []), showSelection()) : exitSketch(); // up one sub-group, else out
   else if (pressed(e, 'cycle')) viewer.cycle(1);
   else if (pressed(e, 'cycleBack')) viewer.cycle(-1);
   else if (axis >= 0) (e.preventDefault(), moveAlong(axis)); // the key is not typed into the field
@@ -1778,8 +1850,8 @@ addEventListener('keydown', (e) => {
   else if (selected.length && pressed(e, 'deselect')) select(null);
   else if (shapeSel.length && pressed(e, 'duplicate')) duplicateShapes();
   else if (selected.length && pressed(e, 'duplicate')) duplicate();
-  else if (pressed(e, 'ungroup')) ungroup();
-  else if (pressed(e, 'group')) groupTool();
+  else if (pressed(e, 'ungroup')) sketching && shapeSel.length ? groupShapes(true) : ungroup();
+  else if (pressed(e, 'group')) sketching && shapeSel.length ? groupShapes() : groupTool();
   else return;
   e.preventDefault();
 });

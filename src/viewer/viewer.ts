@@ -12,6 +12,7 @@ import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { area, centre, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
+import { inGroup } from '../doc/shapegroups';
 import { anchorAt, angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import type { AreaMesh } from '../kernel/build';
 import { AreaTool } from './areas';
@@ -50,6 +51,8 @@ export interface ViewerHost {
   pickFinish(sel: FinishPick | null): void;
   /** A length in mm, as shown to the user. */
   format(mm: number): string;
+  /** A double-click on a sketch shape: open its sketch group, down to its sub-group. */
+  enterShape(sketch: string, shape: string): void;
   /** A face or edge picked with Ctrl-click, with its area (mm²) or length (mm); null: none any more. */
   pickedPart(part: { kind: 'face' | 'edge'; body: string; size: number } | null): void;
 }
@@ -297,7 +300,7 @@ export class Viewer implements ToolView {
     this.renderer.setPixelRatio(devicePixelRatio);
     this.renderer.localClippingEnabled = true;
     const canvas = this.renderer.domElement;
-    el.append(canvas, this.viewCube(), this.cameraControls(), this.moveLabel);
+    el.append(canvas, this.viewCube(), this.cameraControls(), this.crumbs, this.moveLabel);
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
@@ -354,8 +357,10 @@ export class Viewer implements ToolView {
     });
     canvas.addEventListener('dblclick', (e) => {
       if (this.tool) return this.tool.dblclick(e);
-      // a double-click on a finish face picks the whole finish
+      // on a sketch shape: into its sketch group; on a finish face: the whole finish
       const hit = this.frontHit(e);
+      const shape = this.shapeAt(this.ray(e), this.focus ? undefined : hit?.distance);
+      if (shape) return this.host.enterShape(shape.sketch, shape.shape);
       const f = hit && this.finishAt(hit);
       if (f) this.host.pickFinish({ body: hit.object.userData.bodyId, feature: f.feature, mid: null });
     });
@@ -433,6 +438,12 @@ export class Viewer implements ToolView {
   /** An edge picked with Ctrl-click (world segments), lit until its body is no longer selected. */
   private pickedEdge: { body: string; segs: [THREE.Vector3, THREE.Vector3][] } | null = null;
   private edgeMark = new THREE.Group();
+  /** The open sketch group and sub-group (sketch mode): everything else is drawn faint. */
+  private focus: { sketch: string; group: string | null } | null = null;
+  private faded = new Map<string, THREE.MeshStandardMaterial>();
+  private fadedEdges = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.2 });
+  /** Where in the sketch group the view is: a row under the projection buttons. */
+  private crumbs = Object.assign(document.createElement('div'), { className: 'overlay crumbs', hidden: true });
   private lastHit: THREE.Intersection | null = null;
 
   placeOn(hit: THREE.Intersection) {
@@ -536,8 +547,9 @@ export class Viewer implements ToolView {
       for (const p of s.shapes) {
         const color = s.id === this.activeSketch && this.selectedShapes.includes(p.id) ? 0xff8c1a : s.color;
         const q = this.overrides.get(p.id) ?? p;
+        const faint = !!this.focus && (s.id !== this.focus.sketch || !inGroup(s, p, this.focus.group)); // outside the open (sub-)group
         if (this.moving && q !== p) this.sketchView.add(outline(p, s.frame, 0x8a8f98, lift)); // where it was
-        this.sketchView.add(outline(q, s.frame, color, lift));
+        this.sketchView.add(outline(q, s.frame, color, lift, 1.5, 2, faint ? 0.25 : 1));
         if (q.kind === 'circle') this.sketchView.add(marks([new THREE.Vector3(...toWorld(s.frame, q.x, q.y))], color, 6)); // its centre, clickable
       }
     const refs = this.tool ? [] : this.refMarks();
@@ -786,8 +798,8 @@ export class Viewer implements ToolView {
     if (!solid) return;
     const cutter = this.cutters.has(id);
     thick.visible = !cutter && this.selection.includes(id); // a selected cutter turns orange instead
-    (solid as THREE.Mesh).material = cutter ? this.ghost : this.materialOf(id);
-    (lines as THREE.LineSegments).material = cutter ? this.cutterEdges[+this.selection.includes(id)] : this.edgeMaterial;
+    (solid as THREE.Mesh).material = cutter ? this.ghost : this.focus ? this.fadedOf(id) : this.materialOf(id);
+    (lines as THREE.LineSegments).material = cutter ? this.cutterEdges[+this.selection.includes(id)] : this.focus ? this.fadedEdges : this.edgeMaterial;
     lines.renderOrder = cutter ? 1e5 : 0;
   }
 
@@ -796,6 +808,32 @@ export class Viewer implements ToolView {
     const out = [...ids];
     for (let i = 0; i < out.length; i++) for (const [owned, owner] of this.owners) if (owner === out[i] && !out.includes(owned)) out.push(owned);
     return out;
+  }
+
+  /** A body's colour, see-through: drawn behind an open sketch group. */
+  private fadedOf(id: string, opacity = 0.25) {
+    let m = this.faded.get(id);
+    if (!m) this.faded.set(id, (m = new THREE.MeshStandardMaterial({ roughness: 0.7, transparent: true, opacity, depthWrite: false })));
+    m.copy(this.materialOf(id));
+    m.setValues({ transparent: true, opacity, depthWrite: false });
+    return m;
+  }
+
+  /**
+   * Sketch mode inside sketch group `focus.sketch`, sub-group `focus.group` (null: none open): bodies and other shapes
+   * faint; `crumbs` names the way down (clicking one goes there, `go(level)`).
+   */
+  setFocus(focus: { sketch: string; group: string | null } | null, crumbs: string[] = [], go: (level: number) => void = () => {}) {
+    this.focus = focus;
+    this.crumbs.hidden = !crumbs.length;
+    this.crumbs.replaceChildren(
+      ...crumbs.flatMap((name, i) => [
+        ...(i ? [Object.assign(document.createElement('span'), { className: 'sep', textContent: '›' })] : []),
+        Object.assign(document.createElement('button'), { textContent: name, className: i === crumbs.length - 1 ? 'here' : '', title: i === crumbs.length - 1 ? 'You are here' : `Back to ${name}`, onclick: () => go(i) }),
+      ]),
+    );
+    for (const id of this.bodies.keys()) this.dress(id);
+    this.renderSketches();
   }
 
   private materialOf(id: string) {
@@ -1652,7 +1690,7 @@ export class Viewer implements ToolView {
       this.controls.enabled = false;
       return this.renderer.domElement.setPointerCapture(e.pointerId);
     }
-    const hit = this.intersect(ray)[0];
+    const hit = this.focus ? undefined : this.intersect(ray)[0]; // an open sketch group: faded bodies are not picked
     const shape = this.shapeAt(ray.ray, hit?.distance);
     this.downOnPart = !!hit || !!shape;
     if (this.downOnPart) this.host.touched();

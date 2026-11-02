@@ -43,6 +43,7 @@ export function sampleDoc(): Doc {
     id: newId(),
     name: 'Plate outline',
     group: null,
+    groups: [],
     plane: { kind: 'base', axis: 'xy', offset: ex(0) },
     shapes: [rect(120, 80), circle(-45, -25, 5), circle(45, -25, 5), circle(45, 25, 5), circle(-45, 25, 5)],
     visible: true,
@@ -91,7 +92,7 @@ export function sampleDoc(): Doc {
   };
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
-    schema: 10,
+    schema: 11,
     units: 'mm',
     params: { ply: ex('4mm') },
     bodies: [plate, disc, pin, block, ball, nut],
@@ -101,6 +102,7 @@ export function sampleDoc(): Doc {
         id: newId(),
         name: 'Free sketch',
         group: null,
+        groups: [],
         plane: { kind: 'base', axis: 'xz', offset: ex(60) },
         shapes: [circle(-20, 20, 24), { ...rect(50, 30), construction: true }],
         visible: true,
