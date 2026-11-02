@@ -21,7 +21,7 @@ import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, scrub, toObjectButton, type Measure, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { renderUI, scrub, toObjectButton, wantsT, type Measure, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, type Action } from './ui/keys';
@@ -1751,7 +1751,7 @@ function rotateTool() {
   let angle = 0;
   let typed = false; // a typed angle: the pointer no longer turns it
   let from: { screen: number; at: Vector3 } | null = null; // where the pointer started turning it
-  let mode: 'turn' | 'axis' = 'axis';
+  let mode: 'turn' | 'axis' | 'aim' = 'axis';
   let ended = false;
   const apply = (a: number) => {
     angle = a;
@@ -1804,6 +1804,35 @@ function rotateTool() {
       }
       finish(!!face);
     }, true);
+  };
+  /** To object: two clicks, where something is now and where it should go; their angle around the axis goes into Turn ° (to calculate on). */
+  const aimAngle = () => {
+    if (!pivot) return;
+    mode = 'aim'; // before ending the turn's pick: that pick then does nothing
+    viewer.cancelFacePick();
+    const picks: Vector3[] = [];
+    const done = () => ((viewer.aiming = null), viewer.aimAt(null), tips.cursorTip(null));
+    const next = () => {
+      viewer.aiming = (a) => tips.cursorTip([a?.what, `To object: click where it ${picks.length ? 'goes' : 'is now'}`].filter(Boolean).join('\n'));
+      viewer.aiming(viewer.aimHere());
+      viewer.pickFace((face) => {
+        if (ended) return;
+        if (!face?.snap) return done(), turnPick();
+        picks.push(face.snap);
+        if (picks.length < 2) return next();
+        done();
+        const [a, b] = picks.map((p) => p.clone().sub(pivot!).projectOnPlane(dir));
+        const deg = (Math.atan2(a.clone().cross(b).dot(dir), a.dot(b)) * 180) / Math.PI;
+        input.focus();
+        input.setRangeText(fmt(deg), input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length, 'end');
+        typed = true;
+        fromField(input.value);
+        turnPick();
+      }, true);
+    };
+    toolHint = 'To object: click where something is now, then where it should go: their angle goes into Turn ° · [Esc] cancels';
+    render();
+    next();
   };
   /** The next click sets the axis (in a sketch: the point it turns around). */
   const setAxis = () => {
@@ -1869,6 +1898,7 @@ function rotateTool() {
   };
   const keys = (e: KeyboardEvent) => {
     if (e.defaultPrevented) return; // the view's Esc ending a pick
+    if (pivot && mode === 'turn' && (document.activeElement === input ? wantsT(e, input, doc0.params) : pressed(e, 'toObject'))) return e.preventDefault(), e.stopImmediatePropagation(), aimAngle();
     // typing degrees goes into the field (the key lands there)
     if (pivot && /^[\d.-]$/.test(e.key) && document.activeElement !== input && !e.metaKey && !e.ctrlKey) return (input.value = ''), input.focus();
     const axis = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
@@ -1889,6 +1919,7 @@ function rotateTool() {
     input,
     ...(frame ? [] : [0, 1, 2].map((a) => button('XYZ'[a], `Around the world ${'XYZ'[a]} axis through its point (${'XYZ'[a]})`, () => along(a)))),
     button('Set axis', 'Click an edge or line, a circle (its centre) or a point (Z through it; again: X, then Y)', setAxis),
+    toObjectButton(aimAngle, 'Click where something is now, then where it should go: their angle goes into Turn °'),
     button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
   );
   document.body.append(box);

@@ -278,6 +278,8 @@ export class SketchTool implements Tool {
   private static lineDir: THREE.Vector3 | null = null;
   /** Pulling: waiting for the click that sets how far ("to object"); what the pointer would reach meanwhile. */
   private reaching = false;
+  /** A To object click just went into a shape's size: its release does not end the shape. */
+  private reached = false;
   private aimed: string | null = null;
   /** Lines and polygon sides snap to this angle step while Shift is held (A finer, Shift A coarser; kept across restarts). */
   /** The angle step Shift turns in (A / Shift A: finer / coarser, see `ANGLE_STEPS`). */
@@ -361,6 +363,22 @@ export class SketchTool implements Tool {
       if (target) this.host.done({ target, depth: 0, mode: 'add' });
       return true;
     }
+    if (ph.kind === 'shape' && this.reaching) {
+      // a width or height from the first corner (from the middle: twice), a diameter from the centre; off bodies: on its plane
+      const p = this.view.pointAt(e) ?? planeHit(this.view.ray(e), ph.target.frame);
+      this.reached = true;
+      if (!p) return true;
+      this.reaching = false;
+      this.aimed = null;
+      this.view.aimAt(null);
+      const [u, v] = uvOf(ph.target.frame, p);
+      const [du, dv] = [u - ph.anchor[0], v - ph.anchor[1]];
+      const size = this.kind === 'circle' || this.kind === 'sphere' || this.kind === 'ngon' ? 2 * Math.hypot(du, dv) : Math.abs(ph.axis ? dv : du) * (ph.alt ? 2 : 1);
+      ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + this.host.lengthText(size);
+      this.reached = true;
+      this.update();
+      return true;
+    }
     if (ph.kind === 'hover' && this.kind) {
       const target = this.target(e);
       if (!target) {
@@ -413,6 +431,7 @@ export class SketchTool implements Tool {
       if (target) this.point(e, target); // shows a snap dot
       return this.update();
     }
+    if (ph.kind === 'shape' && this.reaching) return this.aim(this.view.aimAt(e)); // aiming: the shape stays as it is
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const at = ph.kind === 'polygon' ? this.sideEnd(e, ph) : this.point(e, ph.target);
       if (at) ph.cur = at;
@@ -433,6 +452,8 @@ export class SketchTool implements Tool {
 
   up() {
     const ph = this.phase;
+    if (ph.kind === 'shape') ph.dragged &&= !this.reached; // the release of a To object click does not end the shape
+    this.reached = false;
     if (ph.kind === 'shape' && ph.dragged) this.shapeDone();
     this.update();
   }
@@ -456,6 +477,13 @@ export class SketchTool implements Tool {
     const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined); // not while typing a size
     const guide = this.hoveredGuide();
     const modKey = MAC ? 'Meta' : 'Control';
+    // To object while drawing a shape: the next click's distance goes into the size being typed (not a polygon's sides)
+    if (ph.kind === 'shape' && pressed(e, 'toObject') && !(this.kind === 'ngon' && ph.axis === 1) && !/[A-Za-z_]$/.test(ph.typed[ph.axis] ?? '')) {
+      this.reaching = true;
+      this.host.hint('To object: click a corner, edge or face, its distance goes into the size (type on to calculate with it) · [Esc] cancels');
+      this.aim(this.view.aimHere());
+      return true;
+    }
     if (ph.kind === 'hover' && this.kind === 'line' && SketchTool.lineEnd && e.key === modKey && this.lastPoint) {
       this.chain(...this.lastPoint);
       this.update();
@@ -495,6 +523,7 @@ export class SketchTool implements Tool {
       this.update();
       return false;
     } else if (pressed(e, 'cancel')) {
+      if (this.reaching) return (this.reaching = false), (this.aimed = null), this.view.aimAt(null), this.update(), true; // only the aiming ends
       if (ph.kind === 'hover') return this.host.done(null), true;
       if (ph.kind === 'pull') return this.commit(true), this.update(), true; // a drawn shape stays flat
       if (ph.kind === 'polygon' && ph.pts.length >= 2) return this.finishLine(), this.update(), true; // an open polygon
