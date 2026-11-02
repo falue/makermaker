@@ -248,16 +248,18 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
     const press = (e: PointerEvent, threshold: number, click: () => void) => {
       e.preventDefault();
       const base = parseFloat(num[1]);
-      let origin: number | null = null;
+      let travel: number | null = null; // px moved since scrubbing began
       let last = shown;
       // on window: the panels are rebuilt while scrubbing
       const move = (m: PointerEvent) => {
-        if (origin === null) {
+        if (travel === null) {
           if (Math.abs(m.clientX - e.clientX) <= threshold) return;
-          origin = m.clientX;
+          travel = 0;
           document.body.classList.add('scrubbing');
-        }
-        const text = fmt(base + Math.round((m.clientX - origin) / (m.shiftKey ? 10 : 1)) * step) + num[2];
+          // the pointer hides and the screen edge no longer stops it (on body: the field is rebuilt meanwhile)
+          Promise.resolve(document.body.requestPointerLock()).catch(() => {});
+        } else travel += m.movementX;
+        const text = fmt(base + Math.round(travel / (m.shiftKey ? 10 : 1)) * step) + num[2];
         if (text === last) return;
         set({ e: text, u }, last !== shown);
         last = text;
@@ -265,7 +267,8 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
       const end = () => {
         removeEventListener('pointermove', move);
         document.body.classList.remove('scrubbing');
-        if (origin === null) click();
+        if (document.pointerLockElement === document.body) document.exitPointerLock();
+        if (travel === null) click();
       };
       addEventListener('pointermove', move);
       addEventListener('pointerup', end, { once: true });
