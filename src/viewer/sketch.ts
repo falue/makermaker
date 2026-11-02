@@ -732,9 +732,10 @@ export function shape2d(p: DrawnProfile): THREE.Shape {
 export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0, dashMm = 1.5) {
   const n = v3(f.n).multiplyScalar(lift);
   const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)).add(n));
+  if (p.kind !== 'line') pts.push(pts[0]); // closed by its own last segment, so dashes count it (a LineLoop's closing segment is left out)
   const material = p.construction
     ? new THREE.LineDashedMaterial({ color, dashSize: dashMm, gapSize: dashMm, depthTest: lift !== 0 })
     : new THREE.LineBasicMaterial({ color, depthTest: lift !== 0 });
   const geometry = new THREE.BufferGeometry().setFromPoints(pts);
-  return (p.kind === 'line' ? new THREE.Line(geometry, material) : new THREE.LineLoop(geometry, material)).computeLineDistances(); // a line stays open
+  return new THREE.Line(geometry, material).computeLineDistances();
 }
