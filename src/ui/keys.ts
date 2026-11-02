@@ -55,7 +55,7 @@ export const KEYS = {
   erase: { name: 'Erase', order: 73, default: [{ key: 'backspace' }], hint: "Remove the last typed character (or a polygon's last corner)" },
   moreSnaps: { name: 'More snap points', order: 75, default: [{ key: 'a', shift: false }], hint: 'Drawing, pointer on a line: one more evenly spaced snap point along it (a circle: around it)' },
   fewerSnaps: { name: 'Fewer snap points', order: 76, default: [{ key: 'a', shift: true }], hint: 'Drawing, pointer on a line: one snap point fewer along it' },
-  fixGuide: { name: 'Fix guide line', order: 77, default: [{ key: 'g' }], hint: 'Drawing, pointer on a guide line (or the line it extends): it stays until the next shape is drawn (again: it goes with the next click)' },
+  fixGuide: { name: 'Fix guide line', order: 77, default: [{ key: 'g' }], hint: 'Drawing, pointer on a guide line (or the line it extends): it stays until G again or sketch mode ends' },
   pullPicked: { name: 'Pull picked areas', order: 74, default: [{ key: 'e' }], hint: 'Picking areas: pull the picked ones (as Confirm does)' },
 } satisfies Record<string, Binding>;
 

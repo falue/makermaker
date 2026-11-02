@@ -209,12 +209,16 @@ export class SketchTool implements Tool {
   private lastPoint: [MouseEvent, Target, boolean] | null = null;
   /**
    * Guide lines (world, through `at` along `dir`): a straight line or edge hovered for `GUIDE_MS` gets one, snapped to
-   * like any line. One per direction (a parallel one replaces it); a click drops them, unless fixed (G); a drawn shape
-   * or stopping drops all. Kept across tool restarts.
+   * like any line. One per direction (a parallel one replaces it); a click or the tool ending drops them, unless fixed
+   * (G): those stay until G again or sketch mode ends (`dropGuides`).
    */
   private static guides: { at: THREE.Vector3; dir: THREE.Vector3; fixed: boolean }[] = [];
   /** The straight line or edge the pointer is on (world), for a guide. */
   private snapSeg: Segment | null = null;
+  /** Drops all guide lines, fixed ones too (sketch mode ended). */
+  static dropGuides() {
+    SketchTool.guides = [];
+  }
   /** The guide the pointer is on. */
   private onGuide: (typeof SketchTool.guides)[number] | null = null;
   private dwell: { seg: Segment | null; timer: number } = { seg: null, timer: 0 };
@@ -236,6 +240,7 @@ export class SketchTool implements Tool {
 
   dispose() {
     clearTimeout(this.dwell.timer);
+    SketchTool.guides = SketchTool.guides.filter((g) => g.fixed);
     this.view.unlockPointer();
     this.view.markFace();
     this.clearPreview();
@@ -353,7 +358,7 @@ export class SketchTool implements Tool {
       const at = this.point(...this.lastPoint);
       if (at && (ph.kind === 'shape' || ph.kind === 'polygon')) ph.cur = at;
     } else if (pressed(e, 'cancel')) {
-      if (ph.kind === 'hover') return this.done(null), true;
+      if (ph.kind === 'hover') return this.host.done(null), true;
       if (ph.kind === 'pull') return this.commit(true), this.update(), true; // a drawn shape stays flat
       if (ph.kind === 'polygon' && ph.pts.length >= 2) return this.finishLine(), this.update(), true; // an open polygon
       this.phase = { kind: 'hover' };
@@ -496,12 +501,6 @@ export class SketchTool implements Tool {
     if (SketchTool.guides.some((g) => onLine(g, [a, b]))) return;
     SketchTool.guides = [...SketchTool.guides.filter((g) => g.fixed || !parallel(g)), { at: a.clone(), dir, fixed: false }];
     this.update();
-  }
-
-  /** The host's done; a drawn shape or stopping drops the guides. */
-  private done(result: SketchResult | null) {
-    if (!result || result.drawn || result.sphere) SketchTool.guides = [];
-    this.host.done(result);
   }
 
   /** Pixel distance from the pointer (`mx`, `my`, in the view) to a segment on screen, and where along it (0..1) it is nearest. */
@@ -657,7 +656,7 @@ export class SketchTool implements Tool {
       // drawn from its centre: the ball's centre is where dragging started, on the plane
       const center = toWorld(ph.target.frame, profile.x, profile.y);
       this.phase = { kind: 'hover' };
-      return this.done({ target: ph.target, sphere: { center, d: profile.d, typed: a }, depth: 0, mode: 'add' });
+      return this.host.done({ target: ph.target, sphere: { center, d: profile.d, typed: a }, depth: 0, mode: 'add' });
     }
     this.drawn(ph.target, { profile, typed: profile.kind === 'rect' ? { w: a, h: b } : { d: a } });
   }
@@ -680,7 +679,7 @@ export class SketchTool implements Tool {
     SketchTool.lineEnd = v3(toWorld(ph.target.frame, ...pts[pts.length - 1]));
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
-    this.done({ target: ph.target, drawn: { profile: { kind: 'line', pts }, typed: {} }, depth: 0, mode: 'add' });
+    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts }, typed: {} }, depth: 0, mode: 'add' });
   }
 
   /** A finished shape: in sketch mode or as a construction line it stays flat and drawing goes on, else pulling starts. */
@@ -688,7 +687,7 @@ export class SketchTool implements Tool {
     if (this.mode?.kind !== 'draw' && !this.host.construction()) return this.enterPull(target, [drawn.profile], drawn);
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
-    this.done({ target, drawn, depth: 0, mode: 'add' });
+    this.host.done({ target, drawn, depth: 0, mode: 'add' });
   }
 
   private enterPull(target: Target, shapes: DrawnProfile[], drawn?: Drawn, ids?: string[]) {
@@ -713,8 +712,8 @@ export class SketchTool implements Tool {
     this.phase = { kind: 'hover' };
     this.view.unlockPointer();
     if (this.kind) this.host.hint(this.hoverHint()); // before done: the host may replace this tool
-    if (!ph.drawn && !depth) return this.done(null);
-    this.done({
+    if (!ph.drawn && !depth) return this.host.done(null);
+    this.host.done({
       target: ph.target,
       drawn: ph.drawn,
       shapes: ph.ids,

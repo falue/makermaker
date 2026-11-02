@@ -21,7 +21,7 @@ import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { pressed, type Action } from './ui/keys';
 import { installTooltips } from './ui/tooltip';
-import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
+import { SketchTool, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import { Viewer, type FinishPick, type PickedFace, type Vec3 } from './viewer/viewer';
 
@@ -1030,6 +1030,7 @@ function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
 
 function exitSketch() {
   sketching = null;
+  SketchTool.dropGuides();
   stopTool();
   viewer.setSketchGrid(null);
   render();
