@@ -1,3 +1,5 @@
+import { icon } from './icons';
+
 /**
  * Hover help (from incase): any element with a title or data-tip shows a styled tooltip after `delay` ms; hidden
  * while a button is held. Titles move into data-tip on first hover, so the browser's own tooltip never shows.
@@ -52,7 +54,15 @@ export function installTooltips(delay = 500, within?: () => DOMRect) {
   return {
     /** A note next to the pointer that follows it (null: hides it). */
     cursorTip(text: string | null) {
-      follow.textContent = text ?? '';
+      // a line about To object starts with its icon, as the To object buttons do
+      follow.replaceChildren(
+        ...(text ?? '').split('\n').map((line) => {
+          const row = document.createElement('div');
+          if (/to object/i.test(line)) row.innerHTML = icon('target');
+          row.append(line);
+          return row;
+        }),
+      );
       follow.hidden = !text;
       if (text) place(follow);
     },

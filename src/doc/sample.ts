@@ -1,4 +1,4 @@
-import type { Doc, Expr, Body, Profile, Sketch, Feature, Unit } from './types';
+import type { Doc, Expr, Body, Joint, Profile, Sketch, Feature, Unit } from './types';
 
 export const ex = (e: string | number, u: Unit = 'mm'): Expr => ({ e: String(e), u });
 
@@ -82,13 +82,39 @@ function shapeTests(): Sketch[] {
 }
 
 /**
+ * Test pieces for joints: a box with a lid on a hinge along its back top edge (opens 0–110°), and a cabinet with a
+ * drawer that slides out of its open front (0–35 mm).
+ */
+function jointTests(): { bodies: Body[]; joints: Joint[] } {
+  const hollow = (name: string, color: string, at: [number, number, number], w: number, h: number, depth: number, hole: Profile, holeDepth: number): Body => {
+    const b = solid(name, color, at, [rect(w, h)], depth);
+    const cut = { id: newId(), type: 'extrude' as const, source: { kind: 'own' as const, plane: { kind: 'cap' as const, feature: b.features[0].id }, profiles: [hole] }, depth: ex(-holeDepth), mode: 'cut' as const, through: false };
+    return { ...b, features: [...b.features, cut] };
+  };
+  const box = hollow('Hinge box', '#d6b98c', [-40, 150, 0], 40, 30, 20, rect(36, 26), 16);
+  const lid = solid('Hinge lid', '#c9a46e', [-40, 150, 20], [rect(40, 30)], 3);
+  // the cabinet open at the front (-y): its inside cut from the top down to 4 mm above the floor
+  const opening: Profile = { id: newId(), kind: 'rect', x: ex(0), y: ex(-2), w: ex(42), h: ex(38), r: ex(0), rot: ex(0) };
+  const cabinet = hollow('Slide cabinet', '#a9bfd6', [40, 150, 0], 50, 40, 30, opening, 26);
+  const drawer = solid('Slide drawer', '#c3d6a9', [40, 148, 5], [rect(40, 36)], 18);
+  const deg = (v: number) => ex(v);
+  const joints: Joint[] = [
+    // along the back top edge, turning the lid's front up (-x: right-handed)
+    { id: newId(), name: 'Hinge 1', kind: 'hinge', parent: box.id, children: [lid.id], axis: { at: [0, 15, 20], dir: [-1, 0, 0] }, min: deg(0), max: deg(110), value: deg(0), speed: ex(1) },
+    { id: newId(), name: 'Slider 1', kind: 'slider', parent: cabinet.id, children: [drawer.id], axis: { at: [0, -20, 10], dir: [0, -1, 0] }, min: ex(0), max: ex(35), value: ex(0), speed: ex(1) },
+  ];
+  return { bodies: [box, lid, cabinet, drawer], joints };
+}
+
+/**
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
  * corner (both in a group), a hex nut sunk into the disc, a free sketch on the front plane that no body uses yet, and
- * test pieces for newer features (finishes, booleans, cuts, loft and revolve).
+ * test pieces for newer features (finishes, booleans, cuts, loft and revolve, joints).
  */
 export function sampleDoc(): Doc {
   const split = splitTest();
+  const hinged = jointTests();
   const outline: Sketch = {
     id: newId(),
     name: 'Plate outline',
@@ -142,10 +168,10 @@ export function sampleDoc(): Doc {
   };
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
-    schema: 12,
+    schema: 13,
     units: 'mm',
     params: { ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests(), ...cutTest(), split.body],
+    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies],
     sketches: [
       outline,
       {
@@ -162,7 +188,7 @@ export function sampleDoc(): Doc {
     ],
     groups: [corner],
     sections: [],
-    joints: [],
+    joints: hinged.joints,
     renders: [],
   };
 }

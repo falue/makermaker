@@ -1146,7 +1146,7 @@ const LINE_HINT = 'Click the end point · type a length, [Tab] the angle, [Enter
 /** An angle (radians) in degrees, the short way: -180 to 180. */
 const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;
 /** The pointer's note while pulling (before typing a depth). */
-export const TO_OBJECT = 'T: to object (the pull reaches what you click)';
+export const TO_OBJECT = 'To object (T): the pull reaches what you click';
 /** Radius (px) of the arc showing what a side's angle is measured from. */
 const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */

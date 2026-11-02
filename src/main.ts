@@ -21,7 +21,7 @@ import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, scrub, type Measure, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { renderUI, scrub, toObjectButton, type Measure, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, type Action } from './ui/keys';
@@ -1105,20 +1105,15 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
   };
   // focus moving between the fields (or into the view) stays; to another field or button elsewhere it cancels
   box.addEventListener('focusout', (e) => (!e.relatedTarget || box.contains(e.relatedTarget as Node) ? undefined : close()));
-  const toObject = Object.assign(document.createElement('button'), {
-    className: 'to-object',
-    textContent: 'To object',
-    title: 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it',
-    onclick: () => {
-      target = true;
-      before = last?.value ?? '';
-      // the selection shows moved to what a click reaches, the pointer's note says what it is
-      viewer.aiming = (s) => (tips.cursorTip([s?.what, 'Click a corner, edge or face to move to'].filter(Boolean).join('\n')), reachTo(s?.at));
-      box.classList.add('targeting');
-      last?.focus();
-      viewer.aiming(viewer.aimHere());
-    },
-  });
+  const toObject = toObjectButton(() => {
+    target = true;
+    before = last?.value ?? '';
+    // the selection shows moved to what a click reaches, the pointer's note says what it is
+    viewer.aiming = (s) => (tips.cursorTip([s?.what, 'Click a corner, edge or face to move to'].filter(Boolean).join('\n')), reachTo(s?.at));
+    box.classList.add('targeting');
+    last?.focus();
+    viewer.aiming(viewer.aimHere());
+  }, 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it');
   const copy = Object.assign(document.createElement('input'), { type: 'checkbox', onchange: () => (show(), last?.focus()) });
   const copyLabel = Object.assign(document.createElement('label'), { title: 'Leave the selection where it is and move a copy of it' });
   copyLabel.append(copy, 'Copy');
@@ -1521,7 +1516,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   };
   box.append(
     ...field('Offset', () => values.offset, (t) => (values.offset = t)),
-    Object.assign(document.createElement('button'), { textContent: 'To object', title: 'Click a corner, edge or face: the cut goes through it (T)', onclick: aim }),
+    toObjectButton(aim, 'Click a corner, edge or face: the cut goes through it'),
     ...(cutter.kind === 'plane'
       ? [...field('Turn °', () => values.turn, (t) => (values.turn = t)), Object.assign(document.createElement('button'), { textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
       : []),
@@ -1860,8 +1855,7 @@ function rotateTool() {
 /**
  * Joint (J): the parent that stays (the first selected body or group, or the one clicked), then what moves (the other
  * selected ones, or those clicked; Enter), then the axis (an edge or line, or a circle's or round edge's centre, square
- * to it), then a panel: Hinge (turns, 0–180° first) or Slider (moves along it, 0 to the edge's length first), Min, Max.
- * Enter or ✓ makes it (one undo step), Esc at any step leaves nothing.
+ * to it): the joint is made (a hinge, 0–180°) and its edit panel opens.
  */
 function jointTool() {
   const isObject = (id: string) => history.current.bodies.some((b) => b.id === id) || history.current.groups.some((g) => g.id === id);
@@ -1898,137 +1892,307 @@ function jointTool() {
       viewer.showAxis(null);
       toolHint = null;
       if (!a) return render();
-      jointPanel(parent, children, a);
+      const doc = history.current;
+      // the axis in the parent's coordinates: it moves with the parent
+      const back = (bodyPlaces.get(parent) ?? groupPlace(parent)).clone().invert();
+      const joint: Joint = {
+        id: newId(),
+        name: `Hinge ${doc.joints.filter((j) => j.kind === 'hinge').length + 1}`,
+        kind: 'hinge',
+        parent,
+        children,
+        axis: { at: a.at.clone().applyMatrix4(back).toArray(), dir: a.dir.clone().transformDirection(back).toArray() },
+        min: ex(0),
+        max: ex(180),
+        value: ex(0),
+        speed: ex(1),
+      };
+      selected = [parent];
+      commit({ ...doc, joints: [...doc.joints, joint] });
+      jointPanel(joint.id, true, a.length);
     },
     (a) => (tips.cursorTip(a ? `${a.what}\nClick: the joint's axis` : null), viewer.showAxis(a, a?.at, 60)),
   );
 }
 
-/** The joint being made: its axis shown, a panel with hinge or slider and the limits. */
-function jointPanel(parent: string, children: string[], a: TurnAxis) {
-  const doc = history.current;
+/** A joint's axis in the world, as its parent is placed now. */
+function jointAxis(j: Joint) {
+  const parent = bodyPlaces.get(j.parent) ?? groupPlace(j.parent);
+  return { at: new Vector3(...j.axis.at).applyMatrix4(parent), dir: new Vector3(...j.axis.dir).transformDirection(parent).normalize(), what: '' };
+}
+
+/** Its min and max as numbers (degrees or mm). */
+function jointRange(j: Joint, lookup = paramLookup(history.current.params)): [number, number] {
+  return [j.min, j.max].map((x) => {
+    try {
+      return evalLength(x, lookup);
+    } catch {
+      return 0;
+    }
+  }) as [number, number];
+}
+
+/** Its range in words, shown grey after its name: `0–110°`, `0–35 mm`. */
+function rangeText(j: Joint) {
+  const u = history.current.units;
+  const [lo, hi] = jointRange(j).map((v) => (j.kind === 'hinge' ? fmt(v) : fmt(v / UNITS[u])));
+  return j.kind === 'hinge' ? `${lo}–${hi}°` : `${lo}–${hi} ${u}`;
+}
+
+/**
+ * A joint's edit panel at the top middle of the view (`fresh`: just made; Esc then removes it): Hinge or Slider, Min and
+ * Max (each scrubbed by its label; changing one shows the joint there; T or To object: click a point, the moving part
+ * points at it or reaches it), Speed (times the play time in Settings), Invert (the other way round). Enter or ✓ keeps
+ * the changes (one undo step), Esc drops them. `reach`: the axis edge's length (a new slider's max).
+ */
+function jointPanel(id: string, fresh: boolean, reach = 50) {
+  const doc0 = history.current;
+  const lookup = paramLookup(doc0.params);
+  const u = doc0.units;
+  let changed = fresh; // a fresh joint is already one undo step: changes join it
+  const now = () => history.current.joints.find((j) => j.id === id)!;
+  const write = (next: Partial<Joint>) => {
+    const k = history.current.joints.findIndex((j) => j.id === id);
+    const doc = setIn(history.current, ['joints', String(k)], { ...now(), ...next });
+    if (changed) history.replace(doc);
+    else history.push(doc), (changed = true);
+    update();
+    viewer.showAxis(jointAxis(now()), jointAxis(now()).at, 60);
+  };
+  // values as typed: degrees as numbers (never unit-converted), lengths in the document's unit
+  const expr = (text: string): Expr => ({ e: text, u: now().kind === 'hinge' ? 'mm' : u });
+  const shown = (x: Expr) => x.e;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
-  let kind: Joint['kind'] = 'hinge';
-  const fields = { min: '0', max: '180' };
-  const slide = fmt((a.length ?? 50) / UNITS[doc.units]);
-  const inputs = (['min', 'max'] as const).map((k) => {
-    const input = Object.assign(document.createElement('input'), { value: fields[k], spellcheck: false, oninput: () => (fields[k] = input.value) });
-    return input;
-  });
+  const fields = new Map<'min' | 'max' | 'speed', HTMLInputElement>();
+  let last: 'min' | 'max' = 'max';
+  const field = (key: 'min' | 'max' | 'speed') => {
+    const input = Object.assign(document.createElement('input'), { value: shown(now()[key]), spellcheck: false });
+    input.dataset.complete = '';
+    const set = (text: string) => {
+      input.value = text;
+      const ok = length(text || '0') !== null;
+      input.classList.toggle('invalid', !ok);
+      if (!ok) return;
+      const x = key === 'speed' ? { e: text || '1', u: 'mm' as Unit } : expr(text || '0');
+      write(key === 'speed' ? { speed: x } : { [key]: x, value: x }); // a limit changed: the joint shows there
+    };
+    input.oninput = () => set(input.value);
+    input.onfocus = () => key !== 'speed' && (last = key);
+    input.onkeydown = (e) => {
+      const before = input.value.slice(0, input.selectionStart ?? 0);
+      const word = before.match(/[A-Za-z_]\w*$/)?.[0];
+      if (key !== 'speed' && pressed(e, 'toObject') && (!word || word in UNITS)) e.preventDefault(), aim();
+    };
+    const label = Object.assign(document.createElement('span'), { className: 'scrub-label' });
+    scrub(label, input, () => input.value, now().kind === 'hinge' || key === 'speed' ? 'mm' : u, key === 'speed' ? 0.01 : settings.minStep, (text) => set(text), () => (input.focus(), input.select()));
+    fields.set(key, input);
+    return [label, input] as const;
+  };
+  const [minLabel, minInput] = field('min');
+  const [maxLabel, maxInput] = field('max');
+  const [speedLabel, speedInput] = field('speed');
+  speedLabel.textContent = 'Speed ×';
+  const labels = () => {
+    const deg = now().kind === 'hinge' ? ' °' : '';
+    [minLabel.textContent, maxLabel.textContent] = [`Min${deg}`, `Max${deg}`];
+  };
+  /** To object: the next click sets the min or max (the last one typed in) to point the moving part at it, or reach it. */
+  const aim = () => {
+    const key = last;
+    const at = (p: Vector3) => {
+      const j = now();
+      const axis = jointAxis(j);
+      const moving = contents(history.current, j.children).filter((x) => history.current.bodies.some((b) => b.id === x));
+      const ref = moving.map((x) => viewer.measure(x)?.box.getCenter(new Vector3())).find(Boolean);
+      const v = jointValue(j, lookup);
+      if (!ref) return v;
+      if (j.kind === 'slider') return v + p.clone().sub(ref).dot(axis.dir);
+      const [from, to] = [ref.clone().sub(axis.at).projectOnPlane(axis.dir), p.clone().sub(axis.at).projectOnPlane(axis.dir)];
+      return v + (Math.atan2(from.clone().cross(to).dot(axis.dir), from.dot(to)) * 180) / Math.PI;
+    };
+    const text = (v: number) => fmt(now().kind === 'hinge' ? v : v / UNITS[u]);
+    viewer.aiming = (a) => tips.cursorTip([a?.what, `Click: the ${key} points the moving part at it`].filter(Boolean).join('\n'));
+    viewer.aiming(viewer.aimHere());
+    viewer.pickFace((face) => {
+      viewer.aiming = null;
+      viewer.aimAt(null);
+      tips.cursorTip(null);
+      if (face?.snap) {
+        const t = text(at(face.snap));
+        fields.get(key)!.value = t;
+        write({ [key]: expr(t), value: expr(t) });
+      }
+      fields.get(key)!.focus();
+    }, true);
+  };
   const choices = (['hinge', 'slider'] as const).map((k) => {
     const b = Object.assign(document.createElement('button'), { textContent: k === 'hinge' ? 'Hinge' : 'Slider', title: k === 'hinge' ? 'Turns around the axis' : 'Moves along the axis', onclick: () => choose(k) });
     b.dataset.kind = k;
     return b;
   });
-  const labels = ['Min', 'Max'].map((t) => Object.assign(document.createElement('span'), { textContent: t }));
   const choose = (k: Joint['kind']) => {
-    kind = k;
+    const j = now();
+    if (k !== j.kind) {
+      const [lo, hi] = k === 'hinge' ? ['0', '180'] : ['0', fmt(reach / UNITS[u])];
+      const auto = /^(Hinge|Slider) \d+$/.test(j.name); // a name it was given: kept
+      const kind = k === 'hinge' ? 'Hinge' : 'Slider';
+      const x = (t: string): Expr => ({ e: t, u: k === 'hinge' ? 'mm' : u });
+      write({ kind: k, min: x(lo), max: x(hi), value: x(lo), ...(auto ? { name: `${kind} ${history.current.joints.filter((o) => o.kind === k).length + 1}` } : {}) });
+      [minInput.value, maxInput.value] = [lo, hi];
+    }
     choices.forEach((b) => b.classList.toggle('on', b.dataset.kind === k));
-    [fields.min, fields.max] = k === 'hinge' ? ['0', '180'] : ['0', slide];
-    inputs.forEach((input, i) => (input.value = i ? fields.max : fields.min));
-    labels.forEach((l, i) => (l.textContent = `${i ? 'Max' : 'Min'}${k === 'hinge' ? ' °' : ''}`));
+    labels();
   };
   const segmented = Object.assign(document.createElement('span'), { className: 'segmented' });
   segmented.append(...choices);
   const finish = (ok: boolean) => {
+    viewer.aiming = null;
+    viewer.cancelFacePick();
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
     viewer.showAxis(null);
     toolHint = null;
-    if (!ok || [fields.min, fields.max].some((t) => length(t) === null)) return render();
-    // the axis in the parent's coordinates: it moves with the parent
-    const back = (bodyPlaces.get(parent) ?? groupPlace(parent)).clone().invert();
-    const u = kind === 'hinge' ? 'mm' : doc.units; // degrees: numbers as typed
-    const joint: Joint = {
-      id: newId(),
-      name: `Joint ${doc.joints.length + 1}`,
-      kind,
-      parent,
-      children,
-      axis: { at: a.at.clone().applyMatrix4(back).toArray(), dir: a.dir.clone().transformDirection(back).toArray() },
-      min: { e: fields.min, u },
-      max: { e: fields.max, u },
-      value: { e: fields.min, u },
-      seconds: { e: '4', u: 'mm' },
-    };
-    selected = [parent];
-    commit({ ...doc, joints: [...doc.joints, joint] });
+    if (!ok && changed) return undo();
+    render();
   };
-  const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
-  box.append(segmented, labels[0], inputs[0], labels[1], inputs[1], Object.assign(document.createElement('button'), { textContent: '✓', title: 'Make the joint (Enter); Esc leaves nothing', onclick: () => finish(true) }));
-  choose('hinge');
+  const keys = (e: KeyboardEvent) => {
+    if (e.defaultPrevented) return; // the view's Esc ending a pick
+    if (!pressed(e, 'confirm') && !pressed(e, 'cancel')) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    finish(pressed(e, 'confirm'));
+  };
+  const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { textContent: text, title, onclick });
+  box.append(
+    segmented,
+    minLabel,
+    minInput,
+    maxLabel,
+    maxInput,
+    toObjectButton(aim, 'Click a point: the min or max (the last one typed in) points the moving part at it, or reaches it (T)'),
+    speedLabel,
+    speedInput,
+    button('⇄ Invert', 'Turn or move the other way round', () => write({ axis: { ...now().axis, dir: now().axis.dir.map((v) => -v) as [number, number, number] } })),
+    button('✓', 'Keep the changes (Enter); Esc drops them', () => finish(true)),
+  );
+  choose(now().kind);
   document.body.append(box);
   const r = viewer.el.getBoundingClientRect();
-  keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
-  viewer.showAxis(a, a.at, 60);
-  toolHint = 'Joint: hinge or slider, its limits · [Enter] makes it · [Esc] leaves nothing';
+  const w = box.offsetWidth;
+  const left = r.left + (r.width - w) / 2;
+  keepInside(box, left, r.top + (left + w > r.right - 110 ? 150 : 44), false, [r.left, r.top, r.right, r.bottom]);
+  viewer.showAxis(jointAxis(now()), jointAxis(now()).at, 60);
+  toolHint = `${now().name}: hinge or slider, its limits (T: to a point), speed, direction · [Enter] keeps it · [Esc] ${fresh ? 'removes the joint' : 'drops the changes'}`;
   render();
+  setTimeout(() => (maxInput.focus(), maxInput.select()));
   addEventListener('keydown', keys, { capture: true });
 }
 
 /**
- * The joints box at the bottom right of the view (while there are joints): per joint ▶ plays it once from its min to
- * its max (ease in and out, in its play time), ⟳ plays it back and forth until clicked again, and a slider sets where
- * it is now (one undo step per drag). Playing only moves the view; afterwards everything is where it was. Joints left
- * still are reported below.
+ * The joints box at the bottom right of the view (while there are joints): per joint its name (edited in place) with its
+ * range in grey, ✎ its edit panel; ▶ / ❚❚ plays from where it is to its max and pauses (the pose stays: modelling
+ * happens there), Repeat plays back and forth smoothly instead; the slider and the Now field follow it and set where it
+ * is (either pauses it). Joints left still are reported below.
  */
 const jointsBox = Object.assign(document.createElement('div'), { className: 'joints-box' });
 viewer.el.append(jointsBox);
 let jointsKey = '';
-/** Joints playing: since when, and whether back and forth. */
-const playing = new Map<string, { t0: number; loop: boolean }>();
+/** Joints playing: their phase (0 → 1 from min to max; repeating 1 → 2 back) and the last frame's time. */
+const playing = new Map<string, { phase: number; last: number }>();
+/** Joints that play back and forth (this session). */
+const repeating = new Set<string>();
 function renderJoints() {
   const doc = history.current;
-  const lookup = paramLookup(doc.params);
-  const num = (x: Expr, fallback: number) => {
-    try {
-      return evalLength(x, lookup);
-    } catch {
-      return fallback;
-    }
-  };
-  const key = JSON.stringify([doc.joints.map((j) => [j.id, j.name, j.kind, j.min, j.max]), jointProblems, [...playing.keys()]]);
+  const key = JSON.stringify([doc.joints.map((j) => [j.id, j.name, j.kind, j.min, j.max]), jointProblems, [...playing.keys()], [...repeating], doc.units]);
   if (key !== jointsKey) {
     jointsKey = key;
     jointsBox.hidden = !doc.joints.length;
-    jointsBox.replaceChildren(
-      ...doc.joints.map((j) => {
-        const [lo, hi] = [num(j.min, 0), num(j.max, 0)];
-        const slider = Object.assign(document.createElement('input'), { type: 'range', min: String(Math.min(lo, hi)), max: String(Math.max(lo, hi)), step: 'any', title: 'Where it is now: drag to move it (model there)' });
-        slider.dataset.joint = j.id;
-        let dragging = false;
-        slider.oninput = () => {
-          const k = history.current.joints.findIndex((x) => x.id === j.id);
-          const next = setIn(history.current, ['joints', String(k), 'value'], { ...j.value, e: fmt(+slider.value / (j.kind === 'hinge' ? 1 : UNITS[j.value.u])) });
-          if (dragging) history.replace(next);
-          else history.push(next), (dragging = true);
-          update();
-        };
-        slider.onchange = () => (dragging = false);
-        const play = (loop: boolean) => () => {
-          if (playing.has(j.id)) playing.delete(j.id);
-          else playing.set(j.id, { t0: performance.now(), loop });
-          if (playing.size === 1) requestAnimationFrame(animate);
-          render();
-        };
-        const on = playing.has(j.id);
-        const button = (name: 'play' | 'loop', title: string, onclick: () => void) => Object.assign(document.createElement('button'), { className: `icon${on && (name === 'loop') === playing.get(j.id)!.loop ? ' on' : ''}`, innerHTML: icon(name), title, onclick });
-        const row = document.createElement('div');
-        row.className = 'joint-row';
-        row.append(Object.assign(document.createElement('span'), { textContent: j.name, title: `${j.kind === 'hinge' ? 'Hinge' : 'Slider'}: select its parent to edit it` }), button('play', 'Play once from min to max (again: stop)', play(false)), button('loop', 'Play back and forth until clicked again', play(true)), slider);
-        return row;
-      }),
-      ...jointProblems.map((p) => Object.assign(document.createElement('p'), { className: 'error', textContent: p })),
-    );
+    jointsBox.replaceChildren(...doc.joints.map(jointRow), ...jointProblems.map((p) => Object.assign(document.createElement('p'), { className: 'error', textContent: p })));
   }
-  // the sliders show where the joints are now (not while one is dragged)
-  for (const s of jointsBox.querySelectorAll<HTMLInputElement>('input[type=range]')) {
-    const j = doc.joints.find((x) => x.id === s.dataset.joint);
-    if (j && document.activeElement !== s) s.value = String(num(j.value, 0));
-  }
+  // the sliders and fields show where the joints are now (not the one being typed in)
+  const lookup = paramLookup(doc.params);
+  for (const j of doc.joints) if (!playing.has(j.id)) showValue(j.id, jointValue(j, lookup), j.value.e);
 }
 
-/** One frame of the joints playing: their objects moved in the view only (nothing is rebuilt or written). */
+/** A joint's slider and Now field at `v` (degrees or mm; `text`: as typed). */
+function showValue(id: string, v: number, text?: string) {
+  const j = history.current.joints.find((x) => x.id === id);
+  const slider = jointsBox.querySelector<HTMLInputElement>(`input[type=range][data-joint="${id}"]`);
+  const field = jointsBox.querySelector<HTMLInputElement>(`input.now[data-joint="${id}"]`);
+  if (slider) slider.value = String(v);
+  if (field && document.activeElement !== field) field.value = text ?? fmt(j?.kind === 'slider' ? v / UNITS[history.current.units] : v);
+}
+
+function jointRow(j: Joint) {
+  const doc = history.current;
+  const [lo, hi] = jointRange(j);
+  const at = (id: string) => history.current.joints.findIndex((x) => x.id === id);
+  /** Where it is now, written (one undo step per drag or typing); it stops playing. */
+  let dragging = false;
+  const setValue = (text: string) => {
+    playing.delete(j.id);
+    const k = at(j.id);
+    const next = setIn(history.current, ['joints', String(k)], { ...history.current.joints[k], value: { e: text, u: j.kind === 'hinge' ? 'mm' : doc.units } });
+    if (dragging) history.replace(next);
+    else history.push(next), (dragging = true);
+    update();
+  };
+  const name = Object.assign(document.createElement('input'), { className: 'joint-name', value: j.name, spellcheck: false, title: 'Its name' });
+  name.onchange = () => commit(setIn(history.current, ['joints', String(at(j.id)), 'name'], name.value || j.name));
+  const slider = Object.assign(document.createElement('input'), { type: 'range', min: String(Math.min(lo, hi)), max: String(Math.max(lo, hi)), step: 'any', title: 'Where it is now: drag to move it (model there)' });
+  slider.dataset.joint = j.id;
+  slider.oninput = () => setValue(fmt(j.kind === 'hinge' ? +slider.value : +slider.value / UNITS[doc.units]));
+  slider.onchange = () => (dragging = false);
+  const now = Object.assign(document.createElement('input'), { className: 'now', spellcheck: false, title: 'Where it is now (degrees or a length)' });
+  now.dataset.joint = j.id;
+  now.oninput = () => length(now.value) !== null && setValue(now.value);
+  now.onchange = () => (dragging = false);
+  const nowLabel = Object.assign(document.createElement('span'), { textContent: j.kind === 'hinge' ? '°' : doc.units });
+  scrub(nowLabel, now, () => now.value, j.kind === 'hinge' ? 'mm' : doc.units, settings.minStep, (text) => ((now.value = text), setValue(text)), () => (now.focus(), now.select()));
+  const on = playing.has(j.id);
+  const play = Object.assign(document.createElement('button'), { className: `icon${on ? ' on' : ''}`, innerHTML: icon(on ? 'pause' : 'play'), title: on ? 'Pause (it stays there)' : 'Play to the max (Repeat: back and forth)' });
+  play.onclick = () => (on ? pause(j.id) : start(j.id));
+  const repeat = Object.assign(document.createElement('button'), { className: `icon${repeating.has(j.id) ? ' on' : ''}`, innerHTML: icon('loop'), title: 'Repeat: play back and forth until paused' });
+  repeat.onclick = () => (repeating.has(j.id) ? repeating.delete(j.id) : repeating.add(j.id), render());
+  const edit = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('edit'), title: 'Edit the joint: kind, limits, speed, direction', onclick: () => jointPanel(j.id, false) });
+  const row = Object.assign(document.createElement('div'), { className: 'joint-row' });
+  row.append(name, Object.assign(document.createElement('span'), { className: 'range', textContent: rangeText(j) }), edit, play, repeat, slider, now, nowLabel);
+  return row;
+}
+
+/** Plays joint `id` from where it is (from its min again when it stands at its max and does not repeat). */
+function start(id: string) {
+  const j = history.current.joints.find((x) => x.id === id);
+  if (!j) return;
+  const [lo, hi] = jointRange(j);
+  const s = hi === lo ? 0 : Math.min(1, Math.max(0, (jointValue(j, paramLookup(history.current.params)) - lo) / (hi - lo)));
+  // the phase whose eased position is s (going up)
+  const phase = !repeating.has(id) && s > 0.999 ? 0 : Math.acos(1 - 2 * s) / Math.PI;
+  playing.set(id, { phase, last: performance.now() });
+  if (playing.size === 1) requestAnimationFrame(animate);
+  render();
+}
+
+/** Stops joint `id` where it is now: that is where it stays (one undo step). */
+function pause(id: string, at?: number) {
+  const p = playing.get(id);
+  playing.delete(id);
+  const doc = history.current;
+  const k = doc.joints.findIndex((x) => x.id === id);
+  if (!p || k < 0) return render();
+  const j = doc.joints[k];
+  const v = at ?? eased(j, p.phase);
+  commit(setIn(doc, ['joints', String(k), 'value'], { e: fmt(j.kind === 'hinge' ? v : v / UNITS[doc.units]), u: j.kind === 'hinge' ? 'mm' : doc.units }));
+}
+
+/** Where a joint is at `phase` (0 min, 1 max, 2 min again), easing in and out. */
+function eased(j: Joint, phase: number) {
+  const [lo, hi] = jointRange(j);
+  const t = phase % 2 > 1 ? 2 - (phase % 2) : phase % 2;
+  return lo + (hi - lo) * (0.5 - 0.5 * Math.cos(Math.PI * t));
+}
+
+/** One frame of the joints playing: their objects moved in the view only; at its max a joint that does not repeat stops. */
 function animate(now: number) {
   const doc = history.current;
   const lookup = paramLookup(doc.params);
@@ -2039,21 +2203,21 @@ function animate(now: number) {
       playing.delete(id);
       continue;
     }
-    const at = (x: Expr) => {
-      try {
-        return evalLength(x, lookup);
-      } catch {
-        return 0;
-      }
-    };
-    const t = (now - p.t0) / 1000 / Math.max(0.1, at(j.seconds));
-    if (!p.loop && t >= 1) {
-      playing.delete(id);
+    let speed = 1;
+    try {
+      speed = evalLength(j.speed, lookup) || 1;
+    } catch {
+      /* not a number: speed 1 */
+    }
+    p.phase += (now - p.last) / 1000 / Math.max(0.1, settings.jointSeconds / speed);
+    p.last = now;
+    if (!repeating.has(id) && p.phase >= 1) {
+      pause(id, jointRange(j, lookup)[1]);
       continue;
     }
-    const phase = p.loop ? t % 2 : t;
-    const s = 0.5 - 0.5 * Math.cos(Math.PI * (phase > 1 ? 2 - phase : phase)); // ease in and out
-    values.set(id, at(j.min) + (at(j.max) - at(j.min)) * s);
+    p.phase %= 2; // back and forth: smooth at both ends
+    values.set(id, eased(j, p.phase));
+    showValue(id, values.get(id)!);
   }
   const { placed } = jointed(doc, ownPlaces, (j) => values.get(j.id) ?? jointValue(j, lookup));
   for (const b of doc.bodies) {
@@ -2065,7 +2229,6 @@ function animate(now: number) {
   }
   viewer.render();
   if (playing.size) requestAnimationFrame(animate);
-  else render(); // the buttons show stopped
 }
 
 /** Tool first: the next clicked body gets `act`. */
@@ -2132,7 +2295,19 @@ function movedInto(doc: Doc, ids: string[], group: string | null, target: Matrix
   });
   const sketches = doc.sketches.map((s) => (ids.includes(s.id) ? { ...s, group } : s));
   const groups = doc.groups.map((g) => (ids.includes(g.id) && !(group && within(doc, g.id).has(group)) ? { ...g, parent: group } : g));
-  return { ...doc, bodies, sketches, groups };
+  // a joint's part put into a group beside the joint's other part: the group becomes that part (all in it moves with
+  // it); its axis then counts in the group's coordinates
+  const level = (id: string) => bodies.find((b) => b.id === id)?.group ?? groups.find((g) => g.id === id)?.parent ?? null;
+  const beside = groups.find((g) => g.id === group)?.parent ?? null;
+  const into = (id: string, others: string[]) => !!group && ids.includes(id) && others.every((o) => !ids.includes(o) && level(o) === beside);
+  const joints = doc.joints.map((j) => {
+    const children = [...new Set(j.children.map((c) => (into(c, [j.parent]) ? group! : c)))];
+    if (!into(j.parent, j.children)) return { ...j, children };
+    const to = target.clone().invert().multiply(bodyPlaces.get(j.parent) ?? groupPlace(j.parent));
+    const axis = { at: new Vector3(...j.axis.at).applyMatrix4(to).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(to).toArray() };
+    return { ...j, parent: group!, children, axis };
+  });
+  return { ...doc, bodies, sketches, groups, joints };
 }
 
 /** Group tool: ungroups a selected group, groups the selection, or (nothing selected) groups the objects clicked next on Enter. */
@@ -2232,6 +2407,7 @@ function sketched(r: SketchResult): string {
   const t = r.target;
   let sketches = doc.sketches;
   let bodies = doc.bodies;
+  let joints = doc.joints;
   let id = t.sketch;
   if (!id) {
     const fresh = sketchAt(t, sketches.length);
@@ -2272,11 +2448,17 @@ function sketched(r: SketchResult): string {
       // on a base plane the body shares the sketch's group (so both count from the same origin)
       return newBody(bodies.length + k, [feature], sketch.plane.kind === 'base' ? sketch.group : null);
     });
+    // drawn on a moving part of a joint: they move with it (beside it in the joint, or in its moving group)
+    const on = sketch.plane.kind === 'cap' || sketch.plane.kind === 'side' ? sketch.plane.body : null;
+    const joint = on && doc.joints.find((j) => j.children.includes(on));
+    const host = doc.bodies.find((b) => b.id === on);
+    if (joint) joints = doc.joints.map((j) => (j === joint ? { ...j, children: [...j.children, ...made.map((b) => b.id)] } : j));
+    else if (host?.group && doc.joints.some((j) => j.children.some((c) => within(doc, c).has(host.group!)))) made.forEach((b) => (b.group = host.group));
     bodies = [...bodies, ...made];
     selected = made.map((b) => b.id);
     shapeSel = [];
   } else [selected, shapeSel] = [[id], ids];
-  commit({ ...doc, sketches, bodies });
+  commit({ ...doc, sketches, bodies, joints });
   return id;
 }
 
@@ -2802,6 +2984,8 @@ function render() {
     revolveTool,
     rotateTool,
     jointTool,
+    editJoint: (id) => jointPanel(id, false),
+    jointRange: rangeText,
     showJoint(id) {
       const j = history.current.joints.find((x) => x.id === id);
       if (j) viewer.select(contents(history.current, j.children));
@@ -2886,7 +3070,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 12, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 13, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

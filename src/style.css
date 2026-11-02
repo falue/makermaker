@@ -1370,3 +1370,48 @@ button.icon.tool-op {
 .listed button.icon.joint.parent {
   color: var(--accent);
 }
+
+/* To object: its icon and words, the same on every button and in the pointer's note */
+button.to-object {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+button.to-object svg,
+.tooltip.follow svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  flex: none;
+}
+.tooltip.follow > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.listed.joint-static .item {
+  outline: 2px solid var(--accent);
+}
+.listed.joint-moving .item {
+  outline: 2px solid #e8a33d;
+}
+.joints-box .range,
+.joint-card .range {
+  color: var(--muted);
+}
+.joint-row .joint-name {
+  width: 80px;
+}
+.joint-row input.now {
+  width: 48px;
+}
+.joint-card h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.joint-card h4 > span:first-child {
+  flex: 1;
+}

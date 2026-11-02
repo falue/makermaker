@@ -244,7 +244,7 @@ export interface RenderShot {
  * A joint: `parent` (a body or group) stays, `children` (bodies or groups) move with it and along the joint: a hinge
  * turns them around `axis`, a slider moves them along it (a line through `at` along `dir`, in the parent's
  * coordinates); `value` (degrees or mm, between `min` and `max`) is where they are now, and modelling happens there;
- * playing it runs from `min` to `max` in `seconds`.
+ * playing it runs from `min` to `max` `speed` times as fast as the play time set in Settings.
  */
 export interface Joint {
   id: string;
@@ -256,11 +256,11 @@ export interface Joint {
   min: Expr;
   max: Expr;
   value: Expr;
-  seconds: Expr;
+  speed: Expr;
 }
 
 export interface Doc {
-  schema: 12;
+  schema: 13;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

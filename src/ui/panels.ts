@@ -67,6 +67,10 @@ export interface UIContext {
   jointTool(): void;
   /** Lights a joint's moving objects (null: the selection again). */
   showJoint(joint: string | null): void;
+  /** A joint's edit panel (the one it was made in). */
+  editJoint(joint: string): void;
+  /** A joint's range in words: `0–110°`, `0–35 mm`. */
+  jointRange(joint: Joint): string;
   loftTool(): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
@@ -343,6 +347,11 @@ function select<T extends string>(value: T, options: Record<T, string>, onChange
   return el;
 }
 
+/** The To object button, the same everywhere: its icon and words (T does the same where it is offered). */
+export function toObjectButton(onclick: () => void, title: string) {
+  return h('button', { className: 'to-object', innerHTML: `${icon('target')}<span>To object</span>`, title: `${title} (T)`, onclick });
+}
+
 /** A one-character label (×, ⇄, ✎) makes an icon button: no outline. */
 const button = (label: string, onclick: () => void, title = '') => h('button', { onclick, title, className: label.length === 1 ? 'icon' : '' }, label);
 
@@ -479,6 +488,7 @@ function left(ctx: UIContext): Node[] {
   const dragged = (id: string) => (ctx.selected.includes(id) ? ctx.selected : [id]);
   const row = (id: string, depth: number, group: boolean, ...cells: HTMLElement[]) => {
     const el = h('div', { className: `listed${dimmed(id)}`, draggable: renaming !== id }, ...cells);
+    el.dataset.id = id;
     el.style.paddingLeft = `${depth * 22}px`; // a level: the chevron's width, so contents line up under the group name
     el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
     const where = (e: DragEvent) => {
@@ -527,9 +537,17 @@ function left(ctx: UIContext): Node[] {
     const j = doc.joints.find((x) => x.parent === id || x.children.includes(id));
     if (!j) return [];
     const parent = j.parent === id;
-    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon('joint'), title: `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it`, onclick: () => ctx.select(id) });
-    el.onmouseenter = () => ctx.showJoint(j.id);
-    el.onmouseleave = () => ctx.showJoint(null);
+    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon('joint'), title: `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it`, onclick: () => ctx.editJoint(j.id) });
+    // hovered: what stays and what moves light in the list (in two colours) and in the view
+    const light = (on: boolean) => {
+      for (const r of document.querySelectorAll<HTMLElement>('#left .listed[data-id]')) {
+        r.classList.toggle('joint-static', on && r.dataset.id === j.parent);
+        r.classList.toggle('joint-moving', on && j.children.includes(r.dataset.id!));
+      }
+      ctx.showJoint(on ? j.id : null);
+    };
+    el.onmouseenter = () => light(true);
+    el.onmouseleave = () => light(false);
     return [el];
   };
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
@@ -790,24 +808,18 @@ function selectionPanel(ctx: UIContext): Node[] {
   ];
 }
 
-/** The joints `id` stays in or moves by: name, kind, where it is now, its limits and play time, delete. */
+/** The joints `id` stays in or moves by: name, range, what moves; Edit opens the panel it was made in. */
 function jointCards(ctx: UIContext, id: string): Node[] {
   const nameOf = (o: string) => [...ctx.doc.bodies, ...ctx.doc.groups].find((x) => x.id === o)?.name ?? '?';
-  return ctx.doc.joints.flatMap((j, k) => {
+  return ctx.doc.joints.flatMap((j) => {
     if (j.parent !== id && !j.children.includes(id)) return [];
-    const at = `joints.${k}`;
-    const set = (next: Partial<Joint>) => ctx.commit(setIn(ctx.doc, ['joints', String(k)], { ...j, ...next }));
-    const deg = j.kind === 'hinge'; // degrees: shown as typed, never unit-converted
-    const kind = select(j.kind, { hinge: 'Hinge: turns', slider: 'Slider: moves along' }, (v) => set({ kind: v }));
     const remove = button('×', () => ctx.commit({ ...ctx.doc, joints: ctx.doc.joints.filter((x) => x !== j) }), 'Delete the joint: what it moved goes back to where it is without it');
     return [
       h(
         'section',
         { className: 'joint-card' },
-        h('div', { className: 'head' }, input(`${at}.name`, j.name, (name) => set({ name })), kind, remove),
+        h('h4', {}, h('span', {}, j.name, h('span', { className: 'range' }, ` ${ctx.jointRange(j)}`)), button('Edit', () => ctx.editJoint(j.id), 'Kind, limits, speed, direction'), remove),
         h('p', { className: 'hint' }, `${nameOf(j.parent)} stays; ${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'move' : 'moves'}. Model them where they are now; play and scrub in the view's joints box.`),
-        h('div', { className: 'row' }, exprField(ctx, `${at}.value`, deg ? 'Now °' : 'Now', deg), exprField(ctx, `${at}.min`, deg ? 'Min °' : 'Min', deg), exprField(ctx, `${at}.max`, deg ? 'Max °' : 'Max', deg)),
-        h('div', { className: 'row' }, exprField(ctx, `${at}.seconds`, 'Play s', true)),
       ),
     ];
   });

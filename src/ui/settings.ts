@@ -13,12 +13,14 @@ export interface Settings {
   minAngle: number;
   /** How long (ms) the pointer rests on a line or point while drawing before it gets guide lines. */
   guideMs: number;
+  /** How long a joint plays from its min to its max at speed 1, in seconds. */
+  jointSeconds: number;
   /** Background of the 3D view and of new renders: the theme's grey, two colours meeting sharply at the horizon, or a sky preset (`sky`: its index). */
   background: { mode: 'solid' | 'colours' | 'sky'; top: string; bottom: string; sky: number };
 }
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4 } };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4 } };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
@@ -51,7 +53,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
       'General',
       () => {
         // a positive number setting: its heading, what it does, its field
-        const number = (key: 'minStep' | 'minAngle' | 'guideMs', title: string, hint: string) => {
+        const number = (key: 'minStep' | 'minAngle' | 'guideMs' | 'jointSeconds', title: string, hint: string) => {
           const field = input({ type: 'number', min: '0', step: 'any', value: String(s[key]), className: 'number' });
           field.onchange = () => +field.value > 0 && set({ ...s, [key]: +field.value }, false);
           return [make('h3', {}, title), make('p', { className: 'hint' }, hint), make('div', { className: 'row' }, field)];
@@ -64,6 +66,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
           ...number('minStep', 'Minimum step', 'The smallest step a drag moves in while Ctrl is held (precise), in mm. Without Ctrl the step follows the zoom.'),
           ...number('minAngle', 'Minimum angle', 'The smallest step a drawn line turns in while Ctrl is held, in degrees. Without a key it turns in 1° steps.'),
           ...number('guideMs', 'Guide delay', 'How long the pointer rests on a line or a point while drawing before guide lines show, in milliseconds.'),
+          ...number('jointSeconds', 'Joint play time', "How long a joint plays from its min to its max, in seconds; each joint's Speed (in its edit panel) makes it faster or slower."),
         ];
       },
     ],
