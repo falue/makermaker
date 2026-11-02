@@ -191,6 +191,7 @@ export class Viewer implements ToolView {
   private grid = new THREE.Group();
   private dark = matchMedia('(prefers-color-scheme: dark)');
   private pick: THREE.Ray | null = null; // last click, for Tab cycling
+  private hover: PointerEvent | null = null; // the pointer over the view, for Tab cycling
   private downAt = { x: 0, y: 0 };
   private downOnPart = false; // the last press hit a body: its release is no click on empty space
   private drag: Drag | null = null;
@@ -308,7 +309,9 @@ export class Viewer implements ToolView {
       },
       { capture: true },
     );
+    canvas.addEventListener('pointerleave', () => (this.hover = null));
     canvas.addEventListener('pointermove', (e) => {
+      this.hover = e;
       if (this.facePick) return this.markFace(this.frontHit(e));
       this.tool?.move(e);
       if (!this.toolPress) this.move(e); // a drag that belongs to a tool is no orbit
@@ -735,14 +738,11 @@ export class Viewer implements ToolView {
     this.fitted = false;
   }
 
-  /** Tab: selects the next (`step` 1) or previous body along the last click's ray. */
+  /** Tab: selects the next (`step` 1) or previous body under the pointer (outside the view: along the last click). */
   cycle(step: number) {
-    if (!this.pick) return;
-    const ids = [
-      ...new Set(
-        this.intersect(new THREE.Raycaster(this.pick.origin, this.pick.direction)).map((h) => h.object.userData.bodyId as string),
-      ),
-    ];
+    const ray = this.hover ? this.ray(this.hover) : this.pick;
+    if (!ray) return;
+    const ids = [...new Set(this.intersect(new THREE.Raycaster(ray.origin, ray.direction)).map((h) => h.object.userData.bodyId as string))];
     if (!ids.length) return;
     let i = ids.findIndex((id) => this.selection.includes(id));
     if (i < 0) i = -step; // none of them selected: start at the nearest
