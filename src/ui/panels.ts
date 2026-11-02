@@ -485,7 +485,7 @@ function left(ctx: UIContext): Node[] {
     const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
     // a plain click draws into it: sketch mode, looking at its plane
     const item = listItem(sk.id, selectedClass(sk.id), (how) => (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']), ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
-    item.title = `Sketch: ${sk.name} · ${whose(doc, sk.id)} · click to draw into it`;
+    item.title = `${whose(doc, sk.id)} · click to draw into it`;
     return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye(['sketches', String(i), 'visible'], sk.visible));
   });
   const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'));

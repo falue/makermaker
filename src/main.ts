@@ -1380,8 +1380,8 @@ function syncFocus() {
   // the sketch group, then the open sub-groups; each says what it is and how to get back to it
   const crumbs = s
     ? [
-        { label: `Sketch: ${s.name}`, title: `Sketch: ${s.name} · ${whose(doc, s.id)} · ${names.length ? 'click to go back to it' : 'Esc leaves it'}` },
-        ...names.map((name, i) => ({ label: name, title: `Sub-group ${name} of ${i ? names[i - 1] : s.name} · ${i < names.length - 1 ? 'click to go back to it' : 'Esc goes up a level'}` })),
+        { label: `Sketch: ${s.name}`, title: `${whose(doc, s.id)} · ${names.length ? 'click to go back to it' : 'Esc leaves it'}` },
+        ...names.map((name, i) => ({ label: name, title: `Sub-group of ${i ? names[i - 1] : s.name} · ${i < names.length - 1 ? 'click to go back to it' : 'Esc goes up a level'}` })),
       ]
     : [];
   const key = `${sketching} ${sketchPath.join()} ${crumbs.map((c) => c.title).join('›')}`;

@@ -20,9 +20,9 @@ export function ownerOf(doc: Doc, sketch: string): string | null {
 /** Whose a sketch is, in words: the body extruded from it, the body it lies on, or none (a free sketch). */
 export function whose(doc: Doc, sketch: string): string {
   const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sketch));
-  if (!owner) return 'a free sketch: it belongs to no object (nothing is extruded from it, it lies on no face)';
+  if (!owner) return 'A free sketch: it belongs to no object (nothing is extruded from it, it lies on no face)';
   const extruded = owner.features.some((f) => f.type === 'extrude' && f.source.kind === 'sketch' && f.source.sketch === sketch);
-  return extruded ? `belongs to ${owner.name}, which is extruded from it` : `belongs to ${owner.name}: it lies on its face`;
+  return extruded ? `Belongs to ${owner.name}, which is extruded from it` : `Belongs to ${owner.name}: it lies on its face`;
 }
 
 /** The object list in order (sketches have their own list): per level its groups, each followed by its contents unless folded, then its bodies. */
