@@ -490,7 +490,7 @@ function update() {
   // sphere centres snap like corners; their outlines give guides
   viewer.setSpheres(
     doc.bodies.flatMap((b) =>
-      b.visible && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [{ center: new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z])), r: f.d / 2 }] : [])) : [],
+      b.visible && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [{ center: new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z])), r: f.d / 2, body: b.id }] : [])) : [],
     ),
   );
   viewer.setLooks(doc.bodies.map((b) => ({ ...b, visible: b.visible && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));

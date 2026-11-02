@@ -281,8 +281,8 @@ export class Viewer implements ToolView {
   private custom: THREE.Plane[] = [];
   /** The origin: three thick lines (AxesHelper's colours), drawn over everything. */
   private axes = originLines();
-  /** Points to snap to besides body corners (sphere centres), with their marks. */
-  private balls: { center: THREE.Vector3; r: number }[] = [];
+  /** Points to snap to besides body corners (sphere centres, with their body); selected ones get a mark. */
+  private balls: { center: THREE.Vector3; r: number; body: string }[] = [];
   private centres = new THREE.Group();
 
   /** Visible range per axis in world mm (open ends: ±Infinity), fixed to the origin; inverted shows only what is outside. */
@@ -916,6 +916,7 @@ export class Viewer implements ToolView {
     const body = this.pickedFaces?.mesh.userData.bodyId ?? this.pickedEdge?.body;
     if (body && !ids.includes(body)) this.dropPicked();
     for (const id of this.bodies.keys()) this.dress(id);
+    this.markCentres();
     this.applySection();
   }
 
@@ -1150,10 +1151,14 @@ export class Viewer implements ToolView {
     return this.snapshot(width / this.renderer.domElement.width);
   }
 
-  /** Spheres (world): their centres snap, with a small mark. */
-  setSpheres(balls: { center: THREE.Vector3; r: number }[]) {
+  /** Spheres (world): their centres snap; a selected sphere's shows a small mark. */
+  setSpheres(balls: { center: THREE.Vector3; r: number; body: string }[]) {
     this.balls = balls;
-    const points = balls.map((b) => b.center);
+    this.markCentres();
+  }
+
+  private markCentres() {
+    const points = this.balls.filter((b) => this.selection.includes(b.body)).map((b) => b.center);
     for (const o of this.centres.children) ((o as THREE.Points).geometry.dispose(), ((o as THREE.Points).material as THREE.Material).dispose());
     this.centres.clear();
     if (points.length) this.centres.add(marks(points, 0x6b6b6b, 6));
