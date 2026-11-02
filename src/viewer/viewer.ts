@@ -90,6 +90,8 @@ export interface PickedFace {
   snap?: THREE.Vector3;
   /** A closed shape of a visible sketch clicked in front of any face: that sketch, the click, and the shape if its outline was clicked. */
   sketch?: { id: string; at: MouseEvent; shape?: string };
+  /** A round (cylindrical) face clicked (world): its axis from `at` along `dir` for `length`, radius `r`; `shaft`: material inside it (else a hole). */
+  round?: { at: THREE.Vector3; dir: THREE.Vector3; length: number; r: number; shaft: boolean };
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -2077,6 +2079,34 @@ export class Viewer implements ToolView {
     return k >= 0 ? (hit.object.userData.finishes as { feature: string; mid: Vec3 }[])[k] : null;
   }
 
+  /**
+   * The B-rep face of `hit` if it is round (a cylinder's side, a hole's wall): its axis (from its normals, which all
+   * stand square to it), the circle its points lie on, and how far it reaches along the axis; else undefined.
+   */
+  private roundOf(hit: THREE.Intersection) {
+    const mesh = hit.object as THREE.Mesh;
+    const groups = mesh.userData.faces as Uint32Array | undefined;
+    const index = mesh.geometry.index;
+    if (!groups || !index) return undefined;
+    const k = faceOf(hit);
+    const [pos, nor] = [mesh.geometry.attributes.position, mesh.geometry.attributes.normal];
+    const ids = [...new Set(index.array.subarray(groups[k * 2], groups[k * 2] + groups[k * 2 + 1]))];
+    const pts = ids.map((i) => new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld));
+    const ns = ids.map((i) => new THREE.Vector3().fromBufferAttribute(nor, i).transformDirection(mesh.matrixWorld));
+    // the two normals most apart: their cross is the axis
+    let dir = new THREE.Vector3();
+    for (const a of ns) for (const b of ns) { const c = a.clone().cross(b); if (c.lengthSq() > dir.lengthSq()) dir = c; }
+    if (dir.lengthSq() < 0.01) return undefined; // flat
+    dir.normalize();
+    const flat = pts.map((p) => p.clone().projectOnPlane(dir));
+    const circle = circleOf(flat, 0.02);
+    if (!circle) return undefined;
+    const along = pts.map((p) => p.dot(dir));
+    const [lo, hi] = [Math.min(...along), Math.max(...along)];
+    const shaft = pts[0].clone().projectOnPlane(dir).sub(circle.centre).dot(ns[0]) > 0; // its normals point out of it
+    return { at: circle.centre.clone().addScaledVector(dir, lo), dir, length: hi - lo, r: circle.d / 2, shaft };
+  }
+
   /** The body face under the pointer, if it faces the camera (not a back face seen through a cut). */
   private frontHit(e: MouseEvent) {
     const ray = this.raycaster(e);
@@ -2090,7 +2120,7 @@ export class Viewer implements ToolView {
     if (this.quietPick) return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined });
     const s = this.sketchShapeAt(e, hit);
     const sketch = s ? { sketch: { id: s.sketch.id, at: e, shape: 'q' in s && s.onLine ? s.q.id : undefined } } : {};
-    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, ...sketch });
+    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), ...sketch });
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const k = this.facingAxis();
     this.endFacePick({ point: new THREE.Vector3(), normal: unit(k).multiplyScalar(Math.sign(look.getComponent(k)) || 1), ...sketch });

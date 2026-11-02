@@ -96,12 +96,12 @@ describe('buildBody', () => {
   it('cuts a real thread into a shaft and into a hole', () => {
     const shaft = { id: 'c', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false } as BuildFeature;
     const plain = built([shaft]);
-    const m10 = built([shaft, { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 5, inside: false, pitch: 1.5, length: 20 } as BuildFeature]);
+    const m10 = built([shaft, { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 5, inside: false, size: 'M10', d: 10, pitch: 1.5, length: 20 } as BuildFeature]);
     expect(m10.faces).toBeGreaterThan(plain.faces); // the groove's flanks
     expect(m10.box.width).toBeCloseTo(10, 1);
     plain.done();
     m10.done();
-    const nut = built([base(30, 8), { id: 'h', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 8.4 }], depth: 8, mode: 'cut', through: true } as BuildFeature, { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 4.2, inside: true, pitch: 1.25, length: 8 } as BuildFeature]);
+    const nut = built([base(30, 8), { id: 'h', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 8.4 }], depth: 8, mode: 'cut', through: true } as BuildFeature, { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 4.2, inside: true, size: 'M10', d: 10, pitch: 1.25, length: 8 } as BuildFeature]);
     expect(nut.faces).toBeGreaterThan(8);
     nut.done();
   }, 60000);

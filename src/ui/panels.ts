@@ -1,4 +1,5 @@
 import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
+import { fitting, THREADS } from '../doc/threads';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
@@ -1242,7 +1243,18 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
     }
     case 'thread': {
       const kind = select(feature.inside ? 'hole' : 'shaft', { hole: 'Thread: in a hole', shaft: 'Thread: on a shaft' }, (v) => setFeature({ ...feature, inside: v === 'hole' }));
-      return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, f('pitch', 'Pitch'), f('length', 'Length'), h('span', { className: 'hint' }, `Ø ${fmt(feature.r * 2)} mm`)));
+      // a listed size fills Ø and pitch; Metric / Imperial switches the list
+      const system = THREADS.find((t) => t.name === feature.size)?.system ?? 'metric';
+      const sizes = THREADS.filter((t) => t.system === system);
+      const size = select(feature.size, Object.fromEntries([...(sizes.some((t) => t.name === feature.size) ? [] : [[feature.size, feature.size]]), ...sizes.map((t) => [t.name, t.name])]), (name) => {
+        const t = THREADS.find((x) => x.name === name)!;
+        setFeature({ ...feature, size: name, d: { e: fmt(t.d / UNITS[ctx.doc.units]), u: ctx.doc.units }, pitch: { e: fmt(t.pitch / UNITS[ctx.doc.units]), u: ctx.doc.units } });
+      });
+      const units = select(system, { metric: 'Metric', imperial: 'Imperial' }, (v) => {
+        const t = fitting(feature.r * 2, feature.inside, v);
+        setFeature({ ...feature, size: t.name, d: { e: fmt(t.d / UNITS[ctx.doc.units]), u: ctx.doc.units }, pitch: { e: fmt(t.pitch / UNITS[ctx.doc.units]), u: ctx.doc.units } });
+      });
+      return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, units, size), h('div', { className: 'row' }, f('d', 'Ø'), f('pitch', 'Pitch'), f('length', 'Length')), h('p', { className: 'hint' }, `On a round face Ø ${fmt(feature.r * 2)} mm`));
     }
     case 'mirror':
       return h('section', {}, h('h4', {}, 'Mirror', remove), h('p', { className: 'hint' }, 'Mirrored across the plane it was made with'));

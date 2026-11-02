@@ -423,38 +423,41 @@ function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
 }
 
 /**
- * A thread cut into the round surface: a 60° groove (ISO metric depth: 0.6134 × pitch on a shaft, 0.5413 × pitch in a
- * hole, cut outward into its wall) along a helix that runs one pitch past both ends. The groove is built from flat
- * faces, `steps` per turn (OpenCascade's booleans with swept helical surfaces fail now and then), along Z, then turned
- * and moved onto the hole's or shaft's axis.
+ * A thread cut into the round surface with the ISO basic profile (ISO 68-1; Unified threads share it): 60° flanks, a
+ * groove P/4 wide at the minor diameter (a shaft's root) or P/8 at the major one (a hole's), 5/8 H deep (H = 0.866 P),
+ * opening just past the surface. It runs along a helix one pitch past both ends, built from flat faces, `steps` per turn
+ * (OpenCascade's booleans with swept helical surfaces fail now and then), along Z, then turned and moved onto the axis.
  */
 function thread(shape: Shape3D | null, s: Of<'thread'>, steps = 36): Shape3D {
   if (!shape) throw new Error('nothing to thread yet');
-  if (!(s.pitch > 0) || !(s.length > 0)) throw new Error('pitch and length must be greater than 0');
-  const depth = (s.inside ? 0.5413 : 0.6134) * s.pitch;
-  const out = s.inside ? -1 : 1; // the groove's open side faces away from the material
-  const [base, tip] = [s.r + out * 0.05, s.r - out * depth];
-  const half = Math.abs(base - tip) * Math.tan(Math.PI / 6); // 60°: half the groove's width at its open side
-  type P = [number, number, number];
-  // the groove's triangle at step i: its open side (two corners) and its tip, square to the axis' direction of turning
-  const at = (i: number): [P, P, P] => {
+  if (!(s.pitch > 0) || !(s.length > 0) || !(s.d > 0)) throw new Error('diameter, pitch and length must be greater than 0');
+  const [P, R] = [s.pitch, s.d / 2];
+  const deep = 0.625 * 0.8660254 * P;
+  const slope = Math.tan(Math.PI / 6); // half a 60° groove widens this much per mm of depth
+  // the groove's closed end (radius, half width) and its open end just past the round surface
+  const [closed, closedHalf] = s.inside ? [R, P / 16] : [R - deep, P / 8];
+  const open = s.inside ? Math.min(s.r, R - deep) - 0.05 : Math.max(s.r, R) + 0.05;
+  const openHalf = Math.min(0.49 * P, closedHalf + slope * Math.abs(closed - open));
+  type P3 = [number, number, number];
+  // the groove's outline at step i: its open side (two corners), then its closed end, square to the turning
+  const at = (i: number): P3[] => {
     const a = (i / steps) * 2 * Math.PI;
-    const z = -s.pitch + (i / steps) * s.pitch;
+    const z = -P + (i / steps) * P;
     const [c, n] = [Math.cos(a), Math.sin(a)];
-    return [[base * c, base * n, z - half], [base * c, base * n, z + half], [tip * c, tip * n, z]];
+    return [[open * c, open * n, z - openHalf], [open * c, open * n, z + openHalf], [closed * c, closed * n, z + closedHalf], [closed * c, closed * n, z - closedHalf]];
   };
-  const count = Math.ceil(((s.length + 2 * s.pitch) / s.pitch) * steps);
+  const count = Math.ceil(((s.length + 2 * P) / P) * steps);
   const faces = [makePolygon(at(0))];
   for (let i = 0; i < count; i++) {
     const [p, q] = [at(i), at(i + 1)];
-    for (let k = 0; k < 3; k++) {
-      const [a, b] = [k, (k + 1) % 3];
+    for (let k = 0; k < p.length; k++) {
+      const [a, b] = [k, (k + 1) % p.length];
       faces.push(makePolygon([p[a], q[a], q[b]]), makePolygon([p[a], q[b], p[b]]));
     }
   }
-  faces.push(makePolygon([...at(count)].reverse() as [P, P, P]));
+  faces.push(makePolygon([...at(count)].reverse()));
   const groove = makeSolid(faces) as Shape3D;
-  const axis: P = [-s.dir[1], s.dir[0], 0]; // Z × dir
+  const axis: P3 = [-s.dir[1], s.dir[0], 0]; // Z × dir
   const angle = (Math.acos(Math.max(-1, Math.min(1, s.dir[2] / Math.hypot(...s.dir)))) * 180) / Math.PI;
   const turned = Math.hypot(...axis) > 1e-9 ? groove.rotate(angle, [0, 0, 0], axis) : s.dir[2] < 0 ? groove.rotate(180, [0, 0, 0], [1, 0, 0]) : groove;
   return joined(shape, turned.translate(...s.at), 'cut');

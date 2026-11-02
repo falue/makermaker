@@ -120,9 +120,10 @@ export type MirrorFeature = { id: string; type: 'mirror'; o: [number, number, nu
 
 /**
  * A real thread (body-local): along `dir` from `at` (the middle of a hole's or shaft's end), `length` long, on the
- * round surface of radius `r` (a hole's: `inside`, cut outward into its wall; a shaft's: cut inward), `pitch` per turn.
+ * round surface of radius `r` (a hole's: `inside`, cut outward into its wall; a shaft's: cut inward), with the ISO
+ * basic profile of major diameter `d` and `pitch` per turn; `size`: the listed size it was set from (see threads.ts).
  */
-export type ThreadFeature = { id: string; type: 'thread'; at: [number, number, number]; dir: [number, number, number]; r: number; inside: boolean; pitch: Expr; length: Expr };
+export type ThreadFeature = { id: string; type: 'thread'; at: [number, number, number]; dir: [number, number, number]; r: number; inside: boolean; size: string; d: Expr; pitch: Expr; length: Expr };
 
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
@@ -299,7 +300,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 15;
+  schema: 16;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

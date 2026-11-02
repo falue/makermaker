@@ -7,6 +7,7 @@ import { BASE, capFrame, cutPlane, extent, frames, moved, placed as inWorld, pla
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, centre, closedLoop, corners, grown, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
+import { fitting, THREADS, type ThreadSize } from './doc/threads';
 import { icon } from './ui/icons';
 import { axisHtml } from './ui/axes';
 import { jointed } from './doc/joints';
@@ -2026,57 +2027,73 @@ function mirrorTool() {
   });
 }
 
-/** ISO metric coarse threads: nominal diameter and pitch (mm). */
-const COARSE: [number, number][] = [[2, 0.4], [2.5, 0.45], [3, 0.5], [4, 0.7], [5, 0.8], [6, 1], [8, 1.25], [10, 1.5], [12, 1.75], [14, 2], [16, 2], [20, 2.5], [24, 3], [30, 3.5], [36, 4]];
-
 /**
- * Thread: the round edge at the end of a hole or shaft clicked: a real metric thread cut into it, from there through
- * the body (a hole when the body reaches clearly further across than the circle, else a shaft; its card switches it),
- * the coarse pitch of the nearest size (a hole: its tap drill size); pitch and length in a panel, live.
+ * Thread: the round face of a hole or a shaft clicked: a real thread (ISO basic profile) cut into it from its end
+ * nearest the click, all along it. A panel: Metric / Imperial (as the document's units first), the size (the one
+ * fitting the face first: a shaft by its diameter, a hole by its tap drill), which fills Ø and Pitch (both editable),
+ * and the length (T: to a point). Live, one undo step; Esc leaves nothing.
  */
 function threadTool() {
-  toolHint = 'Thread: click the round edge at the end of a hole or a shaft · [Esc] cancels';
+  toolHint = 'Thread: click the round face of a hole or a shaft · [Esc] cancels';
   render();
-  viewer.pickAxis(
-    (a) => {
-      tips.cursorTip(null);
-      viewer.showAxis(null);
-      toolHint = null;
-      const box = a?.body && viewer.measure(a.body)?.box;
-      if (!a?.d || !a.body || !box) return a ? fail("Click a round edge: a hole's or a shaft's end") : render();
-      const body = a.body;
-      const mid = box.getCenter(new Vector3());
-      const dir = a.dir.clone().multiplyScalar(mid.clone().sub(a.at).dot(a.dir) >= 0 ? 1 : -1); // into the body
-      const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => new Vector3(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z).sub(a.at));
-      const reach = Math.max(...corners.map((c) => c.dot(dir)));
-      const across = Math.max(...corners.map((c) => c.clone().sub(dir.clone().multiplyScalar(c.dot(dir))).length()));
-      const inside = across > (a.d / 2) * Math.SQRT2 + 1; // box corners clearly beyond a shaft's own (r √2): material around, a hole
-      const [, pitch] = COARSE.reduce((best, m) => (Math.abs((inside ? m[0] - 1.0825 * m[1] : m[0]) - a.d!) < Math.abs((inside ? best[0] - 1.0825 * best[1] : best[0]) - a.d!) ? m : best));
-      const doc = history.current;
-      const i = doc.bodies.findIndex((b) => b.id === body);
-      const pl = bodyPlace(body);
-      const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, a.at.toArray()), dir: unplaced(pl, dir.toArray(), true), r: a.d / 2, inside, pitch: len(pitch), length: len(reach) };
-      [selected, shapeSel] = [[body], []];
-      commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
-      const j = history.current.bodies[i].features.length - 1;
-      const write = ([p, l]: string[]) => {
-        const at = ['bodies', String(i), 'features', String(j)];
-        history.replace(setIn(setIn(history.current, [...at, 'pitch'], { e: p, u: doc.units }), [...at, 'length'], { e: l, u: doc.units }));
-        update();
+  viewer.pickFace((face) => {
+    toolHint = null;
+    const round = face?.round;
+    if (!face?.body || !round) return face ? fail("Click a round face: a hole's wall or a shaft's side") : render();
+    const body = face.body;
+    // from the end nearest the click, into the face
+    const far = face.point.clone().sub(round.at).dot(round.dir) > round.length / 2;
+    const [start, dir] = far ? [round.at.clone().addScaledVector(round.dir, round.length), round.dir.clone().negate()] : [round.at.clone(), round.dir.clone()];
+    const doc = history.current;
+    const u = UNITS[doc.units];
+    let system: ThreadSize['system'] = ['in', 'ft'].includes(doc.units) ? 'imperial' : 'metric';
+    let size = fitting(2 * round.r, !round.shaft, system);
+    const i = doc.bodies.findIndex((b) => b.id === body);
+    const pl = bodyPlace(body);
+    const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, start.toArray()), dir: unplaced(pl, dir.toArray(), true), r: round.r, inside: !round.shaft, size: size.name, d: len(size.d), pitch: len(size.pitch), length: len(round.length) };
+    [selected, shapeSel] = [[body], []];
+    commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
+    const j = history.current.bodies[i].features.length - 1;
+    const path = ['bodies', String(i), 'features', String(j)];
+    const write = ([d, p, l]: string[]) => {
+      const f = getIn(history.current, path) as Feature;
+      history.replace(setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: doc.units }, pitch: { e: p, u: doc.units }, length: { e: l, u: doc.units } }));
+      update();
+    };
+    // the size list (of the chosen system) fills Ø and Pitch
+    const pick = Object.assign(document.createElement('select'), { title: 'The thread size: fills Ø and Pitch' });
+    const fill = () => {
+      panel.inputs[0].value = fmt(size.d / u);
+      panel.inputs[1].value = fmt(size.pitch / u);
+      panel.inputs[0].dispatchEvent(new Event('input'));
+    };
+    const options = () => pick.replaceChildren(...THREADS.filter((t) => t.system === system).map((t) => Object.assign(document.createElement('option'), { value: t.name, textContent: t.name, selected: t.name === size.name })));
+    pick.onchange = () => ((size = THREADS.find((t) => t.name === pick.value)!), fill());
+    const systems = Object.assign(document.createElement('span'), { className: 'segmented' });
+    for (const k of ['metric', 'imperial'] as const) {
+      const b = Object.assign(document.createElement('button'), { textContent: k === 'metric' ? 'Metric' : 'Imperial', className: k === system ? 'on' : '' });
+      b.onclick = () => {
+        system = k;
+        [...systems.children].forEach((x) => x.classList.toggle('on', x === b));
+        size = fitting(2 * round.r, !round.shaft, system);
+        options();
+        fill();
       };
-      const u = UNITS[doc.units];
-      valuePanel(
-        [
-          { label: 'Pitch', value: fmt(pitch / u) },
-          { label: 'Length', value: fmt(reach / u), reach: (p) => p.clone().sub(a.at).dot(dir) },
-        ],
-        write,
-        (ok) => (ok ? render() : undo()),
-        `Thread ${inside ? 'in a hole' : 'on a shaft'} Ø ${fmt(a.d)} mm: pitch and length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
-      );
-    },
-    (a) => (tips.cursorTip(a ? `${a.what}${a.d ? ` Ø ${fmt(a.d)}` : ''}\nClick: thread it` : null), viewer.showAxis(a, a?.at, 30)),
-  );
+      systems.append(b);
+    }
+    options();
+    const panel = valuePanel(
+      [
+        { label: 'Ø', value: fmt(size.d / u) },
+        { label: 'Pitch', value: fmt(size.pitch / u) },
+        { label: 'Length', value: fmt(round.length / u), reach: (p) => p.clone().sub(start).dot(dir) },
+      ],
+      write,
+      (ok) => (ok ? render() : undo()),
+      `Thread ${round.shaft ? 'on a shaft' : 'in a hole'} Ø ${fmt(2 * round.r)} mm: its size, or Ø and pitch, and its length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
+      [systems, pick],
+    );
+  });
 }
 
 /**
@@ -3855,7 +3872,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 15, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 16, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
