@@ -69,6 +69,8 @@ export interface ToolView {
   overlay: THREE.Group;
   /** The step a drag moves in near `at` (mm), by the zoom and modifiers (Shift ×10 unless `coarse` is false, Ctrl the minimum). */
   step(at: THREE.Vector3, e?: { shiftKey: boolean; ctrlKey: boolean }, coarse?: boolean): number;
+  /** The angle step (degrees) a drawn line turns in with Ctrl. */
+  minAngle: number;
   /** Where shapes drawn on the face of a body hit go (null: nowhere: a curved face no feature made). */
   placeOn(hit: THREE.Intersection): Omit<Target, 'sketch'> | null;
   sketches: ViewSketch[];
@@ -143,6 +145,8 @@ export function pullBy(view: ToolView, e: PointerEvent, normal: V3, middle: THRE
 export interface ToolHost {
   /** A typed size in mm (expressions and units allowed), or null if invalid. */
   length(text: string): number | null;
+  /** A typed plain number (expressions allowed), or null if invalid or a length. */
+  number(text: string): number | null;
   /** A length (mm) as shown, in the document's units. */
   lengthText(mm: number): string;
   /** A finished action (null: cancelled or stopped). After a flat shape the tool goes on. */
@@ -161,7 +165,8 @@ type Phase =
   | { kind: 'hover' }
   /** Rectangle or circle from `anchor`; typed sizes per axis (circle: only 0, the diameter). */
   | { kind: 'shape'; target: Target; anchor: UV; cur: UV; px: [number, number]; dragged: boolean; typed: (string | undefined)[]; axis: number; alt: boolean; shift: boolean }
-  | { kind: 'polygon'; target: Target; pts: UV[]; cur: UV }
+  /** Line or polygon: corners so far and the open side's end; typed length (0) and angle (1) of the open side. */
+  | { kind: 'polygon'; target: Target; pts: UV[]; cur: UV; typed: (string | undefined)[]; axis: number }
   | { kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[]; raw: number; depth: number; typed: string | undefined };
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
@@ -239,6 +244,8 @@ export class SketchTool implements Tool {
   private onGuide: (typeof SketchTool.guides)[number] | null = null;
   private dwell: { seg: Segment | null; timer: number } = { seg: null, timer: 0 };
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
+  /** Letting Shift go hides the angle rays without waiting for the pointer to move. */
+  private shiftUp = (e: KeyboardEvent) => e.key === 'Shift' && this.shiftHeld && ((this.shiftHeld = false), this.update());
 
   constructor(
     readonly kind: ToolKind | null,
@@ -247,6 +254,7 @@ export class SketchTool implements Tool {
     readonly mode?: ToolMode,
   ) {
     view.el.append(this.labels);
+    addEventListener('keyup', this.shiftUp);
     if (mode?.kind === 'pull') {
       const sketch = view.sketches.find((s) => s.id === mode.target.sketch);
       this.enterPull(mode.target, sketch?.shapes.filter((s) => mode.ids.includes(s.id)) ?? [], undefined, mode.ids);
@@ -256,6 +264,7 @@ export class SketchTool implements Tool {
 
   dispose() {
     clearTimeout(this.dwell.timer);
+    removeEventListener('keyup', this.shiftUp);
     SketchTool.guides = SketchTool.guides.filter((g) => g.fixed);
     this.view.unlockPointer();
     this.view.markFace();
@@ -291,27 +300,22 @@ export class SketchTool implements Tool {
       if (!at) return true;
       this.view.markFace();
       if (this.kind === 'line' && SketchTool.lineEnd && mod(e)) {
-        this.phase = { kind: 'polygon', target, pts: [uvOf(target.frame, SketchTool.lineEnd), at], cur: at };
+        this.phase = { kind: 'polygon', target, pts: [uvOf(target.frame, SketchTool.lineEnd), at], cur: at, typed: [], axis: 0 };
         this.finishLine();
         return this.update(), true;
       }
       this.phase =
         this.kind === 'polygon' || this.kind === 'line'
-          ? { kind: 'polygon', target, pts: [at], cur: at }
+          ? { kind: 'polygon', target, pts: [at], cur: at, typed: [], axis: 0 }
           : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, alt: e.altKey, shift: e.shiftKey };
       this.host.hint(this.kind === 'polygon' ? POLYGON_HINT : this.kind === 'line' ? LINE_HINT : SHAPE_HINT);
     } else if (ph.kind === 'shape') this.shapeDone(); // second click of click-click drawing
     else if (ph.kind === 'polygon') {
-      const at = this.point(e, ph.target);
+      const at = this.sideEnd(e, ph);
       if (!at) return true;
       const r = this.view.el.getBoundingClientRect();
-      const near = (q: UV) => {
-        const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...q)));
-        return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
-      };
-      ph.pts.push(at);
-      if (this.kind === 'line') this.finishLine(); // a line is done at its second point
-      else if (ph.pts.length >= 4 && near(ph.pts[0])) (ph.pts.pop(), this.closePolygon()); // the first corner closes it
+      const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...ph.pts[0])));
+      this.corner(ph, at, Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8);
     } else if (ph.kind === 'pull' && this.reaching) {
       // "to object": the depth to the clicked point, along the plane's normal
       const p = this.view.pointAt(e);
@@ -338,18 +342,9 @@ export class SketchTool implements Tool {
       return this.update();
     }
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
-      const at = this.point(e, ph.target);
+      const at = ph.kind === 'polygon' ? this.sideEnd(e, ph) : this.point(e, ph.target);
       if (at) ph.cur = at;
       this.shiftHeld = e.shiftKey;
-      if (ph.kind === 'polygon' && at && e.shiftKey) {
-        // Shift: the side from the last corner snaps to the angle step (its length along that direction)
-        const [x0, y0] = ph.pts[ph.pts.length - 1];
-        const step = (SketchTool.angleStep * Math.PI) / 180;
-        const a = Math.round(Math.atan2(at[1] - y0, at[0] - x0) / step) * step;
-        const len = (at[0] - x0) * Math.cos(a) + (at[1] - y0) * Math.sin(a);
-        ph.cur = [x0 + len * Math.cos(a), y0 + len * Math.sin(a)];
-        this.snapWhat = null; // the angle line says it
-      }
       if (ph.kind === 'shape') {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
         Object.assign(ph, { alt: e.altKey, shift: e.shiftKey });
@@ -381,9 +376,11 @@ export class SketchTool implements Tool {
   /** Keys while drawing; returns true if used. Letters only count while typing a size, so tool keys still switch tools. */
   key(e: KeyboardEvent): boolean {
     const ph = this.phase;
-    const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull');
+    // a line's length or angle starts with a digit, so letters still snap, fix guides and switch tools
+    const sideTyping = ph.kind === 'polygon' && (ph.typed[ph.axis] !== undefined || /[\d.(-]/.test(e.key));
+    const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull' || sideTyping);
     const more = pressed(e, 'moreSnaps');
-    const free = ph.kind !== 'pull' && !(ph.kind === 'shape' && ph.typed[ph.axis] !== undefined); // not while typing a size
+    const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined); // not while typing a size
     const guide = this.hoveredGuide();
     if (free && guide && pressed(e, 'fixGuide')) guide.fixed = !guide.fixed;
     else if (free && (more || pressed(e, 'fewerSnaps')) && this.snapKey && this.lastPoint) {
@@ -391,7 +388,7 @@ export class SketchTool implements Tool {
       const circle = k.startsWith('circle:');
       SketchTool.divisions.set(k, Math.max(circle ? 2 : 1, (SketchTool.divisions.get(k) ?? (circle ? 4 : 1)) + (more ? 1 : -1)));
       this.showing = k;
-      const at = this.point(...this.lastPoint);
+      const at = ph.kind === 'polygon' ? this.sideEnd(this.lastPoint[0], ph) : this.point(...this.lastPoint);
       if (at && (ph.kind === 'shape' || ph.kind === 'polygon')) ph.cur = at;
     } else if (free && (more || pressed(e, 'fewerSnaps')) && ph.kind === 'polygon') {
       // off a line: the angle step for Shift, finer or coarser; its rays show for a moment
@@ -416,9 +413,14 @@ export class SketchTool implements Tool {
       else if (pressed(e, 'confirm')) this.shapeDone();
       else return false;
     } else if (ph.kind === 'polygon') {
-      if (pressed(e, 'confirm')) this.closePolygon();
+      if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
+      else if (pressed(e, 'erase') && ph.typed[ph.axis] !== undefined) ph.typed[ph.axis] = ph.typed[ph.axis]!.slice(0, -1) || undefined;
+      else if (pressed(e, 'otherSide')) ph.axis = 1 - ph.axis;
+      else if (pressed(e, 'confirm') && ph.typed.some((t) => t !== undefined)) this.corner(ph, ph.cur, false); // typed: Enter sets the corner
+      else if (pressed(e, 'confirm')) this.closePolygon();
       else if (pressed(e, 'erase') && ph.pts.length > 1) ph.pts.pop();
       else return false;
+      if (this.phase === ph && this.lastPoint) ph.cur = this.sideEnd(this.lastPoint[0], ph) ?? ph.cur; // typed values apply at once
     } else if (ph.kind === 'pull') {
       if (ph.typed === undefined && pressed(e, 'toObject')) {
         // the next click picks how far: the pointer shows again for it
@@ -613,19 +615,19 @@ export class SketchTool implements Tool {
   /**
    * Pointer on the target plane, in plane coordinates: on the nearest snap point within `px` pixels, else on a crossing of lines
    * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges in the plane), else
-   * on the step for the zoom (Ctrl: the minimum step). Sets `snapWhat`.
+   * on the step for the zoom (Ctrl: the minimum step; `grid` false: where it is). Sets `snapWhat`.
    */
-  private point(e: MouseEvent, t: Target): UV | null {
+  private point(e: MouseEvent, t: Target, grid = true): UV | null {
     this.lastPoint = [e, t];
     const lines = this.snapLines();
-    const uv = this.snapAt(e, t, lines);
+    const uv = this.snapAt(e, t, lines, grid);
     this.snapSeg ??= this.roundSeg(e, t, lines);
     if (this.showing !== this.snapKey) this.showing = null; // the pointer left the line just changed
     this.dots = this.showing ? this.snapPoints(t, this.snapLines()).filter((q) => q.key === this.showing).map((q) => v3(toWorld(t.frame, ...q.at))) : [];
     return uv;
   }
 
-  private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], px = 10, linePx = 8): UV | null {
+  private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], grid: boolean, px = 10, linePx = 8): UV | null {
     const p = planeHit(this.view.ray(e), t.frame);
     if (!p) return null;
     const r = this.view.el.getBoundingClientRect();
@@ -694,9 +696,39 @@ export class SketchTool implements Tool {
       const seg = off.seg.map((v) => v3(toWorld(t.frame, ...uvOf(t.frame, v)))) as Segment;
       if (seg[0].distanceTo(seg[1]) > 1e-3) this.snapSeg = seg; // not seen end-on
     }
-    const step = this.view.step(p, e, false); // Shift squares shapes here, it does not coarsen
     const [u, v] = uvOf(t.frame, p);
+    if (!grid) return [u, v];
+    const step = this.view.step(p, e, false); // Shift squares shapes here, it does not coarsen
     return [Math.round(u / step) * step, Math.round(v / step) * step];
+  }
+
+  /**
+   * The open side's end for the pointer, as angle and length from the last corner. Angle: typed, else the angle step
+   * (Shift), else towards a snap point or line, else in 1° steps (Ctrl: the minimum angle). Length: typed, else up to
+   * the snap (along that angle), else on the zoom's step (Ctrl: the minimum step).
+   */
+  private sideEnd(e: MouseEvent, ph: Extract<Phase, { kind: 'polygon' }>): UV | null {
+    const at = this.point(e, ph.target, false);
+    if (!at) return null;
+    const [x0, y0] = ph.pts[ph.pts.length - 1];
+    const [du, dv] = [at[0] - x0, at[1] - y0];
+    const raw = (Math.atan2(dv, du) * 180) / Math.PI;
+    const by = (step: number) => Math.round(raw / step) * step;
+    const typedDeg = ph.typed[1] === undefined ? null : this.host.number(ph.typed[1]);
+    const a = ((typedDeg ?? (e.shiftKey ? by(SketchTool.angleStep) : this.snapped ? raw : by(e.ctrlKey ? this.view.minAngle : 1))) * Math.PI) / 180;
+    const along = du * Math.cos(a) + dv * Math.sin(a);
+    const step = this.view.step(v3(toWorld(ph.target.frame, ...at)), e, false);
+    const len = this.typed(ph.typed[0]) ?? (this.snapped ? along : Math.round(along / step) * step);
+    return [x0 + len * Math.cos(a), y0 + len * Math.sin(a)];
+  }
+
+  /** Adds a corner: a line is done at its second, a polygon when it `closes` (on its first corner, from the 4th). */
+  private corner(ph: Extract<Phase, { kind: 'polygon' }>, at: UV, closes: boolean) {
+    ph.pts.push(at);
+    ph.typed = [];
+    ph.axis = 0;
+    if (this.kind === 'line') this.finishLine();
+    else if (closes && ph.pts.length >= 4) (ph.pts.pop(), this.closePolygon());
   }
 
   private typed(text: string | undefined) {
@@ -866,6 +898,14 @@ export class SketchTool implements Tool {
         label('W', ph.typed[0], profile.w, v3(toWorld(f, profile.x, profile.y - profile.h / 2)), ph.axis === 0);
         label('H', ph.typed[1], profile.h, v3(toWorld(f, profile.x + profile.w / 2, profile.y)), ph.axis === 1);
       }
+      if (ph.kind === 'polygon') {
+        // the open side: its length in the middle, its angle at the last corner
+        const last = ph.pts[ph.pts.length - 1];
+        const [du, dv] = [ph.cur[0] - last[0], ph.cur[1] - last[1]];
+        label('L', ph.typed[0], Math.hypot(du, dv), v3(toWorld(f, last[0] + du / 2, last[1] + dv / 2)), ph.axis === 0);
+        const deg = `${+((Math.atan2(dv, du) * 180) / Math.PI).toFixed(2)}°`;
+        labels.push([`∠ ${ph.typed[1] === undefined ? deg : `${ph.typed[1]}▏`}`, v3(toWorld(f, ...last)), ph.axis === 1]);
+      }
       if (profile.kind === 'circle' && ph.kind === 'shape') label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
       if (profile.kind === 'ngon' && ph.kind === 'shape') {
         label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), ph.axis === 0);
@@ -893,9 +933,7 @@ export class SketchTool implements Tool {
     const guide = this.hoveredGuide();
     const fix = guide ? `Press ${comboText(KEYS.fixGuide.default[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
     const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(KEYS.moreSnaps.default[0])} finer, ${comboText(KEYS.fewerSnaps.default[0])} coarser` : null;
-    const last = ph.kind === 'polygon' && ph.pts[ph.pts.length - 1];
-    const angle = last ? `${+((Math.atan2(ph.cur[1] - last[1], ph.cur[0] - last[0]) * 180) / Math.PI).toFixed(1)}°` : null; // the side's angle
-    this.host.cursorTip(ph.kind === 'pull' ? null : [angle, this.snapWhat, more, fix, angles, chain].filter(Boolean).join('\n') || null); // one per line
+    this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, more, fix, angles, chain].filter(Boolean).join('\n') || null); // one per line
     if (ph.kind === 'polygon' && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
@@ -937,10 +975,10 @@ export class SketchTool implements Tool {
 }
 
 const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] precise · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
-const LINE_HINT = 'Click the end point · [Shift] snaps the angle · [Ctrl] precise · [Esc] cancels';
+const LINE_HINT = 'Click the end point · type a length, [Tab] the angle, [Enter] · turns in 1° steps, [Shift] angle steps, [Ctrl] precise · [Esc] cancels';
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
 const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
-const POLYGON_HINT = 'Click corners · [Shift] snaps the angle · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
+const POLYGON_HINT = 'Click corners · type a length, [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
 const PULL_HINT = 'Move to pull · [Shift] coarse · [Ctrl] precise · type a depth · [T] to object · click or [Enter]: done';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */

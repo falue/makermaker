@@ -1,7 +1,7 @@
 import { zipSync } from 'fflate';
 import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
-import { evalLength, fmt, isPlain, UNITS } from './doc/expr';
+import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
 import { BASE, capFrame, frames, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place } from './doc/frames';
 import { History } from './doc/history';
@@ -151,6 +151,16 @@ function length(text: string) {
   }
 }
 
+/** A typed plain number (an angle), or null if invalid or a length. */
+function number(text: string) {
+  try {
+    const q = evalQuantity({ e: text, u: history.current.units }, paramLookup(history.current.params));
+    return q.dim === 0 ? q.v : null;
+  } catch {
+    return null;
+  }
+}
+
 const viewer = new Viewer(document.getElementById('viewport')!, {
   select,
   move: place,
@@ -277,6 +287,7 @@ viewer.onBounds = sections.bounds;
 /** The settings of this browser, in the view. */
 function applySettings() {
   viewer.minStep = settings.minStep;
+  viewer.minAngle = settings.minAngle;
   viewer.setAO(settings.ao);
   viewer.setBackdrop(settings.background);
 }
@@ -1244,6 +1255,7 @@ function stopTool() {
 
 const toolHost: ToolHost = {
   length,
+  number,
   lengthText: (mm) => `${+(mm / UNITS[history.current.units]).toFixed(2)}${history.current.units}`,
   /**
    * Tools stay on until Esc: in sketch mode a shape stays flat and the tool goes on; a direct shape left flat enters

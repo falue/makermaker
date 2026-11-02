@@ -213,6 +213,8 @@ interface ShapeEdit {
 export class Viewer implements ToolView {
   /** The smallest step anything moves in (mm; Settings → General): precise moves (Ctrl) use it. */
   minStep = 0.01;
+  /** The smallest step a drawn line turns in (degrees; Settings → General), with Ctrl. */
+  minAngle = 0.01;
   /** End faces of extrusions, where sketches can start. */
   /** Visible sketches (world frames) and the selected one with its selected shapes. */
   sketches: ViewSketch[] = [];
