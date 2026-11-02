@@ -107,6 +107,8 @@ let statusError = false;
 /** Bodies whose STEP files the kernel reads now (shown with a progress bar), and the STEP features read already. */
 const reading = new Map<string, { name: string; steps: string[] }>();
 const readSteps = new Set<string>();
+/** Other work going on, shown with the same bar (e.g. "Snapshot"). */
+const busy = new Set<string>();
 let toolHint: string | null = null;
 /** The selected part of a fillet / chamfer (Del leaves that edge out; the whole finish: deletes it). */
 let finishSel: FinishPick | null = null;
@@ -1286,7 +1288,7 @@ function render() {
     title: file.name,
     dirty: doc !== file.saved,
     status,
-    reading: [...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => r.name),
+    busy: [...[...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => `Reading ${r.name}`), ...busy],
     shapes: shapeSel,
     active: pending?.tool ?? (extrudePick || (toolMode === 'pull' && !viewer.activeTool) ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
     hint: toolHint ?? (finishSel ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish` : null),
@@ -1478,9 +1480,17 @@ async function shoot() {
 
 /** Snapshot: downloads the view as a PNG and keeps it in the renders (without opening them), ready to be rendered nicely. */
 async function snapshot() {
-  const image = await viewer.snapshot(2);
-  download(image, `${project()}_snapshot.png`);
-  await newShot([{ at: new Date().toISOString(), preview: await previewOf(image, 320, 'image/png'), nice: false }]);
+  busy.add('Snapshot');
+  render();
+  await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))); // the bar shows before the work blocks
+  try {
+    const image = await viewer.snapshot(2);
+    download(image, `${project()}_snapshot.png`);
+    await newShot([{ at: new Date().toISOString(), preview: await previewOf(image, 320, 'image/png'), nice: false }]);
+  } finally {
+    busy.delete('Snapshot');
+    render();
+  }
 }
 
 /** Renders the waiting shots one after another, oldest first; slower while the renders panel is closed. */

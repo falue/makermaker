@@ -1128,15 +1128,15 @@ button.primary.wide {
   display: none; /* display: flex above would show it */
 }
 
-/* a STEP file being read: no percentage known, the bar runs */
-.reading {
+/* work going on (a STEP file read, a snapshot): no percentage known, the bar runs */
+.busy {
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--muted);
   white-space: nowrap;
 }
-.reading .bar {
+.busy .bar {
   position: relative;
   width: 80px;
   height: 4px;
@@ -1144,16 +1144,16 @@ button.primary.wide {
   border-radius: 2px;
   background: var(--line);
 }
-.reading .bar::after {
+.busy .bar::after {
   content: '';
   position: absolute;
   width: 40%;
   height: 100%;
   border-radius: 2px;
   background: var(--accent);
-  animation: reading 1.2s ease-in-out infinite;
+  animation: busy 1.2s ease-in-out infinite;
 }
-@keyframes reading {
+@keyframes busy {
   from {
     left: -40%;
   }
