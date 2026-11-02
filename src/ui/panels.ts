@@ -681,7 +681,7 @@ function hint(selected: number, shapes: number) {
     return 'Drag to move them all (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Shift] / [⌘]-click adds or removes · [arrows] nudge ([Shift] ×10) · [V] hide · [Del] delete · [⌘D] duplicate · [Esc] deselect';
   if (selected)
     return 'Drag to move (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Ctrl]-click a face: [E] pulls it, [S] sketches on it · [Shift] / [⌘]-click selects more · [arrows] nudge · [V] hide · [Del] delete · [⌘D] duplicate';
-  return 'Drag a body to move it · [Ctrl]-click a face picks it · [Tab] next body under the pointer · [F] fit · drag to orbit, right-drag or scroll sideways to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
+  return 'Drag a body to move it · [Ctrl]-click a face picks it · [Tab] next body under the pointer · [F] fit · drag to orbit, right-drag, scroll sideways or [Shift] wheel to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
 /** A sketch: its plane, visibility, and shapes (click a label to select it, ⌘ / Ctrl toggles, Shift a range). */
