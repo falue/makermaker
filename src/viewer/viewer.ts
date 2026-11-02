@@ -176,6 +176,8 @@ export class Viewer implements ToolView {
   private selectedShapes: string[] = [];
   /** Shapes shown changed while they are dragged, before the change is handed over. */
   private overrides = new Map<string, DrawnProfile>();
+  /** X / Y / Z typing: where the moved bodies were, with translucent copies there; old shape outlines grey. */
+  private moving: { from: Map<string, THREE.Vector3>; ghosts: THREE.Group; looks: THREE.Material[] } | null = null;
   private edit: ShapeEdit | null = null;
 
   private renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true, alpha: true }); // alpha: snapshots without background
@@ -502,6 +504,7 @@ export class Viewer implements ToolView {
       for (const p of s.shapes) {
         const color = s.id === this.activeSketch && this.selectedShapes.includes(p.id) ? 0xff8c1a : s.color;
         const q = this.overrides.get(p.id) ?? p;
+        if (this.moving && q !== p) this.sketchView.add(outline(p, s.frame, 0x8a8f98, lift)); // where it was
         this.sketchView.add(outline(q, s.frame, color, lift));
         if (q.kind === 'circle') this.sketchView.add(marks([new THREE.Vector3(...toWorld(s.frame, q.x, q.y))], color, 6)); // its centre, clickable
       }
@@ -1297,6 +1300,41 @@ export class Viewer implements ToolView {
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const k = this.facingAxis();
     this.endFacePick({ point: new THREE.Vector3(), normal: unit(k).multiplyScalar(Math.sign(look.getComponent(k)) || 1) });
+  }
+
+  /**
+   * A preview of a move by `by` (world, mm; null: back to where it was): the selected bodies move, translucent copies
+   * stay where they were; `shapes` show moved, their old outlines grey.
+   */
+  previewMove(by: THREE.Vector3 | null, shapes: { id: string; profile: DrawnProfile }[] = [], opacity = 0.25) {
+    if (!this.moving && by) {
+      const from = new Map(this.withOwned(this.selection).map((id) => [id, this.group(id).position.clone()]));
+      const looks = [new THREE.MeshBasicMaterial({ color: 0x8a8f98, transparent: true, opacity, depthWrite: false }), new THREE.LineBasicMaterial({ color: 0x8a8f98, transparent: true, opacity: 2 * opacity })];
+      const ghosts = new THREE.Group();
+      for (const id of from.keys()) {
+        const copy = this.group(id).clone(); // shares the geometry
+        copy.traverse((o) => {
+          if (o instanceof LineSegments2 || o instanceof THREE.Points) o.visible = false;
+          else if (o instanceof THREE.LineSegments) o.material = looks[1];
+          else if (o instanceof THREE.Mesh) o.material = looks[0];
+        });
+        ghosts.add(copy);
+      }
+      this.scene.add(ghosts);
+      this.moving = { from, ghosts, looks };
+    }
+    const m = this.moving;
+    if (!m) return;
+    for (const [id, at] of m.from) this.group(id).position.copy(at).add(by ?? new THREE.Vector3());
+    this.overrides = new Map(shapes.map((q) => [q.id, q.profile]));
+    if (!by) {
+      m.ghosts.removeFromParent();
+      for (const look of m.looks) look.dispose();
+      this.moving = null;
+    }
+    this.renderSketches();
+    this.applySection(false);
+    this.render();
   }
 
   /** Stops waiting for a face (as Esc does). */

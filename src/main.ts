@@ -618,28 +618,45 @@ function moveAlong(axis: number) {
   box.style.cssText = `left:${at.x + 14}px;top:${at.y + 14}px`;
   document.body.append(box);
   input.focus();
-  input.onblur = () => box.remove(); // leaving the field cancels
+  const by = () => {
+    const mm = length(input.value);
+    return mm === null ? null : new Vector3().setComponent(axis, mm);
+  };
+  // a preview while typing; leaving the field cancels
+  input.oninput = () => {
+    const b = by();
+    input.classList.toggle('invalid', !b && !!input.value.trim());
+    viewer.previewMove(b ?? new Vector3(), b ? (shapeMoves(b)?.updates ?? []) : []);
+  };
+  input.onblur = () => (box.remove(), viewer.previewMove(null));
   input.onkeydown = (e) => {
     if (pressed(e, 'cancel')) return input.blur();
     if (!pressed(e, 'confirm')) return;
-    const mm = length(input.value);
-    if (mm === null) return input.classList.add('invalid');
+    const b = by();
+    if (!b) return input.classList.add('invalid');
     input.blur();
-    moveBy(new Vector3().setComponent(axis, mm));
+    moveBy(b);
   };
+}
+
+/** The selected sketch's shapes (the selected ones, else all) moved by `by` (world, mm) within its plane; null: no sketch selected, or across its plane. */
+function shapeMoves(by: Vector3) {
+  const doc = history.current;
+  const s = doc.sketches.find((x) => x.id === activeSketch());
+  const f = viewer.sketches.find((v) => v.id === s?.id)?.frame;
+  if (!s || !f) return null;
+  const [du, dv] = [f.x, f.y].map((v) => by.dot(new Vector3(...v)));
+  if (Math.abs(du) < 1e-9 && Math.abs(dv) < 1e-9) return null;
+  const shapes = resolve(s, paramLookup(doc.params), '', new Map()).shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id));
+  return { sketch: s.id, updates: shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })) };
 }
 
 /** Moves the selection by `by` (world, mm): bodies, or shapes within their sketch plane (the selected ones, else all of the selected sketch). */
 function moveBy(by: Vector3) {
-  const doc = history.current;
-  const s = doc.sketches.find((x) => x.id === activeSketch());
-  if (!s) return nudge(by.toArray());
-  const f = viewer.sketches.find((v) => v.id === s.id)?.frame;
-  if (!f) return notify('Show the sketch to move its shapes');
-  const [du, dv] = [f.x, f.y].map((v) => by.dot(new Vector3(...v)));
-  if (Math.abs(du) < 1e-9 && Math.abs(dv) < 1e-9) return notify('That axis runs across the sketch plane');
-  const shapes = resolve(s, paramLookup(doc.params), '', new Map()).shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id));
-  setShapes(s.id, shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })));
+  if (!activeSketch()) return nudge(by.toArray());
+  const moves = shapeMoves(by);
+  if (!moves) return notify('That axis runs across the sketch plane (or the sketch is hidden)');
+  setShapes(moves.sketch, moves.updates);
 }
 
 /** Deletes the selected shapes of the selected sketch, else the selected bodies and sketches. */
