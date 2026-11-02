@@ -266,6 +266,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     const s = history.current.sketches.find((x) => x.id === sketch);
     const q = s?.shapes.find((x) => x.id === shape);
     if (!s || !q) return;
+    if (picks(sketch)) return select(sketch);
     if (sketching !== sketch) enterSketch(sketch, null, true);
     sketchPath = chainOf(s, q.group);
     [selected, shapeSel] = [[sketch], [shape]];
@@ -554,6 +555,14 @@ function picked(sel: string[], list: string[], id: string, how: Pick) {
   return [...sel.filter((x) => !range.includes(x)), ...(a <= b ? range : range.reverse())];
 }
 
+/** Whether a waiting tool takes the object clicked (instead of selecting or entering it): bodies; sketches unless for a boolean or group; groups to move. */
+function picks(id: string) {
+  if (!pending) return false;
+  const { bodies, sketches, groups } = history.current;
+  const lists = [bodies, ...(pending.tool === 'boolean' || pending.tool === 'group' ? [] : [sketches]), ...(pending.tool === 'move' ? [groups] : [])];
+  return lists.some((list) => list.some((o) => o.id === id));
+}
+
 /**
  * `how`: true toggles the object (body or sketch), 'range' selects a range of its list; null clears the selection
  * (unless adding). Selecting something else leaves sketch mode.
@@ -562,8 +571,7 @@ function select(id: string | null, how: Pick = false) {
   rendersOpen = false; // choosing something shows it, not the renders
   viewer.dropPicked(); // picked faces and edges start over
   if (finishSel) viewer.setFinishMark((finishSel = null));
-  // objects to pick: bodies (moving: groups too)
-  if (pending && id && [...history.current.bodies, ...(pending.tool === 'move' ? history.current.groups : [])].some((o) => o.id === id)) return pending.pick(id, how);
+  if (id && picks(id)) return pending!.pick(id, how);
   // while picking areas, a sketch chosen in the list gets all its areas picked
   if (toolMode === 'pull' && sketching && id && history.current.sketches.some((s) => s.id === id)) {
     if (id !== sketching) enterSketch(id);
@@ -1073,7 +1081,7 @@ function pickFor(tool: 'delete' | 'duplicate' | 'hide', act: () => void) {
       act();
     },
   };
-  toolHint = `Click a body to ${tool} it · [Esc] cancels`;
+  toolHint = `Click a body or sketch to ${tool} it · [Esc] cancels`;
   render();
 }
 
@@ -1600,7 +1608,7 @@ async function toggleAutosave() {
   render();
 }
 
-/** Copies the selected bodies 10 mm to the right and back and selects the copies. */
+/** Copies the selected bodies 10 mm to the right and back, and the selected sketches in place; selects the copies. */
 function duplicate(offset = 10) {
   const doc = history.current;
   const copies = doc.bodies
@@ -1616,8 +1624,21 @@ function duplicate(offset = 10) {
         features: p.features.map((s) => ({ ...structuredClone(s), id: newId() })),
       };
     });
-  selected = copies.map((c) => c.id);
-  commit({ ...doc, bodies: [...doc.bodies, ...copies] });
+  // sketches: copied in place, with new ids for their shapes and sub-groups
+  const sketches = doc.sketches
+    .filter((s) => selected.includes(s.id))
+    .map((s): Sketch => {
+      const sub = new Map(s.groups.map((g) => [g.id, newId()]));
+      return {
+        ...structuredClone(s),
+        id: newId(),
+        name: `${s.name} copy`,
+        groups: s.groups.map((g) => ({ ...g, id: sub.get(g.id)!, parent: g.parent && sub.get(g.parent)! })),
+        shapes: s.shapes.map((q) => ({ ...structuredClone(q), id: newId(), group: q.group && sub.get(q.group) })),
+      };
+    });
+  selected = [...copies, ...sketches].map((c) => c.id);
+  commit({ ...doc, bodies: [...doc.bodies, ...copies], sketches: [...doc.sketches, ...sketches] });
 }
 
 /** Sketch mode's open sub-group: the view fades the rest and shows the way down (when it changed). */
@@ -1736,8 +1757,9 @@ function render() {
     newSketch: startNewSketch,
     editSketch(id) {
       const pulling = extrudePick; // Extrude first: the sketch gets pulled instead
+      const picked = picks(id); // a waiting tool takes it
       select(id);
-      if (!pulling) enterSketch(id, null, true);
+      if (!pulling && !picked) enterSketch(id, null, true);
     },
     exitSketch,
     stopTool: () => (stopTool(), render()),
