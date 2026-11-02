@@ -2205,6 +2205,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'undo')) undo();
   else if (pressed(e, 'redo')) undo(true);
   else if (pressed(e, 'fit')) viewer.fit();
+  else if (pressed(e, 'home')) viewer.home();
   else if (tool) startTool(tool);
   else if (pressed(e, 'construction')) toggleConstruction();
   else if (pressed(e, 'extrude')) extrude();

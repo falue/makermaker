@@ -386,7 +386,7 @@ export class Viewer implements ToolView {
     });
     new ResizeObserver(() => this.resize()).observe(el);
     // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
-    this.fit();
+    this.home();
 
     // capture: runs before the orbit controls, so grabbing a body or drawing does not orbit
     el.addEventListener(
@@ -915,7 +915,7 @@ export class Viewer implements ToolView {
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
     if (!this.fitted) {
       this.fitted = true;
-      requestAnimationFrame(() => this.fit()); // after the other bodies of this batch
+      requestAnimationFrame(() => this.home()); // after the other bodies of this batch
     }
     this.applySection();
   }
@@ -1098,24 +1098,50 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /**
-   * Frames all bodies so they fit both the width and the height of the view: from the front-right corner, or
-   * (`keepAngle`) from the direction the camera looks now.
-   */
-  fit(keepAngle = false) {
+  /** All bodies' box (a default one when there are none). */
+  private allBox() {
     const box = new THREE.Box3();
     for (const g of this.bodies.values()) box.expandByObject(g);
-    if (box.isEmpty()) box.set(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 20));
+    return box.isEmpty() ? box.set(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 20)) : box;
+  }
+
+  /**
+   * Fit (F): the camera keeps its direction and the point it looks at, and only moves along its line of sight (zooms,
+   * in ortho) until all bodies are in the view, with a `margin`.
+   */
+  fit(margin = 1.1) {
+    const box = this.allBox();
+    const target = this.controls.target.clone();
+    const dir = this.camera.position.clone().sub(target).normalize();
+    const turn = this.camera.quaternion.clone().invert();
+    const aspect = this.el.clientHeight ? this.el.clientWidth / this.el.clientHeight : 1;
+    const tan = Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
+    // the box corners in the camera's axes, from the point looked at (z: towards the camera)
+    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(target).applyQuaternion(turn));
+    const half = Math.max(...corners.map((v) => Math.max(Math.abs(v.y), Math.abs(v.x) / aspect)));
+    this.viewHeight = 2 * half * margin;
+    this.updateFrustums(aspect);
+    this.orthographic.zoom = 1;
+    this.orthographic.updateProjectionMatrix();
+    // perspective: far enough back that every corner lies inside the view's cone
+    const dist = Math.max(...corners.map((v) => v.z + (margin * Math.max(Math.abs(v.y), Math.abs(v.x) / aspect)) / tan));
+    const size = box.getSize(new THREE.Vector3()).length();
+    this.orthographic.position.copy(target).addScaledVector(dir, Math.max(dist, size)); // ortho: only clear of the box
+    this.perspective.position.copy(target).addScaledVector(dir, dist);
+    this.controls.update();
+    this.render();
+  }
+
+  /** Home (H): all bodies framed from the front-right corner, so they fit both the width and the height of the view. */
+  home() {
+    const box = this.allBox();
     const target = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     // seen from the front-right corner: 45° around the vertical axis, ~40° above the horizon
-    const dir = keepAngle
-      ? this.camera.position.clone().sub(this.controls.target).normalize()
-      : new THREE.Vector3(1.1 * Math.SQRT1_2, -1.1 * Math.SQRT1_2, 0.9).normalize();
+    const dir = new THREE.Vector3(1.1 * Math.SQRT1_2, -1.1 * Math.SQRT1_2, 0.9).normalize();
     const o = this.orthographic;
     o.position.copy(target).addScaledVector(dir, Math.max(size.x, size.y, size.z) * 2);
-    if (keepAngle) o.quaternion.copy(this.camera.quaternion); // also keeps the roll of straight-down views
-    else o.lookAt(target);
+    o.lookAt(target);
     o.updateMatrixWorld();
     // half extents of the box as seen from the camera
     let halfW = 0;
@@ -2439,9 +2465,10 @@ export class Viewer implements ToolView {
         else this.pickFace(show);
       },
     });
-    const fit = Object.assign(document.createElement('button'), { className: 'tool fit', title: 'Fit everything into the view (F)', innerHTML: icon('fit'), onclick: () => this.fit() });
+    const fit = Object.assign(document.createElement('button'), { className: 'tool fit', title: 'Fit (F): move the camera back or forth, as it looks now, until everything is in view', innerHTML: icon('fit'), onclick: () => this.fit() });
+    const home = Object.assign(document.createElement('button'), { className: 'tool', title: 'Home (H): everything framed from the front-right corner', innerHTML: icon('home'), onclick: () => this.home() });
     const below = Object.assign(document.createElement('div'), { className: 'below-cube' });
-    below.append(look, fit);
+    below.append(look, fit, home);
     this.cubeWrap.className = 'viewcube';
     this.cubeWrap.append(this.cube, ...arrows, below);
     return this.cubeWrap;
