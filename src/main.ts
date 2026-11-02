@@ -854,8 +854,11 @@ function clampFinish(body: string, feature: string, max: number) {
   notify(`${f.mode === 'fillet' ? 'Fillet' : 'Chamfer'} set to ${fmt(size / UNITS[doc.units])} ${doc.units}: the largest that fits`);
 }
 
-/** A fillet / chamfer size set below 0 (`path`, `value`): the finish turns into the other kind, the size positive. */
-function finishSign(doc: Doc, path: string[], value: Expr): Doc {
+/**
+ * A fillet / chamfer size set (`path`, `value`): below 0 the finish turns into the other kind, the size positive; beyond
+ * the largest size known to fit it is cut to that.
+ */
+function finishSize(doc: Doc, path: string[], value: Expr): Doc {
   const [k, i, f, j, field] = path;
   const feature = k === 'bodies' && f === 'features' && field === 'size' ? doc.bodies[+i]?.features[+j] : undefined;
   if (feature?.type !== 'finish') return doc;
@@ -865,11 +868,15 @@ function finishSign(doc: Doc, path: string[], value: Expr): Doc {
   } catch {
     return doc;
   }
+  const mode = mm < 0 ? (feature.mode === 'fillet' ? 'chamfer' : 'fillet') : feature.mode;
+  // beyond the largest size found to fit (typed or scrubbed): that size instead
+  const max = Math.abs(clamped(feature.id, mode === 'fillet' ? Math.abs(mm) : -Math.abs(mm)));
+  if (max < Math.abs(mm)) return setIn(doc, ['bodies', i, 'features', j], { ...feature, mode, size: len(max) });
   if (!(mm < 0)) return doc;
   // `-3` / `-ply` lose their minus, longer expressions are wrapped
   const single = /^\s*-\s*([A-Za-z_]\w*|\d+\.?\d*|\.\d+)\s*$/.exec(value.e);
   const size = { ...value, e: single ? single[1] : `-(${value.e})` };
-  return setIn(doc, ['bodies', i, 'features', j], { ...feature, mode: feature.mode === 'fillet' ? 'chamfer' : 'fillet', size });
+  return setIn(doc, ['bodies', i, 'features', j], { ...feature, mode, size });
 }
 
 /** V: the selected bodies, sketches and groups switch between hidden and shown (one step). */
@@ -1652,7 +1659,7 @@ function render() {
     commit,
     setValue(path, value, live = false) {
       const doc = setIn(history.current, path, value);
-      const next = follow(history.current, value && typeof value === 'object' && 'e' in value ? finishSign(doc, path, value as Expr) : doc);
+      const next = follow(history.current, value && typeof value === 'object' && 'e' in value ? finishSize(doc, path, value as Expr) : doc);
       if (live) history.replace(next);
       else history.push(next);
       update();
