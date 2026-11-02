@@ -169,8 +169,15 @@ function fraction(i: number, n: number) {
   const g = gcd(i, n);
   return `${i / g}/${n / g}`;
 }
-/** A line the pointer snaps to (world segments); sketch outlines keep their shape and sketch. */
-type SnapLine = { segs: Segment[]; what: string; shape?: { p: ViewSketch['shapes'][number]; sketch: ViewSketch } };
+/** A line the pointer snaps to (world segments); sketch outlines keep their shape and sketch, guides themselves. */
+type SnapLine = { segs: Segment[]; what: string; shape?: { p: ViewSketch['shapes'][number]; sketch: ViewSketch }; guide?: { at: THREE.Vector3; dir: THREE.Vector3; fixed: boolean } };
+/** Hover time (ms) on a line before it gets a guide; guides' colour and reach (mm each way: practically endless). */
+const GUIDE_MS = 333;
+const GUIDE_COLOR = 0xd946ef;
+const guideSeg = (g: { at: THREE.Vector3; dir: THREE.Vector3 }, reach = 1e4): Segment => [g.at.clone().addScaledVector(g.dir, -reach), g.at.clone().addScaledVector(g.dir, reach)];
+/** Whether the segment lies on the guide's line. */
+const onLine = (g: { at: THREE.Vector3; dir: THREE.Vector3 }, [a, b]: Segment) => [a, b].every((v) => v.clone().sub(g.at).cross(g.dir).length() < 1e-4);
+const sameSeg = (p: Segment | null, q: Segment | null) => p === q || (!!p && !!q && p[0].equals(q[0]) && p[1].equals(q[1]));
 const AXIS_NAME: Record<BasePlane, string> = { xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
 const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle', ngon: 'a regular polygon', polygon: 'a polygon', line: 'a line', sphere: 'a sphere' };
 
@@ -200,6 +207,17 @@ export class SketchTool implements Tool {
   private dots: THREE.Vector3[] = [];
   /** The last pointer position snapped, to snap again when the points change. */
   private lastPoint: [MouseEvent, Target, boolean] | null = null;
+  /**
+   * Guide lines (world, through `at` along `dir`): a straight line or edge hovered for `GUIDE_MS` gets one, snapped to
+   * like any line. One per direction (a parallel one replaces it); a click drops them, unless fixed (G); a drawn shape
+   * or stopping drops all. Kept across tool restarts.
+   */
+  private static guides: { at: THREE.Vector3; dir: THREE.Vector3; fixed: boolean }[] = [];
+  /** The straight line or edge the pointer is on (world), for a guide. */
+  private snapSeg: Segment | null = null;
+  /** The guide the pointer is on. */
+  private onGuide: (typeof SketchTool.guides)[number] | null = null;
+  private dwell: { seg: Segment | null; timer: number } = { seg: null, timer: 0 };
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -217,6 +235,7 @@ export class SketchTool implements Tool {
   }
 
   dispose() {
+    clearTimeout(this.dwell.timer);
     this.view.unlockPointer();
     this.view.markFace();
     this.clearPreview();
@@ -227,6 +246,13 @@ export class SketchTool implements Tool {
 
   /** Returns true if the press belongs to the tool (no orbiting). */
   down(e: PointerEvent): boolean {
+    const used = this.press(e);
+    SketchTool.guides = SketchTool.guides.filter((g) => g.fixed); // a click (which may have snapped to them) drops the others
+    this.update();
+    return used;
+  }
+
+  private press(e: PointerEvent): boolean {
     if (e.button !== 0) return false;
     const ph = this.phase;
     if (ph.kind === 'hover' && this.mode?.kind === 'plane') {
@@ -273,6 +299,7 @@ export class SketchTool implements Tool {
   move(e: PointerEvent) {
     const ph = this.phase;
     this.snapWhat = this.snapKey = null;
+    this.snapSeg = this.onGuide = null;
     if (ph.kind === 'hover') {
       if (!this.kind && this.mode?.kind !== 'plane') return;
       const target = this.target(e);
@@ -315,7 +342,10 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull');
     const more = pressed(e, 'moreSnaps');
-    if ((more || pressed(e, 'fewerSnaps')) && this.snapKey && this.lastPoint && ph.kind !== 'pull' && !(ph.kind === 'shape' && ph.typed[ph.axis] !== undefined)) {
+    const free = ph.kind !== 'pull' && !(ph.kind === 'shape' && ph.typed[ph.axis] !== undefined); // not while typing a size
+    const guide = this.hoveredGuide();
+    if (free && guide && pressed(e, 'fixGuide')) guide.fixed = !guide.fixed;
+    else if (free && (more || pressed(e, 'fewerSnaps')) && this.snapKey && this.lastPoint) {
       const k = this.snapKey;
       const circle = k.startsWith('circle:');
       SketchTool.divisions.set(k, Math.max(circle ? 2 : 1, (SketchTool.divisions.get(k) ?? (circle ? 4 : 1)) + (more ? 1 : -1)));
@@ -323,7 +353,7 @@ export class SketchTool implements Tool {
       const at = this.point(...this.lastPoint);
       if (at && (ph.kind === 'shape' || ph.kind === 'polygon')) ph.cur = at;
     } else if (pressed(e, 'cancel')) {
-      if (ph.kind === 'hover') return this.host.done(null), true;
+      if (ph.kind === 'hover') return this.done(null), true;
       if (ph.kind === 'pull') return this.commit(true), this.update(), true; // a drawn shape stays flat
       if (ph.kind === 'polygon' && ph.pts.length >= 2) return this.finishLine(), this.update(), true; // an open polygon
       this.phase = { kind: 'hover' };
@@ -419,7 +449,8 @@ export class SketchTool implements Tool {
       const len = a.distanceTo(b);
       for (let i = 1; i <= m; i++) add(a.clone().lerp(b, i / (m + 1)), { what: fraction(i, m + 1), line: [[a, b]], key, parts: [(len * i) / (m + 1), len - (len * i) / (m + 1)] });
     };
-    for (const { segs, shape } of lines) {
+    for (const { segs, shape, guide } of lines) {
+      if (guide) continue;
       if (!shape) {
         if (segs.length === 1) divide(segs[0]);
         continue;
@@ -449,7 +480,28 @@ export class SketchTool implements Tool {
   /** Lines to snap to, each as segments (world): outlines of every visible sketch's shapes (with the shape), and body edges. */
   private snapLines(): SnapLine[] {
     const outlines = this.view.sketches.flatMap((sketch) => sketch.shapes.map((p) => ({ segs: outlineSegs(p, sketch.frame), what: 'on line', shape: { p, sketch } })));
-    return [...outlines, ...this.view.edges().map((segs) => ({ segs, what: 'on edge' }))];
+    const guides = SketchTool.guides.map((guide) => ({ segs: [guideSeg(guide)], what: 'on guide', guide }));
+    return [...outlines, ...this.view.edges().map((segs) => ({ segs, what: 'on edge' })), ...guides];
+  }
+
+  /** The guide the pointer is on, or the guide of the line it is on. */
+  private hoveredGuide() {
+    return this.onGuide ?? SketchTool.guides.find((g) => this.snapSeg && onLine(g, this.snapSeg));
+  }
+
+  /** A guide along a hovered line; it replaces an unfixed one in the same direction. */
+  private addGuide([a, b]: Segment) {
+    const dir = b.clone().sub(a).normalize();
+    const parallel = (g: (typeof SketchTool.guides)[number]) => g.dir.clone().cross(dir).length() < 1e-6;
+    if (SketchTool.guides.some((g) => onLine(g, [a, b]))) return;
+    SketchTool.guides = [...SketchTool.guides.filter((g) => g.fixed || !parallel(g)), { at: a.clone(), dir, fixed: false }];
+    this.update();
+  }
+
+  /** The host's done; a drawn shape or stopping drops the guides. */
+  private done(result: SketchResult | null) {
+    if (!result || result.drawn || result.sphere) SketchTool.guides = [];
+    this.host.done(result);
   }
 
   /** Pixel distance from the pointer (`mx`, `my`, in the view) to a segment on screen, and where along it (0..1) it is nearest. */
@@ -514,6 +566,7 @@ export class SketchTool implements Tool {
     this.snapped = near ? v3(toWorld(t.frame, ...near.at)) : null;
     this.snapWhat = near?.what ?? null;
     this.snapKey = near?.key ?? null;
+    this.snapSeg = near?.key && !near.key.startsWith('circle:') ? near.line![0] : null;
     if (near?.parts) this.snapWhat = `${near.what} (${near.parts.map((mm) => this.host.lengthText(mm)).join(' | ')})`;
     if (near) {
       this.snapLine = near.line ?? null;
@@ -526,18 +579,18 @@ export class SketchTool implements Tool {
       }
       return near.at;
     }
-    let best: { at: THREE.Vector3; line: Segment[]; what: string; key?: string; d: number } | null = null;
+    let best: { at: THREE.Vector3; line: Segment[]; what: string; key?: string; seg?: Segment; guide?: (typeof SketchTool.guides)[number]; d: number } | null = null;
     const close: { line: number; a: UV; b: UV }[] = [];
     // along lines and at their crossings only in the plane drawn on: a line off it would snap to its projection, away from the pointer
-    for (const [line, { segs, what, shape }] of lines.entries())
+    for (const [line, { segs, what, shape, guide }] of lines.entries())
       for (const [a, b] of segs) {
         if (!inPlane(t.frame, a) || !inPlane(t.frame, b)) continue;
         const { d, k } = this.screenDist(mx, my, a, b);
         if (d >= linePx) continue;
         close.push({ line, a: uvOf(t.frame, a), b: uvOf(t.frame, b) });
         // the line for A / Shift A: a circle, a straight side, or a straight body edge
-        const key = shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : shape || segs.length === 1 ? sideKey(a, b) : undefined;
-        if (!best || d < best.d) best = { at: a.clone().lerp(b, k), line: segs, what, key, d };
+        const key = guide ? undefined : shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : shape || segs.length === 1 ? sideKey(a, b) : undefined;
+        if (!best || d < best.d) best = { at: a.clone().lerp(b, k), line: segs, what, key, seg: key && !key.startsWith('circle:') ? [a, b] : undefined, guide, d };
       }
     const cross = this.crossing(close, t, mx, my, px);
     if (cross) {
@@ -552,6 +605,8 @@ export class SketchTool implements Tool {
       this.snapLine = best.line;
       this.snapWhat = best.what;
       this.snapKey = best.key ?? null;
+      this.snapSeg = best.seg ?? null;
+      this.onGuide = best.guide ?? null;
       return uv;
     }
     if (grid) this.snapWhat = 'grid';
@@ -602,7 +657,7 @@ export class SketchTool implements Tool {
       // drawn from its centre: the ball's centre is where dragging started, on the plane
       const center = toWorld(ph.target.frame, profile.x, profile.y);
       this.phase = { kind: 'hover' };
-      return this.host.done({ target: ph.target, sphere: { center, d: profile.d, typed: a }, depth: 0, mode: 'add' });
+      return this.done({ target: ph.target, sphere: { center, d: profile.d, typed: a }, depth: 0, mode: 'add' });
     }
     this.drawn(ph.target, { profile, typed: profile.kind === 'rect' ? { w: a, h: b } : { d: a } });
   }
@@ -625,7 +680,7 @@ export class SketchTool implements Tool {
     SketchTool.lineEnd = v3(toWorld(ph.target.frame, ...pts[pts.length - 1]));
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
-    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts }, typed: {} }, depth: 0, mode: 'add' });
+    this.done({ target: ph.target, drawn: { profile: { kind: 'line', pts }, typed: {} }, depth: 0, mode: 'add' });
   }
 
   /** A finished shape: in sketch mode or as a construction line it stays flat and drawing goes on, else pulling starts. */
@@ -633,7 +688,7 @@ export class SketchTool implements Tool {
     if (this.mode?.kind !== 'draw' && !this.host.construction()) return this.enterPull(target, [drawn.profile], drawn);
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
-    this.host.done({ target, drawn, depth: 0, mode: 'add' });
+    this.done({ target, drawn, depth: 0, mode: 'add' });
   }
 
   private enterPull(target: Target, shapes: DrawnProfile[], drawn?: Drawn, ids?: string[]) {
@@ -658,8 +713,8 @@ export class SketchTool implements Tool {
     this.phase = { kind: 'hover' };
     this.view.unlockPointer();
     if (this.kind) this.host.hint(this.hoverHint()); // before done: the host may replace this tool
-    if (!ph.drawn && !depth) return this.host.done(null);
-    this.host.done({
+    if (!ph.drawn && !depth) return this.done(null);
+    this.done({
       target: ph.target,
       drawn: ph.drawn,
       shapes: ph.ids,
@@ -683,6 +738,12 @@ export class SketchTool implements Tool {
 
   /** Redraws the preview and the size labels. */
   private update() {
+    // a line hovered long enough gets a guide
+    if (!sameSeg(this.snapSeg, this.dwell.seg)) {
+      clearTimeout(this.dwell.timer);
+      const seg = this.snapSeg;
+      this.dwell = { seg, timer: seg ? window.setTimeout(() => this.addGuide(seg), GUIDE_MS) : 0 };
+    }
     this.clearPreview();
     const labels: [string, THREE.Vector3, boolean][] = []; // text, where, typed into
     const ph = this.phase;
@@ -714,10 +775,17 @@ export class SketchTool implements Tool {
       this.view.overlay.add(marks([this.snapped], 0xff8c1a, this.snapWhat?.startsWith('on ') ? 8 : 12));
     }
     if (this.dots.length && ph.kind !== 'pull') this.view.overlay.add(marks(this.dots, 0xff8c1a, 7));
+    for (const g of ph.kind === 'pull' ? [] : SketchTool.guides) {
+      const m = new LineMaterial({ color: GUIDE_COLOR, linewidth: g.fixed ? 2 : 1, depthTest: false });
+      m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
+      this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(guideSeg(g).flatMap((v) => v.toArray())), m));
+    }
     const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'Hold Ctrl to start the line from the end of the last one' : null;
     // on a point along a line (not anywhere along it)
     const more = this.snapKey && !this.snapWhat?.startsWith('on ') ? `Press ${comboText(KEYS.moreSnaps.default[0])} for more points, ${comboText(KEYS.fewerSnaps.default[0])} for fewer` : null;
-    this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, more, chain].filter(Boolean).join('\n') || null); // one per line
+    const guide = this.hoveredGuide();
+    const fix = guide ? `Press ${comboText(KEYS.fixGuide.default[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
+    this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, more, fix, chain].filter(Boolean).join('\n') || null); // one per line
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
       const depth = this.typed(ph.typed) ?? ph.depth;
