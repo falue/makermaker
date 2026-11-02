@@ -609,7 +609,7 @@ function commit(next: Doc) {
 /** Tool bodies stick to their owner: an owner moved from `before` to `next` takes those that did not move themselves along. */
 function follow(before: Doc, next: Doc): Doc {
   const owner = ownersOf(next);
-  if (!owner.size) return next;
+  if (!owner.size && !next.joints.length) return next;
   const at = (doc: Doc, id: string) => {
     const b = doc.bodies.find((q) => q.id === id);
     return b && (resolve(b.position, paramLookup(doc.params), '', new Map()) as Vec3);
@@ -634,6 +634,31 @@ function follow(before: Doc, next: Doc): Doc {
   for (const b of next.bodies) {
     const d = by(b.id);
     if (d && !still(d) && d.every(Number.isFinite)) drag(b.id, d, new Set([b.id]));
+  }
+  // a joint's parent moved: what it moves goes along by as much in the world (else they would swing around an axis
+  // that left them); each counts the move in its own group's (turned) coordinates
+  const turnOf = (m: Matrix4) => new Matrix4().extractRotation(m);
+  for (const j of next.joints) {
+    const d = by(j.parent);
+    if (!d || still(d) || !d.every(Number.isFinite)) continue;
+    const world = new Vector3(...d).applyMatrix4(turnOf(parentPlace(j.parent)));
+    const shift = (id: string) => {
+      if (!still(by(id))) return; // moved itself
+      const local = world.clone().applyMatrix4(turnOf(parentPlace(id)).invert()).toArray();
+      const i = out.bodies.findIndex((b) => b.id === id);
+      if (i >= 0) {
+        const p = at(out, id)!;
+        out = setIn(out, ['bodies', String(i), 'position'], out.bodies[i].position.map((x, k) => plus(x, p[k], local[k])));
+        return drag(id, local, new Set([id]));
+      }
+      const g = out.groups.findIndex((x) => x.id === id);
+      const o = out.groups[g]?.origin;
+      if (o?.kind === 'custom') {
+        const p = resolve(o.position, paramLookup(out.params), '', new Map()) as Vec3;
+        out = setIn(out, ['groups', String(g), 'origin', 'position'], o.position.map((x, k) => plus(x, p[k], local[k])));
+      } else if (o) for (const b of contents(out, [id])) if (out.bodies.some((x) => x.id === b)) shift(b);
+    };
+    j.children.forEach(shift);
   }
   return out;
 }
@@ -2245,6 +2270,8 @@ function rotateTool() {
   const owner = ownersOf(doc0);
   const inTurned = (group: string | null): boolean => !!group && (selected.includes(group) || inTurned(doc0.groups.find((g) => g.id === group)?.parent ?? null));
   const ids = selected.filter((id) => !doc0.bodies.some((b) => b.id === id && inTurned(b.group)) && !doc0.groups.some((g) => g.id === id && inTurned(g.parent)));
+  // a joint's parent takes what it moves along (and they their tool bodies)
+  for (const j of doc0.joints) if (ids.includes(j.parent)) for (const c of j.children) if (!ids.includes(c)) ids.push(c);
   for (const [owned, by] of owner) if (ids.includes(by) && !ids.includes(owned)) ids.push(owned);
   const start = new Map(ids.map((id) => [id, (bodyPlaces.get(id) ?? groupPlace(id)).clone()]));
   const parents = new Map(ids.map((id) => [id, parentPlace(id)]));
@@ -2417,7 +2444,6 @@ function rotateTool() {
     const raw = ((((now - from.screen) * 180) / Math.PI) * sign + 540) % 360 - 180;
     const step = e.shiftKey ? SketchTool.angleStep : e.ctrlKey ? settings.minAngle : 1;
     const a = Math.round(raw / step) * step;
-    tips.cursorTip(`${fmt(a)}°`);
     if (a !== angle) apply(a);
     else marks();
   };
@@ -2580,6 +2606,34 @@ function jointAxis(j: Joint) {
   return { at: new Vector3(...j.axis.at).applyMatrix4(parent), dir: new Vector3(...j.axis.dir).transformDirection(parent).normalize(), what: '' };
 }
 
+/**
+ * A hinge at rest: its axis in the world, the direction its moving part lies in at 0 (its own X / Y / Z nearest to its
+ * middle's), and how far that middle is from the axis; null: a slider, or nothing of it is shown.
+ */
+function hingeRest(j: Joint) {
+  if (j.kind !== 'hinge') return null;
+  const axis = jointAxis(j);
+  const moving = contents(history.current, j.children).filter((x) => history.current.bodies.some((b) => b.id === x));
+  const ref = moving.map((x) => viewer.measure(x)?.box.getCenter(new Vector3())).find(Boolean);
+  if (!ref) return null;
+  const v = jointValue(j, paramLookup(history.current.params));
+  const back = (u: Vector3) => u.applyAxisAngle(axis.dir, (-v * Math.PI) / 180);
+  const middle = ref.clone().sub(axis.at).projectOnPlane(axis.dir);
+  const zero = back(middle.clone()).normalize();
+  const own = bodyPlaces.get(j.children[0]) ?? groupPlace(j.children[0]);
+  const axes = [0, 1, 2].flatMap((k) => {
+    const a = back(new Vector3().setComponent(k, 1).transformDirection(own)).projectOnPlane(axis.dir);
+    return a.lengthSq() > 1e-6 ? [a.normalize(), a.clone().negate()] : [];
+  });
+  return { axis, zero: axes.reduce((best, a) => (a.dot(zero) > best.dot(zero) ? a : best), axes[0] ?? zero), r: Math.max(middle.length(), 10) };
+}
+
+/** A hinge's angle drawn as a drawn line's: from its rest direction to `v` degrees, ticks every 15° (null: gone). */
+function showHinge(j: Joint | null, v = 0) {
+  const rest = j && hingeRest(j);
+  viewer.showTicks(rest && { at: rest.axis.at, dir: rest.axis.dir, from: rest.axis.at.clone().addScaledVector(rest.zero, rest.r), step: 15, angle: v });
+}
+
 /** Its min and max as numbers (degrees or mm). */
 function jointRange(j: Joint, lookup = paramLookup(history.current.params)): [number, number] {
   return [j.min, j.max].map((x) => {
@@ -2617,6 +2671,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     else history.push(doc), (changed = true);
     update();
     viewer.showAxis(jointAxis(now()), jointAxis(now()).at, 60);
+    showHinge(now(), jointValue(now(), lookup));
   };
   // values as typed: degrees as numbers (never unit-converted), lengths in the document's unit
   const expr = (text: string): Expr => ({ e: text, u: now().kind === 'hinge' ? 'mm' : u });
@@ -2666,16 +2721,8 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
       const v = jointValue(j, lookup);
       if (!ref) return v;
       if (j.kind === 'slider') return v + p.clone().sub(ref).dot(axis.dir);
-      // the moving part's direction from the axis at 0: its own X / Y / Z nearest to the way its middle lies (a lid's
-      // middle sits a little above its hinge, a block's beside the edge it turns on: the angle would be off by that)
-      const turnBack = (u: Vector3) => u.applyAxisAngle(axis.dir, (-v * Math.PI) / 180);
-      const zero = turnBack(ref.clone().sub(axis.at).projectOnPlane(axis.dir)).normalize();
-      const own = bodyPlaces.get(j.children[0]) ?? groupPlace(j.children[0]);
-      const axes = [0, 1, 2].flatMap((k) => {
-        const a = turnBack(new Vector3().setComponent(k, 1).transformDirection(own)).projectOnPlane(axis.dir);
-        return a.lengthSq() > 1e-6 ? [a.normalize(), a.clone().negate()] : [];
-      });
-      const from = axes.reduce((best, a) => (a.dot(zero) > best.dot(zero) ? a : best), axes[0] ?? zero);
+      // from its rest direction (a lid's middle sits a little above its hinge, a block's beside the edge it turns on)
+      const from = hingeRest(j)!.zero;
       const to = p.clone().sub(axis.at).projectOnPlane(axis.dir);
       return (Math.atan2(from.clone().cross(to).dot(axis.dir), from.dot(to)) * 180) / Math.PI;
     };
@@ -2720,6 +2767,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
     viewer.showAxis(null);
+    showHinge(null);
     toolHint = null;
     if (!ok && changed) return undo();
     render();
@@ -2806,17 +2854,18 @@ function jointRow(j: Joint) {
     if (dragging) history.replace(next);
     else history.push(next), (dragging = true);
     update();
+    showHinge(history.current.joints.find((x) => x.id === j.id)!, jointValue(history.current.joints.find((x) => x.id === j.id)!, paramLookup(history.current.params)));
   };
   const name = Object.assign(document.createElement('input'), { className: 'joint-name', value: j.name, spellcheck: false, title: 'Its name' });
   name.onchange = () => commit(setIn(history.current, ['joints', String(at(j.id)), 'name'], name.value || j.name));
   const slider = Object.assign(document.createElement('input'), { type: 'range', min: String(Math.min(lo, hi)), max: String(Math.max(lo, hi)), step: 'any', title: 'Where it is now: drag to move it (model there)' });
   slider.dataset.joint = j.id;
   slider.oninput = () => setValue(fmt(j.kind === 'hinge' ? +slider.value : +slider.value / UNITS[doc.units]));
-  slider.onchange = () => (dragging = false);
+  slider.onchange = () => ((dragging = false), showHinge(null));
   const now = Object.assign(document.createElement('input'), { className: 'now', spellcheck: false, title: 'Where it is now (degrees or a length)' });
   now.dataset.joint = j.id;
   now.oninput = () => length(now.value) !== null && setValue(now.value);
-  now.onchange = () => (dragging = false);
+  now.onchange = () => ((dragging = false), showHinge(null));
   const nowLabel = Object.assign(document.createElement('span'), { textContent: j.kind === 'hinge' ? '°' : doc.units });
   scrub(nowLabel, now, () => now.value, j.kind === 'hinge' ? 'mm' : doc.units, settings.minStep, (text) => ((now.value = text), setValue(text)), () => (now.focus(), now.select()));
   const on = playing.has(j.id);

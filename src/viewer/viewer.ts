@@ -1006,14 +1006,17 @@ export class Viewer implements ToolView {
   }
 
   private ticks = new THREE.Group();
+  private tickLabel = Object.assign(document.createElement('div'), { className: 'size-label', hidden: true });
 
   /**
    * A turn's angle steps: ticks every `step` degrees around `at` (square to `dir`), from the ray towards `from` at
-   * radius |from − at|, and the ray turned to `angle` degrees (null: gone).
+   * radius |from − at|, the ray turned to `angle` degrees, and the angle written between them (as a drawn line's) (null: gone).
    */
   showTicks(t: { at: THREE.Vector3; dir: THREE.Vector3; from: THREE.Vector3; step: number; angle: number } | null) {
     for (const o of this.ticks.children) ((o as THREE.LineSegments).geometry.dispose(), ((o as THREE.LineSegments).material as THREE.Material).dispose());
     this.ticks.clear();
+    if (!this.tickLabel.isConnected) this.el.append(this.tickLabel);
+    this.tickLabel.hidden = !t;
     if (t) {
       const ray = t.from.clone().sub(t.at);
       const along = (deg: number, k: number) => t.at.clone().add(ray.clone().applyAxisAngle(t.dir, (deg * Math.PI) / 180).multiplyScalar(k));
@@ -1022,6 +1025,9 @@ export class Viewer implements ToolView {
       const look = (color: number) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true });
       this.ticks.add(Object.assign(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(marks), look(0x8a8f98)), { renderOrder: 1e6 }));
       this.ticks.add(Object.assign(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([t.at, along(0, 1), t.at, along(t.angle, 1.1)]), look(0xff8c1a)), { renderOrder: 1e6 }));
+      const [x, y] = this.toScreen(along(t.angle / 2, 0.7));
+      this.tickLabel.textContent = `∠ ${+t.angle.toFixed(2)}°`;
+      keepInside(this.tickLabel, x, y);
     }
     this.render();
   }
