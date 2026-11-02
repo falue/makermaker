@@ -1917,14 +1917,19 @@ export class Viewer implements ToolView {
     const dist = cam.position.distanceTo(target);
     const from = cam.position.clone().sub(target).normalize();
     const turn = new THREE.Quaternion().setFromUnitVectors(from, dir.clone().normalize());
+    // the camera turns along with its position: re-aiming each frame (z up) would roll it in one go near the poles
+    const [q0, q1] = [cam.quaternion.clone(), new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(t1.clone().addScaledVector(dir.clone().normalize(), dist), t1, cam.up))];
     const start = performance.now();
     const animate = (now: number) => {
       const t = Math.min(1, (now - start) / ms);
       const k = t * t * (3 - 2 * t);
       target.lerpVectors(t0, t1, k);
       cam.position.copy(target).addScaledVector(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, k)), dist);
-      this.controls.update();
-      if (t < 1) requestAnimationFrame(animate);
+      cam.quaternion.slerpQuaternions(q0, q1, k);
+      if (t < 1) {
+        this.controls.dispatchEvent({ type: 'change' }); // renders, tools follow
+        requestAnimationFrame(animate);
+      } else this.controls.update();
     };
     requestAnimationFrame(animate);
   }
