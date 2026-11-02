@@ -379,13 +379,15 @@ export class SketchTool implements Tool {
       const { p, sketch } = shape;
       const cs = corners(p);
       const sides = p.kind === 'line' ? cs.slice(1).map((b, i) => [cs[i], b]) : cs.map((a, i) => [a, cs[(i + 1) % cs.length]]);
-      const own: [UV, string][] = [
-        ...(p.kind === 'line' ? [] : [[centre(p), 'centre'] as [UV, string]]),
-        ...cs.map((q): [UV, string] => [q, p.kind === 'line' ? 'end' : 'corner']),
-        ...sides.map(([a, b]): [UV, string] => [[(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], '1/2']),
+      const world = ([a, b]: UV[]): Segment => [v3(toWorld(sketch.frame, ...a)), v3(toWorld(sketch.frame, ...b))];
+      // centres and quadrants light the whole shape, a side's middle that side, a corner the two sides meeting there
+      const own: [UV, string, Segment[]][] = [
+        ...(p.kind === 'line' ? [] : [[centre(p), 'centre', segs] as [UV, string, Segment[]]]),
+        ...cs.map((q, i): [UV, string, Segment[]] => [q, p.kind === 'line' ? 'end' : 'corner', [p.kind === 'line' ? sides[i - 1] : sides.at(i - 1), sides[i]].filter((x) => x).map((x) => world(x!))]),
+        ...sides.map((x): [UV, string, Segment[]] => [[(x[0][0] + x[1][0]) / 2, (x[0][1] + x[1][1]) / 2], '1/2', [world(x)]]),
       ];
-      if (p.kind === 'circle') for (const [cx, cy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) own.push([[p.x + (cx * p.d) / 2, p.y + (cy * p.d) / 2], 'quadrant']);
-      for (const [q, what] of own) pts.push({ at: sketch.id === t.sketch ? q : uvOf(t.frame, v3(toWorld(sketch.frame, ...q))), what, line: segs });
+      if (p.kind === 'circle') for (const [cx, cy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) own.push([[p.x + (cx * p.d) / 2, p.y + (cy * p.d) / 2], 'quadrant', segs]);
+      for (const [q, what, line] of own) pts.push({ at: sketch.id === t.sketch ? q : uvOf(t.frame, v3(toWorld(sketch.frame, ...q))), what, line });
     }
     for (const c of this.view.corners()) pts.push({ at: uvOf(t.frame, c), what: 'corner', corner: c });
     return pts;
@@ -427,7 +429,7 @@ export class SketchTool implements Tool {
 
   /**
    * Pointer on the target plane, in plane coordinates: on the nearest snap point within `px` pixels, else on a crossing of lines
-   * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges; projected onto the plane), else
+   * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges; only those in the plane), else
    * on the grid (Ctrl) or 0.1 mm. Sets `snapWhat`.
    */
   private point(e: MouseEvent, t: Target, grid: boolean, px = 10, linePx = 8): UV | null {
@@ -459,8 +461,13 @@ export class SketchTool implements Tool {
     }
     let best: { at: THREE.Vector3; line: Segment[]; what: string; d: number } | null = null;
     const close: { line: number; a: UV; b: UV }[] = [];
+    // along lines and at their crossings only in the plane drawn on: a line off it would snap to its projection, away from the pointer
+    const n = v3(t.frame.n);
+    const o = v3(t.frame.o);
+    const inPlane = (v: THREE.Vector3) => Math.abs(v.clone().sub(o).dot(n)) < 1e-3;
     for (const [line, { segs, what }] of lines.entries())
       for (const [a, b] of segs) {
+        if (!inPlane(a) || !inPlane(b)) continue;
         const [ax, ay] = this.view.toScreen(a);
         const [bx, by] = this.view.toScreen(b);
         const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
