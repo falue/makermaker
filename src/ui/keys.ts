@@ -60,6 +60,7 @@ export const KEYS = {
   erase: { name: 'Erase', order: 73, default: [{ key: 'backspace' }], hint: "Remove the last typed character (or a polygon's last corner)" },
   moreSnaps: { name: 'More snap points', order: 75, default: [{ key: 'a', shift: false }], hint: 'Drawing, pointer on a line: one more evenly spaced snap point along it (a circle: around it)' },
   fewerSnaps: { name: 'Fewer snap points', order: 76, default: [{ key: 'a', shift: true }], hint: 'Drawing, pointer on a line: one snap point fewer along it' },
+  baseline: { name: 'Measure angle from', order: 78, default: [{ key: 'b' }], hint: 'Drawing a line or polygon side, pointer on a straight line or edge: its angle counts from that line (again, or off a line: from the X axis)' },
   fixGuide: { name: 'Fix guide line', order: 77, default: [{ key: 'g' }], hint: 'Drawing, pointer on a guide line (or the line it extends): it stays until G again or sketch mode ends' },
   toObject: { name: 'To object', order: 78, default: [{ key: 't' }], hint: 'Pulling (before typing a size): click a corner, edge or face, the pull reaches it' },
   pullPicked: { name: 'Pull picked areas', order: 74, default: [{ key: 'e' }], hint: 'Picking areas: pull the picked ones (as Confirm does)' },
