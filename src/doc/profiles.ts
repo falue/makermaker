@@ -140,3 +140,18 @@ export function closedLoop(lines: { id: string; pts: [number, number][] }[], sta
   }
   return { ids, pts: pts.slice(0, -1) };
 }
+
+/** An open line moved `d` mm to its left, its corners mitred (as a parallel line at that distance). */
+export function beside(pts: [number, number][], d: number): [number, number][] {
+  if (!d) return pts;
+  const left = (a: [number, number], b: [number, number]): [number, number] => {
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [(a[1] - b[1]) / l, (b[0] - a[0]) / l];
+  };
+  return pts.map((p, i) => {
+    const [n0, n1] = [left(pts[Math.max(0, i - 1)], pts[Math.max(1, i)]), left(pts[Math.min(i, pts.length - 2)], pts[Math.min(i + 1, pts.length - 1)])];
+    const m = [n0[0] + n1[0], n0[1] + n1[1]];
+    const k = d / Math.max(0.2, (m[0] * n1[0] + m[1] * n1[1]) / (Math.hypot(...m) || 1)) / (Math.hypot(...m) || 1);
+    return [p[0] + m[0] * k, p[1] + m[1] * k];
+  });
+}

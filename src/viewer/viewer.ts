@@ -282,6 +282,9 @@ export class Viewer implements ToolView {
   private pickSketches: false | 'areas' | 'outlines' = false;
   private sketchMark = new THREE.Group();
   private aimMark = new THREE.Group();
+  /** The cut tool's preview: its cutting surfaces, and where the sides A and B are labelled. */
+  private cutMark = new THREE.Group();
+  private cutLabels: { el: HTMLElement; at: THREE.Vector3 }[] = [];
   /** A tool locked the pointer; the browser freeing it (its Esc) counts as Esc for the tool. */
   private locked = false;
   private escFreed = 0;
@@ -385,7 +388,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark, this.cutMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -931,6 +934,29 @@ export class Viewer implements ToolView {
     return s;
   }
 
+  /**
+   * The cut tool's preview (null: gone): the cutting surfaces as quads (4 world corners each), half see-through with
+   * their outlines, and labels A and B at the points given (kept on screen as the view turns).
+   */
+  showCut(cut: { quads: THREE.Vector3[][]; a: THREE.Vector3; b: THREE.Vector3 } | null) {
+    for (const o of this.cutMark.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
+    this.cutMark.clear();
+    for (const l of this.cutLabels) l.el.remove();
+    this.cutLabels = [];
+    if (cut) {
+      const tris = cut.quads.flatMap(([p, q, r, s]) => [p, q, r, p, r, s]);
+      const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints(tris), new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }));
+      const rims = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(cut.quads.flatMap((q) => q.flatMap((v, i) => [v, q[(i + 1) % 4]]))), new THREE.LineBasicMaterial({ color: 0xff8c1a }));
+      this.cutMark.add(fill, rims);
+      this.cutLabels = (['A', 'B'] as const).map((name) => {
+        const el = Object.assign(document.createElement('div'), { className: 'size-label', textContent: name });
+        this.el.append(el);
+        return { el, at: name === 'A' ? cut.a : cut.b };
+      });
+    }
+    this.render();
+  }
+
   /** `aimAt` where the pointer is now (right after "to object" starts, before it moves). */
   aimHere() {
     return this.aimAt(this.hover);
@@ -1440,6 +1466,7 @@ export class Viewer implements ToolView {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
       this.placeWheel();
+      for (const l of this.cutLabels) keepInside(l.el, ...this.toScreen(l.at));
       this.drawSky();
       this.scaleDashes();
       if (this.ao.on) this.renderAO();

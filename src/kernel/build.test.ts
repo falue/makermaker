@@ -94,7 +94,7 @@ describe('buildBody', () => {
   });
 
   it('cuts a body by a plane, turned, or along a line, keeping either side', () => {
-    const plane = (side: 1 | -1, tilt: [number, number] = [0, 0]) =>
+    const plane = (side: 1 | -1, tilt: [number, number, number] = [0, 0, 0]) =>
       ({ id: 's', type: 'split', cutter: { kind: 'plane', o: [0, 0, 0], x: [0, 1, 0], n: [1, 0, 0], tilt, offset: 10 }, side }) as BuildFeature;
     const right = built([base(100), plane(1)]);
     expect(right.box.width).toBeCloseTo(40, 3); // x from 10 to 50
@@ -102,7 +102,7 @@ describe('buildBody', () => {
     const left = built([base(100), plane(-1)]);
     expect(left.box.width).toBeCloseTo(60, 3);
     left.done();
-    const turned = built([base(100), plane(1, [0, 45])]); // turned 45° around its y (z): a slanted cut across the plate
+    const turned = built([base(100), plane(1, [0, 0, 30])]); // turned 30° around Z: a slanted cut across the plate
     expect(turned.box.width).toBeGreaterThan(40);
     turned.done();
     // a zig-zag line across the plate (y from -30 to 30), along y: its left is -x

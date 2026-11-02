@@ -1,6 +1,6 @@
 import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
-import { add, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
-import { centre, corners, nesting } from '../doc/profiles';
+import { add, cutPlane, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
+import { beside, centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, EdgeRule, Profile } from '../doc/types';
@@ -383,37 +383,6 @@ function cutterSide(c: Of<'split'>['cutter'], far: number): Shape3D {
   }
   const { frame: f, profile: p } = c;
   return (p.kind === 'line' ? leftOf(beside(p.pts, c.offset), far) : drawing(p)).sketchOnPlane(new Plane(add(f.o, scale(f.n, -far)), f.x, f.n)).extrude(2 * far) as Shape3D;
-}
-
-/** A cut plane's frame: turned `tilt` degrees around its x, then its y, moved `offset` along its normal. */
-export function cutPlane(c: { o: V3; x: V3; n: V3; tilt: [number, number]; offset: number }): Frame {
-  // v turned by `deg` around unit axis `k` (Rodrigues)
-  const turn = (v: V3, k: V3, deg: number): V3 => {
-    const [a, cos, sin] = [(deg * Math.PI) / 180, Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180)];
-    const kv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
-    const kx: V3 = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
-    return a ? [0, 1, 2].map((i) => v[i] * cos + kx[i] * sin + k[i] * kv * (1 - cos)) as V3 : v;
-  };
-  const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  let [x, n] = [c.x, turn(c.n, c.x, c.tilt[0])];
-  const y = cross(n, x);
-  [x, n] = [turn(x, y, c.tilt[1]), turn(n, y, c.tilt[1])];
-  return { o: add(c.o, scale(n, c.offset)), x, y: cross(n, x), n };
-}
-
-/** An open line moved `d` mm to its left, its corners mitred (as a parallel line at that distance). */
-function beside(pts: [number, number][], d: number): [number, number][] {
-  if (!d) return pts;
-  const left = (a: [number, number], b: [number, number]): [number, number] => {
-    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-    return [(a[1] - b[1]) / l, (b[0] - a[0]) / l];
-  };
-  return pts.map((p, i) => {
-    const [n0, n1] = [left(pts[Math.max(0, i - 1)], pts[Math.max(1, i)]), left(pts[Math.min(i, pts.length - 2)], pts[Math.min(i + 1, pts.length - 1)])];
-    const m = [n0[0] + n1[0], n0[1] + n1[1]];
-    const k = d / Math.max(0.2, (m[0] * n1[0] + m[1] * n1[1]) / (Math.hypot(...m) || 1)) / (Math.hypot(...m) || 1);
-    return [p[0] + m[0] * k, p[1] + m[1] * k];
-  });
 }
 
 /** The region left of an open line (plane coordinates), its ends drawn on `far` mm and closed far to the left. */
