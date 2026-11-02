@@ -2,7 +2,7 @@
 
 Requirements and implementation outline · 30 October 2026 · decisions added 31 October 2026
 
-Status: Stage 0 foundation spike implemented (see README.md); nothing benchmarked yet. Project name is MAKERMAKER. Core architecture decisions are recorded under "Decisions"; remaining open points are listed under "Open questions".
+Status: Stage 0 foundation spike implemented (see STATUS.md); nothing benchmarked yet. Project name is MAKERMAKER. Core architecture decisions are recorded under "Decisions"; remaining open points are listed under "Open questions".
 
 name sugestions:
 - makerCAD (but used already by [this](https://github.com/marcuswu/makercad))
