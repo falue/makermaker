@@ -2076,10 +2076,16 @@ export class Viewer implements ToolView {
     const copy = this.group(id).clone(); // shares the geometry
     copy.traverse((o) => {
       if (o instanceof LineSegments2 || o instanceof THREE.Points) o.visible = false;
-      else if (o instanceof THREE.LineSegments) o.material = m.looks[1];
-      else if (o instanceof THREE.Mesh) o.material = m.looks[0];
+      else if (o instanceof THREE.LineSegments || o instanceof THREE.Mesh) [o.userData.own, o.material] = [o.material, m.looks[o instanceof THREE.Mesh ? 0 : 1]];
     });
     m.ghosts.add(copy);
+  }
+
+  /** The move preview's ghosts drawn as the bodies themselves (a copy stays behind), or grey and see-through. */
+  ghostsWhole(on: boolean) {
+    const m = this.moving;
+    m?.ghosts.traverse((o) => o.userData.own && ((o as THREE.Mesh).material = on ? o.userData.own : m.looks[o instanceof THREE.Mesh ? 0 : 1]));
+    this.render();
   }
 
   /**

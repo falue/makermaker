@@ -938,7 +938,7 @@ function toggleVisible() {
  * the next axis) add or go to that axis' field (always in X Y Z order), unless in the middle of a name, or where a name could start and a
  * parameter starts with the letter (then it is typed: Tab completes the name). While typing the selection shows moved; Enter moves it by all of them,
  * Esc or leaving cancels all. `all` (M): all three fields at once, X first, starting at `start` (mm; selected, so
- * typing replaces them).
+ * typing replaces them). Copy: the selection stays (shown whole, not as a ghost) and a copy of it moves.
  */
 function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
   if (!selected.length) {
@@ -981,6 +981,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
     const b = by();
     const m = b && sketchMove(b);
     viewer.previewMove(b ?? new Vector3(), m?.updates ?? [], m?.across ?? null);
+    viewer.ghostsWhole(copy.checked);
     // the gizmo at the selection's middle, moved along; a spoke dragged writes its axis' field
     if (middle)
       viewer.showGizmo({
@@ -1080,11 +1081,13 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
     const b = by();
     if (!b) return show();
     close();
-    moveBy(b);
+    if (copy.checked) copyMoved(b);
+    else moveBy(b);
   };
   // focus moving between the fields (or into the view) stays; to another field or button elsewhere it cancels
   box.addEventListener('focusout', (e) => (!e.relatedTarget || box.contains(e.relatedTarget as Node) ? undefined : close()));
   const toObject = Object.assign(document.createElement('button'), {
+    className: 'to-object',
     textContent: 'To object',
     title: 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it',
     onclick: () => {
@@ -1097,7 +1100,10 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
       viewer.aiming(viewer.aimHere());
     },
   });
-  box.append(toObject);
+  const copy = Object.assign(document.createElement('input'), { type: 'checkbox', onchange: () => (show(), last?.focus()) });
+  const copyLabel = Object.assign(document.createElement('label'), { title: 'Leave the selection where it is and move a copy of it' });
+  copyLabel.append(copy, 'Copy');
+  box.append(toObject, copyLabel);
   if (all) [2, 1].forEach(open); // Z and Y open behind X
   open(first);
   show();
@@ -1169,6 +1175,27 @@ function moveBy(by: Vector3) {
     shapeSel = []; // the whole sketch went
   }
   commit(next);
+}
+
+/** Moves a copy of the selection by `by` (one undo step): shapes in their sketch, else bodies and sketches. */
+function copyMoved(by: Vector3) {
+  const before = history.current;
+  const sketch = activeSketch();
+  moveBy(by);
+  const moved = history.current;
+  if (moved === before) return;
+  if (sketch && shapeSel.length) {
+    // the moved shapes come back as new ones beside the originals (a move across the plane took the whole sketch)
+    const k = before.sketches.findIndex((s) => s.id === sketch);
+    const copies = moved.sketches[k].shapes.filter((q) => shapeSel.includes(q.id)).map((q) => ({ ...q, id: newId() }));
+    shapeSel = copies.map((q) => q.id);
+    history.replace(setIn(before, ['sketches', String(k), 'shapes'], [...before.sketches[k].shapes, ...copies]));
+  } else {
+    const { bodies, sketches } = copiesOf(moved.bodies.filter((b) => selected.includes(b.id)), moved.sketches.filter((s) => selected.includes(s.id)), ' copy');
+    selected = [...bodies, ...sketches].map((c) => c.id);
+    history.replace({ ...before, bodies: [...before.bodies, ...bodies], sketches: [...before.sketches, ...sketches] });
+  }
+  update();
 }
 
 /**
@@ -2061,24 +2088,29 @@ function duplicate() {
  * sketch is linked to that copy (its shapes and areas too).
  */
 function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string) {
-  const ids = new Map<string, string>(); // old id → new, for sketches, their shapes and sub-groups
+  const ids = new Map<string, string>(); // old id → new, for bodies, their features, sketches, their shapes and sub-groups
   const fresh = (id: string) => ids.get(id) ?? ids.set(id, newId()).get(id)!;
   const renamed = (id: string) => ids.get(id) ?? id;
+  for (const p of bodies) [p.id, ...p.features.map((f) => f.id)].forEach(fresh);
   const sketchCopies = sketches.map((s): Sketch => ({
     ...structuredClone(s),
     id: fresh(s.id),
     name: `${s.name}${suffix}`,
+    plane: 'body' in s.plane ? { ...s.plane, body: renamed(s.plane.body), feature: renamed(s.plane.feature) } : s.plane, // on a copied body's face: on the copy's
     groups: s.groups.map((g) => ({ ...g, id: fresh(g.id), parent: g.parent && fresh(g.parent) })),
     shapes: s.shapes.map((q) => ({ ...structuredClone(q), id: fresh(q.id), group: q.group && fresh(q.group) })),
   }));
   const bodyCopies = bodies.map((p): Body => ({
     ...structuredClone(p),
-    id: newId(),
+    id: renamed(p.id),
     name: `${p.name}${suffix}`,
-    features: p.features.map((f) => {
-      const c = { ...structuredClone(f), id: newId() };
-      if (c.type !== 'extrude' || c.source.kind !== 'sketch') return c;
+    features: p.features.map((f): Feature => {
+      const c = { ...structuredClone(f), id: renamed(f.id) };
+      if (c.type === 'boolean') return { ...c, body: renamed(c.body) };
+      if (c.type === 'split' && c.cutter.kind === 'shape') return { ...c, cutter: { ...c.cutter, sketch: renamed(c.cutter.sketch), shape: renamed(c.cutter.shape) } };
+      if (c.type !== 'extrude') return c;
       const src = c.source;
+      if (src.kind === 'own') return src.plane.kind === 'cap' ? { ...c, source: { ...src, plane: { ...src.plane, feature: renamed(src.plane.feature) } } } : c;
       return { ...c, source: { ...src, sketch: renamed(src.sketch), shapes: src.shapes.map(renamed), areas: src.areas?.map((a) => ({ ...a, in: a.in.map(renamed), out: a.out.map(renamed) })) } };
     }),
   }));
