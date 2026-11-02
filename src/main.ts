@@ -63,32 +63,6 @@ const turnOf = (r: { rx: number; ry: number; rz: number }) => {
   return new Quaternion().setFromEuler(new Euler(rad(r.rx), rad(r.ry), rad(r.rz), 'ZYX'));
 };
 
-/**
- * Turns a body by `deg` degrees about the world's vertical through `centre` (world mm): its origin swings around it
- * and its own turn grows (incase's rotation handle). Positions keep their expressions; the turn is written as numbers.
- */
-function rotateBody(id: string, centre: Vec3, deg: number) {
-  const doc = history.current;
-  const i = doc.bodies.findIndex((b) => b.id === id);
-  if (i < 0 || !deg) return;
-  const b = doc.bodies[i];
-  const lookup = paramLookup(doc.params);
-  const toLocal = groupPlace(b.group).clone().invert();
-  const c = new Vector3(...centre).applyMatrix4(toLocal);
-  const q = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1).transformDirection(toLocal), (deg * Math.PI) / 180);
-  const at = resolve(b.position, lookup, '', new Map());
-  const now = new Vector3(...at).sub(c).applyQuaternion(q).add(c).toArray();
-  const e = new Euler().setFromQuaternion(q.multiply(turnOf(resolve(b.rotation, lookup, '', new Map()))), 'ZYX');
-  const deg3 = (v: number) => ex(fmt(+((v * 180) / Math.PI).toFixed(4)));
-  commit(
-    setIn(doc, ['bodies', String(i)], {
-      ...b,
-      position: b.position.map((x, k) => plus(x, at[k], now[k] - at[k])) as Body['position'],
-      rotation: { rx: deg3(e.x), ry: deg3(e.y), rz: deg3(e.z) },
-    }),
-  );
-}
-
 /** Where body `id` sits in the world. */
 const bodyPlace = (id: string) => toPlace(bodyPlaces.get(id) ?? new Matrix4());
 /** Imported meshes shown in the viewer, per body: which feature at which scale. */
@@ -156,7 +130,6 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   setShapes,
   length,
   placeOn,
-  rotate: rotateBody,
   touched() {
     if (!rendersOpen) return;
     rendersOpen = false; // choosing something in the view shows it, not the renders

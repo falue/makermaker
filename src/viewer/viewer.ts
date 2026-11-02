@@ -43,8 +43,6 @@ export interface ViewerHost {
   length(text: string): number | null;
   /** Where shapes drawn on a body face go (`flat`: the face is planar). */
   placeOn(face: PickedFace, flat: boolean): Omit<Target, 'sketch'> | null;
-  /** Turns a body by `deg` degrees about the vertical through `centre` (world mm): its rotation ring was dragged. */
-  rotate(id: string, centre: Vec3, deg: number): void;
   /** A press on a body or a sketch shape (before any selecting). */
   touched(): void;
   /** A clicked part of a finish (null: a click elsewhere on a body). */
@@ -261,16 +259,6 @@ export class Viewer implements ToolView {
   private backdrop: Settings['background'] = { mode: 'solid', top: '#ffffff', bottom: '#ffffff', sky: 0 };
   /** The gradient background: a column redrawn when the camera tilts (`drawn`: for which tilt and view). */
   private sky = { canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 256 }), texture: null as THREE.CanvasTexture | null, drawn: '' };
-  /** Rotation ring around the base of a single selected body (as incase's rotation handle): drag to turn it about Z. */
-  private ring = Object.assign(
-    new LineSegments2(
-      new LineSegmentsGeometry().setPositions(Array.from({ length: 96 }, (_, i) => [i, i + 1].flatMap((k) => [Math.cos((k / 96) * 2 * Math.PI), Math.sin((k / 96) * 2 * Math.PI), 0])).flat()),
-      new LineMaterial({ color: 0x3b6fd8, linewidth: 3, depthTest: false, transparent: true, opacity: 0.85 }),
-    ),
-    { visible: false, renderOrder: 1e6 },
-  );
-  /** A ring drag: the body, the turn's centre, the start angle, the turn so far (degrees), where the body started. */
-  private spin: { id: string; centre: THREE.Vector3; a0: number; deg: number; at: THREE.Vector3; turn: THREE.Quaternion } | null = null;
   /** Selected bodies: their edges drawn thick, in cyan. */
   private selectedEdges = new LineMaterial({ color: 0x00bcd4, linewidth: 3 });
   /** Owner per owned body (a tool body belongs to the body whose boolean uses it): it moves along. */
@@ -287,7 +275,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.ring);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -332,8 +320,6 @@ export class Viewer implements ToolView {
     });
     canvas.addEventListener('dblclick', (e) => {
       if (this.tool) return this.tool.dblclick(e);
-      // a double-click on the rotation ring turns the body by 90°
-      if (this.onRing(e)) return this.host.rotate(this.selection[0], this.ring.position.toArray(), 90);
       // a double-click on a finish face picks the whole finish
       const hit = this.frontHit(e);
       const f = hit && this.finishAt(hit);
@@ -353,9 +339,7 @@ export class Viewer implements ToolView {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
         // the Esc that freed a locked pointer was already handled
         if (e.key === 'Escape' && performance.now() - this.escFreed < 300) return e.preventDefault(), e.stopPropagation();
-        const used = this.spin
-          ? e.key === 'Escape' && (this.endSpin(false), true)
-          : this.drag?.moved
+        const used = this.drag?.moved
           ? this.dragKey(e)
           : this.edit?.next
             ? this.editKey(e)
@@ -389,7 +373,6 @@ export class Viewer implements ToolView {
     this.controls.mouseButtons = on
       ? { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE }
       : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-    this.placeRing(); // no rotation ring while a tool runs
   }
 
   /** The last face clicked on a body (front side), for tools picked after it. */
@@ -668,49 +651,12 @@ export class Viewer implements ToolView {
     this.applySection();
   }
 
-  /** The rotation ring around the base of the single selected body (none while a tool runs or nothing fits). */
-  private placeRing() {
-    const id = this.selection.length === 1 ? this.selection[0] : null;
-    const g = id ? this.bodies.get(id) : undefined;
-    const solid = g?.children[0];
-    if (!g || !solid || this.tool || this.spin || this.hidden.has(id!)) return void (this.ring.visible = false);
-    const box = new THREE.Box3().setFromObject(solid);
-    const size = box.getSize(new THREE.Vector3());
-    const centre = box.getCenter(new THREE.Vector3());
-    this.ring.position.set(centre.x, centre.y, box.min.z);
-    this.ring.scale.setScalar((Math.hypot(size.x, size.y) / 2) * 1.08 + 2);
-    this.ring.visible = true;
-  }
-
-  /** Whether the pointer is on the rotation ring (within `px` of it on screen). */
-  private onRing(e: MouseEvent, px = 7) {
-    if (!this.ring.visible) return false;
-    this.ring.updateMatrixWorld(); // it may have moved since the last frame
-    const r = this.el.getBoundingClientRect();
-    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
-    const at = (k: number) => this.toScreen(new THREE.Vector3(Math.cos((k / 96) * 2 * Math.PI), Math.sin((k / 96) * 2 * Math.PI), 0).applyMatrix4(this.ring.matrixWorld));
-    for (let k = 0; k < 96; k++) {
-      const [[x0, y0], [x1, y1]] = [at(k), at(k + 1)];
-      const [dx, dy] = [x1 - x0, y1 - y0];
-      const t = Math.max(0, Math.min(1, ((mx - x0) * dx + (my - y0) * dy) / (dx * dx + dy * dy || 1)));
-      if (Math.hypot(mx - x0 - t * dx, my - y0 - t * dy) < px) return true;
-    }
-    return false;
-  }
-
-  /** Angle (degrees) of the pointer around the ring's centre, in its horizontal plane. */
-  private ringAngle(e: MouseEvent) {
-    const p = this.raycaster(e).ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -this.ring.position.z), new THREE.Vector3());
-    return p ? (Math.atan2(p.y - this.ring.position.y, p.x - this.ring.position.x) * 180) / Math.PI : null;
-  }
-
   /** Where a body sits in the world: its origin and its turn (from turned groups). */
   setPlacement(id: string, at: THREE.Vector3, turn: THREE.Quaternion) {
     const g = this.group(id);
     g.quaternion.copy(turn);
     if (!(this.drag?.moved && this.withOwned(this.selection).includes(id))) g.position.copy(at); // not while dragged
     g.updateMatrixWorld();
-    this.placeRing();
     this.applySection();
   }
 
@@ -728,7 +674,6 @@ export class Viewer implements ToolView {
   select(ids: string[]) {
     this.selection = ids;
     for (const id of this.bodies.keys()) this.dress(id);
-    this.placeRing();
     this.applySection();
   }
 
@@ -1082,7 +1027,6 @@ export class Viewer implements ToolView {
     if (!w || !h) return;
     this.renderer.setSize(w, h);
     this.selectedEdges.resolution.set(w, h);
-    this.ring.material.resolution.set(w, h);
     this.dropComposer();
     (this.axes.material as LineMaterial).resolution.set(w, h);
     this.updateFrustums(w / h);
@@ -1509,18 +1453,6 @@ export class Viewer implements ToolView {
       this.controls.enabled = false;
       return this.renderer.domElement.setPointerCapture(e.pointerId);
     }
-    // the rotation ring of the selected body: a drag turns it
-    if (this.onRing(e)) {
-      const id = this.selection[0];
-      const g = this.group(id);
-      const a0 = this.ringAngle(e);
-      if (a0 !== null) {
-        this.spin = { id, centre: this.ring.position.clone(), a0, deg: 0, at: g.position.clone(), turn: g.quaternion.clone() };
-        this.downOnPart = true;
-        this.controls.enabled = false;
-        return this.renderer.domElement.setPointerCapture(e.pointerId);
-      }
-    }
     const hit = this.intersect(ray)[0];
     const shape = this.shapeAt(ray.ray, hit?.distance);
     this.downOnPart = !!hit || !!shape;
@@ -1596,7 +1528,6 @@ export class Viewer implements ToolView {
   }
 
   private move(e: PointerEvent) {
-    if (this.spin) return this.turnSpin(e);
     if (this.edit) {
       this.edit.last = e;
       return this.applyEdit(this.edit);
@@ -1656,37 +1587,6 @@ export class Viewer implements ToolView {
     const [x, y] = this.toScreen(at);
     Object.assign(this.moveLabel, { hidden: false, innerHTML: axisHtml(text) });
     this.moveLabel.style.cssText = `left:${x + 60}px;top:${y + 40}px`;
-  }
-
-  /** A ring drag: the body turns about the ring's centre (Ctrl or Shift: 15° steps), shown before it is written. */
-  private turnSpin(e: PointerEvent) {
-    const s = this.spin!;
-    const a = this.ringAngle(e);
-    if (a === null) return;
-    let deg = ((a - s.a0 + 540) % 360) - 180;
-    if (e.ctrlKey || e.shiftKey) deg = Math.round(deg / 15) * 15;
-    s.deg = deg;
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), (deg * Math.PI) / 180);
-    const g = this.group(s.id);
-    g.position.copy(s.at).sub(s.centre).applyQuaternion(q).add(s.centre);
-    g.quaternion.copy(q).multiply(s.turn);
-    g.updateMatrixWorld();
-    this.label(`Z° ${deg.toFixed(1)}`, s.centre);
-    this.applySection(false);
-  }
-
-  /** Ends a ring drag: `keep` writes the turn, else the body goes back. */
-  private endSpin(keep: boolean) {
-    const s = this.spin!;
-    this.spin = null;
-    this.moveLabel.hidden = true;
-    this.controls.enabled = true;
-    const g = this.group(s.id);
-    g.position.copy(s.at);
-    g.quaternion.copy(s.turn);
-    g.updateMatrixWorld();
-    if (keep && s.deg) this.host.rotate(s.id, s.centre.toArray(), s.deg);
-    else this.placeRing(), this.applySection();
   }
 
   /** Resizes (incase-style: Alt from the middle, Shift proportional, Ctrl snaps, typed sizes) or turns (Shift: 15°) the shape. */
@@ -1764,7 +1664,6 @@ export class Viewer implements ToolView {
 
   /** Ends a move, or handles a click: on empty space it deselects (unless Shift). */
   private up(e: PointerEvent) {
-    if (this.spin) return this.endSpin(true);
     if (this.edit) return this.endEdit(true);
     const d = this.drag;
     if (d?.moved) return this.endDrag(true);
