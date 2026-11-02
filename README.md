@@ -40,6 +40,6 @@ Inconsistent tools, fragile semantics, poor interoperability/lock-in, and geomet
 - The view cube does not freak out.
 - A render pipeline that actually works: Queued renders of saved views, automatic download, a history of results per view, and one click to render a view again with the model as it is now.
 - Actual keyboard controls
-- Hotkey editing: soon!
+- Hotkey editing: Soon!
 - Smart and automatic exports for laser cutters, 3d printers
 - Non-destructive chamfers and bevels. Because - chamfers are what seperates us from the animals.

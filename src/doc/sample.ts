@@ -33,10 +33,24 @@ const solid = (name: string, color: string, at: [number, number, number], profil
   features: [{ id: newId(), type: 'extrude', source: { kind: 'own', plane: ground, profiles }, depth: ex(depth), mode: 'add', through: false }],
 });
 
+/** Test pieces for single-edge finishes: a block with one vertical edge chamfered, one with one top edge rounded. */
+function edgeTests(): Body[] {
+  const one = (mode: 'fillet' | 'chamfer', size: number, pts: [number, number, number][]) => ({ id: newId(), type: 'finish' as const, mode, size: ex(size), edges: { pts: [pts] }, enabled: true, baked: false, skip: [] });
+  const block = (name: string, color: string, x: number, finish: ReturnType<typeof one>): Body => {
+    const b = solid(name, color, [x, -90, 0], [rect(40, 30)], 20);
+    return { ...b, features: [...b.features, finish] };
+  };
+  return [
+    block('One chamfered edge', '#c9b8e8', -40, one('chamfer', 4, [[20, -15, 0], [20, -15, 20]])),
+    block('One rounded edge', '#b8dcc8', 20, one('fillet', 5, [[-20, -15, 20], [20, -15, 20]])),
+  ];
+}
+
 /**
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
- * corner (both in a group), a hex nut sunk into the disc, and a free sketch on the front plane that no body uses yet.
+ * corner (both in a group), a hex nut sunk into the disc, a free sketch on the front plane that no body uses yet, and
+ * test pieces for newer features.
  */
 export function sampleDoc(): Doc {
   const outline: Sketch = {
@@ -95,7 +109,7 @@ export function sampleDoc(): Doc {
     schema: 11,
     units: 'mm',
     params: { ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut],
+    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests()],
     sketches: [
       outline,
       {
