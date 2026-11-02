@@ -740,6 +740,24 @@ function infoOf(): { title: string; rows: [string, string][] } | null {
   return { title: b ? b.name : `${ids.length} bodies`, rows };
 }
 
+/** A fillet / chamfer size set below 0 (`path`, `value`): the finish turns into the other kind, the size positive. */
+function finishSign(doc: Doc, path: string[], value: Expr): Doc {
+  const [k, i, f, j, field] = path;
+  const feature = k === 'bodies' && f === 'features' && field === 'size' ? doc.bodies[+i]?.features[+j] : undefined;
+  if (feature?.type !== 'finish') return doc;
+  let mm: number;
+  try {
+    mm = evalLength(value, paramLookup(doc.params));
+  } catch {
+    return doc;
+  }
+  if (!(mm < 0)) return doc;
+  // `-3` / `-ply` lose their minus, longer expressions are wrapped
+  const single = /^\s*-\s*([A-Za-z_]\w*|\d+\.?\d*|\.\d+)\s*$/.exec(value.e);
+  const size = { ...value, e: single ? single[1] : `-(${value.e})` };
+  return setIn(doc, ['bodies', i, 'features', j], { ...feature, mode: feature.mode === 'fillet' ? 'chamfer' : 'fillet', size });
+}
+
 /** V: the selected bodies, sketches and groups switch between hidden and shown (one step). */
 function toggleVisible() {
   const doc = history.current;
@@ -1450,7 +1468,8 @@ function render() {
     },
     commit,
     setValue(path, value, live = false) {
-      const next = follow(history.current, setIn(history.current, path, value));
+      const doc = setIn(history.current, path, value);
+      const next = follow(history.current, value && typeof value === 'object' && 'e' in value ? finishSign(doc, path, value as Expr) : doc);
       if (live) history.replace(next);
       else history.push(next);
       update();
