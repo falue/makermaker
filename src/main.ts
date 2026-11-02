@@ -1644,6 +1644,31 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
 }
 
 /**
+ * Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path, any
+ * sketch): a new body, the profile's middle on the path's start, square to it. Linked to both; Esc leaves nothing.
+ */
+function sweepTool() {
+  const pick = (hint: string, done: (at: { sketch: string; shape: string }) => void) => {
+    toolHint = hint;
+    render();
+    viewer.pickFace((face) => {
+      toolHint = null;
+      const q = face?.sketch?.shape;
+      if (!face?.sketch || !q) return render();
+      done({ sketch: face.sketch.id, shape: q });
+    }, false, 'outlines');
+  };
+  pick('Sweep: click the outline of the closed shape to sweep (the profile) · [Esc] cancels', (profile) =>
+    pick('Sweep: click the line or shape outline it runs along (the path) · [Esc] cancels', (path) => {
+      const doc = history.current;
+      const body = newBody(doc.bodies.length, [{ id: newId(), type: 'sweep', profile, path }]);
+      [selected, shapeSel] = [[body.id], []];
+      commit({ ...doc, bodies: [...doc.bodies, body] });
+    }),
+  );
+}
+
+/**
  * Loft: closed sketch shapes clicked in order (one per sketch, by their outline); from the second on the new body shows
  * through them. Enter keeps it, Esc leaves nothing.
  */
@@ -2988,6 +3013,7 @@ function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string) {
       if (c.type === 'boolean') return { ...c, body: renamed(c.body) };
       if (c.type === 'split' && c.cutter.kind === 'shape') return { ...c, cutter: { ...c.cutter, sketch: renamed(c.cutter.sketch), shape: renamed(c.cutter.shape) } };
       if (c.type === 'loft') return { ...c, sections: c.sections.map((q) => ({ sketch: renamed(q.sketch), shape: renamed(q.shape) })) };
+      if (c.type === 'sweep') return { ...c, profile: { sketch: renamed(c.profile.sketch), shape: renamed(c.profile.shape) }, path: { sketch: renamed(c.path.sketch), shape: renamed(c.path.shape) } };
       if (c.type !== 'extrude' && c.type !== 'revolve') return c;
       const src = c.source;
       if (src.kind === 'own') return src.plane.kind === 'cap' ? { ...c, source: { ...src, plane: { ...src.plane, feature: renamed(src.plane.feature) } } } : c;
@@ -3118,6 +3144,7 @@ function render() {
     moveTool: () => moveAlong(0, true),
     cutTool,
     revolveTool,
+    sweepTool,
     rotateTool,
     alignObjects,
     jointTool,

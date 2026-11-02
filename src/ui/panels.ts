@@ -63,6 +63,7 @@ export interface UIContext {
   /** Cut a body in two (see `cutTool` in main). */
   cutTool(): void;
   revolveTool(): void;
+  sweepTool(): void;
   rotateTool(): void;
   /** Aligns the selected objects (bodies, groups as one, whole sketches) by their boxes; see `alignObjects` in main. */
   alignObjects(how: ObjectAlign): void;
@@ -454,6 +455,7 @@ function toolbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
+    tool('sweep', 'Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path it runs along)', ctx.sweepTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
     tool('cut', 'Cut: a body (selected, or clicked next) in two along a face\'s plane (turn and move it) or a sketch line or shape; keep both or delete one side', ctx.cutTool, on('cut')),
     h('hr'), // shaping above, organizing below
@@ -1125,6 +1127,10 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const src = feature.source;
       const sketch = src.kind === 'sketch' ? ctx.doc.sketches.find((k) => k.id === src.sketch) : undefined;
       return h('section', {}, h('h4', {}, mode, remove), h('div', { className: 'row' }, f('angle', 'Angle °'), h('span', { className: 'hint' }, sketch ? `From ${sketch.name}` : 'Its sketch was deleted')));
+    }
+    case 'sweep': {
+      const name = (q: { sketch: string }) => ctx.doc.sketches.find((k) => k.id === q.sketch)?.name ?? '?';
+      return h('section', {}, h('h4', {}, 'Sweep', remove), h('p', { className: 'hint' }, `${name(feature.profile)} along ${name(feature.path)} (linked: editing either changes it)`));
     }
     case 'loft': {
       const ruled = h('input', { type: 'checkbox', checked: feature.ruled });

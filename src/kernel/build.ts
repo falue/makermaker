@@ -75,6 +75,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'split') apply(s.id, (cur) => split(cur, s));
       if (s.type === 'revolve') apply(s.id, (cur) => revolve(cur, s, plan.get(s.id)));
       if (s.type === 'loft') apply(s.id, (cur) => loft(cur, s));
+      if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -373,6 +374,21 @@ function loft(shape: Shape3D | null, s: Of<'loft'>): Shape3D {
   if (s.sections.length < 2) throw new Error('a loft needs two shapes or more');
   const [first, ...rest] = s.sections.map(({ frame: f, profile }) => drawing(profile).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch);
   return joined(shape, first.loftWith(rest, { ruled: s.ruled }), 'add');
+}
+
+/** The profile (its middle on the path's start, square to it) swept along the path, joined to the body. */
+function sweep(shape: Shape3D | null, s: Of<'sweep'>): Shape3D {
+  const { frame: f, profile: path } = s.path;
+  const p = s.profile;
+  if (p.kind === 'line') throw new Error('the profile must be a closed shape');
+  // the profile centred on its own origin: the path's start
+  const [cx, cy] = centre(p);
+  const centred = p.kind === 'polygon' ? { ...p, pts: p.pts.map(([x, y]) => [x - cx, y - cy] as [number, number]) } : { ...p, x: 0, y: 0 };
+  let line = path.kind === 'line' ? draw(path.pts[0]) : null;
+  if (line && path.kind === 'line') for (const q of path.pts.slice(1)) line = line.lineTo(q);
+  const spine = (line ? line.done() : drawing(path)).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch;
+  const tool = spine.sweepSketch((plane) => drawing(centred).sketchOnPlane(plane) as Sketch, { transitionMode: 'right' });
+  return joined(shape, tool, 'add');
 }
 
 /** `tool` joined to or cut from `shape` (none yet: `tool` itself); `tool` is used up. */

@@ -39,6 +39,14 @@ export function toBuild(
     }
     return { ...feature, sections };
   }
+  if (feature.type === 'sweep') {
+    const shape = (q: { sketch: string; shape: string }) => sketches.get(q.sketch)?.shapes.find((s) => s.id === q.shape);
+    const [profile, path] = [shape(feature.profile), shape(feature.path)];
+    const sketch = sketches.get(feature.path.sketch);
+    if (!profile || !path || !sketch) return 'its profile or path was deleted';
+    const frame = cutterFrame(sketch);
+    return frame ? { ...feature, profile, path: { frame, profile: path } } : null;
+  }
   if (feature.type !== 'extrude' && feature.type !== 'revolve') return feature;
   const { source, ...rest } = feature;
   if (source.kind === 'own') return { ...rest, plane: source.plane, profiles: source.profiles, areas: source.areas };

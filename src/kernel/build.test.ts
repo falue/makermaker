@@ -93,6 +93,14 @@ describe('buildBody', () => {
     down.done();
   });
 
+  it('sweeps a circle along a bent line', () => {
+    const ground = { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] };
+    const pipe = built([{ id: 'w', type: 'sweep', profile: { id: 'c', kind: 'circle', x: 50, y: 50, d: 6 }, path: { frame: ground, profile: { id: 'l', kind: 'line', pts: [[0, 0], [40, 0], [40, 30]] } } } as BuildFeature]);
+    expect(pipe.box.width).toBeCloseTo(43, 0); // the line's 40 plus the tube's radius beyond its corner
+    expect(pipe.box.depth).toBeCloseTo(6, 1);
+    pipe.done();
+  });
+
   it('revolves shapes around a line in their plane, and lofts through shapes', () => {
     // a 10 × 30 rectangle 10 to 20 mm right of the y axis, turned all the way around it: a ring Ø 40, 30 high (along y)
     const ring = built([{ id: 'r', type: 'revolve', plane: ground, profiles: [{ id: 'q', kind: 'rect', x: 15, y: 0, w: 10, h: 30, r: 0, rot: 0 }], axis: { at: [0, 0], dir: [0, 1] }, angle: 360, mode: 'add' } as BuildFeature]);

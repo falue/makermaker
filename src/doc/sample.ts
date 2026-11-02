@@ -66,8 +66,9 @@ function splitTest(): { body: Body; sketch: Sketch } {
 }
 
 /**
- * Test pieces for loft and revolve: a square on the ground with a circle 40 mm above it (loft through them), and on the
- * front plane a vase's half outline beside a construction line (revolve it around that line).
+ * Test pieces for loft, revolve and sweep: a square on the ground with a circle 40 mm above it (loft through them), on
+ * the front plane a vase's half outline beside a construction line (revolve it around that line), and a bent line with
+ * a small circle (sweep the circle along it).
  */
 function shapeTests(): Sketch[] {
   const sketch = (name: string, plane: Sketch['plane'], shapes: Profile[]): Sketch => ({ id: newId(), name, group: null, groups: [], plane, shapes, visible: true });
@@ -78,6 +79,9 @@ function shapeTests(): Sketch[] {
     sketch('Loft base', { kind: 'base', axis: 'xy', offset: ex(0) }, [square]),
     sketch('Loft top', { kind: 'base', axis: 'xy', offset: ex(40) }, [circle(-130, 90, 16)]),
     sketch('Revolve me', { kind: 'base', axis: 'xz', offset: ex(-60) }, [vase, axis]),
+    // a bent path 10 mm above the ground and a small circle to sweep along it (a pipe)
+    sketch('Sweep path', { kind: 'base', axis: 'xy', offset: ex(10) }, [{ id: newId(), kind: 'line', pts: [[-60, -160], [-20, -160], [0, -140], [0, -120]] }]),
+    sketch('Sweep profile', { kind: 'base', axis: 'xy', offset: ex(0) }, [circle(-80, -175, 8)]),
   ];
 }
 
