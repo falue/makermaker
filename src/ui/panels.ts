@@ -370,7 +370,7 @@ function toolbar(ctx: UIContext): Node[] {
     tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
     ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), on(kind))),
     tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), on('sphere')),
-    h('hr'), // drawing above, editing below
+    h('hr'), // drawing above, shaping below
     tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a face (clicked before or after)', ctx.extrude, on('extrude')),
     h(
       'div',
@@ -381,6 +381,7 @@ function toolbar(ctx: UIContext): Node[] {
       }, flyout || on('boolean')),
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
+    h('hr'), // shaping above, organizing below
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? 'Ungroup (⇧⌘G): the contents move to the group\'s parent, staying where they are' : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
     tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
     tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
