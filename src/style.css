@@ -552,8 +552,10 @@ body.scrubbing * {
   border-left: 2px solid var(--line);
 }
 
-canvas.drawing {
-  cursor: crosshair;
+/* drawing, picking a face or objects; important: the orbit controls set an inline cursor */
+canvas.drawing,
+.picking canvas {
+  cursor: crosshair !important;
 }
 .size-labels {
   position: absolute;

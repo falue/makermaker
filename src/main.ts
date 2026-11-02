@@ -1148,6 +1148,7 @@ function duplicate(offset = 10) {
 }
 
 function render() {
+  viewer.el.classList.toggle('picking', !!pending); // objects to pick: crosshair
   const doc = history.current;
   const lookup = paramLookup(doc.params);
   const ctx: UIContext = {
