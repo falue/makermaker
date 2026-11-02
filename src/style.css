@@ -651,6 +651,16 @@ canvas.drawing {
 .listed .item {
   margin-bottom: 0;
 }
+/* a row whose name is edited in place: the field fills it */
+.listed div.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+input.rename {
+  flex: 1;
+  min-width: 0;
+}
 .listed.dimmed > * {
   opacity: 0.4;
 }

@@ -127,7 +127,12 @@ export interface RenderJob {
 export type ShapeField = 'x' | 'y' | 'w' | 'h' | 'd' | 'rot';
 
 /** A list click as in file lists: Shift a range, ⌘ / Ctrl toggles. Ctrl-click on macOS (a context menu click) toggles too. */
-function listItem(className: string, pick: (how: Pick) => void, ...children: (Node | string)[]) {
+/** The list row whose name is edited in place (its id). */
+let renaming: string | null = null;
+
+/** A list row's button; while its name is edited, a plain box (an input cannot sit in a button). */
+function listItem(id: string, className: string, pick: (how: Pick) => void, ...children: (Node | string)[]) {
+  if (renaming === id) return h('div', { className }, ...children);
   return h('button', {
     className,
     onclick: (e) => pick(e.shiftKey ? 'range' : e.metaKey || e.ctrlKey),
@@ -151,7 +156,7 @@ let rendering = false;
 /** Rebuilds all panels, keeping focus and unsaved typing in the active field. */
 export function renderUI(ctx: UIContext) {
   const active = document.activeElement as HTMLInputElement | null;
-  const path = active?.dataset?.path;
+  const path = active?.dataset?.path ?? (renaming ? `list.${renaming}` : undefined); // a name just clicked gets the focus
   const typing = active?.dataset.dirty ? { value: active.value, from: active.selectionStart, to: active.selectionEnd } : null;
   rendering = true;
   $('topbar').replaceChildren(...topbar(ctx));
@@ -373,7 +378,7 @@ function left(ctx: UIContext): Node[] {
   // it (in its group), the middle of a group row into the group, the header to the end of the top level
   const dragged = (id: string) => (ctx.selected.includes(id) ? ctx.selected : [id]);
   const row = (id: string, depth: number, group: boolean, ...cells: HTMLElement[]) => {
-    const el = h('div', { className: `listed${dimmed(id)}`, draggable: true }, ...cells);
+    const el = h('div', { className: `listed${dimmed(id)}`, draggable: renaming !== id }, ...cells);
     el.style.paddingLeft = `${depth * 22}px`; // a level: the chevron's width, so contents line up under the group name
     el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
     const where = (e: DragEvent) => {
@@ -398,6 +403,18 @@ function left(ctx: UIContext): Node[] {
   // only groups fold: a chevron that turns down when open; other rows start at the left
   const fold = ({ id, open }: Row) =>
     open === undefined ? [] : [h('button', { className: `icon fold${open ? ' open' : ''}`, innerHTML: icon('chevron'), title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(id) })];
+  /**
+   * A row's name: a plain click selects the row and edits the name in place (Enter or leaving the field saves it, Esc
+   * keeps it); `at`: where the name is stored.
+   */
+  const nameOf = (id: string, name: string, at: string[]) => {
+    if (renaming !== id)
+      return h('span', { className: 'name', textContent: name, onclick: (e) => !(e.shiftKey || e.metaKey || e.ctrlKey) && (renaming = id) });
+    const el = input(`list.${id}`, name, (text) => ((renaming = null), ctx.commit(setIn(doc, at, text))));
+    el.className = 'rename';
+    el.addEventListener('blur', () => !rendering && renaming === id && ((renaming = null), renderUI(ctx)));
+    return el;
+  };
   const sketchIcon = () => h('span', { className: 'kind', innerHTML: icon('sketch') });
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
   const rows = tree(doc, ctx.folded).map((r) => {
@@ -405,7 +422,7 @@ function left(ctx: UIContext): Node[] {
     if (kind === 'group') {
       const i = doc.groups.findIndex((g) => g.id === id);
       const g = doc.groups[i];
-      return row(id, depth, true, ...fold(r), listItem(`${selectedClass(id)} group`, (how) => ctx.select(id, how), g.name), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
+      return row(id, depth, true, ...fold(r), listItem(id, `${selectedClass(id)} group`, (how) => ctx.select(id, how), nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -423,12 +440,12 @@ function left(ctx: UIContext): Node[] {
     const sketch = own.length
       ? h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.select(own[0].id) })
       : h('span', { className: 'fold-space' });
-    return row(id, depth, false, ...fold(r), listItem(selectedClass(id), (how) => ctx.select(id, how), swatch, p.name), sketch, look);
+    return row(id, depth, false, ...fold(r), listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), sketch, look);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
     const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
-    const item = listItem(selectedClass(sk.id), (how) => ctx.select(sk.id, how), sketchIcon(), sk.name, ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
+    const item = listItem(sk.id, selectedClass(sk.id), (how) => ctx.select(sk.id, how), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']), ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
     return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye(['sketches', String(i), 'visible'], sk.visible));
   });
   const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'));
@@ -657,7 +674,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
   const only = ctx.sketching === s.id && ctx.shapes.length > 0;
   const shapes = s.shapes.flatMap((q, j) => {
     if (only && !ctx.shapes.includes(q.id)) return [];
-    const name = listItem(`item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
+    const name = listItem(q.id, `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
     const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
     const box = h('input', { type: 'checkbox', checked: !!q.construction });
     // the next objects are drawn as this one now is
