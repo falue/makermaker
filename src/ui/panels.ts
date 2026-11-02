@@ -33,6 +33,9 @@ export interface UIContext {
   statusError: boolean;
   /** Measurements of the selection, for the info panel (null: nothing to measure). */
   info: { title: string; rows: [string, string][] } | null;
+  /** In sketch mode: bodies shown fully (their eye switched them back); the others are see-through. */
+  solid: Set<string>;
+  toggleSolid(id: string): void;
   paramValue(name: string): string;
   commit(doc: Doc): void;
   /** `live`: replaces the current undo step (scrubbing). */
@@ -469,6 +472,11 @@ function left(ctx: UIContext): Node[] {
     look.oncontextmenu = isolate;
     look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : ctx.commit(setIn(doc, ['bodies', String(i), 'visible'], !p.visible)));
     if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again', innerHTML: icon('isolate') });
+    // a sketch group open: shown bodies are see-through; the eye switches one to fully shown and back (V still hides)
+    else if (ctx.sketching && p.visible) {
+      const full = ctx.solid.has(p.id);
+      Object.assign(look, { innerHTML: icon(full ? 'eye' : 'eyeFaded'), title: full ? 'Shown fully: click to make it see-through again' : 'See-through while the sketch group is open: click to show it fully', onclick: () => ctx.toggleSolid(p.id) });
+    }
     // its sketches have their own list: this button draws into the (first) one
     const own = sketchesOf(doc, p.id);
     const sketch = own.length
@@ -724,7 +732,8 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
     const construction = h('label', { className: 'check', title: 'Construction line: dashed, snapped to, never extruded' }, box, 'Construction');
     const row = h('div', { className: 'listed' }, name, construction, drop);
     row.style.paddingLeft = `${depth * 22}px`;
-    return h('div', { className: 'shape' }, row, ...shapeFields(ctx, `${at}.shapes.${j}`, q));
+    // fields and reference diamond only for selected shapes
+    return h('div', { className: 'shape' }, row, ...(ctx.shapes.includes(q.id) ? shapeFields(ctx, `${at}.shapes.${j}`, q) : []));
   };
   // sub-groups first, then the shapes, per level; a group row picks all its shapes and folds
   const level = (parent: string | null, depth: number): Node[] => [
@@ -811,7 +820,7 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
 function refGrid(ctx: UIContext, shape: string) {
   const [rx, ry] = ctx.shapeRef(shape);
   const cells = [1, 0, -1].flatMap((sy) => [-1, 0, 1].map((sx) => h('button', { className: `cell${rx === sx && ry === sy ? ' on' : ''}`, onclick: () => ctx.setShapeRef(shape, [sx, sy]) })));
-  return h('div', { className: 'ref-grid', title: 'Reference point: X / Y measure it; changing size or turn keeps it in place' }, ...cells);
+  return h('div', { className: 'ref-grid', title: 'Reference diamond: X / Y measure this point of the shape; changing size or turn keeps it in place' }, ...cells);
 }
 
 function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, setBody: (p: Body) => void) {

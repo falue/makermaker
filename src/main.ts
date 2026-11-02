@@ -40,6 +40,8 @@ let shapeSel: string[] = [];
 let sketching: string | null = null;
 /** The open sub-groups of the sketch group in sketch mode, outermost first (none: the sketch group itself). */
 let sketchPath: string[] = [];
+/** Bodies shown fully in sketch mode (the others are see-through), by their eye. */
+let solid = new Set<string>();
 /** What the running tool does: one shape then pull, sketch mode, pulling shapes, or picking a plane for a new sketch. */
 let toolMode: 'direct' | 'draw' | 'pull' | 'plane' | null = null;
 let exprErrors = new Map<string, string>();
@@ -1253,6 +1255,7 @@ function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
 function exitSketch() {
   sketching = null;
   sketchPath = [];
+  solid = new Set();
   SketchTool.dropGuides();
   stopTool();
   viewer.setSketchGrid(null);
@@ -1384,10 +1387,10 @@ function syncFocus() {
         ...names.map((name, i) => ({ label: name, title: `Sub-group of ${i ? names[i - 1] : s.name} · ${i < names.length - 1 ? 'click to go back to it' : 'Esc goes up a level'}` })),
       ]
     : [];
-  const key = `${sketching} ${sketchPath.join()} ${crumbs.map((c) => c.title).join('›')}`;
+  const key = `${sketching} ${sketchPath.join()} ${[...solid].join()} ${crumbs.map((c) => c.title).join('›')}`;
   if (key === focused) return;
   focused = key;
-  viewer.setFocus(s ? { sketch: s.id, group: sketchPath.at(-1) ?? null } : null, crumbs, (level) => {
+  viewer.setFocus(s ? { sketch: s.id, group: sketchPath.at(-1) ?? null, solid } : null, crumbs, (level) => {
     sketchPath = sketchPath.slice(0, level);
     shapeSel = [];
     showSelection();
@@ -1415,6 +1418,11 @@ function render() {
     notify: fail,
     statusError,
     info: infoOf(),
+    solid,
+    toggleSolid(id) {
+      solid = new Set(solid.has(id) ? [...solid].filter((x) => x !== id) : [...solid, id]);
+      render();
+    },
     paramValue(name) {
       try {
         const q = lookup(name);

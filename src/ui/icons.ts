@@ -22,6 +22,7 @@ const ICONS = {
   look: '<path d="M15 7.5l6.5 4.5-6.5 4.5"/><path d="M15 7.5a5.5 5.5 0 0 0 0 9"/><path d="M13.6 10.7a1.6 1.6 0 0 0 0 2.6"/><path d="M5 12h5" stroke-dasharray="1.5 1.5"/><path d="M2.5 6v12"/>',
   eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   isolate: '<path d="M3 7V3h4M17 3h4v4M21 17v4h-4M7 21H3v-4"/><path d="M5 12s3-4.5 7-4.5 7 4.5 7 4.5-3 4.5-7 4.5S5 12 5 12z"/><circle cx="12" cy="12" r="2" fill="currentColor"/>',
+  eyeFaded: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke-dasharray="2.5 2"/><circle cx="12" cy="12" r="3" opacity=".45"/>',
   eyeOff: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" opacity=".35"/><path d="M4 4l16 16"/>',
   duplicate: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
   delete: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',

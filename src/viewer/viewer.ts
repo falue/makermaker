@@ -438,9 +438,11 @@ export class Viewer implements ToolView {
   /** An edge picked with Ctrl-click (world segments), lit until its body is no longer selected. */
   private pickedEdge: { body: string; segs: [THREE.Vector3, THREE.Vector3][] } | null = null;
   private edgeMark = new THREE.Group();
-  /** The open sketch group and sub-group (sketch mode): everything else is drawn faint. */
-  private focus: { sketch: string; group: string | null } | null = null;
+  /** The open sketch group and sub-group (sketch mode): bodies see-through (except `solid` ones), other shapes faint. */
+  private focus: { sketch: string; group: string | null; solid: Set<string> } | null = null;
   private faded = new Map<string, THREE.MeshStandardMaterial>();
+  /** Writes see-through bodies' depth first, so they hide each other like solid ones and only the front shows. */
+  private depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   private fadedEdges = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.2 });
   /** Where in the sketch group the view is: a row under the projection buttons. */
   private crumbs = Object.assign(document.createElement('div'), { className: 'overlay crumbs', hidden: true });
@@ -537,7 +539,8 @@ export class Viewer implements ToolView {
   }
 
   /** Sketch outlines (the selected sketch darker, its selected shapes orange) and the handles of a single selected shape. */
-  private renderSketches(lift = 0.05) {
+  private renderSketches(raised = 0.05) {
+    const lift = this.focus ? 0 : raised; // a sketch group open: outlines over everything, the see-through bodies included
     for (const o of this.sketchView.children) {
       (o as THREE.Line).geometry.dispose();
       ((o as THREE.Line).material as THREE.Material).dispose();
@@ -578,7 +581,7 @@ export class Viewer implements ToolView {
     const lines: THREE.Vector3[] = [];
     for (const q of s.shapes) {
       const ref = this.shapeRefs.get(q.id) ?? [0, 0];
-      if (!this.selectedShapes.includes(q.id) && !ref[0] && !ref[1]) continue;
+      if (!this.selectedShapes.includes(q.id)) continue;
       const p = this.overrides.get(q.id) ?? q;
       const [u, v] = anchorAt(p, ref);
       const at = new THREE.Vector3(...toWorld(s.frame, u, v));
@@ -797,9 +800,19 @@ export class Viewer implements ToolView {
     const [solid, lines, thick] = this.bodies.get(id)?.children ?? [];
     if (!solid) return;
     const cutter = this.cutters.has(id);
+    const faded = !cutter && !!this.focus && !this.focus.solid.has(id);
     thick.visible = !cutter && this.selection.includes(id); // a selected cutter turns orange instead
-    (solid as THREE.Mesh).material = cutter ? this.ghost : this.focus ? this.fadedOf(id) : this.materialOf(id);
-    (lines as THREE.LineSegments).material = cutter ? this.cutterEdges[+this.selection.includes(id)] : this.focus ? this.fadedEdges : this.edgeMaterial;
+    (solid as THREE.Mesh).material = cutter ? this.ghost : faded ? this.fadedOf(id) : this.materialOf(id);
+    (lines as THREE.LineSegments).material = cutter ? this.cutterEdges[+this.selection.includes(id)] : faded ? this.fadedEdges : this.edgeMaterial;
+    // a see-through body's depth, drawn before the see-through colours (sections and picking skip it)
+    const g = this.bodies.get(id)!;
+    let depth = g.children.find((c) => c.userData.depth);
+    if (faded && !depth) {
+      depth = Object.assign(new THREE.Mesh((solid as THREE.Mesh).geometry, this.depthOnly), { raycast: () => {} });
+      Object.assign(depth.userData, { depth: true, outline: true });
+      g.add(depth);
+    }
+    if (depth) depth.visible = faded;
     lines.renderOrder = cutter ? 1e5 : 0;
   }
 
@@ -811,7 +824,7 @@ export class Viewer implements ToolView {
   }
 
   /** A body's colour, see-through: drawn behind an open sketch group. */
-  private fadedOf(id: string, opacity = 0.25) {
+  private fadedOf(id: string, opacity = 0.35) {
     let m = this.faded.get(id);
     if (!m) this.faded.set(id, (m = new THREE.MeshStandardMaterial({ roughness: 0.7, transparent: true, opacity, depthWrite: false })));
     m.copy(this.materialOf(id));
@@ -823,7 +836,7 @@ export class Viewer implements ToolView {
    * Sketch mode inside sketch group `focus.sketch`, sub-group `focus.group` (null: none open): bodies and other shapes
    * faint; `crumbs` shows the way down with a hover text each (clicking one goes there, `go(level)`).
    */
-  setFocus(focus: { sketch: string; group: string | null } | null, crumbs: { label: string; title: string }[] = [], go: (level: number) => void = () => {}) {
+  setFocus(focus: { sketch: string; group: string | null; solid: Set<string> } | null, crumbs: { label: string; title: string }[] = [], go: (level: number) => void = () => {}) {
     this.focus = focus;
     this.crumbs.hidden = !crumbs.length;
     this.crumbs.replaceChildren(
