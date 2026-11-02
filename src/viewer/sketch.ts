@@ -210,7 +210,7 @@ export class SketchTool implements Tool {
   /** Pulling: waiting for the click that sets how far ("to object"). */
   private reaching = false;
   /** Lines and polygon sides snap to this angle step while Shift is held (A finer, Shift A coarser; kept across restarts). */
-  private static angleStep = 15;
+  private static angleStep = 45;
   /** Shift held while drawing a line or polygon; the angle rays show then, and until `raysUntil` after a step change. */
   private shiftHeld = false;
   private raysUntil = 0;
@@ -348,7 +348,7 @@ export class SketchTool implements Tool {
         const a = Math.round(Math.atan2(at[1] - y0, at[0] - x0) / step) * step;
         const len = (at[0] - x0) * Math.cos(a) + (at[1] - y0) * Math.sin(a);
         ph.cur = [x0 + len * Math.cos(a), y0 + len * Math.sin(a)];
-        this.snapWhat = `${+((a * 180) / Math.PI).toFixed(1)}°`;
+        this.snapWhat = null; // the angle line says it
       }
       if (ph.kind === 'shape') {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
@@ -893,7 +893,9 @@ export class SketchTool implements Tool {
     const guide = this.hoveredGuide();
     const fix = guide ? `Press ${comboText(KEYS.fixGuide.default[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
     const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(KEYS.moreSnaps.default[0])} finer, ${comboText(KEYS.fewerSnaps.default[0])} coarser` : null;
-    this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, more, fix, angles, chain].filter(Boolean).join('\n') || null); // one per line
+    const last = ph.kind === 'polygon' && ph.pts[ph.pts.length - 1];
+    const angle = last ? `${+((Math.atan2(ph.cur[1] - last[1], ph.cur[0] - last[0]) * 180) / Math.PI).toFixed(1)}°` : null; // the side's angle
+    this.host.cursorTip(ph.kind === 'pull' ? null : [angle, this.snapWhat, more, fix, angles, chain].filter(Boolean).join('\n') || null); // one per line
     if (ph.kind === 'polygon' && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
