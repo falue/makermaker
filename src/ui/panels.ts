@@ -153,8 +153,26 @@ function h<K extends keyof HTMLElementTagNameMap>(
 /** Set while panels are rebuilt, so blur from removed inputs does not commit. */
 let rendering = false;
 
+/**
+ * A press that takes the focus from a field holds rebuilding the panels until it ends: the field saves on blur, and a
+ * rebuild in between would replace the button under the pointer, so the click would not count.
+ */
+let holding = false;
+/** The rebuild held back (a rebuild by the click itself makes it unneeded). */
+let waiting: UIContext | null = null;
+addEventListener('pointerdown', (e) => (holding = document.activeElement instanceof HTMLInputElement && e.target !== document.activeElement), { capture: true });
+const release = () => {
+  if (!holding) return;
+  holding = false;
+  setTimeout(() => waiting && renderUI(waiting)); // after the click
+};
+addEventListener('pointerup', release, { capture: true });
+addEventListener('pointercancel', release, { capture: true });
+
 /** Rebuilds all panels, keeping focus and unsaved typing in the active field. */
 export function renderUI(ctx: UIContext) {
+  if (holding) return void (waiting = ctx);
+  waiting = null;
   const active = document.activeElement as HTMLInputElement | null;
   const path = active?.dataset?.path ?? (renaming ? `list.${renaming}` : undefined); // a name just clicked gets the focus
   const typing = active?.dataset.dirty ? { value: active.value, from: active.selectionStart, to: active.selectionEnd } : null;
