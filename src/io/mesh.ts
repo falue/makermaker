@@ -14,8 +14,23 @@ export function toBase64(bytes: ArrayBufferView) {
 
 const fromBase64 = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0)).buffer;
 
-/** An OBJ file's triangles, merged into one indexed mesh, turned from y up to z up. */
-export function parseObj(text: string): { vertices: Float32Array; triangles: Uint32Array } {
+/** An OBJ file's probable unit and up axis (OBJ stores neither): Autodesk's exporter (Fusion) writes cm and z up, others mostly mm and y up. */
+export function objKind(text: string) {
+  const autodesk = text.slice(0, 500).includes('Autodesk ATF');
+  return { unit: autodesk ? 'cm' : 'mm', zUp: autodesk } as const;
+}
+
+/** A mesh's size along x, y, z. */
+export function extents(vertices: ArrayLike<number>): [number, number, number] {
+  return [0, 1, 2].map((k) => {
+    let [lo, hi] = [Infinity, -Infinity];
+    for (let i = k; i < vertices.length; i += 3) [lo, hi] = [Math.min(lo, vertices[i]), Math.max(hi, vertices[i])];
+    return hi - lo;
+  }) as [number, number, number];
+}
+
+/** The triangles of an OBJ file, corners shared; y up is turned to z up unless `zUp`. */
+export function parseObj(text: string, zUp = false): { vertices: Float32Array; triangles: Uint32Array } {
   const parts: THREE.BufferGeometry[] = [];
   new OBJLoader().parse(text).traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
@@ -26,7 +41,7 @@ export function parseObj(text: string): { vertices: Float32Array; triangles: Uin
   const all = new Float32Array(parts.reduce((n, g) => n + g.attributes.position.array.length, 0));
   parts.reduce((at, g) => (all.set(g.attributes.position.array, at), at + g.attributes.position.array.length), 0);
   const merged = mergeVertices(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(all, 3)));
-  merged.rotateX(Math.PI / 2); // y up → z up
+  if (!zUp) merged.rotateX(Math.PI / 2); // y up → z up
   return { vertices: merged.attributes.position.array as Float32Array, triangles: new Uint32Array(merged.index!.array) };
 }
 

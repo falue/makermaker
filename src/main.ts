@@ -10,10 +10,10 @@ import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './d
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { contents, ownerOf, tree, within } from './doc/groups';
-import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement } from './doc/types';
+import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
-import { meshBody, parseObj, parseStl, toBase64 } from './io/mesh';
+import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
@@ -1550,23 +1550,46 @@ async function previewOf(image: Blob, width = 320, type = 'image/jpeg') {
 }
 
 /**
- * Imports an OBJ or STL file's triangles as a mesh body at the origin (it stays a mesh). They have no unit: 1 is taken
- * as 1 mm, but something under 10 mm big is scaled to about 100 mm (the scale is in its card).
+ * Imports an OBJ or STL file's triangles as a mesh body at the origin (it stays a mesh). They have no unit: `unit` is
+ * the guess, and a dialog lets it be changed while the body shows at that size.
  */
-function importMesh(name: string, { vertices, triangles }: { vertices: Float32Array; triangles: Uint32Array }) {
-  let size = 0;
-  for (let k = 0; k < 3; k++) {
-    let [lo, hi] = [Infinity, -Infinity];
-    for (let i = k; i < vertices.length; i += 3) [lo, hi] = [Math.min(lo, vertices[i]), Math.max(hi, vertices[i])];
-    size = Math.max(size, hi - lo);
-  }
-  const scale = size < 10 ? +(100 / size).toPrecision(2) : 1;
+function importMesh(name: string, { vertices, triangles }: { vertices: Float32Array; triangles: Uint32Array }, unit: Unit = 'mm') {
   const doc = history.current;
-  const mesh: Feature = { id: newId(), type: 'mesh', source: name, vertices: toBase64(vertices), triangles: toBase64(triangles), scale: ex(fmt(scale)) };
+  const mesh: Feature = { id: newId(), type: 'mesh', source: name, vertices: toBase64(vertices), triangles: toBase64(triangles), scale: ex(fmt(UNITS[unit])) };
   const body = { ...newBody(doc.bodies.length, [mesh]), name: name.replace(/\.[^.]*$/, '') };
   [selected, shapeSel] = [[body.id], []];
   commit({ ...doc, bodies: [...doc.bodies, body] });
-  notify(`Imported ${name}: ${triangles.length / 3} triangles${scale !== 1 ? `, scaled ×${fmt(scale)} (the file has no unit)` : ''}`);
+  notify(`Imported ${name}: ${triangles.length / 3} triangles`);
+  meshUnits(body.id, extents(vertices), unit);
+}
+
+/**
+ * The unit of an imported mesh (its file has none): a small dialog, the body showing at each unit's size as it is
+ * picked (the import's undo step, rewritten). ✓, Enter or Esc closes it.
+ */
+function meshUnits(body: string, size: [number, number, number], unit: Unit) {
+  const box = Object.assign(document.createElement('div'), { className: 'mesh-units' });
+  const sizeText = Object.assign(document.createElement('span'), { className: 'size' });
+  const buttons = (['mm', 'cm', 'm', 'in'] as Unit[]).map((u) => Object.assign(document.createElement('button'), { textContent: u, onclick: () => pick(u) }));
+  const close = () => (box.remove(), removeEventListener('keydown', keys, { capture: true }));
+  const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), close());
+  const pick = (u: Unit) => {
+    const doc = history.current;
+    const i = doc.bodies.findIndex((b) => b.id === body);
+    if (i < 0) return close();
+    history.replace(setIn(doc, ['bodies', String(i), 'features', '0', 'scale'], ex(fmt(UNITS[u]))));
+    update();
+    show(u);
+  };
+  const show = (u: Unit) => {
+    buttons.forEach((b) => b.classList.toggle('on', b.textContent === u));
+    const d = history.current.units;
+    sizeText.textContent = `${size.map((v) => fmt((v * UNITS[u]) / UNITS[d])).join(' × ')} ${d}`;
+  };
+  box.append(Object.assign(document.createElement('span'), { textContent: 'The file has no unit. Its numbers are' }), ...buttons, sizeText, Object.assign(document.createElement('button'), { className: 'done', textContent: '✓', title: 'Done (Enter)', onclick: close }));
+  show(unit);
+  document.body.append(box);
+  addEventListener('keydown', keys, { capture: true });
 }
 
 /** Imports a STEP file as a solid body at the origin (in mm, as the file says); the kernel reads it. */
@@ -1584,7 +1607,13 @@ const IMPORTS = ['.step', '.stp', '.stl', '.obj'];
 function importFile(f: File) {
   const ext = f.name.toLowerCase().match(/\.[^.]*$/)?.[0] ?? '';
   if (!IMPORTS.includes(ext)) return false;
-  run(async () => (ext === '.obj' ? importMesh(f.name, parseObj(await f.text())) : ext === '.stl' ? importMesh(f.name, parseStl(await f.arrayBuffer())) : importStep(f.name, await f.text())));
+  run(async () => {
+    if (ext === '.stl') return importMesh(f.name, parseStl(await f.arrayBuffer()));
+    if (ext !== '.obj') return importStep(f.name, await f.text());
+    const text = await f.text();
+    const kind = objKind(text);
+    importMesh(f.name, parseObj(text, kind.zUp), kind.unit);
+  });
   return true;
 }
 

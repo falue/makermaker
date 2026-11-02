@@ -1161,3 +1161,27 @@ button.primary.wide {
     left: 100%;
   }
 }
+
+/* the unit of an imported mesh: the body shows at the picked size */
+.mesh-units {
+  position: fixed;
+  top: 96px; /* below the view's top-left switches */
+  left: 50%;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  transform: translateX(-50%);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.mesh-units button.on {
+  border-color: var(--accent);
+  background: var(--selected);
+}
+.mesh-units .size {
+  margin: 0 6px;
+  color: var(--muted);
+}
