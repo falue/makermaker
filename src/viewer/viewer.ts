@@ -23,7 +23,7 @@ import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
 import type { Settings } from '../ui/settings';
 import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
-import { pressed } from '../ui/keys';
+import { picksFace, pressed, toggles } from '../ui/keys';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -313,6 +313,7 @@ export class Viewer implements ToolView {
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
       if (this.facePick) return this.markFace(this.frontHit(e));
+      if (!this.tool && !this.drag && !e.buttons) this.markFace(picksFace(e) ? this.frontHit(e) : (this.pickedFace ?? undefined)); // Ctrl shows the face it would pick
       this.tool?.move(e);
       if (!this.toolPress) this.move(e); // a drag that belongs to a tool is no orbit
     });
@@ -381,6 +382,8 @@ export class Viewer implements ToolView {
 
   /** The last face clicked on a body (front side), for tools picked after it. */
   lastFace: PickedFace | null = null;
+  /** A face picked with Ctrl-click (on a selected body), lit until its body is no longer selected. */
+  private pickedFace: THREE.Intersection | null = null;
   private lastHit: THREE.Intersection | null = null;
 
   placeOn(hit: THREE.Intersection) {
@@ -677,6 +680,10 @@ export class Viewer implements ToolView {
 
   select(ids: string[]) {
     this.selection = ids;
+    if (this.pickedFace && !ids.includes(this.pickedFace.object.userData.bodyId)) {
+      this.pickedFace = null;
+      if (!this.tool && !this.facePick) this.markFace();
+    }
     for (const id of this.bodies.keys()) this.dress(id);
     this.applySection();
   }
@@ -1468,14 +1475,20 @@ export class Viewer implements ToolView {
       this.lastHit = hit;
     }
     if (shape) {
-      if (e.shiftKey || e.metaKey || e.ctrlKey) return this.host.pickShape(shape.sketch, shape.shape, true);
+      if (toggles(e)) return this.host.pickShape(shape.sketch, shape.shape, true);
       const member = this.activeSketch === shape.sketch && this.selectedShapes.includes(shape.shape);
       if (!member) this.host.pickShape(shape.sketch, shape.shape, false);
       return this.startShapeMove(ray.ray, shape.sketch, member && this.selectedShapes.length > 1 ? shape.shape : null, e);
     }
     if (!hit) return;
     const id = hit.object.userData.bodyId as string;
-    if (e.shiftKey || e.metaKey || e.ctrlKey) return this.host.select(id, true);
+    if (picksFace(e)) {
+      // its body selected, the face lit: E pulls it, S sketches on it
+      this.host.select(id, false);
+      this.pickedFace = this.lastHit === hit ? hit : null;
+      return this.markFace(this.pickedFace ?? undefined);
+    }
+    if (toggles(e)) return this.host.select(id, true);
     const member = this.selection.includes(id);
     if (!member) this.host.select(id, false);
     if (!this.selection.includes(id)) return; // the click went to a tool (deleted it, say)

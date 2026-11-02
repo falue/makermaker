@@ -68,7 +68,10 @@ export function pressed(e: KeyboardEvent, action: Action): boolean {
   );
 }
 
-const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+export const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+/** Ctrl (a Mac: ⌘) adds to or removes from a selection; on a Mac Ctrl picks a face, elsewhere Alt does. */
+export const toggles = (e: MouseEvent) => e.shiftKey || e.metaKey || (!MAC && e.ctrlKey);
+export const picksFace = (e: MouseEvent) => (MAC ? e.ctrlKey && !e.metaKey : e.altKey);
 const NAMES: Record<string, string> = { escape: 'Esc', enter: '↵', tab: 'Tab', backspace: '⌫', delete: 'Del', arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', ' ': 'Space' };
 
 /** A key combination as shown to people: ⇧⌘Z on a Mac, Ctrl+Shift+Z elsewhere. */
