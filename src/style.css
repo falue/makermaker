@@ -1185,3 +1185,18 @@ button.primary.wide {
   margin: 0 6px;
   color: var(--muted);
 }
+
+/* a boolean's tool body in the list: the op's icon after its name */
+.tool-op {
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: middle;
+  color: var(--error);
+}
+.tool-op svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}

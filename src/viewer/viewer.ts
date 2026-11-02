@@ -243,6 +243,8 @@ export class Viewer implements ToolView {
   /** One material per body: its colour. */
   private materials = new Map<string, THREE.MeshStandardMaterial>();
   private hidden = new Set<string>();
+  /** Bodies hidden by their looks; `hidden` leaves out selected tool bodies, which show as outlines. */
+  private looksHidden = new Set<string>();
   /** Body edges: their colours per point (see `setBody`). */
   private edgeMaterial = new THREE.LineBasicMaterial({ vertexColors: true });
   /** Cutters (tool bodies of cuts): red outlines seen through everything, no fill (still picked by their faces). */
@@ -711,6 +713,7 @@ export class Viewer implements ToolView {
 
   select(ids: string[]) {
     this.selection = ids;
+    this.rehide();
     if (this.pickedFace && !ids.includes(this.pickedFace.object.userData.bodyId)) {
       this.pickedFace = null;
       if (!this.tool && !this.facePick) this.markFace();
@@ -720,15 +723,21 @@ export class Viewer implements ToolView {
   }
 
   /** Colour and visibility per body; hidden bodies are not drawn, picked or snapped to (but still built). */
+  /** `cutter`: a boolean's tool body, drawn as red outlines (shown while selected even when hidden: join / intersect tools). */
   setLooks(looks: { id: string; color: string; visible: boolean; cutter: boolean; owner?: string }[]) {
-    this.hidden = new Set(looks.filter((l) => !l.visible).map((l) => l.id));
+    this.looksHidden = new Set(looks.filter((l) => !l.visible).map((l) => l.id));
     this.cutters = new Set(looks.filter((l) => l.cutter).map((l) => l.id));
+    this.rehide();
     this.owners = new Map(looks.flatMap((l) => (l.owner ? [[l.id, l.owner]] : [])));
     for (const l of looks) {
       this.materialOf(l.id).color.set(l.color);
       this.dress(l.id);
     }
     this.applySection();
+  }
+
+  private rehide() {
+    this.hidden = new Set([...this.looksHidden].filter((id) => !(this.cutters.has(id) && this.selection.includes(id))));
   }
 
   /** A body's colour while the colour picker is open (not in the document yet). */

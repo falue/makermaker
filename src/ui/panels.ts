@@ -469,7 +469,11 @@ function left(ctx: UIContext): Node[] {
     const sketch = own.length
       ? h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')} (draw into it)`, onclick: () => ctx.editSketch(own[0].id) })
       : h('span', { className: 'fold-space' });
-    return row(id, depth, false, ...fold(r), listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), sketch, look);
+    // a boolean's tool body: the op, and whose
+    const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id));
+    const op = user?.features.find((f) => f.type === 'boolean' && f.body === id);
+    const tool = op?.type === 'boolean' ? [h('span', { className: 'tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name}` })] : [];
+    return row(id, depth, false, ...fold(r), listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name']), ...tool), sketch, look);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
