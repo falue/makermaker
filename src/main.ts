@@ -1552,7 +1552,7 @@ function pickFaceToPull() {
     if (face?.sketch) return enterSketch(face.sketch.id), void extrudeAreas(false, face.sketch);
     if (face?.body) pullFace(face);
     else render(); // empty space: the tool just ends
-  });
+  }, false, true);
 }
 
 /** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already, `first`: a click whose area (or shape) is. */

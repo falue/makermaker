@@ -23,7 +23,7 @@ import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
 import type { Settings } from '../ui/settings';
-import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
+import { outline, planeHit, shape2d, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 import { picksFace, pressed, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -271,6 +271,9 @@ export class Viewer implements ToolView {
   /** Where a picking press started (see `clicked`). */
   private clickAt: { x: number; y: number } | null = null;
   private faceMark: THREE.Mesh | null = null;
+  /** Picking a face for Extrude: closed sketch shapes count too, and what a click on one pulls is lit here. */
+  private pickSketches = false;
+  private sketchMark = new THREE.Group();
   /** A tool locked the pointer; the browser freeing it (its Esc) counts as Esc for the tool. */
   private locked = false;
   private escFreed = 0;
@@ -371,7 +374,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -411,11 +414,17 @@ export class Viewer implements ToolView {
     );
     // the Ctrl preview goes when Ctrl is let go or the pointer leaves the view
     const unpreview = () => !this.tool && !this.facePick && (this.markEdge(), this.markFace());
-    canvas.addEventListener('pointerleave', () => ((this.hover = null), unpreview()));
+    canvas.addEventListener('pointerleave', () => ((this.hover = null), unpreview(), this.markSketch(null)));
     addEventListener('keyup', (e) => (e.key === 'Control' || e.key === 'Alt') && unpreview());
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
-      if (this.facePick && !this.drag) return this.quietPick ? undefined : this.markFace(this.frontHit(e)); // a gizmo drag moves on
+      if (this.facePick && !this.drag) {
+        if (this.quietPick) return; // a gizmo drag moves on
+        const hit = this.frontHit(e);
+        const s = this.sketchShapeAt(e, hit);
+        this.markSketch(s);
+        return this.markFace(s ? undefined : hit);
+      }
       if (!this.tool && !this.drag && !e.buttons) {
         // Ctrl previews (orange) the edge near the pointer, else the face it would pick; picked parts keep their own (blue) marks
         const edge = picksFace(e) ? this.edgeAt(e) : null;
@@ -721,6 +730,36 @@ export class Viewer implements ToolView {
     return best;
   }
 
+  /** Picking with sketches: the closed sketch shape under the pointer in front of any face, and whether on its outline. */
+  private sketchShapeAt(e: MouseEvent, hit: THREE.Intersection | undefined) {
+    if (!this.pickSketches) return null;
+    const s = this.shapeAt(this.ray(e), hit?.distance);
+    const sketch = s && this.sketches.find((k) => k.id === s.sketch);
+    const q = sketch?.shapes.find((x) => x.id === s!.shape);
+    return sketch && q && !q.construction && q.kind !== 'line' ? { sketch, q, onLine: s!.edge < Infinity } : null;
+  }
+
+  /** Lights what a click there pulls: on a shape's outline all of it (the outline too), inside it the piece without the shapes inside it. */
+  private markSketch(at: ReturnType<Viewer['sketchShapeAt']>) {
+    for (const o of this.sketchMark.children) {
+      (o as THREE.Mesh).geometry.dispose();
+      ((o as THREE.Mesh).material as THREE.Material).dispose();
+    }
+    this.sketchMark.clear();
+    if (at) {
+      const { sketch, q, onLine } = at;
+      const f = sketch.frame;
+      const shape = shape2d(q);
+      if (!onLine) shape.holes = sketch.shapes.filter((o) => o !== q && !o.construction && o.kind !== 'line' && area(o) < area(q) && inside(q, ...centre(o))).map(shape2d);
+      const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape, 32), new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.35, depthTest: false, side: THREE.DoubleSide }));
+      fill.matrixAutoUpdate = false;
+      fill.matrix.makeBasis(new THREE.Vector3(...f.x), new THREE.Vector3(...f.y), new THREE.Vector3(...f.n)).setPosition(...f.o);
+      this.sketchMark.add(fill, ...(onLine ? [outline(q, f, 0xff8c1a, 0, 1.5, 4)] : []));
+      this.sketchMark.traverse((o) => (o.renderOrder = 1e6));
+    }
+    this.render();
+  }
+
   /** Looks straight along `n`; `at`: that point moves to the middle of the view. */
   lookAlong(n: THREE.Vector3, at?: THREE.Vector3) {
     // straight up/down is a pole for the orbit controls: tilt a hair towards the front
@@ -745,9 +784,10 @@ export class Viewer implements ToolView {
 
   /** The next click on a body picks a face (null: Esc). */
   /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view). */
-  pickFace(done: (face: PickedFace | null) => void, quiet = false) {
+  pickFace(done: (face: PickedFace | null) => void, quiet = false, sketches = false) {
     this.facePick = done;
     this.quietPick = quiet;
+    this.pickSketches = sketches;
     if (!quiet) this.renderer.domElement.classList.add('drawing');
   }
 
@@ -1080,7 +1120,7 @@ export class Viewer implements ToolView {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
     const cutters = [...this.cutters].flatMap((id) => this.bodies.get(id) ?? []);
-    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, this.pickedMark, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
+    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, this.pickedMark, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
     const selection = this.selection;
     helpers.forEach((o) => (o.visible = false));
     this.select([]);
@@ -1719,10 +1759,8 @@ export class Viewer implements ToolView {
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
     if (this.quietPick) return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined });
-    // a closed sketch shape in front: inside it, or on its outline
-    const s = this.shapeAt(this.ray(e), hit?.distance);
-    const q = s && this.sketches.find((k) => k.id === s.sketch)?.shapes.find((x) => x.id === s.shape);
-    const sketch = s && q && !q.construction && q.kind !== 'line' ? { sketch: { id: s.sketch, at: e, shape: s.edge < Infinity ? s.shape : undefined } } : {};
+    const s = this.sketchShapeAt(e, hit);
+    const sketch = s ? { sketch: { id: s.sketch.id, at: e, shape: s.onLine ? s.q.id : undefined } } : {};
     if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, ...sketch });
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const k = this.facingAxis();
@@ -1801,6 +1839,7 @@ export class Viewer implements ToolView {
   private endFacePick(face: PickedFace | null) {
     const done = this.facePick;
     this.facePick = null;
+    this.markSketch(null);
     this.markFace();
     if (!this.tool) this.renderer.domElement.classList.remove('drawing');
     done?.(face);
