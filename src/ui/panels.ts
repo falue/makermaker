@@ -665,16 +665,16 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
 }
 
 const SKETCH_HINT =
-  'Sketch: [R] [C] [P] draw shapes (they stay flat) · click a shape to select it, drag to move, handles resize and turn · right-drag turns the view · [E] extrude · [Esc] or ✓ leaves';
+  'Sketch: [R] [C] [P] draw shapes (they stay flat) · click a shape to select it, drag to move, handles resize and turn · [X] [Y] [Z] move shapes by a typed distance · right-drag turns the view · [E] extrude · [Esc] or ✓ leaves';
 
 function hint(selected: number, shapes: number) {
   if (shapes)
-    return 'Drag to move in the sketch plane (the direction picks the axis) · handles resize: [Alt] from the middle, [Shift] keep proportions, type a size, [Tab] other side · round handle turns ([Shift] 15°) · [E] extrude · [Del] delete';
+    return 'Drag to move in the sketch plane · [X] [Y] [Z] move by a typed distance · handles resize ([Alt] from the middle, [Shift] keep proportions, type a size, [Tab] other side) · round handle turns ([Shift] 15°) · [E] extrude · [Del] delete';
   if (selected > 1)
-    return 'Drag a body to move them all: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Shift] / [⌘]-click adds or removes · [Ctrl] snaps · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect · [⌘Z] undo';
+    return 'Drag to move them all (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Shift] / [⌘]-click adds or removes · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect';
   if (selected)
-    return 'Drag to move: the direction picks X, Y or Z · [Alt] free in the plane facing you · [Ctrl] snaps · [Shift] / [⌘]-click selects more · [arrows] nudge ([Shift] ×10) · [Del] delete · [⌘D] duplicate · [Esc] deselect';
-  return 'Drag a body to move it: the direction picks X, Y or Z · [Tab] next body under the click · [F] fit · drag to orbit, right-drag to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
+    return 'Drag to move (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Ctrl]-click a face: [E] pulls it, [S] sketches on it · [Shift] / [⌘]-click selects more · [arrows] nudge · [Del] delete · [⌘D] duplicate';
+  return 'Drag a body to move it · [Ctrl]-click a face picks it · [Tab] next body under the pointer · [F] fit · drag to orbit, right-drag or scroll sideways to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
 /** A sketch: its plane, visibility, and shapes (click a label to select it, ⌘ / Ctrl toggles, Shift a range). */
