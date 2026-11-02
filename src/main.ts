@@ -9,7 +9,7 @@ import { alignment, area, bounds, corners, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { contents, ownerOf, ownersOf, tree, whose, within } from './doc/groups';
+import { carrierOf, contents, onFaceOf, ownersOf, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
@@ -393,9 +393,11 @@ function update() {
   for (let progress = true; pending.length && progress; ) {
     progress = false;
     pending = pending.filter(({ id, resolved, at }) => {
+      // a sketch on this body's own face is unplaced into its coordinates; one elsewhere counts in them as it is (as base
+      // planes do): the body moves away from it freely, and its sketch is shown moved along
       const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
         const f = worldFrame(p);
-        return f && placeFrame(at, f, true);
+        return f && (p.kind !== 'plane' && p.body === id ? placeFrame(at, f, true) : f);
       };
       const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
@@ -461,9 +463,10 @@ function update() {
     const r = sketches.get(s.id);
     const p = r?.plane;
     if (!r || !p || !s.visible || !shownIn(s.group)) return [];
-    // a base-plane sketch moves with the body that extrudes it (its extrusion lies in that body's coordinates), else with its group
-    const owner = p.kind === 'base' ? ownerOf(doc, s.id) : null;
-    const frame = p.kind === 'base' ? placeFrame(owner && bodyPlaces.has(owner) ? bodyPlace(owner) : toPlace(groupAt(s.group)), worldFrame(p)!) : worldFrame(p);
+    // a sketch moves with the body that extrudes it (its extrusion lies in that body's coordinates), else a base-plane one with its group
+    const carrier = carrierOf(doc, s.id);
+    const world = worldFrame(p);
+    const frame = world && (carrier && bodyPlaces.has(carrier) ? placeFrame(bodyPlace(carrier), world) : p.kind === 'base' ? placeFrame(toPlace(groupAt(s.group)), world) : world);
     return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes, groups: s.groups }] : [];
   });
   viewer.setCustomSections(
@@ -525,7 +528,8 @@ function follow(before: Doc, next: Doc): Doc {
   let out = next;
   const drag = (id: string, d: Vec3, seen: Set<string>) => {
     for (const [tool, o] of owner) {
-      if (o !== id || seen.has(tool) || !still(by(tool))) continue;
+      // a tool drawn on its owner's face goes along with that face already
+      if (o !== id || seen.has(tool) || !still(by(tool)) || onFaceOf(next, tool, id)) continue;
       seen.add(tool);
       const i = out.bodies.findIndex((b) => b.id === tool);
       const p = at(out, tool)!;
@@ -637,9 +641,13 @@ function groupShapes(apart = false) {
  * turns in degrees); the other values keep their expressions. One undo step.
  */
 function setShapes(sketch: string, updates: { id: string; profile: DrawnProfile }[], typed: Partial<Record<'w' | 'h' | 'd', string>> = {}) {
-  const doc = history.current;
+  commit(withShapes(history.current, sketch, updates, typed));
+}
+
+/** The sketch's shapes changed to `updates` (mm); values that did not change keep their expressions. */
+function withShapes(doc: Doc, sketch: string, updates: { id: string; profile: DrawnProfile }[], typed: Partial<Record<'w' | 'h' | 'd', string>> = {}) {
   const k = doc.sketches.findIndex((s) => s.id === sketch);
-  if (k < 0) return;
+  if (k < 0) return doc;
   const lookup = paramLookup(doc.params);
   const shapes = doc.sketches[k].shapes.map((q) => {
     const u = updates.find((x) => x.id === q.id);
@@ -652,7 +660,7 @@ function setShapes(sketch: string, updates: { id: string; profile: DrawnProfile 
     }
     return next as Profile;
   });
-  commit(setIn(doc, ['sketches', String(k), 'shapes'], shapes));
+  return setIn(doc, ['sketches', String(k), 'shapes'], shapes);
 }
 
 /** The selected sketch with its selected shapes resolved (mm), if any. */
@@ -763,7 +771,11 @@ function showSelection() {
 
 /** Writes new positions (mm) as plain numbers in the display unit; untouched axes keep their expressions. */
 function place(moves: { id: string; position: Vec3 }[]) {
-  const doc = history.current;
+  commit(withPlaces(history.current, moves));
+}
+
+/** The bodies moved to world positions. */
+function withPlaces(doc: Doc, moves: { id: string; position: Vec3 }[]) {
   let next = doc;
   for (const { id, position } of moves) {
     const i = doc.bodies.findIndex((p) => p.id === id);
@@ -776,7 +788,7 @@ function place(moves: { id: string; position: Vec3 }[]) {
       if (Math.abs(v - was[k]) > 1e-9) next = setIn(next, ['bodies', String(i), 'position', String(k)], ex(fmt(v / UNITS[doc.units]), doc.units));
     });
   }
-  commit(next);
+  return next;
 }
 
 function nudge(by: Vec3) {
@@ -1063,12 +1075,31 @@ function shapeMoves(by: Vector3) {
   return { sketch: s.id, updates: shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })) };
 }
 
-/** Moves the selection by `by` (world, mm): bodies, or shapes within their sketch plane (the selected ones, else all of the selected sketch). */
+/**
+ * Moves the selection by `by` (world, mm): bodies; a sketch's shapes within its plane (the selected ones, else all),
+ * and across it the sketch itself: a base-plane one by its offset, one extruded into a body with that body, a free
+ * plane itself. A sketch on a face without a body of its own stays on it.
+ */
 function moveBy(by: Vector3) {
-  if (!activeSketch()) return nudge(by.toArray());
+  const id = activeSketch();
+  if (!id) return nudge(by.toArray());
+  const f = viewer.sketches.find((v) => v.id === id)?.frame;
+  if (!f) return fail('The sketch is hidden: show it to move it');
+  const doc = history.current;
   const moves = shapeMoves(by);
-  if (!moves) return fail('That axis runs across the sketch plane (or the sketch is hidden)');
-  setShapes(moves.sketch, moves.updates);
+  let next = moves ? withShapes(doc, moves.sketch, moves.updates) : doc;
+  const n = new Vector3(...f.n);
+  const d = by.dot(n);
+  if (Math.abs(d) > 1e-9) {
+    const k = doc.sketches.findIndex((s) => s.id === id);
+    const p = doc.sketches[k].plane;
+    const carrier = carrierOf(doc, id);
+    if (p.kind === 'base') next = setIn(next, ['sketches', String(k), 'plane', 'offset'], plus(p.offset, resolve(p.offset, paramLookup(doc.params), '', new Map()), d));
+    else if (carrier && positions.has(carrier)) next = withPlaces(next, [{ id: carrier, position: new Vector3(...positions.get(carrier)!).addScaledVector(n, d).toArray() }]);
+    else if (p.kind === 'plane') next = setIn(next, ['sketches', String(k), 'plane', 'o'], new Vector3(...p.o).addScaledVector(n, d).toArray());
+    else return fail('A sketch on a face stays on it: pull a body from it, then they move together');
+  }
+  commit(next);
 }
 
 /** Tool first: the next clicked body gets `act`. */

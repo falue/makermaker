@@ -17,6 +17,19 @@ export function ownerOf(doc: Doc, sketch: string): string | null {
   return user?.id ?? on;
 }
 
+/** The body a sketch moves along with: the first that extrudes it, unless the sketch lies on that body's own face. */
+export function carrierOf(doc: Doc, sketch: string): string | null {
+  const user = doc.bodies.find((b) => b.features.some((f) => f.type === 'extrude' && f.source.kind === 'sketch' && f.source.sketch === sketch));
+  const p = doc.sketches.find((s) => s.id === sketch)?.plane;
+  return user && p && !((p.kind === 'cap' || p.kind === 'side') && p.body === user.id) ? user.id : null;
+}
+
+/** Whether body `tool` is extruded from a sketch lying on a face of body `on`. */
+export function onFaceOf(doc: Doc, tool: string, on: string): boolean {
+  const planes = doc.bodies.find((b) => b.id === tool)?.features.flatMap((f) => (f.type === 'extrude' && f.source.kind === 'sketch' ? [f.source.sketch] : [])).map((id) => doc.sketches.find((s) => s.id === id)?.plane);
+  return !!planes?.some((p) => (p?.kind === 'cap' || p?.kind === 'side') && p.body === on);
+}
+
 /** Whose a sketch is, in words: the body extruded from it, the body it lies on, or none (a free sketch). */
 export function whose(doc: Doc, sketch: string): string {
   const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sketch));
