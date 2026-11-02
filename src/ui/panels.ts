@@ -513,9 +513,10 @@ function left(ctx: UIContext): Node[] {
     }
     // its sketches have their own list: this button draws into the (first) one
     const own = sketchesOf(doc, p.id);
+    const bools = fold(r); // an owner of tool bodies: the red boolean button folds them, where a group has its ⚙
     const sketch = own.length
-      ? h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')} (draw into it)`, onclick: () => ctx.editSketch(own[0].id) })
-      : h('span', { className: 'fold-space' });
+      ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')} (draw into it)`, onclick: () => ctx.editSketch(own[0].id) })]
+      : bools.length ? [] : [h('span', { className: 'fold-space' })];
     // a boolean's tool body: the op, and whose
     const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id));
     const op = user?.features.find((f) => f.type === 'boolean' && f.body === id);
@@ -524,7 +525,7 @@ function left(ctx: UIContext): Node[] {
       op?.type === 'boolean'
         ? h('button', { className: 'icon tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name} · click: free it from the boolean`, onclick: () => ctx.commit(freed(doc, id)) })
         : look;
-    return row(id, depth, false, ...fold(r), listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), sketch, tool);
+    return row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...sketch, ...bools, tool);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
