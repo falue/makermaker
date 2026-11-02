@@ -776,9 +776,10 @@ export class SketchTool implements Tool {
     }
     if (this.dots.length && ph.kind !== 'pull') this.view.overlay.add(marks(this.dots, 0xff8c1a, 7));
     for (const g of ph.kind === 'pull' ? [] : SketchTool.guides) {
-      const m = new LineMaterial({ color: GUIDE_COLOR, linewidth: g.fixed ? 2 : 1, depthTest: false });
+      // dashed like construction lines (mm)
+      const m = new LineMaterial({ color: GUIDE_COLOR, linewidth: g.fixed ? 2 : 1, depthTest: false, dashed: true, dashSize: 1.5, gapSize: 1.5 });
       m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
-      this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(guideSeg(g).flatMap((v) => v.toArray())), m));
+      this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(guideSeg(g).flatMap((v) => v.toArray())), m).computeLineDistances());
     }
     const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'Hold Ctrl to start the line from the end of the last one' : null;
     // on a point along a line (not anywhere along it)
