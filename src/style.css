@@ -1063,6 +1063,18 @@ button.primary.wide {
 .listed .fold.open svg {
   transform: rotate(90deg);
 }
+/* a body with booleans: the boolean icon, blue while its tool bodies show (it does not turn) */
+.listed .fold.bool svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.8;
+}
+.listed .fold.bool.open svg {
+  transform: none;
+}
+.listed .fold.bool.open {
+  color: var(--accent);
+}
 
 .settings .body {
   max-height: 60vh;

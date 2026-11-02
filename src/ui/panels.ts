@@ -464,8 +464,13 @@ function left(ctx: UIContext): Node[] {
     return el;
   };
   // only groups fold: a chevron that turns down when open; other rows start at the left
-  const fold = ({ id, open }: Row) =>
-    open === undefined ? [] : [h('button', { className: `icon fold${open ? ' open' : ''}`, innerHTML: icon('chevron'), title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(id) })];
+  // a group folds with a chevron, a body with booleans with the boolean icon
+  const fold = ({ id, open, kind }: Row) => {
+    if (open === undefined) return [];
+    const tools = doc.bodies.find((o) => o.id === id)?.features.filter((f) => f.type === 'boolean').length ?? 0;
+    const title = kind === 'body' ? `${open ? 'Hide' : 'Show'} its ${tools} boolean tool bod${tools === 1 ? 'y' : 'ies'}` : open ? 'Fold' : 'Unfold';
+    return [h('button', { className: `icon fold${kind === 'body' ? ' bool' : ''}${open ? ' open' : ''}`, innerHTML: icon(kind === 'body' ? 'boolean' : 'chevron'), title, onclick: () => ctx.toggleFold(id) })];
+  };
   /**
    * A row's name: a plain click on the name of the only selected row edits it in place (Enter or leaving the field
    * saves it, Esc keeps it); `at`: where the name is stored.

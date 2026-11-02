@@ -29,10 +29,11 @@ export function whose(doc: Doc, sketch: string): string {
 export function tree(doc: Doc, folded: Set<string>): Row[] {
   const out: Row[] = [];
   const owner = ownersOf(doc);
-  // a body, then (unless folded) the tool bodies of its booleans under it, like a group's contents
+  // a body, then the tool bodies of its booleans under it, like a group's contents; owners start folded (`folded`
+  // holding an owner means it is open)
   const body = (id: string, depth: number) => {
     const tools = doc.bodies.filter((t) => owner.get(t.id) === id && !out.some((r) => r.id === t.id));
-    const open = tools.length ? !folded.has(id) : undefined;
+    const open = tools.length ? folded.has(id) : undefined;
     out.push({ id, kind: 'body', depth, open });
     if (open) for (const t of tools) body(t.id, depth + 1);
   };
