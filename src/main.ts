@@ -445,6 +445,8 @@ function update() {
     return exprErrors.size === before ? [{ id: p.id, resolved, at: bodyPlace(p.id) }] : [];
   });
   const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
+  // joints still playing stay where they are in their motion (another one stopping saves and redraws everything)
+  if (playing.size) placeJoints(playingValues());
   // work planes: moved along their normal by their offset; shown green, drawing tools take them
   const workFrames = new Map(
     doc.planes.map((w, i) => {
@@ -474,9 +476,11 @@ function update() {
         const w = sk.plane.kind === 'base' ? placeFrame(toPlace(groupPlace(sk.group)), worldFrame(sk.plane)!) : worldFrame(sk.plane);
         return w && placeFrame(at, w, true);
       };
+      // a face of this body: in its coordinates; any other face or plane: in those of its group (moved by its joint),
+      // so the body still moves away from it freely by its own position and turn
       const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
         const f = worldFrame(p);
-        return f && ((p.kind === 'cap' || p.kind === 'side') && p.body === id ? placeFrame(at, f, true) : f);
+        return f && placeFrame((p.kind === 'cap' || p.kind === 'side') && p.body === id ? at : toPlace(parentPlace(id)), f, true);
       };
       const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
@@ -547,7 +551,9 @@ function update() {
     // a sketch moves with the body that extrudes it (its extrusion lies in that body's coordinates), else a base-plane one with its group
     const carrier = carrierOf(doc, s.id);
     const world = worldFrame(p);
-    const frame = world && (carrier && bodyPlaces.has(carrier) ? placeFrame(bodyPlace(carrier), world) : p.kind === 'base' ? placeFrame(toPlace(groupPlace(s.group)), world) : world);
+    // (a carried sketch off a base plane lies in its carrier's group's coordinates, as the carrier's extrusion does)
+    const carried = (c: string, f: Frame) => placeFrame(bodyPlace(c), p.kind === 'base' ? f : placeFrame(toPlace(parentPlace(c)), f, true));
+    const frame = world && (carrier && bodyPlaces.has(carrier) ? carried(carrier, world) : p.kind === 'base' ? placeFrame(toPlace(groupPlace(s.group)), world) : world);
     return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes, groups: s.groups }] : [];
   });
   viewer.setCustomSections(
@@ -2649,16 +2655,16 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
       const v = jointValue(j, lookup);
       if (!ref) return v;
       if (j.kind === 'slider') return v + p.clone().sub(ref).dot(axis.dir);
-      // the moving part's direction from the axis at 0, snapped to the parent's nearest X / Y / Z within 15° (a lid's
-      // middle sits a little above its hinge: the angle would be off by that much)
-      const zero = ref.clone().sub(axis.at).projectOnPlane(axis.dir).applyAxisAngle(axis.dir, (-v * Math.PI) / 180).normalize();
-      const parent = bodyPlaces.get(j.parent) ?? groupPlace(j.parent);
+      // the moving part's direction from the axis at 0: its own X / Y / Z nearest to the way its middle lies (a lid's
+      // middle sits a little above its hinge, a block's beside the edge it turns on: the angle would be off by that)
+      const turnBack = (u: Vector3) => u.applyAxisAngle(axis.dir, (-v * Math.PI) / 180);
+      const zero = turnBack(ref.clone().sub(axis.at).projectOnPlane(axis.dir)).normalize();
+      const own = bodyPlaces.get(j.children[0]) ?? groupPlace(j.children[0]);
       const axes = [0, 1, 2].flatMap((k) => {
-        const a = new Vector3().setComponent(k, 1).transformDirection(parent).projectOnPlane(axis.dir);
+        const a = turnBack(new Vector3().setComponent(k, 1).transformDirection(own)).projectOnPlane(axis.dir);
         return a.lengthSq() > 1e-6 ? [a.normalize(), a.clone().negate()] : [];
       });
-      const near = axes.reduce((best, a) => (a.dot(zero) > best.dot(zero) ? a : best), zero);
-      const from = near.dot(zero) > Math.cos(Math.PI / 12) ? near : zero;
+      const from = axes.reduce((best, a) => (a.dot(zero) > best.dot(zero) ? a : best), axes[0] ?? zero);
       const to = p.clone().sub(axis.at).projectOnPlane(axis.dir);
       return (Math.atan2(from.clone().cross(to).dot(axis.dir), from.dot(to)) * 180) / Math.PI;
     };
@@ -2850,6 +2856,30 @@ function eased(j: Joint, phase: number) {
   return lo + (hi - lo) * (0.5 - 0.5 * Math.cos(Math.PI * t));
 }
 
+/** The joints playing, where they are now (without moving them on). */
+function playingValues() {
+  const doc = history.current;
+  return new Map([...playing].flatMap(([id, p]) => {
+    const j = doc.joints.find((x) => x.id === id);
+    return j ? [[id, eased(j, p.phase)] as const] : [];
+  }));
+}
+
+/** Places the bodies in the view with joints at `values` (the others where they are saved); nothing is rebuilt or written. */
+function placeJoints(values: Map<string, number>) {
+  const doc = history.current;
+  const lookup = paramLookup(doc.params);
+  const { placed } = jointed(doc, ownPlaces, (j) => values.get(j.id) ?? jointValue(j, lookup));
+  for (const b of doc.bodies) {
+    const m = placed.get(b.id);
+    if (!m || !bodyPlaces.has(b.id)) continue;
+    const [at, turn] = [new Vector3(), new Quaternion()];
+    m.decompose(at, turn, new Vector3());
+    viewer.setPlacement(b.id, at, turn);
+  }
+  viewer.render();
+}
+
 /** One frame of the joints playing: their objects moved in the view only; at its max a joint that does not repeat stops. */
 function animate(now: number) {
   const doc = history.current;
@@ -2878,15 +2908,7 @@ function animate(now: number) {
     values.set(id, eased(j, p.phase));
     showValue(id, values.get(id)!);
   }
-  const { placed } = jointed(doc, ownPlaces, (j) => values.get(j.id) ?? jointValue(j, lookup));
-  for (const b of doc.bodies) {
-    const m = placed.get(b.id);
-    if (!m || !bodyPlaces.has(b.id)) continue;
-    const [at, turn] = [new Vector3(), new Quaternion()];
-    m.decompose(at, turn, new Vector3());
-    viewer.setPlacement(b.id, at, turn);
-  }
-  viewer.render();
+  placeJoints(values);
   if (playing.size) requestAnimationFrame(animate);
   else renderJoints(); // the sliders and fields back to where the joints are
 }
