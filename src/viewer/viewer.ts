@@ -76,8 +76,11 @@ export type Aim = { at: THREE.Vector3; what: string };
 /** A sketch shape under the pointer for Extrude (`onLine`: on its outline), or a face its lines enclose there. */
 type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number]; onLine: boolean } | { sketch: ViewSketch; face: Face };
 
-/** A line to turn around (world): through `at` along unit `dir`; `what` it was taken from, `length`: the edge's or line's. */
-export type TurnAxis = { at: THREE.Vector3; dir: THREE.Vector3; what: string; length?: number };
+/**
+ * A line to turn around (world): through `at` along unit `dir`; `what` it was taken from, `length`: the edge's or
+ * line's, `d` and `body`: a round edge's diameter and body.
+ */
+export type TurnAxis = { at: THREE.Vector3; dir: THREE.Vector3; what: string; length?: number; d?: number; body?: string };
 
 export interface PickedFace {
   point: THREE.Vector3;
@@ -983,7 +986,7 @@ export class Viewer implements ToolView {
     const edge = this.edgeAt(e);
     if (edge) {
       const circle = circleOf(edge.segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)]));
-      return circle ? { at: circle.centre, dir: circle.normal, what: 'round edge: its centre' } : line(nearest(edge.segs), 'edge');
+      return circle ? { at: circle.centre, dir: circle.normal, what: 'round edge: its centre', d: circle.d, body: edge.body } : line(nearest(edge.segs), 'edge');
     }
     const s = this.shapeAt(ray, this.frontHit(e)?.distance);
     const sketch = s && s.edge < Infinity ? this.sketches.find((k) => k.id === s.sketch) : undefined;

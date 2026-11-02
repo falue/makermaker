@@ -118,6 +118,12 @@ export type ShellFeature = { id: string; type: 'shell'; thickness: Expr; open: [
 /** The body mirrored across a plane (body-local: through `o`, normal `n`). */
 export type MirrorFeature = { id: string; type: 'mirror'; o: [number, number, number]; n: [number, number, number] };
 
+/**
+ * A real thread (body-local): along `dir` from `at` (the middle of a hole's or shaft's end), `length` long, on the
+ * round surface of radius `r` (a hole's: `inside`, cut outward into its wall; a shaft's: cut inward), `pitch` per turn.
+ */
+export type ThreadFeature = { id: string; type: 'thread'; at: [number, number, number]; dir: [number, number, number]; r: number; inside: boolean; pitch: Expr; length: Expr };
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   /** `back`: how far it also reaches behind its sketch plane (none: 0). */
@@ -132,7 +138,8 @@ export type Feature =
   | LoftFeature
   | SweepFeature
   | ShellFeature
-  | MirrorFeature;
+  | MirrorFeature
+  | ThreadFeature;
 
 /**
  * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the
@@ -177,7 +184,7 @@ export type RevolveIn = Omit<RevolveFeature, 'source'> & { plane: SketchPlane | 
 export type LoftIn = { id: string; type: 'loft'; sections: { frame: Omit<FramePlane, 'kind'>; profile: Profile }[]; ruled: boolean };
 /** A sweep with its path on its frame (body-local), as the kernel builds it. */
 export type SweepIn = { id: string; type: 'sweep'; profile: Profile; path: { frame: Omit<FramePlane, 'kind'>; profile: Profile } };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | MirrorFeature;
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | MirrorFeature | ThreadFeature;
 
 export interface Body {
   id: string;

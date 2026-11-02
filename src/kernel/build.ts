@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeCylinder, makeSphere, Plane, type Drawing, type Edge, type Shape3D, type Sketch } from 'replicad';
+import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, Plane, type Drawing, type Edge, type Shape3D, type Sketch } from 'replicad';
 import { add, cutPlane, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { beside, centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
@@ -77,6 +77,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'loft') apply(s.id, (cur) => loft(cur, s));
       if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
       if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
+      if (s.type === 'thread') apply(s.id, (cur) => thread(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -404,6 +405,44 @@ function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
   if (!s.open.length) throw new Error('pick a face to leave open');
   if (!(s.thickness > 0)) throw new Error('the wall thickness must be greater than 0');
   return shape.shell(s.thickness, (f) => f.either(s.open.map((p) => (g: typeof f) => g.containsPoint(p))));
+}
+
+/**
+ * A thread cut into the round surface: a 60° groove (ISO metric depth: 0.6134 × pitch on a shaft, 0.5413 × pitch in a
+ * hole, cut outward into its wall) along a helix that runs one pitch past both ends. The groove is built from flat
+ * faces, `steps` per turn (OpenCascade's booleans with swept helical surfaces fail now and then), along Z, then turned
+ * and moved onto the hole's or shaft's axis.
+ */
+function thread(shape: Shape3D | null, s: Of<'thread'>, steps = 36): Shape3D {
+  if (!shape) throw new Error('nothing to thread yet');
+  if (!(s.pitch > 0) || !(s.length > 0)) throw new Error('pitch and length must be greater than 0');
+  const depth = (s.inside ? 0.5413 : 0.6134) * s.pitch;
+  const out = s.inside ? -1 : 1; // the groove's open side faces away from the material
+  const [base, tip] = [s.r + out * 0.05, s.r - out * depth];
+  const half = Math.abs(base - tip) * Math.tan(Math.PI / 6); // 60°: half the groove's width at its open side
+  type P = [number, number, number];
+  // the groove's triangle at step i: its open side (two corners) and its tip, square to the axis' direction of turning
+  const at = (i: number): [P, P, P] => {
+    const a = (i / steps) * 2 * Math.PI;
+    const z = -s.pitch + (i / steps) * s.pitch;
+    const [c, n] = [Math.cos(a), Math.sin(a)];
+    return [[base * c, base * n, z - half], [base * c, base * n, z + half], [tip * c, tip * n, z]];
+  };
+  const count = Math.ceil(((s.length + 2 * s.pitch) / s.pitch) * steps);
+  const faces = [makePolygon(at(0))];
+  for (let i = 0; i < count; i++) {
+    const [p, q] = [at(i), at(i + 1)];
+    for (let k = 0; k < 3; k++) {
+      const [a, b] = [k, (k + 1) % 3];
+      faces.push(makePolygon([p[a], q[a], q[b]]), makePolygon([p[a], q[b], p[b]]));
+    }
+  }
+  faces.push(makePolygon([...at(count)].reverse() as [P, P, P]));
+  const groove = makeSolid(faces) as Shape3D;
+  const axis: P = [-s.dir[1], s.dir[0], 0]; // Z × dir
+  const angle = (Math.acos(Math.max(-1, Math.min(1, s.dir[2] / Math.hypot(...s.dir)))) * 180) / Math.PI;
+  const turned = Math.hypot(...axis) > 1e-9 ? groove.rotate(angle, [0, 0, 0], axis) : s.dir[2] < 0 ? groove.rotate(180, [0, 0, 0], [1, 0, 0]) : groove;
+  return joined(shape, turned.translate(...s.at), 'cut');
 }
 
 /** `tool` joined to or cut from `shape` (none yet: `tool` itself); `tool` is used up. */

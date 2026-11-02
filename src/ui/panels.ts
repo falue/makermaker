@@ -69,6 +69,7 @@ export interface UIContext {
   drawOn(id: string): void;
   offsetTool(): void;
   mirrorTool(): void;
+  threadTool(): void;
   rotateTool(): void;
   /** Aligns the selected objects (bodies, groups as one, whole sketches) by their boxes; see `alignObjects` in main. */
   alignObjects(how: ObjectAlign): void;
@@ -465,6 +466,7 @@ function toolbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
+    tool('thread', 'Thread: click the round edge at the end of a hole or a shaft: a real metric thread (coarse pitch) cut into it, pitch and length typed', ctx.threadTool),
     tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
     tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
     tool('sweep', 'Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path it runs along)', ctx.sweepTool),
@@ -1155,6 +1157,10 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const src = feature.source;
       const sketch = src.kind === 'sketch' ? ctx.doc.sketches.find((k) => k.id === src.sketch) : undefined;
       return h('section', {}, h('h4', {}, mode, remove), h('div', { className: 'row' }, f('angle', 'Angle °'), h('span', { className: 'hint' }, sketch ? `From ${sketch.name}` : 'Its sketch was deleted')));
+    }
+    case 'thread': {
+      const kind = select(feature.inside ? 'hole' : 'shaft', { hole: 'Thread: in a hole', shaft: 'Thread: on a shaft' }, (v) => setFeature({ ...feature, inside: v === 'hole' }));
+      return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, f('pitch', 'Pitch'), f('length', 'Length'), h('span', { className: 'hint' }, `Ø ${fmt(feature.r * 2)} mm`)));
     }
     case 'mirror':
       return h('section', {}, h('h4', {}, 'Mirror', remove), h('p', { className: 'hint' }, 'Mirrored across the plane it was made with'));

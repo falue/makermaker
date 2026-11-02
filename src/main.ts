@@ -1804,6 +1804,59 @@ function mirrorTool() {
   });
 }
 
+/** ISO metric coarse threads: nominal diameter and pitch (mm). */
+const COARSE: [number, number][] = [[2, 0.4], [2.5, 0.45], [3, 0.5], [4, 0.7], [5, 0.8], [6, 1], [8, 1.25], [10, 1.5], [12, 1.75], [14, 2], [16, 2], [20, 2.5], [24, 3], [30, 3.5], [36, 4]];
+
+/**
+ * Thread: the round edge at the end of a hole or shaft clicked: a real metric thread cut into it, from there through
+ * the body (a hole when the body reaches clearly further across than the circle, else a shaft; its card switches it),
+ * the coarse pitch of the nearest size (a hole: its tap drill size); pitch and length in a panel, live.
+ */
+function threadTool() {
+  toolHint = 'Thread: click the round edge at the end of a hole or a shaft · [Esc] cancels';
+  render();
+  viewer.pickAxis(
+    (a) => {
+      tips.cursorTip(null);
+      viewer.showAxis(null);
+      toolHint = null;
+      const box = a?.body && viewer.measure(a.body)?.box;
+      if (!a?.d || !a.body || !box) return a ? fail("Click a round edge: a hole's or a shaft's end") : render();
+      const body = a.body;
+      const mid = box.getCenter(new Vector3());
+      const dir = a.dir.clone().multiplyScalar(mid.clone().sub(a.at).dot(a.dir) >= 0 ? 1 : -1); // into the body
+      const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => new Vector3(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z).sub(a.at));
+      const reach = Math.max(...corners.map((c) => c.dot(dir)));
+      const across = Math.max(...corners.map((c) => c.clone().sub(dir.clone().multiplyScalar(c.dot(dir))).length()));
+      const inside = across > (a.d / 2) * Math.SQRT2 + 1; // box corners clearly beyond a shaft's own (r √2): material around, a hole
+      const [, pitch] = COARSE.reduce((best, m) => (Math.abs((inside ? m[0] - 1.0825 * m[1] : m[0]) - a.d!) < Math.abs((inside ? best[0] - 1.0825 * best[1] : best[0]) - a.d!) ? m : best));
+      const doc = history.current;
+      const i = doc.bodies.findIndex((b) => b.id === body);
+      const pl = bodyPlace(body);
+      const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, a.at.toArray()), dir: unplaced(pl, dir.toArray(), true), r: a.d / 2, inside, pitch: len(pitch), length: len(reach) };
+      [selected, shapeSel] = [[body], []];
+      commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
+      const j = history.current.bodies[i].features.length - 1;
+      const write = ([p, l]: string[]) => {
+        const at = ['bodies', String(i), 'features', String(j)];
+        history.replace(setIn(setIn(history.current, [...at, 'pitch'], { e: p, u: doc.units }), [...at, 'length'], { e: l, u: doc.units }));
+        update();
+      };
+      const u = UNITS[doc.units];
+      valuePanel(
+        [
+          { label: 'Pitch', value: fmt(pitch / u) },
+          { label: 'Length', value: fmt(reach / u), reach: (p) => p.clone().sub(a.at).dot(dir) },
+        ],
+        write,
+        (ok) => (ok ? render() : undo()),
+        `Thread ${inside ? 'in a hole' : 'on a shaft'} Ø ${fmt(a.d)} mm: pitch and length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
+      );
+    },
+    (a) => (tips.cursorTip(a ? `${a.what}${a.d ? ` Ø ${fmt(a.d)}` : ''}\nClick: thread it` : null), viewer.showAxis(a, a?.at, 30)),
+  );
+}
+
 /**
  * Offset / Shell: the selected sketch shapes get new outlines a distance outside them (negative: inside; a line moves
  * to its left); else a body (selected, or clicked next) is hollowed: its faces clicked one by one are left open
@@ -3410,6 +3463,7 @@ function render() {
     },
     offsetTool,
     mirrorTool,
+    threadTool,
     rotateTool,
     alignObjects,
     jointTool,
