@@ -76,6 +76,8 @@ export interface ToolView {
   ray(e: MouseEvent): THREE.Ray;
   /** Nearest body surface under the pointer (cut-away regions excluded). */
   hit(e: MouseEvent): THREE.Intersection | undefined;
+  /** What a click points at (world): a corner, an edge point or a face point; null: empty space. */
+  pointAt(e: MouseEvent): THREE.Vector3 | null;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   toScreen(p: THREE.Vector3): [number, number];
@@ -204,6 +206,8 @@ export class SketchTool implements Tool {
   private snapWhat: string | null = null;
   /** Where the last line ended (world; kept across tool restarts): a Ctrl-click draws the next line from there. */
   private static lineEnd: THREE.Vector3 | null = null;
+  /** Pulling: waiting for the click that sets how far ("to object"). */
+  private reaching = false;
   /** Snap points along a line (by its key, see `sideKey`): evenly spaced inside a side, or around a circle. Kept across tool restarts. */
   private static divisions = new Map<string, number>();
   /** The line the pointer snapped to or along (its key), for A / Shift A. */
@@ -302,6 +306,14 @@ export class SketchTool implements Tool {
       ph.pts.push(at);
       if (this.kind === 'line') this.finishLine(); // a line is done at its second point
       else if (ph.pts.length >= 4 && near(ph.pts[0])) (ph.pts.pop(), this.closePolygon()); // the first corner closes it
+    } else if (ph.kind === 'pull' && this.reaching) {
+      // "to object": the depth to the clicked point, along the plane's normal
+      const p = this.view.pointAt(e);
+      if (!p) return true;
+      this.reaching = false;
+      ph.depth = p.sub(v3(ph.target.frame.o)).dot(v3(ph.target.frame.n));
+      ph.typed = undefined;
+      this.commit();
     } else if (ph.kind === 'pull') this.commit();
     this.update();
     return true;
@@ -327,6 +339,7 @@ export class SketchTool implements Tool {
         Object.assign(ph, { alt: e.altKey, shift: e.shiftKey });
       }
     } else {
+      if (this.reaching) return; // aiming at what to reach
       pullBy(this.view, e, ph.target.frame.n, this.middle(ph), ph);
       ph.depth = this.snap(ph.raw, e.ctrlKey);
     }
@@ -380,7 +393,12 @@ export class SketchTool implements Tool {
       else if (pressed(e, 'erase') && ph.pts.length > 1) ph.pts.pop();
       else return false;
     } else if (ph.kind === 'pull') {
-      if (typing) ph.typed = (ph.typed ?? '') + e.key;
+      if (ph.typed === undefined && pressed(e, 'toObject')) {
+        // the next click picks how far: the pointer shows again for it
+        this.reaching = true;
+        this.view.unlockPointer();
+        this.host.hint('Click a corner, edge or face: the extrusion reaches it · [Esc] cancels');
+      } else if (typing) ph.typed = (ph.typed ?? '') + e.key;
       else if (pressed(e, 'erase')) ph.typed = ph.typed?.slice(0, -1) || undefined;
       else if (pressed(e, 'confirm')) this.commit();
       else return false;
@@ -874,7 +892,7 @@ export class SketchTool implements Tool {
 const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] snaps · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
 const LINE_HINT = 'Click the end point · [Ctrl] snaps · [Esc] cancels';
 const POLYGON_HINT = 'Click corners · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
-const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done';
+const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · [T] to object · click or [Enter]: done';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {

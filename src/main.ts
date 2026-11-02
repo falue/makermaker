@@ -3,7 +3,7 @@ import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
-import { BASE, capFrame, frames, placed as inWorld, placeFrame, scale, unplaced, type Frame, type Place } from './doc/frames';
+import { BASE, capFrame, frames, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, area, bounds, corners, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -903,11 +903,39 @@ function moveAlong(first: number) {
     viewer.previewMove(b ?? new Vector3(), b ? (shapeMoves(b)?.updates ?? []) : []);
   };
   let closed = false; // removing the box fires focusout: close once
+  let last: HTMLInputElement | null = null; // the field typed in last
+  let target = false; // waiting for a click: "To object"
   const close = () => {
     if (closed) return;
     closed = true;
     box.remove();
+    removeEventListener('pointerup', refocus, true);
+    tips.cursorTip(null);
+    viewer.cancelFacePick();
     viewer.previewMove(null);
+  };
+  // the view keeps turning meanwhile: a click in it does not select (it only picks for "To object"), the field gets focus back
+  const refocus = () => setTimeout(() => !closed && !box.contains(document.activeElement) && last?.focus());
+  addEventListener('pointerup', refocus, true);
+  const watch = () =>
+    viewer.pickFace((face) => {
+      if (closed) return;
+      if (target) reach(face?.snap);
+      watch();
+    }, true);
+  watch();
+  /** "To object": the selection moves along the field's axis until its nearest side reaches the clicked point. */
+  const reach = (p?: Vector3) => {
+    target = false;
+    box.classList.remove('targeting');
+    tips.cursorTip(null);
+    const k = Math.max(0, fields.indexOf(last));
+    const span = extentAlong(k);
+    if (!p || !span || !fields[k]) return;
+    const t = p.getComponent(k);
+    const side = t >= span[1] ? span[1] : t <= span[0] ? span[0] : Math.abs(t - span[0]) < Math.abs(t - span[1]) ? span[0] : span[1];
+    fields[k]!.value = fmt((t - side) / UNITS[history.current.units]);
+    show();
   };
   const open = (k: number) => {
     if (!fields[k]) {
@@ -916,11 +944,12 @@ function moveAlong(first: number) {
       input.dataset.complete = '';
       input.dataset.grow = '90'; // px at least; wider for long text and its result
       input.oninput = show;
+      input.onfocus = () => (last = input);
       input.onkeydown = (e) => keys(e, input);
       const next = fields.slice(k + 1).find(Boolean);
       const letter = Object.assign(document.createElement('span'), { className: `axis-${name.toLowerCase()}`, textContent: name });
-      box.insertBefore(letter, next?.previousSibling ?? null);
-      box.insertBefore(input, next?.previousSibling ?? null);
+      box.insertBefore(letter, next?.previousSibling ?? toObject); // in X Y Z order, the button last
+      box.insertBefore(input, next?.previousSibling ?? toObject);
       fields[k] = input;
     }
     fields[k]!.focus();
@@ -941,10 +970,41 @@ function moveAlong(first: number) {
     close();
     moveBy(b);
   };
-  // focus moving between the fields stays; leaving the box cancels
-  box.addEventListener('focusout', (e) => box.contains(e.relatedTarget as Node) || close());
+  // focus moving between the fields (or into the view) stays; to another field or button elsewhere it cancels
+  box.addEventListener('focusout', (e) => (!e.relatedTarget || box.contains(e.relatedTarget as Node) ? undefined : close()));
+  const toObject = Object.assign(document.createElement('button'), {
+    textContent: 'To object',
+    title: 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it',
+    onclick: () => {
+      target = true;
+      box.classList.add('targeting');
+      tips.cursorTip('Click a corner, edge or face to move to');
+      last?.focus();
+    },
+  });
+  box.append(toObject);
   open(first);
   show();
+}
+
+/** Where the selection reaches along `axis` (world mm, without the move preview): bodies' boxes, or the moved shapes' outlines. */
+function extentAlong(axis: number): [number, number] | null {
+  const doc = history.current;
+  const s = doc.sketches.find((x) => x.id === activeSketch());
+  const f = viewer.sketches.find((v) => v.id === s?.id)?.frame;
+  if (s && f) {
+    const shapes = resolve(s, paramLookup(doc.params), '', new Map()).shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id));
+    const at = shapes.flatMap((q) => {
+      const [x0, y0, x1, y1] = bounds(q);
+      return [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([u, v]) => toWorld(f, u, v)[axis]);
+    });
+    return at.length ? [Math.min(...at), Math.max(...at)] : null;
+  }
+  const boxes = contents(doc, selected).flatMap((id) => viewer.measure(id)?.box ?? []);
+  if (!boxes.length) return null;
+  const box = boxes.reduce((a, b) => a.clone().union(b));
+  const shift = viewer.moved().getComponent(axis); // the preview's offset
+  return [box.min.getComponent(axis) - shift, box.max.getComponent(axis) - shift];
 }
 
 /** The selected sketch's shapes (the selected ones, else all) moved by `by` (world, mm) within its plane; null: no sketch selected, or across its plane. */

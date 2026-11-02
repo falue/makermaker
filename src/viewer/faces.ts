@@ -3,7 +3,7 @@ import type { V3 } from '../doc/frames';
 import { pullBy, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
 
-const HINT = 'Move to push or pull the face · [Ctrl] snaps · type a distance · click or [Enter]: done · [Esc] puts it back';
+const HINT = 'Move to push or pull the face · [Ctrl] snaps · type a distance · [T] to object · click or [Enter]: done · [Esc] puts it back';
 
 /** What a pull shows and how it ends: its hint, its label at the pointer, and whether releasing the button finishes it. */
 export type PullLook = { hint: string; label: (mm: number, typed?: string) => string; endOnUp?: boolean };
@@ -19,6 +19,8 @@ export class FacePullTool implements Tool {
   private pull = { raw: 0 };
   private dist = 0;
   private typed: string | undefined;
+  /** Waiting for the click that sets how far ("to object"). */
+  private reaching = false;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -43,11 +45,19 @@ export class FacePullTool implements Tool {
 
   down(e: PointerEvent) {
     if (e.button !== 0) return false;
+    if (this.reaching) {
+      // "to object": the distance to the clicked point, along `n`
+      const p = this.view.pointAt(e);
+      if (!p) return true;
+      this.reaching = false;
+      [this.dist, this.typed] = [p.sub(this.at).dot(new THREE.Vector3(...this.n)), undefined];
+    }
     this.finish('done');
     return true;
   }
 
   move(e: PointerEvent) {
+    if (this.reaching) return; // aiming at what to reach
     pullBy(this.view, e, this.n, this.at, this.pull);
     const step = e.ctrlKey ? this.view.snapStep : 0.1;
     this.dist = Math.round(this.pull.raw / step) * step;
@@ -67,6 +77,13 @@ export class FacePullTool implements Tool {
 
   key(e: KeyboardEvent) {
     const [cancel, confirm] = [pressed(e, 'cancel'), pressed(e, 'confirm')];
+    if (this.look === FACE && this.typed === undefined && pressed(e, 'toObject')) {
+      // the next click picks how far: the pointer shows again for it
+      this.reaching = true;
+      this.view.unlockPointer();
+      this.host.hint('Click a corner, edge or face: the pull reaches it · [Esc] cancels');
+      return true;
+    }
     if (cancel) this.finish('cancel');
     else if (confirm) this.finish('done');
     else if (pressed(e, 'erase')) this.typed = this.typed?.slice(0, -1) || undefined;

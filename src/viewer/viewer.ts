@@ -72,6 +72,8 @@ export interface PickedFace {
   point: THREE.Vector3;
   normal: THREE.Vector3;
   body?: string;
+  /** A quiet pick: the corner, edge point or face point clicked (none: empty space). */
+  snap?: THREE.Vector3;
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -250,6 +252,7 @@ export class Viewer implements ToolView {
   private deadPx = 24; // dead zone radius: no axis until the pointer leaves it
   private moveLabel = Object.assign(document.createElement('div'), { className: 'size-label active', hidden: true });
   private facePick: ((face: PickedFace | null) => void) | null = null;
+  private quietPick = false;
   /** Where a picking press started (see `clicked`). */
   private clickAt: { x: number; y: number } | null = null;
   private faceMark: THREE.Mesh | null = null;
@@ -388,7 +391,7 @@ export class Viewer implements ToolView {
     canvas.addEventListener('pointerleave', () => (this.hover = null));
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
-      if (this.facePick) return this.markFace(this.frontHit(e));
+      if (this.facePick) return this.quietPick ? undefined : this.markFace(this.frontHit(e));
       if (!this.tool && !this.drag && !e.buttons) {
         // Ctrl shows the edge (near one) or face it would pick
         const edge = picksFace(e) ? this.edgeAt(e) : this.pickedEdge && { segs: this.pickedEdge.edges.flat() };
@@ -702,9 +705,35 @@ export class Viewer implements ToolView {
   }
 
   /** The next click on a body picks a face (null: Esc). */
-  pickFace(done: (face: PickedFace | null) => void) {
+  /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view). */
+  pickFace(done: (face: PickedFace | null) => void, quiet = false) {
     this.facePick = done;
-    this.renderer.domElement.classList.add('drawing');
+    this.quietPick = quiet;
+    if (!quiet) this.renderer.domElement.classList.add('drawing');
+  }
+
+  /** What a click points at (world): a body corner within `cornerPx`, else the nearest point of an edge within 6 px, else the face point; null: empty space. */
+  pointAt(e: MouseEvent, cornerPx = 10) {
+    const r = this.el.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
+    const corner = this.corners().find((c) => {
+      const [x, y] = this.toScreen(c);
+      return Math.hypot(mx - x, my - y) < cornerPx;
+    });
+    if (corner) return corner;
+    const edge = this.edgeAt(e);
+    if (edge) {
+      // the edge point nearest the pointer's ray
+      const ray = this.ray(e);
+      let best: [number, THREE.Vector3] | null = null;
+      for (const [a, b] of edge.segs) {
+        const p = new THREE.Vector3();
+        const d = ray.distanceSqToSegment(a, b, undefined, p);
+        if (!best || d < best[0]) best = [d, p];
+      }
+      return best![1];
+    }
+    return this.frontHit(e)?.point.clone() ?? null;
   }
 
   setCustomSections(planes: { point: Vec3; normal: Vec3 }[]) {
@@ -1587,6 +1616,7 @@ export class Viewer implements ToolView {
   /** A face under the pointer, else the base plane facing the camera through the origin; the normal points away from the camera. */
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
+    if (this.quietPick) return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined });
     if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId });
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const k = this.facingAxis();
@@ -1626,6 +1656,13 @@ export class Viewer implements ToolView {
     this.renderSketches();
     this.applySection(false);
     this.render();
+  }
+
+  /** How far the move preview has moved the selection (world mm; zero without one). */
+  moved() {
+    const m = this.moving;
+    const [id, at] = m ? [...m.from][0] ?? [] : [];
+    return id ? this.group(id).position.clone().sub(at!) : new THREE.Vector3();
   }
 
   /** Stops waiting for a face (as Esc does). */
