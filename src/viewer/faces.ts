@@ -4,7 +4,7 @@ import { pullBy, TO_OBJECT, type Tool, type ToolHost, type ToolView } from './sk
 import { pressed } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
-const HINT = 'Move to push or pull the face · [Shift] coarse · [Ctrl] precise · type a distance · [T] to object · click or [Enter]: done · [Esc] puts it back';
+const HINT = 'Push or pull the face, or type a distance · [T] to object · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] puts it back';
 
 /** What a pull shows and how it ends: its hint, its label at the pointer, and whether releasing the button finishes it. */
 export type PullLook = { hint: string; label: (mm: number, typed?: string) => string; endOnUp?: boolean };
@@ -89,7 +89,7 @@ export class FacePullTool implements Tool {
       // the next click picks how far: the pointer shows again for it
       this.reaching = true;
       this.view.unlockPointer();
-      this.host.hint('To object: click a corner, edge or face, its distance goes into the size (type on to calculate with it) · [Esc] cancels');
+      this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
       return this.aim(this.view.aimHere()), true;
     }
     if (cancel) this.finish('cancel');

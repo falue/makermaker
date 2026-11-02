@@ -211,8 +211,8 @@ export interface ToolHost {
   /** A finished action (null: cancelled or stopped). After a flat shape the tool goes on. */
   done(result: SketchResult | null): void;
   hint(text: string): void;
-  /** A note that follows the pointer (null: none). */
-  cursorTip(text: string | null): void;
+  /** A note that follows the pointer (null: none); `more`: other keys, shown with the tool's hint. */
+  cursorTip(text: string | null, more?: string | null): void;
   /** Where that note is (viewport px), if shown. */
   cursorTipRect(): DOMRect | null;
   /** New shapes are drawn as construction lines. */
@@ -384,7 +384,7 @@ export class SketchTool implements Tool {
     if (ph.kind === 'hover' && this.kind) {
       const target = this.target(e);
       if (!target) {
-        this.host.hint('Draw on the top face of an extrusion, on a sketch or on empty space · [Esc] stops');
+        this.host.hint('Draw on a top face, a sketch or empty space · [Esc] stops');
         return true;
       }
       const at = this.point(e, target);
@@ -429,7 +429,7 @@ export class SketchTool implements Tool {
       if (!this.kind && this.mode?.kind !== 'plane') return;
       const target = this.target(e);
       this.view.markFace(target?.body && !target.sketch ? this.view.hit(e) : undefined);
-      this.host.hint(target ? this.hoverHint(target) : 'Only the top faces of extrusions take sketches for now · [Esc] stops');
+      this.host.hint(target ? this.hoverHint(target) : 'Only top faces of extrusions take sketches · [Esc] stops');
       if (target) this.point(e, target); // shows a snap dot
       return this.update();
     }
@@ -482,7 +482,7 @@ export class SketchTool implements Tool {
     // To object while drawing a shape: the next click's distance goes into the size being typed (not a polygon's sides)
     if (ph.kind === 'shape' && pressed(e, 'toObject') && !(this.kind === 'ngon' && ph.axis === 1) && !/[A-Za-z_]$/.test(ph.typed[ph.axis] ?? '')) {
       this.reaching = true;
-      this.host.hint('To object: click a corner, edge or face, its distance goes into the size (type on to calculate with it) · [Esc] cancels');
+      this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
       this.aim(this.view.aimHere());
       return true;
     }
@@ -551,7 +551,7 @@ export class SketchTool implements Tool {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
-        this.host.hint('To object: click a corner, edge or face, its distance goes into the size (type on to calculate with it) · [Esc] cancels');
+        this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       } else if (pressed(e, 'confirm')) this.commit();
       else if (!pullKey(e, ph)) return false;
@@ -562,9 +562,10 @@ export class SketchTool implements Tool {
 
   private hoverHint(target?: Target) {
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
-    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? `Click two points${SketchTool.lineEnd ? ` ([${MAC ? '⌘' : 'Ctrl'}]-click: on from the last end)` : ''}` : 'Drag (or click twice)';
-    if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]} · [R] [C] [P] switch · snaps to corners and centres · [A] / [Shift A] more / fewer snap points on a line · [Ctrl] grid · [Esc] stops drawing shapes`;
-    return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] precise · right-drag turns the view · [Esc] stops`;
+    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? 'Click two points' : 'Drag (or click twice)';
+    const chain = this.kind === 'line' && SketchTool.lineEnd ? ` · [${MAC ? '⌘' : 'Ctrl'}]-click: on from the last end` : '';
+    if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]}${chain} · [R] [C] [P] switch · snaps to corners and centres · [A] / [Shift A] more / fewer snap points on a line · [Ctrl] grid · [Esc] stops drawing shapes`;
+    return `${how} to draw ${NAMES[this.kind!]}${chain}${target ? ` · on ${target.name}` : ''} · [Ctrl] precise · right-drag turns the view · [Esc] stops`;
   }
 
   /**
@@ -1116,7 +1117,8 @@ export class SketchTool implements Tool {
     const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(KEYS.moreSnaps.default[0])} finer, ${comboText(KEYS.fewerSnaps.default[0])} coarser` : null;
     // pulling: what T does, or while aiming what the pointer reaches
     const pulling = ph.kind === 'pull' && (this.reaching ? [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n') : TO_OBJECT);
-    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, this.snapWhat, more, fix, base, angles, chain].filter(Boolean).join('\n') || null); // one per line
+    // at the pointer what it measures and is on; other keys with the tool's hint
+    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, this.snapWhat].filter(Boolean).join('\n') || null, [more, fix, base, angles, chain].filter(Boolean).join(' · ') || null);
     if (ph.kind === 'polygon' && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
@@ -1196,18 +1198,18 @@ export class SketchTool implements Tool {
   }
 }
 
-const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] precise · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
-const LINE_HINT = 'Click the end point · type a length, [Tab] the angle, [Enter] · turns in 1° steps, [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · [Esc] cancels';
+const SHAPE_HINT = 'Drag to size, or type it · [Tab] other side or number of sides · [Alt] from the centre · [Shift] square / 15° · [Ctrl] precise · [Enter] or click: done · [Esc] cancels';
+const LINE_HINT = 'Click the end point, or type a length · [Tab] the angle, [Enter] · turns in 1° steps, [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · [Esc] cancels';
 /** An angle (radians) in degrees, the short way: -180 to 180. */
 const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;
 /** The pointer's note while pulling (before typing a depth). */
-export const TO_OBJECT = 'To object (T): a click puts its distance into the size (calculate on with it)';
+export const TO_OBJECT = 'T: to object';
 /** Radius (px) of the arc showing what a side's angle is measured from. */
 const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
 export const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
-const POLYGON_HINT = 'Click corners · type a length, [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
-const PULL_HINT = 'Move to pull · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · type a depth, [Tab] how far back · [T] to object · click or [Enter]: done';
+const POLYGON_HINT = 'Click corners, or type a length · [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
+const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {

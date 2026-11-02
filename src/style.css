@@ -1510,11 +1510,11 @@ input + .to-object,
   white-space: nowrap;
 }
 
-/* icons in two greys: the shape, its dashed (secondary) parts lighter */
-.tool svg [stroke-dasharray] {
+/* icons in two greys: the shape, its dashed or faint (secondary) parts lighter */
+.tool svg :is([stroke-dasharray], .faint) {
   stroke: color-mix(in srgb, currentColor 50%, transparent);
 }
-.tool.on svg [stroke-dasharray] {
+.tool.on svg :is([stroke-dasharray], .faint) {
   stroke: currentColor;
 }
 
@@ -1570,14 +1570,26 @@ input + .set-axis {
 
 /* the tool's note (what to do, what the pointer is on): green, where errors show */
 #topbar .status.note {
+  display: flex;
+  flex-direction: column;
   padding: 2px 8px;
   border-radius: 4px;
   background: #2e9e4f;
   color: #fff;
+  max-width: 60vw;
+  line-height: 1.2;
+}
+#topbar .status.note > * {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 60vw;
+}
+#topbar .status.note b {
+  font-weight: 600;
+}
+#topbar .status.note small {
+  font-size: 11px;
+  opacity: 0.85;
 }
 #topbar .status.note kbd {
   color: #fff;

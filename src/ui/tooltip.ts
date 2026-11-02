@@ -1,7 +1,4 @@
 
-/** A measurement line (`L 65.00`, `W 30`, `61°`, `Ø 12`): it stays at the pointer. */
-const MEASURE = /^(?:[LWHRXYZØ∠]\s*-?[\d.]|-?[\d.]+\s*(?:°|mm|cm|m|in|ft)?$)/;
-
 /**
  * Hover help (from incase): any element with a title or data-tip shows a styled tooltip after `delay` ms; hidden
  * while a button is held. Titles move into data-tip on first hover, so the browser's own tooltip never shows.
@@ -64,15 +61,13 @@ export function installTooltips(delay = 500, within?: () => DOMRect, note: (text
   document.documentElement.addEventListener('pointerleave', hide);
 
   return {
-    /** A note next to the pointer that follows it (null: hides it). */
-    cursorTip(text: string | null) {
-      // at the pointer only measurements (what can be typed); what to do and what the pointer is on go to `note`
+    /** A note next to the pointer that follows it, one line each (null: hides it); `more` (other keys) goes to `note`. */
+    cursorTip(text: string | null, more: string | null = null) {
+      note(more);
       const lines = (text ?? '').split('\n').filter(Boolean);
-      const measures = lines.filter((line) => MEASURE.test(line.trim()));
-      note(lines.filter((line) => !measures.includes(line)).join(' · ') || null);
-      follow.replaceChildren(...measures.map((line) => Object.assign(document.createElement('div'), { textContent: line })));
-      follow.hidden = !measures.length;
-      if (measures.length) place(follow);
+      follow.replaceChildren(...lines.map((line) => Object.assign(document.createElement('div'), { textContent: line })));
+      follow.hidden = !lines.length;
+      if (lines.length) place(follow);
     },
     /** Where the pointer's note is (viewport px), if shown. */
     cursorTipRect: () => (follow.hidden ? null : follow.getBoundingClientRect()),

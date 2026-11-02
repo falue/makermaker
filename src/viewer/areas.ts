@@ -7,8 +7,8 @@ import { pressed } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
-const PICK_HINT = 'Click areas to pick them (again to drop) · double-click picks everything inside a shape · [Enter] or [E] pulls the picked areas · [Esc] cancels';
-const PULL_HINT = 'Move to pull · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · type a depth, [Tab] how far back · [T] to object · click or [Enter]: done · [Esc] cancels';
+const PICK_HINT = 'Click the areas to pull · again: drop it · double-click: everything inside a shape · [Enter] or [E] pulls them · [Esc] cancels';
+const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] cancels';
 
 /** In a sketch: pick areas (where shapes overlap, each piece is an area), then pull them into one extrusion. */
 export class AreaTool implements Tool {
@@ -110,7 +110,7 @@ export class AreaTool implements Tool {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
-        this.host.hint('To object: click a corner, edge or face, its distance goes into the size (type on to calculate with it) · [Esc] cancels');
+        this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       } else if (!pullKey(e, p)) return false;
       this.host.hint(PULL_HINT);
@@ -142,7 +142,7 @@ export class AreaTool implements Tool {
 
   private commit() {
     const { depth, back } = this.depths();
-    if (!depth && !back) return this.host.hint('Pull up or down, or type a depth · ' + PULL_HINT);
+    if (!depth && !back) return this.host.hint('Pull up or down first · ' + PULL_HINT);
     const typed = (t: string | undefined) => (t !== undefined && this.host.length(t) !== null ? t : undefined);
     this.view.unlockPointer();
     const picked = [...this.picked].map((i) => this.areas[i]);
