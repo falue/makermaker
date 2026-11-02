@@ -15,6 +15,7 @@ const ICONS = {
   rect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
   circle: '<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>',
   polygon: '<path d="M4 18l3-12 9-2 4 9-7 7z"/>',
+  body: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
   sketch: '<path d="M3 17l9 4 9-4-9-4z"/><path d="M15 3l3 3-6 6H9V9z"/>',
   select: '<path d="M6 3l12 9-6 1-3 6z"/>',
   finish: '<path d="M5 12l5 5 9-10"/>',

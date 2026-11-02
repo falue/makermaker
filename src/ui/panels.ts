@@ -531,9 +531,13 @@ function left(ctx: UIContext): Node[] {
   const sketchRows = doc.sketches.map((sk, i) => {
     const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
     // a plain click draws into it: sketch mode, looking at its plane
-    const item = listItem(sk.id, selectedClass(sk.id), (how) => (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']), ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
+    const item = listItem(sk.id, selectedClass(sk.id), (how) => (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']));
     item.title = `${whose(doc, sk.id)} · click to draw into it`;
-    return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye('sketches', sk.id, sk.visible));
+    // its body, like a body's sketch button: a click selects it
+    const body = owner
+      ? h('button', { className: 'icon', innerHTML: icon('body'), title: `${owner.name}: click to select it`, onclick: () => ctx.select(owner.id) })
+      : h('span', { className: 'fold-space' });
+    return h('div', { className: `listed${dimmed(sk.id)}` }, item, body, eye('sketches', sk.id, sk.visible));
   });
   const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'));
   head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));

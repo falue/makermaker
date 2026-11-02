@@ -1077,7 +1077,7 @@ function shapeMoves(by: Vector3) {
 
 /**
  * Moves the selection by `by` (world, mm): bodies; a sketch's shapes within its plane (the selected ones, else all),
- * and across it the sketch itself: a base-plane one by its offset, one extruded into a body with that body, a free
+ * and across it the whole sketch (no shapes selected): a base-plane one by its offset, one extruded into a body with that body, a free
  * plane itself. A sketch on a face without a body of its own stays on it.
  */
 function moveBy(by: Vector3) {
@@ -1091,6 +1091,7 @@ function moveBy(by: Vector3) {
   const n = new Vector3(...f.n);
   const d = by.dot(n);
   if (Math.abs(d) > 1e-9) {
+    if (shapeSel.length) return fail('Shapes move within their sketch plane: select the whole sketch to move it across');
     const k = doc.sketches.findIndex((s) => s.id === id);
     const p = doc.sketches[k].plane;
     const carrier = carrierOf(doc, id);
