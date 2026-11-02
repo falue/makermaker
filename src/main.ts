@@ -10,7 +10,7 @@ import { pieces } from './doc/arrangement';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { carrierOf, contents, onFaceOf, ownersOf, rank, tree, whose, within } from './doc/groups';
+import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { Area, Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
@@ -1148,7 +1148,7 @@ function sketchMove(by: Vector3) {
   const shapes = flat ? resolve(s, paramLookup(doc.params), '', new Map()).shapes.filter((q) => d || !shapeSel.length || shapeSel.includes(q.id)) : [];
   const carrier = carrierOf(doc, s.id);
   const onFace = s.plane.kind === 'cap' || s.plane.kind === 'side';
-  const users = doc.bodies.filter((b) => b.features.some((x) => x.type === 'extrude' && x.source.kind === 'sketch' && x.source.sketch === s.id)).map((b) => b.id);
+  const users = doc.bodies.filter((b) => b.features.some((x) => sourceSketch(x) === s.id)).map((b) => b.id);
   // on a face with no body of its own it leaves the face; extruded by the body it lies on, it stays
   const bodies = onFace ? (carrier ? [carrier] : users.length ? null : []) : users;
   return { sketch: s, frame: f, n, d, carrier, users, updates: shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })), across: d && bodies ? { sketch: s.id, by: n.clone().multiplyScalar(d), bodies } : null };
@@ -1518,6 +1518,130 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   // the offset, from 0: typing replaces it (after the click that picked the face has ended)
   setTimeout(() => (fields[0].focus(), fields[0].select()));
   addEventListener('keydown', keys, { capture: true });
+}
+
+/**
+ * Revolve: closed shapes (the selected ones, all of the selected sketch's, or the one whose outline is clicked next)
+ * turned around an axis clicked next (a sketch line or a body edge in their plane): a new body, shown at once; the
+ * angle (360° first) typed or scrubbed live, Enter keeps it, Esc leaves nothing.
+ */
+function revolveTool() {
+  const id = activeSketch();
+  const s = viewer.sketches.find((v) => v.id === id);
+  const shapes = s ? (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction && q.kind !== 'line') : [];
+  if (!s || !shapes.length) {
+    toolHint = 'Revolve: click the outline of a closed sketch shape · [Esc] cancels';
+    render();
+    return viewer.pickFace((face) => {
+      toolHint = null;
+      if (!face?.sketch?.shape) return render();
+      [selected, shapeSel] = [[face.sketch.id], [face.sketch.shape]];
+      showSelection();
+      revolveTool();
+    }, false, 'outlines');
+  }
+  toolHint = "Revolve: click the axis, a sketch line or a body edge in the shapes' plane · [Esc] cancels";
+  render();
+  const f = s.frame;
+  viewer.pickAxis(
+    (a) => {
+      tips.cursorTip(null);
+      viewer.showAxis(null);
+      toolHint = null;
+      if (!a) return render();
+      // the axis in the shapes' plane: it must not stand (nearly) square to it
+      const [u, v] = [a.dir.dot(new Vector3(...f.x)), a.dir.dot(new Vector3(...f.y))];
+      const l = Math.hypot(u, v);
+      if (l < 0.5) return fail("The axis has to lie in the shapes' plane");
+      revolvePanel(s.id, shapes.map((q) => q.id), { at: uvOf(f, a.at), dir: [u / l, v / l] });
+    },
+    (a) => (tips.cursorTip(a ? `${a.what}\nClick: the shapes turn around it` : null), viewer.showAxis(a, new Vector3(...f.o), 200)),
+  );
+}
+
+/** The revolve being set up: its body shown, a panel at the top middle of the view with the angle; Enter keeps it, Esc leaves nothing. */
+function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, number]; dir: [number, number] }) {
+  const doc = history.current;
+  const feature: Feature = { id: newId(), type: 'revolve', source: { kind: 'sketch', sketch, shapes }, axis, angle: ex(360), mode: 'add' };
+  const plane = doc.sketches.find((k) => k.id === sketch)!.plane;
+  const body = newBody(doc.bodies.length, [feature], plane.kind === 'base' ? doc.sketches.find((k) => k.id === sketch)!.group : null);
+  [selected, shapeSel] = [[body.id], []];
+  commit({ ...doc, bodies: [...doc.bodies, body] });
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
+  const input = Object.assign(document.createElement('input'), { value: '360', spellcheck: false });
+  const set = (text: string) => {
+    input.value = text;
+    const ok = length(text) !== null;
+    input.classList.toggle('invalid', !ok);
+    if (!ok) return;
+    const now = history.current;
+    const i = now.bodies.findIndex((b) => b.id === body.id);
+    history.replace(setIn(now, ['bodies', String(i), 'features', '0', 'angle'], { e: text, u: 'mm' }));
+    update();
+  };
+  input.oninput = () => set(input.value || '0');
+  const label = Object.assign(document.createElement('span'), { textContent: 'Angle °' });
+  scrub(label, input, () => input.value, 'mm', settings.minStep, set, () => (input.focus(), input.select()));
+  const finish = (ok: boolean) => {
+    box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    toolHint = null;
+    if (!ok) return undo();
+    render();
+  };
+  const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
+  box.append(label, input, Object.assign(document.createElement('button'), { textContent: '✓', title: 'Keep it (Enter); Esc leaves nothing', onclick: () => finish(true) }));
+  document.body.append(box);
+  const r = viewer.el.getBoundingClientRect();
+  keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+  toolHint = 'Type or scrub the angle · [Enter] keeps it · [Esc] leaves nothing';
+  render();
+  setTimeout(() => (input.focus(), input.select()));
+  addEventListener('keydown', keys, { capture: true });
+}
+
+/**
+ * Loft: closed sketch shapes clicked in order (one per sketch, by their outline); from the second on the new body shows
+ * through them. Enter keeps it, Esc leaves nothing.
+ */
+function loftTool() {
+  const picked: { sketch: string; shape: string }[] = [];
+  let body: string | null = null;
+  let ended = false;
+  const show = () => {
+    if (picked.length < 2) return;
+    const doc = history.current;
+    const feature: Feature = { id: newId(), type: 'loft', sections: [...picked], ruled: false };
+    if (!body) {
+      const made = newBody(doc.bodies.length, [feature]);
+      [body, selected, shapeSel] = [made.id, [made.id], []];
+      history.push({ ...doc, bodies: [...doc.bodies, made] });
+    } else history.replace({ ...doc, bodies: doc.bodies.map((b) => (b.id === body ? { ...b, features: [feature] } : b)) });
+    update();
+  };
+  const finish = (ok: boolean) => {
+    if (ended) return;
+    ended = true;
+    removeEventListener('keydown', keys, { capture: true });
+    viewer.cancelFacePick();
+    toolHint = null;
+    if (!ok && body) return undo();
+    render();
+  };
+  const next = () => {
+    toolHint = `Loft: click the outlines of closed sketch shapes in order, one per sketch (${picked.length} so far) · [Enter] keeps it · [Esc] cancels`;
+    render();
+    viewer.pickFace((face) => {
+      if (ended) return;
+      if (!face) return finish(false);
+      const at = face.sketch;
+      if (at?.shape && !picked.some((q) => q.sketch === at.id)) picked.push({ sketch: at.id, shape: at.shape }), show();
+      next();
+    }, false, 'outlines');
+  };
+  const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), finish(picked.length > 1));
+  addEventListener('keydown', keys, { capture: true });
+  next();
 }
 
 /** Tool first: the next clicked body gets `act`. */
@@ -2121,7 +2245,8 @@ function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string) {
       const c = { ...structuredClone(f), id: renamed(f.id) };
       if (c.type === 'boolean') return { ...c, body: renamed(c.body) };
       if (c.type === 'split' && c.cutter.kind === 'shape') return { ...c, cutter: { ...c.cutter, sketch: renamed(c.cutter.sketch), shape: renamed(c.cutter.shape) } };
-      if (c.type !== 'extrude') return c;
+      if (c.type === 'loft') return { ...c, sections: c.sections.map((q) => ({ sketch: renamed(q.sketch), shape: renamed(q.shape) })) };
+      if (c.type !== 'extrude' && c.type !== 'revolve') return c;
       const src = c.source;
       if (src.kind === 'own') return src.plane.kind === 'cap' ? { ...c, source: { ...src, plane: { ...src.plane, feature: renamed(src.plane.feature) } } } : c;
       return { ...c, source: { ...src, sketch: renamed(src.sketch), shapes: src.shapes.map(renamed), areas: src.areas?.map((a) => ({ ...a, in: a.in.map(renamed), out: a.out.map(renamed) })) } };
@@ -2250,6 +2375,8 @@ function render() {
     groupTool,
     moveTool: () => moveAlong(0, true),
     cutTool,
+    revolveTool,
+    loftTool,
     groupSelected: selected.some((id) => doc.groups.some((g) => g.id === id)),
     arrange,
     select,
@@ -2641,6 +2768,8 @@ addEventListener('keydown', (e) => {
   else if (tool) startTool(tool);
   else if (pressed(e, 'construction')) toggleConstruction();
   else if (pressed(e, 'extrude')) extrude();
+  else if (pressed(e, 'revolve')) revolveTool();
+  else if (pressed(e, 'loft')) loftTool();
   else if (pressed(e, 'sketch')) startNewSketch();
   else if (sketching && pressed(e, 'deselect')) sketchPath.length ? ((sketchPath = sketchPath.slice(0, -1)), (shapeSel = []), showSelection()) : exitSketch(); // up one sub-group, else out
   else if (pressed(e, 'cycle')) viewer.cycle(1);

@@ -62,6 +62,8 @@ export interface UIContext {
   moveTool(): void;
   /** Cut a body in two (see `cutTool` in main). */
   cutTool(): void;
+  revolveTool(): void;
+  loftTool(): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
   /** Moves objects before or after another one (into its group), or into a group. */
@@ -402,6 +404,8 @@ function toolbar(ctx: UIContext): Node[] {
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
     tool('move', 'Move (M): type distances along X, Y and Z (Tab: the next); the selection, or what is clicked next', ctx.moveTool, on('move')),
+    tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
+    tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
     tool('cut', 'Cut: a body (selected, or clicked next) in two along a face\'s plane (turn and move it) or a sketch line or shape; keep both or delete one side', ctx.cutTool, on('cut')),
     h('hr'), // shaping above, organizing below
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? 'Ungroup (⇧⌘G): the contents move to the group\'s parent, staying where they are' : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
@@ -1010,6 +1014,18 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
             ? h('div', { className: 'row' }, f('cutter.d', c.kind === 'sphere' ? 'Ball Ø' : 'Cylinder Ø'), f('cutter.offset', 'Offset'))
             : h('div', { className: 'row' }, h('span', { className: 'hint' }, shape ? `Along ${sketch!.name}: ${shape.kind}` : 'Its cutting shape was deleted'), ...(shape?.kind === 'line' ? [f('cutter.offset', 'Offset')] : []));
       return h('section', {}, h('h4', {}, side, remove), what);
+    }
+    case 'revolve': {
+      const mode = select(feature.mode, { add: 'Revolve: add', cut: 'Revolve: cut' }, (m) => setFeature({ ...feature, mode: m }));
+      const src = feature.source;
+      const sketch = src.kind === 'sketch' ? ctx.doc.sketches.find((k) => k.id === src.sketch) : undefined;
+      return h('section', {}, h('h4', {}, mode, remove), h('div', { className: 'row' }, f('angle', 'Angle °'), h('span', { className: 'hint' }, sketch ? `From ${sketch.name}` : 'Its sketch was deleted')));
+    }
+    case 'loft': {
+      const ruled = h('input', { type: 'checkbox', checked: feature.ruled });
+      ruled.onchange = () => setFeature({ ...feature, ruled: ruled.checked });
+      const names = feature.sections.map((q) => ctx.doc.sketches.find((k) => k.id === q.sketch)?.name ?? '?');
+      return h('section', {}, h('h4', {}, 'Loft', remove), h('div', { className: 'row' }, h('span', { className: 'hint' }, `Through ${names.join(' → ')}`), h('label', { className: 'check', title: 'Straight between the shapes, else smooth' }, ruled, 'Ruled')));
     }
     case 'sphere':
       return h('section', {}, h('h4', {}, 'Sphere', remove), h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('z', 'Z'), f('d', 'Ø')));

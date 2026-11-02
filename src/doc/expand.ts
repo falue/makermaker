@@ -26,7 +26,20 @@ export function toBuild(
     if (!frame) return null;
     return { ...feature, cutter: { kind: 'frame', frame, profile, offset: c.offset } };
   }
-  if (feature.type !== 'extrude') return feature;
+  if (feature.type === 'loft') {
+    // each shape where its sketch is in the world (`cutterFrame`: in this body's coordinates)
+    const sections = [];
+    for (const { sketch: id, shape } of feature.sections) {
+      const sketch = sketches.get(id);
+      const profile = sketch?.shapes.find((s) => s.id === shape);
+      if (!sketch || !profile) return 'one of its shapes was deleted';
+      const frame = cutterFrame(sketch);
+      if (!frame) return null;
+      sections.push({ frame, profile });
+    }
+    return { ...feature, sections };
+  }
+  if (feature.type !== 'extrude' && feature.type !== 'revolve') return feature;
   const { source, ...rest } = feature;
   if (source.kind === 'own') return { ...rest, plane: source.plane, profiles: source.profiles, areas: source.areas };
   const sketch = sketches.get(source.sketch);

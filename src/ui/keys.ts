@@ -45,6 +45,8 @@ export const KEYS = {
   sphere: { chapter: 'Draw', name: 'Sphere', order: 44, default: [{ key: 'o' }], hint: 'Draw a sphere from its centre' },
   sketch: { chapter: 'Draw', name: 'New sketch', order: 45, default: [{ key: 's' }], hint: 'A new sketch on a face or a base plane' },
   extrude: { chapter: 'Shape', name: 'Extrude', order: 46, default: [{ key: 'e' }], hint: 'Pull shapes or areas, or push and pull a face' },
+  revolve: { chapter: 'Shape', name: 'Revolve', order: 46.2, default: [{ key: 'u' }], hint: 'Turn closed sketch shapes around a line or edge in their plane into a new body' },
+  loft: { chapter: 'Shape', name: 'Loft', order: 46.4, default: [{ key: 'k' }], hint: 'A new body through closed sketch shapes of several sketches, clicked in order' },
   group: { chapter: 'Organize', name: 'Group', order: 50, default: [{ key: 'g', mod: true, shift: false }], hint: 'Group the selection (nothing selected: the objects clicked next)' },
   ungroup: { chapter: 'Organize', name: 'Ungroup', order: 51, default: [{ key: 'g', mod: true, shift: true }], hint: 'Ungroup the selected group; its contents stay where they are' },
   duplicate: { chapter: 'Organize', name: 'Duplicate', order: 52, default: [{ key: 'd', mod: true }], hint: 'Duplicate the selection (or the selected shapes)' },

@@ -66,10 +66,26 @@ function splitTest(): { body: Body; sketch: Sketch } {
 }
 
 /**
+ * Test pieces for loft and revolve: a square on the ground with a circle 40 mm above it (loft through them), and on the
+ * front plane a vase's half outline beside a construction line (revolve it around that line).
+ */
+function shapeTests(): Sketch[] {
+  const sketch = (name: string, plane: Sketch['plane'], shapes: Profile[]): Sketch => ({ id: newId(), name, group: null, groups: [], plane, shapes, visible: true });
+  const square: Profile = { id: newId(), kind: 'rect', x: ex(-130), y: ex(90), w: ex(30), h: ex(30), r: ex(0), rot: ex(0) };
+  const vase: Profile = { id: newId(), kind: 'polygon', pts: [[-165, 0], [-150, 0], [-152, 10], [-158, 25], [-155, 40], [-165, 40]], r: ex(0), rot: ex(0) };
+  const axis: Profile = { id: newId(), kind: 'line', pts: [[-165, -5], [-165, 45]], construction: true };
+  return [
+    sketch('Loft base', { kind: 'base', axis: 'xy', offset: ex(0) }, [square]),
+    sketch('Loft top', { kind: 'base', axis: 'xy', offset: ex(40) }, [circle(-130, 90, 16)]),
+    sketch('Revolve me', { kind: 'base', axis: 'xz', offset: ex(-60) }, [vase, axis]),
+  ];
+}
+
+/**
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
  * corner (both in a group), a hex nut sunk into the disc, a free sketch on the front plane that no body uses yet, and
- * test pieces for newer features.
+ * test pieces for newer features (finishes, booleans, cuts, loft and revolve).
  */
 export function sampleDoc(): Doc {
   const split = splitTest();
@@ -142,6 +158,7 @@ export function sampleDoc(): Doc {
         visible: true,
       },
       split.sketch,
+      ...shapeTests(),
     ],
     groups: [corner],
     sections: [],

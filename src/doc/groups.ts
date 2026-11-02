@@ -1,4 +1,7 @@
-import type { Doc } from './types';
+import type { Doc, Feature } from './types';
+
+/** The sketch a feature takes its shapes from (an extrusion's or revolve's), if any. */
+export const sourceSketch = (f: Feature) => ((f.type === 'extrude' || f.type === 'revolve') && f.source.kind === 'sketch' ? f.source.sketch : null);
 
 /** A row of the object list; `open`: a group shown unfolded (true) or folded (false). */
 export type Row = { id: string; kind: 'group' | 'body'; depth: number; open?: boolean };
@@ -6,27 +9,27 @@ export type Row = { id: string; kind: 'group' | 'body'; depth: number; open?: bo
 /** The group an object is in, if that group exists (else none: the object shows at the top level). */
 export const parentOf = (doc: Doc, group: string | null) => (group && doc.groups.some((g) => g.id === group) ? group : null);
 
-/** Sketches that belong to a body: those it extrudes, and those lying on its faces. */
+/** Sketches that belong to a body: those it extrudes or revolves, and those lying on its faces. */
 export const sketchesOf = (doc: Doc, body: string) => doc.sketches.filter((s) => ownerOf(doc, s.id) === body);
 
-/** The body a sketch belongs to: the first that extrudes it, else the one whose face it lies on. */
+/** The body a sketch belongs to: the first that extrudes or revolves it, else the one whose face it lies on. */
 export function ownerOf(doc: Doc, sketch: string): string | null {
-  const user = doc.bodies.find((b) => b.features.some((f) => f.type === 'extrude' && f.source.kind === 'sketch' && f.source.sketch === sketch));
+  const user = doc.bodies.find((b) => b.features.some((f) => sourceSketch(f) === sketch));
   const p = doc.sketches.find((s) => s.id === sketch)?.plane;
   const on = p && (p.kind === 'cap' || p.kind === 'side') && doc.bodies.some((b) => b.id === p.body) ? p.body : null;
   return user?.id ?? on;
 }
 
-/** The body a sketch moves along with: the first that extrudes it, unless the sketch lies on that body's own face. */
+/** The body a sketch moves along with: the first that extrudes or revolves it, unless the sketch lies on that body's own face. */
 export function carrierOf(doc: Doc, sketch: string): string | null {
-  const user = doc.bodies.find((b) => b.features.some((f) => f.type === 'extrude' && f.source.kind === 'sketch' && f.source.sketch === sketch));
+  const user = doc.bodies.find((b) => b.features.some((f) => sourceSketch(f) === sketch));
   const p = doc.sketches.find((s) => s.id === sketch)?.plane;
   return user && p && !((p.kind === 'cap' || p.kind === 'side') && p.body === user.id) ? user.id : null;
 }
 
 /** Whether body `tool` is extruded from a sketch lying on a face of body `on`. */
 export function onFaceOf(doc: Doc, tool: string, on: string): boolean {
-  const planes = doc.bodies.find((b) => b.id === tool)?.features.flatMap((f) => (f.type === 'extrude' && f.source.kind === 'sketch' ? [f.source.sketch] : [])).map((id) => doc.sketches.find((s) => s.id === id)?.plane);
+  const planes = doc.bodies.find((b) => b.id === tool)?.features.flatMap((f) => (sourceSketch(f) ?? [])).map((id) => doc.sketches.find((s) => s.id === id)?.plane);
   return !!planes?.some((p) => (p?.kind === 'cap' || p?.kind === 'side') && p.body === on);
 }
 
@@ -34,7 +37,7 @@ export function onFaceOf(doc: Doc, tool: string, on: string): boolean {
 export function whose(doc: Doc, sketch: string): string {
   const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sketch));
   if (!owner) return 'A free sketch: it belongs to no object (nothing is extruded from it, it lies on no face)';
-  const extruded = owner.features.some((f) => f.type === 'extrude' && f.source.kind === 'sketch' && f.source.sketch === sketch);
+  const extruded = owner.features.some((f) => sourceSketch(f) === sketch);
   return extruded ? `Belongs to ${owner.name}, which is extruded from it` : `Belongs to ${owner.name}: it lies on its face`;
 }
 

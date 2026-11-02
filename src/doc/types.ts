@@ -102,6 +102,12 @@ export type MeshFeature = { id: string; type: 'mesh'; source: string; vertices: 
 /** A solid read from a STEP file (`data`: the file's text, in mm); `source`: the file it came from. */
 export type StepFeature = { id: string; type: 'step'; source: string; data: string };
 
+/** Shapes turned `angle` degrees around `axis`, a line in their sketch plane (through `at` along `dir`, plane coordinates). */
+export type RevolveFeature = { id: string; type: 'revolve'; source: ExtrudeSource; axis: { at: [number, number]; dir: [number, number] }; angle: Expr; mode: 'add' | 'cut' };
+
+/** A solid through closed sketch shapes in order (`ruled`: straight between them, else smooth). */
+export type LoftFeature = { id: string; type: 'loft'; sections: { sketch: string; shape: string }[]; ruled: boolean };
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   /** `back`: how far it also reaches behind its sketch plane (none: 0). */
@@ -111,7 +117,9 @@ export type Feature =
   | FinishFeature
   | MeshFeature
   | StepFeature
-  | SplitFeature;
+  | SplitFeature
+  | RevolveFeature
+  | LoftFeature;
 
 /**
  * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the
@@ -150,7 +158,11 @@ export type ExtrudeIn = {
   mode: 'add' | 'cut';
   through: boolean;
 };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn;
+/** A revolve with its plane and shapes at hand, as the kernel builds it. */
+export type RevolveIn = Omit<RevolveFeature, 'source'> & { plane: SketchPlane | FramePlane; profiles: Profile[]; areas?: Area[] };
+/** A loft with each shape on its frame (body-local), as the kernel builds it. */
+export type LoftIn = { id: string; type: 'loft'; sections: { frame: Omit<FramePlane, 'kind'>; profile: Profile }[]; ruled: boolean };
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn;
 
 export interface Body {
   id: string;

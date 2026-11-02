@@ -93,6 +93,20 @@ describe('buildBody', () => {
     down.done();
   });
 
+  it('revolves shapes around a line in their plane, and lofts through shapes', () => {
+    // a 10 × 30 rectangle 10 to 20 mm right of the y axis, turned all the way around it: a ring Ø 40, 30 high (along y)
+    const ring = built([{ id: 'r', type: 'revolve', plane: ground, profiles: [{ id: 'q', kind: 'rect', x: 15, y: 0, w: 10, h: 30, r: 0, rot: 0 }], axis: { at: [0, 0], dir: [0, 1] }, angle: 360, mode: 'add' } as BuildFeature]);
+    expect(ring.box.width).toBeCloseTo(40, 1);
+    expect(ring.box.height).toBeCloseTo(30, 1);
+    ring.done();
+    // a square 20 wide on the ground to a circle Ø 10 20 mm above it
+    const at = (z: number) => ({ o: [0, 0, z], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] });
+    const tower = built([{ id: 'l', type: 'loft', sections: [{ frame: at(0), profile: { id: 'a', kind: 'rect', x: 0, y: 0, w: 20, h: 20, r: 0, rot: 0 } }, { frame: at(20), profile: { id: 'b', kind: 'circle', x: 0, y: 0, d: 10 } }], ruled: false } as BuildFeature]);
+    expect(tower.box.bounds.map((b) => +b[2].toFixed(3) + 0)).toEqual([0, 20]);
+    expect(tower.box.width).toBeCloseTo(20, 1);
+    tower.done();
+  });
+
   it('cuts a body by a plane, turned, or along a line, keeping either side', () => {
     const plane = (side: 1 | -1, turn = 0, axis: { at: number[]; dir: number[] } | null = null) =>
       ({ id: 's', type: 'split', cutter: { kind: 'plane', o: [0, 0, 0], x: [0, 1, 0], n: [1, 0, 0], turn, axis, offset: 10 }, side }) as BuildFeature;

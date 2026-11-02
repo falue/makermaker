@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeCylinder, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
+import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeCylinder, makeSphere, Plane, type Drawing, type Edge, type Shape3D, type Sketch } from 'replicad';
 import { add, cutPlane, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { beside, centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
@@ -73,6 +73,8 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'step') apply(s.id, (cur) => step(cur, s));
       if (s.type === 'boolean') apply(s.id, (cur) => boolean(cur, s));
       if (s.type === 'split') apply(s.id, (cur) => split(cur, s));
+      if (s.type === 'revolve') apply(s.id, (cur) => revolve(cur, s, plan.get(s.id)));
+      if (s.type === 'loft') apply(s.id, (cur) => loft(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -351,9 +353,33 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   const [from, to] = s.through ? [-far, far] : extent(s.depth, s.back);
   const tool = outline.sketchOnPlane(new Plane(add(f.o, scale(f.n, from)), f.x, f.n)).extrude(to - from) as Shape3D;
   for (const p of s.profiles) addCircles(p, f, circles);
+  return joined(shape, tool, s.mode);
+}
+
+/** Shapes turned around their axis (in their plane), joined to or cut from the body. */
+function revolve(shape: Shape3D | null, s: Of<'revolve'>, f: Frame | undefined): Shape3D {
+  if (!f) throw new Error('sketch plane lost: the face it was on is gone');
+  if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
+  if (!s.profiles.length) throw new Error('no profile to revolve');
+  if (!s.angle) throw new Error('the angle must not be 0');
+  const outline = s.areas ? areaDrawing(s.profiles, s.areas) : combine(s.profiles);
+  const dir = add(scale(f.x, s.axis.dir[0]), scale(f.y, s.axis.dir[1]));
+  const tool = outline.sketchOnPlane(new Plane(f.o, f.x, f.n)).revolve(dir, { origin: toWorld(f, ...s.axis.at), angle: Math.max(-360, Math.min(360, s.angle)) }) as Shape3D;
+  return joined(shape, tool, s.mode);
+}
+
+/** A solid through its shapes in order, joined to the body (the first one makes it). */
+function loft(shape: Shape3D | null, s: Of<'loft'>): Shape3D {
+  if (s.sections.length < 2) throw new Error('a loft needs two shapes or more');
+  const [first, ...rest] = s.sections.map(({ frame: f, profile }) => drawing(profile).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch);
+  return joined(shape, first.loftWith(rest, { ruled: s.ruled }), 'add');
+}
+
+/** `tool` joined to or cut from `shape` (none yet: `tool` itself); `tool` is used up. */
+function joined(shape: Shape3D | null, tool: Shape3D, mode: 'add' | 'cut'): Shape3D {
   if (!shape) return tool;
   try {
-    return s.mode === 'add' ? shape.fuse(tool) : shape.cut(tool);
+    return mode === 'add' ? shape.fuse(tool) : shape.cut(tool);
   } finally {
     tool.delete();
   }

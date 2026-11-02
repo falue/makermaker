@@ -31,11 +31,11 @@ export const toPlane = (f: Frame, p: V3): [number, number] => {
 
 export const moved = (f: Frame, by: V3): Frame => ({ ...f, o: add(f.o, by) });
 
-/** Sketch frame per extrude feature; a feature on a missing (or later, or through-cut) feature's face gets none. */
+/** Sketch frame per extrude or revolve feature; a feature on a missing (or later, or through-cut) feature's face gets none. */
 export function frames(features: Resolved<BuildIn>[]): Map<string, Frame> {
   const out = new Map<string, Frame>();
   for (const s of features) {
-    if (s.type !== 'extrude') continue;
+    if (s.type !== 'extrude' && s.type !== 'revolve') continue;
     const p = s.plane;
     if (p.kind === 'frame') {
       out.set(s.id, { o: p.o, x: p.x, y: p.y, n: p.n });
