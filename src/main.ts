@@ -1026,7 +1026,8 @@ function moveAlong(first: number, all = false) {
   const open = (k: number) => {
     if (!fields[k]) {
       const name = 'XYZ'[k];
-      const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}` });
+      // all three at once (M): they start at 0, selected, so typing replaces it
+      const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}`, value: all ? '0' : '' });
       input.dataset.complete = '';
       input.dataset.grow = '90'; // px at least; wider for long text and its result
       input.oninput = show;
@@ -1039,6 +1040,7 @@ function moveAlong(first: number, all = false) {
       fields[k] = input;
     }
     fields[k]!.focus();
+    if (fields[k]!.value === '0') fields[k]!.select();
   };
   const keys = (e: KeyboardEvent, input: HTMLInputElement) => {
     const k = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
@@ -1682,22 +1684,15 @@ async function toggleAutosave() {
   render();
 }
 
-/** Copies the selected bodies 10 mm to the right and back, and the selected sketches in place; selects the copies. */
-function duplicate(offset = 10) {
+/**
+ * Copies the selected bodies and sketches in place and selects the copies; the move fields open at 0 (the originals
+ * show as ghosts), to type where the copies go.
+ */
+function duplicate() {
   const doc = history.current;
   const copies = doc.bodies
     .filter((p) => selected.includes(p.id))
-    .map((p): Body => {
-      const [x, y] = resolve(p.position, paramLookup(doc.params), '', new Map());
-      const at = (v: number) => ex(fmt((v + offset) / UNITS[doc.units]), doc.units);
-      return {
-        ...structuredClone(p),
-        id: newId(),
-        name: `${p.name} copy`,
-        position: [at(x), at(y), p.position[2]],
-        features: p.features.map((s) => ({ ...structuredClone(s), id: newId() })),
-      };
-    });
+    .map((p): Body => ({ ...structuredClone(p), id: newId(), name: `${p.name} copy`, features: p.features.map((s) => ({ ...structuredClone(s), id: newId() })) }));
   // sketches: copied in place, with new ids for their shapes and sub-groups
   const sketches = doc.sketches
     .filter((s) => selected.includes(s.id))
@@ -1713,6 +1708,7 @@ function duplicate(offset = 10) {
     });
   selected = [...copies, ...sketches].map((c) => c.id);
   commit({ ...doc, bodies: [...doc.bodies, ...copies], sketches: [...doc.sketches, ...sketches] });
+  if (selected.length) moveAlong(0, true);
 }
 
 /** Sketch mode's open sub-group: the view fades the rest and shows the way down (when it changed). */
