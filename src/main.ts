@@ -2649,8 +2649,18 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
       const v = jointValue(j, lookup);
       if (!ref) return v;
       if (j.kind === 'slider') return v + p.clone().sub(ref).dot(axis.dir);
-      const [from, to] = [ref.clone().sub(axis.at).projectOnPlane(axis.dir), p.clone().sub(axis.at).projectOnPlane(axis.dir)];
-      return v + (Math.atan2(from.clone().cross(to).dot(axis.dir), from.dot(to)) * 180) / Math.PI;
+      // the moving part's direction from the axis at 0, snapped to the parent's nearest X / Y / Z within 15° (a lid's
+      // middle sits a little above its hinge: the angle would be off by that much)
+      const zero = ref.clone().sub(axis.at).projectOnPlane(axis.dir).applyAxisAngle(axis.dir, (-v * Math.PI) / 180).normalize();
+      const parent = bodyPlaces.get(j.parent) ?? groupPlace(j.parent);
+      const axes = [0, 1, 2].flatMap((k) => {
+        const a = new Vector3().setComponent(k, 1).transformDirection(parent).projectOnPlane(axis.dir);
+        return a.lengthSq() > 1e-6 ? [a.normalize(), a.clone().negate()] : [];
+      });
+      const near = axes.reduce((best, a) => (a.dot(zero) > best.dot(zero) ? a : best), zero);
+      const from = near.dot(zero) > Math.cos(Math.PI / 12) ? near : zero;
+      const to = p.clone().sub(axis.at).projectOnPlane(axis.dir);
+      return (Math.atan2(from.clone().cross(to).dot(axis.dir), from.dot(to)) * 180) / Math.PI;
     };
     const text = (v: number) => fmt(now().kind === 'hinge' ? v : v / UNITS[u]);
     viewer.aiming = (a) => tips.cursorTip([a?.what, `Click: the ${key} points the moving part at it`].filter(Boolean).join('\n'));
@@ -2715,6 +2725,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     speedLabel,
     speedInput,
     button('⇄ Invert', 'Turn or move the other way round', () => write({ axis: { ...now().axis, dir: now().axis.dir.map((v) => -v) as [number, number, number] } })),
+    button('▶ Play', 'Play it once from its min to its max to see it (where it is now stays)', () => start(id, false)),
     button('✓', 'Keep the changes (Enter); Esc drops them', () => finish(true)),
   );
   choose(now().kind);
@@ -2739,8 +2750,11 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
 const jointsBox = Object.assign(document.createElement('div'), { className: 'joints-box' });
 viewer.el.append(jointsBox);
 let jointsKey = '';
-/** Joints playing: their phase (0 → 1 from min to max, 1 → 2 back), where a single play stops (1 or 2), the last frame's time. */
-const playing = new Map<string, { phase: number; end: number; last: number }>();
+/**
+ * Joints playing: their phase (0 → 1 from min to max, 1 → 2 back), where a single play stops (1 or 2), the last
+ * frame's time, and whether where it stops is kept (else it only showed it: the edit panel's Play).
+ */
+const playing = new Map<string, { phase: number; end: number; last: number; keep: boolean }>();
 /** Joints that play back and forth (this session). */
 const repeating = new Set<string>();
 function renderJoints() {
@@ -2802,16 +2816,17 @@ function jointRow(j: Joint) {
   return row;
 }
 
-/** Plays joint `id` from where it is to its max (standing at its max: back to its min). */
-function start(id: string) {
+/** Plays joint `id` from where it is to its max (standing at its max: back to its min); `keep`: it stays where it stops. */
+function start(id: string, keep = true) {
   const j = history.current.joints.find((x) => x.id === id);
   if (!j) return;
   const [lo, hi] = jointRange(j);
   const s = hi === lo ? 0 : Math.min(1, Math.max(0, (jointValue(j, paramLookup(history.current.params)) - lo) / (hi - lo)));
   // the phase whose eased position is s, going up (at the max: going down)
-  const down = s > 0.999;
-  const phase = down ? 1 : Math.acos(1 - 2 * s) / Math.PI;
-  playing.set(id, { phase, end: down ? 2 : 1, last: performance.now() });
+  // a preview plays from its min to its max
+  const down = keep && s > 0.999;
+  const phase = !keep ? 0 : down ? 1 : Math.acos(1 - 2 * s) / Math.PI;
+  playing.set(id, { phase, end: down ? 2 : 1, last: performance.now(), keep });
   if (playing.size === 1) requestAnimationFrame(animate);
   render();
 }
@@ -2854,8 +2869,9 @@ function animate(now: number) {
     }
     p.phase += (now - p.last) / 1000 / Math.max(0.1, settings.jointSeconds / speed);
     p.last = now;
-    if (!repeating.has(id) && p.phase >= p.end) {
-      pause(id, jointRange(j, lookup)[p.end === 1 ? 1 : 0]);
+    if ((!repeating.has(id) || !p.keep) && p.phase >= p.end) {
+      if (p.keep) pause(id, jointRange(j, lookup)[p.end === 1 ? 1 : 0]);
+      else playing.delete(id); // a preview: back to where it is
       continue;
     }
     p.phase %= 2; // back and forth: smooth at both ends
@@ -2872,6 +2888,7 @@ function animate(now: number) {
   }
   viewer.render();
   if (playing.size) requestAnimationFrame(animate);
+  else renderJoints(); // the sliders and fields back to where the joints are
 }
 
 /** Tool first: the next clicked body gets `act`. */
@@ -3650,6 +3667,17 @@ function render() {
     alignObjects,
     jointTool,
     editJoint: (id) => jointPanel(id, false),
+    moveJointEnd(id, from, to) {
+      const doc = history.current;
+      const k = doc.joints.findIndex((x) => x.id === id);
+      const j = doc.joints[k];
+      if (!j || to === j.parent || j.children.includes(to)) return fail('That object is already part of this joint');
+      if (from !== j.parent) return commit(setIn(doc, ['joints', String(k), 'children'], j.children.map((c) => (c === from ? to : c))));
+      // a new parent: the axis stays where it is in the world, counted in the new parent's coordinates
+      const { at, dir } = jointAxis(j);
+      const back = (bodyPlaces.get(to) ?? groupPlace(to)).clone().invert();
+      commit(setIn(doc, ['joints', String(k)], { ...j, parent: to, axis: { at: at.applyMatrix4(back).toArray(), dir: dir.transformDirection(back).toArray() } }));
+    },
     reach(path, insert) {
       const measure = measureAt(path);
       if (!measure) return false;

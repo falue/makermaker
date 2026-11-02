@@ -82,6 +82,8 @@ export interface UIContext {
    * the field where the cursor is; false: that value has none.
    */
   reach(path: string[], insert: (text: string) => void): boolean;
+  /** Hands joint `joint`'s role of `from` (what stays, or one that moves) to `to`. */
+  moveJointEnd(joint: string, from: string, to: string): void;
   /** A joint's edit panel (the one it was made in). */
   editJoint(joint: string): void;
   /** A joint's range in words: `0–110°`, `0–35 mm`. */
@@ -589,6 +591,11 @@ function left(ctx: UIContext): Node[] {
     el.ondrop = (e) => {
       e.preventDefault();
       clear();
+      const joint = e.dataTransfer!.getData('application/x-joint');
+      if (joint) {
+        const { joint: j, from } = JSON.parse(joint) as { joint: string; from: string };
+        return from !== id && ctx.moveJointEnd(j, from, id);
+      }
       ctx.arrange(JSON.parse(e.dataTransfer!.getData('text/plain')), id, where(e));
     };
     return el;
@@ -620,7 +627,7 @@ function left(ctx: UIContext): Node[] {
     const j = doc.joints.find((x) => x.parent === id || x.children.includes(id));
     if (!j) return [];
     const parent = j.parent === id;
-    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon('joint'), title: `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it`, onclick: () => ctx.editJoint(j.id) });
+    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon('joint'), title: `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it · drag onto another object: it takes this one's place`, onclick: () => ctx.editJoint(j.id) });
     // hovered: what stays and what moves light in the list (in two colours) and in the view
     const light = (on: boolean) => {
       for (const r of document.querySelectorAll<HTMLElement>('#left .listed[data-id]')) {
@@ -631,6 +638,12 @@ function left(ctx: UIContext): Node[] {
     };
     el.onmouseenter = () => light(true);
     el.onmouseleave = () => light(false);
+    // dragged onto another row: that object takes this one's place in the joint
+    el.draggable = true;
+    el.ondragstart = (e) => {
+      e.stopPropagation(); // not the row's own drag
+      e.dataTransfer!.setData('application/x-joint', JSON.stringify({ joint: j.id, from: id }));
+    };
     return [el];
   };
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
