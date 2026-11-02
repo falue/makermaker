@@ -555,6 +555,7 @@ function picked(sel: string[], list: string[], id: string, how: Pick) {
  */
 function select(id: string | null, how: Pick = false) {
   rendersOpen = false; // choosing something shows it, not the renders
+  viewer.dropPicked(); // picked faces and edges start over
   if (finishSel) viewer.setFinishMark((finishSel = null));
   if (pending && id && history.current.bodies.some((b) => b.id === id)) return pending.pick(id);
   // while picking areas, a sketch chosen in the list gets all its areas picked
@@ -796,7 +797,10 @@ function infoOf(): { title: string; rows: [string, string, number?][]; box?: Box
     const [name, size] = power === 1 ? [u, UNITS[u]] : up[u];
     return `${fmt(+(mm / size ** power).toFixed(3))} ${name}${power === 2 ? '²' : power === 3 ? '³' : ''}`;
   };
-  if (pickedPart?.kind === 'face') return { title: 'Face', rows: [['Area', num(pickedPart.size, 2)]] };
+  if (pickedPart?.kind === 'face') {
+    const n = pickedPart.count ?? 1;
+    return { title: n > 1 ? 'Faces' : 'Face', rows: n > 1 ? [['Area', num(pickedPart.size, 2)], ['Faces', String(n)]] : [['Area', num(pickedPart.size, 2)]] };
+  }
   if (pickedPart) {
     const n = pickedPart.count ?? 1;
     const rows: [string, string][] = [['Length', num(pickedPart.size)]];
