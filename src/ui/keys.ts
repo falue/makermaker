@@ -19,7 +19,7 @@ export interface Binding {
 
 /**
  * Every keyboard action, in one place: every key the app reacts to must be listed here (the settings dialog shows
- * this list; a keyboard mapper will edit it later). X, Y and Z stay free (taken later). App actions run from the app's key handler; tool keys act while a
+ * this list; a keyboard mapper will edit it later). App actions run from the app's key handler; tool keys act while a
  * tool, a move, a resize or a pick runs. Typed values (digits, units, expressions) and the drag modifiers (Ctrl snaps,
  * Alt free, Shift proportional) are not listed here yet.
  */
@@ -45,6 +45,9 @@ export const KEYS = {
   duplicate: { name: 'Duplicate', order: 52, default: [{ key: 'd', mod: true }], hint: 'Duplicate the selection (or the selected shapes)' },
   delete: { name: 'Delete', order: 53, default: [{ key: 'delete' }, { key: 'backspace' }], hint: 'Delete the selection, or the selected part of a fillet' },
   deselect: { name: 'Deselect', order: 54, default: [{ key: 'escape' }], hint: 'Clear the selection; in sketch mode leave the sketch' },
+  moveX: { name: 'Move along X', order: 55, default: [{ key: 'x' }], hint: 'A field at the pointer: type a distance, Enter moves the selection that far along X' },
+  moveY: { name: 'Move along Y', order: 56, default: [{ key: 'y' }], hint: 'A field at the pointer: type a distance, Enter moves the selection that far along Y' },
+  moveZ: { name: 'Move along Z', order: 57, default: [{ key: 'z' }], hint: 'A field at the pointer: type a distance, Enter moves the selection that far along Z' },
   nudgeLeft: { name: 'Nudge left', order: 60, default: [{ key: 'arrowleft' }], hint: 'Move 1 mm along the axis nearest to left on screen (Shift: 10 mm)' },
   nudgeRight: { name: 'Nudge right', order: 61, default: [{ key: 'arrowright' }], hint: 'Move 1 mm along the axis nearest to right on screen (Shift: 10 mm)' },
   nudgeUp: { name: 'Nudge up', order: 62, default: [{ key: 'arrowup' }], hint: 'Move 1 mm along the axis nearest to up on screen (Shift: 10 mm)' },

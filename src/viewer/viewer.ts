@@ -1178,6 +1178,11 @@ export class Viewer implements ToolView {
     return this.balls;
   }
 
+  /** Where the pointer is over the view (client pixels), if it is. */
+  pointer() {
+    return this.hover && { x: this.hover.clientX, y: this.hover.clientY };
+  }
+
   /** A picking press ended: without dragging it picks a face or goes to the tool as a click. */
   private clicked(e: PointerEvent, px = 4) {
     const { x, y } = this.clickAt!;

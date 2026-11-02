@@ -600,6 +600,41 @@ function nudge(by: Vec3) {
   }));
 }
 
+/** X / Y / Z: a field at the pointer takes a distance (expressions, units); Enter moves the selection that far along that axis, Esc cancels. */
+function moveAlong(axis: number) {
+  if (!selected.length) return notify('Select something to move first');
+  const name = 'XYZ'[axis];
+  const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}` });
+  const box = Object.assign(document.createElement('label'), { className: 'axis-move' });
+  box.append(Object.assign(document.createElement('span'), { className: `axis-${name.toLowerCase()}`, textContent: name }), input);
+  const at = viewer.pointer() ?? { x: innerWidth / 2, y: innerHeight / 2 };
+  box.style.cssText = `left:${at.x + 14}px;top:${at.y + 14}px`;
+  document.body.append(box);
+  input.focus();
+  input.onblur = () => box.remove(); // leaving the field cancels
+  input.onkeydown = (e) => {
+    if (pressed(e, 'cancel')) return input.blur();
+    if (!pressed(e, 'confirm')) return;
+    const mm = length(input.value);
+    if (mm === null) return input.classList.add('invalid');
+    input.blur();
+    moveBy(new Vector3().setComponent(axis, mm));
+  };
+}
+
+/** Moves the selection by `by` (world, mm): bodies, or shapes within their sketch plane (the selected ones, else all of the selected sketch). */
+function moveBy(by: Vector3) {
+  const doc = history.current;
+  const s = doc.sketches.find((x) => x.id === activeSketch());
+  if (!s) return nudge(by.toArray());
+  const f = viewer.sketches.find((v) => v.id === s.id)?.frame;
+  if (!f) return notify('Show the sketch to move its shapes');
+  const [du, dv] = [f.x, f.y].map((v) => by.dot(new Vector3(...v)));
+  if (Math.abs(du) < 1e-9 && Math.abs(dv) < 1e-9) return notify('That axis runs across the sketch plane');
+  const shapes = resolve(s, paramLookup(doc.params), '', new Map()).shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id));
+  setShapes(s.id, shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })));
+}
+
 /** Deletes the selected shapes of the selected sketch, else the selected bodies and sketches. */
 /** Tool first: the next clicked body gets `act`. */
 function pickFor(tool: 'delete' | 'duplicate', act: () => void) {
@@ -1516,6 +1551,7 @@ const NUDGES: [Action, [number, number]][] = [
 addEventListener('keydown', (e) => {
   const tool = TOOL_KEYS.find(([a]) => pressed(e, a))?.[1];
   const arrow = NUDGES.find(([a]) => pressed(e, a))?.[1];
+  const axis = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
   if (pressed(e, 'save')) run(save);
   else if (pressed(e, 'open')) run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -1531,6 +1567,7 @@ addEventListener('keydown', (e) => {
   else if (sketching && pressed(e, 'deselect')) exitSketch();
   else if (pressed(e, 'cycle')) viewer.cycle(1);
   else if (pressed(e, 'cycleBack')) viewer.cycle(-1);
+  else if (axis >= 0) (e.preventDefault(), moveAlong(axis)); // the key is not typed into the field
   else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.shiftKey ? 10 : 1);
   // nudges along the world axis nearest to the arrow's screen direction
   else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(e.shiftKey ? 10 : 1).toArray());
