@@ -807,15 +807,16 @@ function stopTool() {
 const toolHost: ToolHost = {
   length,
   /**
-   * In sketch mode a shape stays flat and the tool goes on. A direct shape left flat enters sketch mode on its
-   * sketch; a picked plane gets a new sketch. Esc in sketch mode only stops the tool.
+   * Tools stay on until Esc: in sketch mode a shape stays flat and the tool goes on; a direct shape left flat enters
+   * sketch mode on its sketch, a pulled one starts the tool again; after a pull (E) the next face can be picked. A
+   * picked plane gets a new sketch.
    */
   done(result) {
     const [was, kind] = [toolMode, viewer.activeTool];
     if (!result) return stopTool(), render();
     if (result.sphere) {
-      stopTool();
-      return addSphere(result.sphere);
+      addSphere(result.sphere);
+      return startTool('sphere');
     }
     if (was === 'plane') {
       stopTool();
@@ -824,9 +825,10 @@ const toolHost: ToolHost = {
     const id = sketched(result);
     if (was === 'draw') return;
     stopTool();
-    if (was === 'direct' && !result.depth) enterSketch(id, kind);
-    else if (sketching) exitSketch(); // an extrusion finishes the sketch
-    else render();
+    if (was === 'direct' && !result.depth) return enterSketch(id, kind);
+    if (sketching) exitSketch(); // an extrusion finishes the sketch
+    if (was === 'direct' && kind) startTool(kind);
+    else pickFaceToPull();
   },
   hint(text) {
     toolHint = text;
@@ -975,16 +977,30 @@ function pullFace(face: PickedFace) {
     if (phase === 'cancel') {
       if (pushedOnce) history.undo();
       stopTool();
-      return update();
+      update();
+      return pickFaceToPull(); // the tool stays on: Esc again stops it
     }
     if (pushedOnce) history.replace(apply(mm));
     else history.push(apply(mm));
     pushedOnce = true;
-    if (phase === 'done') stopTool();
     update();
+    if (phase === 'done') (stopTool(), pickFaceToPull());
   });
   toolMode = 'pull';
   render();
+}
+
+/** The extrude tool waiting for a face of an extrusion to push or pull (Esc stops it). */
+function pickFaceToPull() {
+  toolHint = 'Click a face of an extrusion to push or pull it · [Esc] stops';
+  extrudePick = true;
+  render();
+  viewer.pickFace((face) => {
+    toolHint = null;
+    extrudePick = false;
+    if (face) pullFace(face);
+    else render();
+  });
 }
 
 /** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already. */
@@ -1045,15 +1061,7 @@ function extrude() {
   if (!activeSketch()) {
     const last = viewer.lastFace;
     if (last?.body && selected.includes(last.body)) return pullFace(last);
-    toolHint = 'Click a face of an extrusion to push or pull it · [Esc] cancels';
-    extrudePick = true;
-    render();
-    return viewer.pickFace((face) => {
-      toolHint = null;
-      extrudePick = false;
-      if (face) pullFace(face);
-      else render();
-    });
+    return pickFaceToPull();
   }
   const id = activeSketch();
   const s = viewer.sketches.find((v) => v.id === id);
