@@ -17,7 +17,7 @@ import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { renderUI, type Measure, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, type Action } from './ui/keys';
@@ -820,7 +820,7 @@ function selectAll() {
  * The info panel's rows for what is selected: a picked edge (length) or face (area); sketch shapes (size, Ø, area, a
  * line's length); bodies (box size; one body: position and turn; volume and surface area from their triangles).
  */
-function infoOf(): { title: string; rows: [string, string, number?][]; box?: Box3 } | null {
+function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Box3; at?: Vec3 } | null {
   const doc = history.current;
   const u = doc.units;
   // areas and volumes one unit up (mm → cm², cm³), else the numbers get long
@@ -858,16 +858,16 @@ function infoOf(): { title: string; rows: [string, string, number?][]; box?: Box
   const box = m.reduce((b, x) => b.union(x.box), new Box3());
   const size = box.getSize(new Vector3());
   // L / W / H along x / y / z: hovering one shows it on the box
-  const rows: [string, string, number?][] = [['L', num(size.x), 0], ['W', num(size.y), 1], ['H', num(size.z), 2]];
+  const rows: [string, string, Measure?][] = [['L', num(size.x), 0], ['W', num(size.y), 1], ['H', num(size.z), 2]];
   const b = ids.length === 1 && doc.bodies.find((x) => x.id === ids[0]);
   if (b) {
     const at = positions.get(b.id);
     const turn = resolve(b.rotation, lookup, '', new Map());
-    if (at) rows.push(['Position', at.map((v) => num(v)).join(', ')]);
+    if (at) rows.push(['Position', at.map((v) => num(v)).join(', '), 'at']);
     rows.push(['Rotation', `${fmt(turn.rx)}°, ${fmt(turn.ry)}°, ${fmt(turn.rz)}°`]);
   }
   rows.push(['Volume', num(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', num(m.reduce((n, x) => n + x.area, 0), 2)]);
-  return { title: b ? b.name : `${ids.length} bodies`, rows, box };
+  return { title: b ? b.name : `${ids.length} bodies`, rows, box, at: b ? positions.get(b.id) : undefined };
 }
 
 /** The largest sizes found for finishes that were too big (by feature id and kind, `id fillet`): drags stop there. */
@@ -1768,7 +1768,7 @@ function render() {
     statusError,
     info,
     minStep: settings.minStep,
-    showMeasure: (axis) => viewer.showMeasure(axis === null ? null : (info?.box ?? null), axis ?? 0),
+    showMeasure: (what) => (what === 'at' ? viewer.showPoint(info?.at ? new Vector3(...info.at) : null) : viewer.showMeasure(what === null ? null : (info?.box ?? null), what ?? 0)),
     solid,
     setSolid(ids, on) {
       solid = new Set(on ? [...solid, ...ids] : [...solid].filter((x) => !ids.includes(x)));

@@ -1583,7 +1583,18 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** Picked edges (world segments per edge): lit, their length (and Ø when one circle) reported. */
+  /** A point (world) marked over everything, with a small cross along the axes (null: none). */
+  showPoint(at: THREE.Vector3 | null, px = 14) {
+    this.showMeasure(null, 0);
+    if (at) {
+      const r = px / this.pixelsPerMm(at);
+      const cross = [0, 1, 2].flatMap((k) => [at.clone().addScaledVector(unit(k), -r), at.clone().addScaledVector(unit(k), r)]);
+      this.measureMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(cross.flatMap((v) => v.toArray())), new LineMaterial({ color: 0xff8c1a, linewidth: 2, depthTest: false })), { renderOrder: 1e6 }), marks([at], 0xff8c1a, 10));
+      this.measureMark.traverse((o) => (o.renderOrder = 1e6));
+    }
+    this.render();
+  }
+
   /** Clears the picked faces and edges. */
   dropPicked() {
     this.pickedEdge = this.pickedFaces = null;

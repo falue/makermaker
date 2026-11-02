@@ -34,9 +34,9 @@ export interface UIContext {
   /** The smallest step values move in (mm; Settings → General). */
   minStep: number;
   /** Measurements of the selection, for the info panel (null: nothing to measure). */
-  info: { title: string; rows: [string, string, number?][] } | null;
-  /** Shows one box measure (axis 0 / 1 / 2) on the selection in the view; null: none. */
-  showMeasure(axis: number | null): void;
+  info: { title: string; rows: [string, string, Measure?][] } | null;
+  /** Shows a measure of the selection in the view: one box side (axis 0 / 1 / 2) or its position ('at'); null: none. */
+  showMeasure(what: Measure | null): void;
   /** In sketch mode: bodies shown fully (their eye switched them back); the others are see-through. */
   solid: Set<string>;
   setSolid(ids: string[], on: boolean): void;
@@ -130,6 +130,8 @@ export interface UIContext {
 const $ = (id: string) => document.getElementById(id)!;
 
 export type Pick = boolean | 'range';
+/** What an info row shows in the view while hovered: a box side along an axis, or the position. */
+export type Measure = 0 | 1 | 2 | 'at';
 
 /** A nice render in this session: waiting, rendering (on `canvas`, `done` 0..1), done (`image`, `url`) or failed. */
 export interface RenderJob {
@@ -582,10 +584,10 @@ function right(ctx: UIContext): Node[] {
   const status = busy.length
     ? [h('button', { className: 'render-status', onclick: ctx.renders.toggle, title: 'Show the renders' }, `Rendering${busy.length > 1 ? ` (${busy.length} queued)` : ''}: ${Math.floor((now?.done ?? 0) * 100)} %`)]
     : [];
-  // a row with an axis shows that measure on the box while hovered
-  const infoRow = ([k, v, axis]: [string, string, number?]) => {
+  // a row with a measure shows it in the view while hovered
+  const infoRow = ([k, v, what]: [string, string, Measure?]) => {
     const cells = [h('dt', {}, k), h('dd', {}, v)];
-    if (axis !== undefined) for (const c of cells) Object.assign(c, { className: 'measures', onmouseenter: () => ctx.showMeasure(axis), onmouseleave: () => ctx.showMeasure(null) });
+    if (what !== undefined) for (const c of cells) Object.assign(c, { className: 'measures', onmouseenter: () => ctx.showMeasure(what), onmouseleave: () => ctx.showMeasure(null) });
     return cells;
   };
   const info = ctx.info ? [h('section', { className: 'info' }, h('h3', {}, `Info · ${ctx.info.title}`), h('dl', {}, ...ctx.info.rows.flatMap(infoRow)))] : [];
