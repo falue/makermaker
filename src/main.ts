@@ -621,6 +621,18 @@ function nudge(by: Vec3) {
   }));
 }
 
+/** ⌘A: all bodies with their eye on (tool bodies come with their owners), in sketch mode all shapes of the sketch. */
+function selectAll() {
+  const doc = history.current;
+  const s = doc.sketches.find((x) => x.id === sketching);
+  if (s) [selected, shapeSel] = [[s.id], s.shapes.map((q) => q.id)];
+  else {
+    const owner = ownersOf(doc);
+    [selected, shapeSel] = [doc.bodies.filter((b) => b.visible && !owner.has(b.id)).map((b) => b.id), []];
+  }
+  showSelection();
+}
+
 /** V: the selected bodies, sketches and groups switch between hidden and shown (one step). */
 function toggleVisible() {
   const doc = history.current;
@@ -1676,6 +1688,7 @@ addEventListener('keydown', (e) => {
   else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.shiftKey ? 10 : 1);
   // nudges along the world axis nearest to the arrow's screen direction
   else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(e.shiftKey ? 10 : 1).toArray());
+  else if (pressed(e, 'selectAll')) selectAll();
   else if (selected.length && pressed(e, 'toggleVisible')) toggleVisible();
   else if (selected.length && pressed(e, 'delete')) remove();
   else if (selected.length && pressed(e, 'deselect')) select(null);
