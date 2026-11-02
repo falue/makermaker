@@ -519,12 +519,12 @@ function left(ctx: UIContext): Node[] {
     // a boolean's tool body: the op, and whose
     const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id));
     const op = user?.features.find((f) => f.type === 'boolean' && f.body === id);
-    // a boolean's tool body: the op as a button beside the row (whose; a click frees it)
+    // a boolean's tool body: the op as a button in the eye's place (whose; a click frees it)
     const tool =
       op?.type === 'boolean'
-        ? [h('button', { className: 'icon tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name} · click: free it from the boolean`, onclick: () => ctx.commit(freed(doc, id)) })]
-        : [];
-    return row(id, depth, false, ...fold(r), listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...tool, sketch, look);
+        ? h('button', { className: 'icon tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name} · click: free it from the boolean`, onclick: () => ctx.commit(freed(doc, id)) })
+        : look;
+    return row(id, depth, false, ...fold(r), listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), sketch, tool);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
