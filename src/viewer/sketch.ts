@@ -154,6 +154,8 @@ export interface ToolHost {
   hint(text: string): void;
   /** A note that follows the pointer (null: none). */
   cursorTip(text: string | null): void;
+  /** Where that note is (viewport px), if shown. */
+  cursorTipRect(): DOMRect | null;
   /** New shapes are drawn as construction lines. */
   construction(): boolean;
 }
@@ -884,6 +886,8 @@ export class SketchTool implements Tool {
     }
     this.clearPreview();
     const labels: [string, THREE.Vector3, boolean][] = []; // text, where, typed into
+    let angle: Parameters<SketchTool['angleLabel']>[0] | null = null; // the open side's angle: placed last, around the others
+    let sideLength: string | null = null;
     const ph = this.phase;
     const fmt = (mm: number) => mm.toFixed(2);
     const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean) =>
@@ -899,12 +903,21 @@ export class SketchTool implements Tool {
         label('H', ph.typed[1], profile.h, v3(toWorld(f, profile.x + profile.w / 2, profile.y)), ph.axis === 1);
       }
       if (ph.kind === 'polygon') {
-        // the open side: its length in the middle, its angle at the last corner
+        // the open side: its length first in the pointer's note, its angle labelled inside the angle
         const last = ph.pts[ph.pts.length - 1];
         const [du, dv] = [ph.cur[0] - last[0], ph.cur[1] - last[1]];
-        label('L', ph.typed[0], Math.hypot(du, dv), v3(toWorld(f, last[0] + du / 2, last[1] + dv / 2)), ph.axis === 0);
-        const deg = `${+((Math.atan2(dv, du) * 180) / Math.PI).toFixed(2)}°`;
-        labels.push([`∠ ${ph.typed[1] === undefined ? deg : `${ph.typed[1]}▏`}`, v3(toWorld(f, ...last)), ph.axis === 1]);
+        const a = Math.atan2(dv, du);
+        const at = v3(toWorld(f, ...last));
+        const mm = 1 / this.view.pixelsPerMm(at);
+        sideLength = `L ${ph.typed[0] === undefined ? fmt(Math.hypot(du, dv)) : `${ph.typed[0]}▏`}`;
+        const deg = `${+((a * 180) / Math.PI).toFixed(2)}°`;
+        angle = { text: `∠ ${ph.typed[1] === undefined ? deg : `${ph.typed[1]}▏`}`, active: ph.axis === 1, corner: last, end: ph.cur, frame: f };
+        // what it is measured from: a faint ray along the plane's x axis, and the arc from it to the side
+        const arc = Array.from({ length: 25 }, (_, k) => (a * k) / 24).map((t) => v3(toWorld(f, last[0] + ARC_PX * mm * Math.cos(t), last[1] + ARC_PX * mm * Math.sin(t))));
+        const segs = [at, v3(toWorld(f, last[0] + 2 * ARC_PX * mm, last[1])), ...arc.slice(1).flatMap((p, k) => [arc[k], p])];
+        const m = new LineMaterial({ color: 0xff8c1a, linewidth: 1, depthTest: false, transparent: true, opacity: 0.7 });
+        m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
+        this.view.overlay.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(segs.flatMap((v) => v.toArray())), m), { renderOrder: 1e6 }));
       }
       if (profile.kind === 'circle' && ph.kind === 'shape') label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
       if (profile.kind === 'ngon' && ph.kind === 'shape') {
@@ -933,7 +946,7 @@ export class SketchTool implements Tool {
     const guide = this.hoveredGuide();
     const fix = guide ? `Press ${comboText(KEYS.fixGuide.default[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
     const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(KEYS.moreSnaps.default[0])} finer, ${comboText(KEYS.fewerSnaps.default[0])} coarser` : null;
-    this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, more, fix, angles, chain].filter(Boolean).join('\n') || null); // one per line
+    this.host.cursorTip(ph.kind === 'pull' ? null : [sideLength, this.snapWhat, more, fix, angles, chain].filter(Boolean).join('\n') || null); // one per line
     if (ph.kind === 'polygon' && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
@@ -943,15 +956,57 @@ export class SketchTool implements Tool {
       label('Depth', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), true);
     }
     const r = this.view.el.getBoundingClientRect();
-    this.labels.replaceChildren(
-      ...labels.map(([text, at, active]) => {
-        const [x, y] = this.view.toScreen(at);
-        const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text });
-        el.style.cssText = `left:${Math.min(Math.max(x, 0), r.width)}px;top:${Math.min(Math.max(y, 0), r.height)}px`;
-        return el;
-      }),
-    );
+    const els = labels.map(([text, at, active]) => {
+      const [x, y] = this.view.toScreen(at);
+      const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text });
+      el.style.cssText = `left:${Math.min(Math.max(x, 0), r.width)}px;top:${Math.min(Math.max(y, 0), r.height)}px`;
+      return el;
+    });
+    this.labels.replaceChildren(...els);
+    if (angle) this.angleLabel(angle, els);
     this.view.render();
+  }
+
+  /**
+   * The angle's label: inside the angle, between the ray it is measured from and the side, as close to the corner as
+   * it stays clear of the other labels, both lines, the pointer and its note; too tight there, just outside the angle.
+   */
+  private angleLabel(a: { text: string; active: boolean; corner: UV; end: UV; frame: Frame }, others: HTMLElement[], margin = 4) {
+    const el = Object.assign(document.createElement('div'), { className: `size-label${a.active ? ' active' : ''}`, textContent: a.text });
+    this.labels.append(el);
+    const [w, h] = [el.offsetWidth / 2 + margin, el.offsetHeight / 2 + margin];
+    const box = this.labels.getBoundingClientRect();
+    const local = (q: DOMRect) => [q.left - box.left, q.top - box.top, q.right - box.left, q.bottom - box.top];
+    const screen = (q: UV) => this.view.toScreen(v3(toWorld(a.frame, ...q)));
+    const c = screen(a.corner);
+    const e = screen(a.end);
+    const tip = this.host.cursorTipRect();
+    // the view's own controls (view cube, breadcrumb …) are in the way too
+    const controls = [...this.view.el.children].filter((o) => o !== this.labels && !(o instanceof HTMLCanvasElement) && (o as HTMLElement).offsetParent);
+    const taken = [...[...others, ...controls].map((o) => local(o.getBoundingClientRect())), ...(tip ? [local(tip)] : []), [e[0] - 12, e[1] - 12, e[0] + 12, e[1] + 12]];
+    // screen directions of the ray measured from and of the side; the angle between them, signed, the short way
+    const ref = screen([a.corner[0] + 1, a.corner[1]]);
+    const a0 = Math.atan2(ref[1] - c[1], ref[0] - c[0]);
+    const a1 = Math.atan2(e[1] - c[1], e[0] - c[0]);
+    const sweep = ((((a1 - a0 + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
+    const s = Math.sign(sweep) || 1;
+    const t = Math.atan2(a.end[1] - a.corner[1], a.end[0] - a.corner[0]);
+    const mm = ARC_PX / this.view.pixelsPerMm(v3(toWorld(a.frame, ...a.corner)));
+    const arc = Array.from({ length: 13 }, (_, k) => screen([a.corner[0] + mm * Math.cos((t * k) / 12), a.corner[1] + mm * Math.sin((t * k) / 12)]));
+    const lines = [[c, [c[0] + 2 * ARC_PX * Math.cos(a0), c[1] + 2 * ARC_PX * Math.sin(a0)]], [c, e], ...arc.slice(1).map((p, k) => [arc[k], p])];
+    const fits = ([cx, cy]: number[]) => {
+      const [l, t, r, b] = [cx - w, cy - h, cx + w, cy + h];
+      const covers = ([px, py]: number[]) => px > l && px < r && py > t && py < b;
+      return l >= 0 && t >= 0 && r <= box.width && b <= box.height && !taken.some(([L, T, R, B]) => L < r && R > l && T < b && B > t) && !lines.some(([p, q]) => Array.from({ length: 41 }, (_, k) => k / 40).some((k) => covers([p[0] + k * (q[0] - p[0]), p[1] + k * (q[1] - p[1])])));
+    };
+    const at = (dir: number, dist: number) => [c[0] + dist * Math.cos(dir), c[1] + dist * Math.sin(dir)];
+    // inside the angle (nearest first, the middle first), else just outside it on either side
+    const spots = [
+      ...[1.6, 2.2, 3].flatMap((k) => [0.5, 0.35, 0.65, 0.2, 0.8].map((f) => at(a0 + f * sweep, k * ARC_PX))),
+      ...[1.6, 2.4, 3.4].flatMap((k) => [0.5, 0.9, 1.4].flatMap((d) => [at(a0 - s * d, k * ARC_PX), at(a1 + s * d, k * ARC_PX)])),
+    ];
+    const [px, py] = spots.find(fits) ?? spots[0];
+    el.style.cssText = `left:${px}px;top:${py}px`;
   }
 
   /** Translucent extrusion of the shapes; shapes inside an odd number of others are holes. */
@@ -976,6 +1031,8 @@ export class SketchTool implements Tool {
 
 const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] precise · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
 const LINE_HINT = 'Click the end point · type a length, [Tab] the angle, [Enter] · turns in 1° steps, [Shift] angle steps, [Ctrl] precise · [Esc] cancels';
+/** Radius (px) of the arc showing what a side's angle is measured from. */
+const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
 const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
 const POLYGON_HINT = 'Click corners · type a length, [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';

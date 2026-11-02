@@ -1358,6 +1358,7 @@ const toolHost: ToolHost = {
     render();
   },
   cursorTip: (text) => tips.cursorTip(text),
+  cursorTipRect: () => tips.cursorTipRect(),
   construction: () => drawConstruction,
 };
 

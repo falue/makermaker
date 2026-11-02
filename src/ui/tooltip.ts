@@ -22,6 +22,7 @@ export function installTooltips(delay = 500) {
     tip.hidden = true;
   };
 
+  // before the view's own handlers: a tool asking where the note is gets it at the new pointer
   addEventListener('pointermove', (e) => {
     pointer = { x: e.clientX, y: e.clientY };
     if (!follow.hidden) place(follow);
@@ -40,7 +41,7 @@ export function installTooltips(delay = 500) {
           place(tip);
         }, delay);
     } else if (!tip.hidden) place(tip);
-  });
+  }, true);
   addEventListener('pointerdown', hide);
   document.documentElement.addEventListener('pointerleave', hide);
 
@@ -51,5 +52,7 @@ export function installTooltips(delay = 500) {
       follow.hidden = !text;
       if (text) place(follow);
     },
+    /** Where the pointer's note is (viewport px), if shown. */
+    cursorTipRect: () => (follow.hidden ? null : follow.getBoundingClientRect()),
   };
 }
