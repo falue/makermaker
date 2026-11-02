@@ -104,6 +104,12 @@ body {
   margin-left: auto;
   color: var(--muted);
 }
+#topbar .status.error {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--error);
+  color: #fff;
+}
 #topbar .link {
   margin-left: 12px;
   font-size: 12px;

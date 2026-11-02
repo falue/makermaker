@@ -27,7 +27,9 @@ export interface UIContext {
   /** Replaces the hint bar text while a tool runs. */
   hint: string | null;
   autosave: boolean;
+  /** A refusal in the top bar, in red. */
   notify(message: string): void;
+  statusError: boolean;
   paramValue(name: string): string;
   commit(doc: Doc): void;
   /** `live`: replaces the current undo step (scrubbing). */
@@ -309,7 +311,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
     ...(ctx.reading.length ? [h('span', { className: 'reading', title: 'The kernel reads the file: big files take a while' }, `Reading ${ctx.reading.join(', ')}`, h('span', { className: 'bar' }))] : []),
-    h('span', { className: 'status' }, ctx.status),
+    h('span', { className: `status${ctx.statusError && ctx.status ? ' error' : ''}` }, ctx.status),
     tool('print', 'Export for 3D print: one STL per selected body (else all shown ones), as placed in the world; several come zipped', ctx.exportPrint),
     tool('laser', 'Export for the laser: one SVG per selected body (else all shown ones), the outline of its biggest flat face at 1:1, without fillets and chamfers; several come zipped', ctx.exportLaser),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),

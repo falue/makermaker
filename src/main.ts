@@ -103,6 +103,7 @@ let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; sa
   saved: history.current,
 };
 let status = '';
+let statusError = false;
 /** Bodies whose STEP files the kernel reads now (shown with a progress bar), and the STEP features read already. */
 const reading = new Map<string, { name: string; steps: string[] }>();
 const readSteps = new Set<string>();
@@ -627,7 +628,7 @@ function nudge(by: Vec3) {
  * Esc or leaving cancels all.
  */
 function moveAlong(first: number) {
-  if (!selected.length) return notify('Select something to move first');
+  if (!selected.length) return fail('Select something to move first');
   const fields: (HTMLInputElement | null)[] = [null, null, null];
   const box = Object.assign(document.createElement('div'), { className: 'axis-move' });
   const at = viewer.pointer() ?? { x: innerWidth / 2, y: innerHeight / 2 };
@@ -702,7 +703,7 @@ function shapeMoves(by: Vector3) {
 function moveBy(by: Vector3) {
   if (!activeSketch()) return nudge(by.toArray());
   const moves = shapeMoves(by);
-  if (!moves) return notify('That axis runs across the sketch plane (or the sketch is hidden)');
+  if (!moves) return fail('That axis runs across the sketch plane (or the sketch is hidden)');
   setShapes(moves.sketch, moves.updates);
 }
 
@@ -1023,7 +1024,7 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
   const lookup = paramLookup(doc.params);
   const errors = new Map<string, string>();
   const v = resolve(value, lookup, field, errors) as number;
-  if (errors.size) return notify(errors.get(field)!);
+  if (errors.size) return fail(errors.get(field)!);
   const old = resolve(shape, lookup, '', new Map()) as DrawnProfile;
   const [w, h] = sizeOf(old);
   const ref = refOf(shape.id);
@@ -1057,7 +1058,7 @@ function pullFace(face: PickedFace) {
   const features = built.get(face.body ?? '');
   const pl = bodyPlace(face.body ?? '');
   const hit = features && faceAt(features, unplaced(pl, face.point.toArray()), unplaced(pl, face.normal.clone().negate().toArray(), true));
-  if (!hit) return notify('Only faces made by extrusions can be pushed or pulled so far');
+  if (!hit) return fail('Only faces made by extrusions can be pushed or pulled so far');
   const before = history.current;
   const bi = before.bodies.findIndex((b) => b.features.some((f) => f.id === hit.feature));
   const fi = before.bodies[bi]?.features.findIndex((f) => f.id === hit.feature) ?? -1;
@@ -1116,7 +1117,7 @@ async function extrudeAreas(all = false) {
   if (!s) return;
   stopTool();
   const areas = await kernel.areas(s.shapes.filter((q) => !q.construction && q.kind !== 'line'));
-  if (!areas.length) return notify('Nothing to extrude yet: draw a shape first');
+  if (!areas.length) return fail('Nothing to extrude yet: draw a shape first');
   viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas, all);
   toolMode = 'pull';
   render();
@@ -1125,7 +1126,7 @@ async function extrudeAreas(all = false) {
 /** Sketch mode on a sketch: R / C / P draw flat into it (`kind` starts one); `look` turns the camera to its plane. */
 function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
   const s = viewer.sketches.find((v) => v.id === id);
-  if (!s) return notify('Show the sketch to draw on it');
+  if (!s) return fail('Show the sketch to draw on it');
   sketching = id;
   [selected, shapeSel] = [[id], shapeSel];
   if (look) viewer.lookAlong(new Vector3(...s.frame.n));
@@ -1173,10 +1174,10 @@ function extrude() {
   }
   const id = activeSketch();
   const s = viewer.sketches.find((v) => v.id === id);
-  if (!s) return notify(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
+  if (!s) return fail(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
   const target: Target = { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'its sketch' };
   const ids = (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction && q.kind !== 'line').map((q) => q.id);
-  if (!ids.length) return notify('Construction lines and open lines are not extruded: pick other shapes');
+  if (!ids.length) return fail('Construction lines and open lines are not extruded: pick other shapes');
   viewer.startPull(toolHost, target, ids);
   toolMode = 'pull';
   render();
@@ -1224,7 +1225,7 @@ async function toggleAutosave() {
   autosave = !autosave;
   if (autosave && !window.showSaveFilePicker) {
     autosave = false;
-    return notify('Autosave needs a Chromium browser');
+    return fail('Autosave needs a Chromium browser');
   }
   if (autosave && !file.handle) await save(); // asks where to save once
   if (!file.handle) autosave = false;
@@ -1270,7 +1271,8 @@ function render() {
     active: pending?.tool ?? (extrudePick || (toolMode === 'pull' && !viewer.activeTool) ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
     hint: toolHint ?? (finishSel ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish` : null),
     autosave,
-    notify,
+    notify: fail,
+    statusError,
     paramValue(name) {
       try {
         const q = lookup(name);
@@ -1407,7 +1409,7 @@ async function exportBodies(format: 'stl' | 'svg') {
   const tools = new Set(ownersOf(doc).keys());
   const chosen = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
   const bodies = doc.bodies.filter((b) => (chosen.length ? chosen.includes(b.id) : b.visible) && !tools.has(b.id) && built.has(b.id));
-  if (!bodies.length) return notify('Nothing to export: select bodies that build (tool bodies are part of their owner)');
+  if (!bodies.length) return fail('Nothing to export: select bodies that build (tool bodies are part of their owner)');
   const taken = new Map<string, number>();
   const nameOf = (b: Body) => {
     const base = b.name.replace(/[^\w.-]+/g, '_') || 'body';
@@ -1419,7 +1421,7 @@ async function exportBodies(format: 'stl' | 'svg') {
   const type = format === 'stl' ? 'model/stl' : 'image/svg+xml';
   if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
   else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, new Uint8Array(f.data)])))]), `${project()}_${format}.zip`);
-  notify(`Exported ${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}`);
+  notify(`Exported ${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}`, failed.length > 0);
 }
 
 /** The right column shows the renders. */
@@ -1573,16 +1575,20 @@ function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function notify(message: string) {
+/** A note in the top bar (`error`: something was refused or failed, shown in red). */
+function notify(message: string, error = false) {
   status = message;
+  statusError = error;
   render();
 }
+
+const fail = (message: string) => notify(message, true);
 
 async function run(task: () => Promise<unknown>) {
   try {
     await task();
   } catch (err) {
-    notify((err as Error).message);
+    fail((err as Error).message);
   }
 }
 
