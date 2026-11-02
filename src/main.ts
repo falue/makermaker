@@ -428,6 +428,13 @@ function select(id: string | null, how: Pick = false) {
     if (id !== sketching) enterSketch(id);
     return void extrudeAreas(true);
   }
+  // Extrude waiting for a face: a sketch chosen instead pulls its shapes
+  if (extrudePick && id && history.current.sketches.some((s) => s.id === id)) {
+    viewer.cancelFacePick();
+    if (sketching) exitSketch();
+    [selected, shapeSel] = [[id], []];
+    return extrude();
+  }
   if (sketching && id !== sketching) exitSketch();
   const doc = history.current;
   // ranges run within the object list or within the sketch list
@@ -1253,7 +1260,11 @@ function render() {
     extrude,
     sketching,
     newSketch: startNewSketch,
-    editSketch: (id) => (select(id), enterSketch(id, null, true)),
+    editSketch(id) {
+      const pulling = extrudePick; // Extrude first: the sketch gets pulled instead
+      select(id);
+      if (!pulling) enterSketch(id, null, true);
+    },
     exitSketch,
     stopTool: () => (stopTool(), render()),
     align: alignShapes,

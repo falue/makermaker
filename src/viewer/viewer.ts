@@ -1299,6 +1299,11 @@ export class Viewer implements ToolView {
     this.endFacePick({ point: new THREE.Vector3(), normal: unit(k).multiplyScalar(Math.sign(look.getComponent(k)) || 1) });
   }
 
+  /** Stops waiting for a face (as Esc does). */
+  cancelFacePick() {
+    if (this.facePick) this.endFacePick(null);
+  }
+
   private endFacePick(face: PickedFace | null) {
     const done = this.facePick;
     this.facePick = null;
