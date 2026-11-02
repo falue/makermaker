@@ -85,7 +85,7 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Drawings**: paper sheets with scaled views, dimensions, sections, PDF export.
 - **Quad view**: four editable views at once.
 - **incase**: the sibling project ../incase should be included here.
-- **Rotating in the 3D view** as in incase (always around one axis); a first ring handle was taken out again.
+- **Rotating in the 3D view** as in incase.
 - **Render camera**: change the field of view for renders, set it as real-life camera focal length in mm, and a default field of view in the settings.
 - **Threads**: holes and cylinders defined as threads with real thread geometry, metric and inch (UNC / UNF); special geometry that is always modelled, built so that e.g. the top edge of a threaded hole or cylinder can still be chamfered.
 - **Mesh to CAD model**: a button that turns a mesh into a CAD model, like [this video](https://youtu.be/meBi616y1mg) shows ([ScanRuler](https://github.com/CNCKitchen/ScanRuler) by CNC Kitchen).
