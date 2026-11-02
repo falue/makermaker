@@ -93,6 +93,13 @@ describe('buildBody', () => {
     down.done();
   });
 
+  it('hollows a body to walls, its top left open', () => {
+    const box = built([base(100, 20), { id: 'h', type: 'shell', thickness: 2, open: [[0, 0, 20]] } as BuildFeature]);
+    expect(box.box.width).toBeCloseTo(100, 3); // the walls go inside: the outside stays
+    expect(box.faces).toBe(11); // 5 outside, 5 inside, the rim on top
+    box.done();
+  });
+
   it('sweeps a circle along a bent line', () => {
     const ground = { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] };
     const pipe = built([{ id: 'w', type: 'sweep', profile: { id: 'c', kind: 'circle', x: 50, y: 50, d: 6 }, path: { frame: ground, profile: { id: 'l', kind: 'line', pts: [[0, 0], [40, 0], [40, 30]] } } } as BuildFeature]);

@@ -111,6 +111,9 @@ export type LoftFeature = { id: string; type: 'loft'; sections: { sketch: string
 /** A closed sketch shape (`profile`, its middle on the path's start, square to it) swept along a line or shape outline (`path`). */
 export type SweepFeature = { id: string; type: 'sweep'; profile: { sketch: string; shape: string }; path: { sketch: string; shape: string } };
 
+/** Hollows the body to walls `thickness` thick, its faces at `open` (body points on them) taken away. */
+export type ShellFeature = { id: string; type: 'shell'; thickness: Expr; open: [number, number, number][] };
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   /** `back`: how far it also reaches behind its sketch plane (none: 0). */
@@ -123,7 +126,8 @@ export type Feature =
   | SplitFeature
   | RevolveFeature
   | LoftFeature
-  | SweepFeature;
+  | SweepFeature
+  | ShellFeature;
 
 /**
  * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the
@@ -168,7 +172,7 @@ export type RevolveIn = Omit<RevolveFeature, 'source'> & { plane: SketchPlane | 
 export type LoftIn = { id: string; type: 'loft'; sections: { frame: Omit<FramePlane, 'kind'>; profile: Profile }[]; ruled: boolean };
 /** A sweep with its path on its frame (body-local), as the kernel builds it. */
 export type SweepIn = { id: string; type: 'sweep'; profile: Profile; path: { frame: Omit<FramePlane, 'kind'>; profile: Profile } };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn;
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature;
 
 export interface Body {
   id: string;

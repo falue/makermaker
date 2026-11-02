@@ -5,7 +5,7 @@ import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
 import { BASE, capFrame, cutPlane, extent, frames, moved, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, beside, bounds, centre, closedLoop, corners, type Align } from './doc/profiles';
+import { alignment, area, beside, bounds, centre, closedLoop, corners, grown, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { icon } from './ui/icons';
 import { jointed } from './doc/joints';
@@ -185,7 +185,7 @@ let finishSel: FinishPick | null = null;
 /** A face pick running for the extrude tool (E, then a face). */
 let extrudePick = false;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
-let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut' | 'joint'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
+let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut' | 'joint' | 'shell'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
 let autosave = localStorage.getItem('makermaker.autosave') === 'on';
 let autosaveTimer = 0;
 /** The body shown alone, and what was visible before (bodies and sketches by id). */
@@ -623,7 +623,7 @@ function picked(sel: string[], list: string[], id: string, how: Pick) {
 function picks(id: string) {
   if (!pending) return false;
   const { bodies, sketches, groups } = history.current;
-  const lists = [bodies, ...(['boolean', 'group', 'cut', 'joint'].includes(pending.tool) ? [] : [sketches]), ...(['move', 'joint'].includes(pending.tool) ? [groups] : [])];
+  const lists = [bodies, ...(['boolean', 'group', 'cut', 'joint', 'shell'].includes(pending.tool) ? [] : [sketches]), ...(['move', 'joint'].includes(pending.tool) ? [groups] : [])];
   return lists.some((list) => list.some((o) => o.id === id));
 }
 
@@ -1641,6 +1641,141 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
   render();
   setTimeout(() => (input.focus(), input.select()));
   addEventListener('keydown', keys, { capture: true });
+}
+
+/**
+ * A panel at the top middle of the view with value fields, each scrubbed by its label; T or To object: a click's value
+ * (`reach`, in mm, or degrees when `raw`) goes in where the cursor is, to calculate on with it. `change` gets the texts
+ * as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
+ */
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number; raw?: boolean }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string) {
+  const u = history.current.units;
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
+  const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
+  let last = inputs[0];
+  const emit = () => inputs.every((i) => length(i.value || '0') !== null) && change(inputs.map((i) => i.value || '0'));
+  const aim = () => {
+    const f = fields[inputs.indexOf(last)];
+    if (!f.reach) return;
+    const field = last;
+    viewer.aiming = (a) => tips.cursorTip([a?.what, 'To object: click, its value goes into the field'].filter(Boolean).join('\n'));
+    viewer.aiming(viewer.aimHere());
+    viewer.pickFace((face) => {
+      viewer.aiming = null;
+      viewer.aimAt(null);
+      tips.cursorTip(null);
+      field.focus();
+      if (!face?.snap) return;
+      const v = f.reach!(face.snap);
+      field.setRangeText(fmt(f.raw ? v : v / UNITS[u]), field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, 'end');
+      emit();
+    }, true);
+  };
+  const cells = fields.flatMap((f, k) => {
+    const input = inputs[k];
+    input.dataset.complete = '';
+    input.oninput = () => (input.classList.toggle('invalid', length(input.value || '0') === null), emit());
+    input.onfocus = () => (last = input);
+    input.onkeydown = (e) => {
+      if (f.reach && wantsT(e, input, history.current.params)) e.preventDefault(), aim();
+    };
+    const label = Object.assign(document.createElement('span'), { textContent: f.label });
+    scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()));
+    return [label, input];
+  });
+  const end = (ok: boolean) => {
+    viewer.aiming = null;
+    viewer.cancelFacePick();
+    box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    toolHint = null;
+    finish(ok);
+  };
+  const keys = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return; // the view's Esc ending a pick
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    end(pressed(e, 'confirm'));
+  };
+  box.append(...cells, ...(fields.some((f) => f.reach) ? [toObjectButton(aim, 'Click a point: its value goes into the field')] : []), Object.assign(document.createElement('button'), { textContent: '✓', title: 'Keep it (Enter); Esc drops it', onclick: () => end(true) }));
+  document.body.append(box);
+  const r = viewer.el.getBoundingClientRect();
+  keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+  toolHint = hint;
+  render();
+  setTimeout(() => (inputs[0].focus(), inputs[0].select()));
+  addEventListener('keydown', keys, { capture: true });
+}
+
+/**
+ * Offset / Shell: the selected sketch shapes get new outlines a distance outside them (negative: inside; a line moves
+ * to its left); else a body (selected, or clicked next) is hollowed: its faces clicked one by one are left open
+ * (Enter), then its wall thickness. Both live, one undo step; Esc leaves nothing.
+ */
+function offsetTool() {
+  const sketch = activeSketch();
+  if (sketch && shapeSel.length) return offsetShapes(sketch);
+  const body = selected.find((id) => history.current.bodies.some((b) => b.id === id));
+  if (!body) {
+    pending = { tool: 'shell', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), offsetTool()) };
+    toolHint = 'Offset: select sketch shapes first; or click a body to hollow (shell) · [Esc] cancels';
+    return render();
+  }
+  const open: [number, number, number][] = [];
+  let ended = false;
+  const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), walls());
+  const stop = () => ((ended = true), removeEventListener('keydown', keys, { capture: true }), viewer.cancelFacePick());
+  const next = () => {
+    toolHint = `Shell: click the faces to leave open (${open.length} so far) · [Enter] then the wall thickness · [Esc] cancels`;
+    render();
+    viewer.pickFace((face) => {
+      if (ended) return;
+      if (!face) return stop(), (toolHint = null), render();
+      if (face.body === body) open.push(unplaced(bodyPlace(body), face.point.toArray()));
+      next();
+    });
+  };
+  const walls = () => {
+    stop();
+    if (!open.length) return (toolHint = null), fail('Click at least one face to leave open');
+    const doc = history.current;
+    const i = doc.bodies.findIndex((b) => b.id === body);
+    const feature = { id: newId(), type: 'shell' as const, thickness: len(2), open };
+    commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
+    const j = history.current.bodies[i].features.length - 1;
+    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[doc.units]) }], ([t]) => (history.replace(setIn(history.current, ['bodies', String(i), 'features', String(j), 'thickness'], { e: t, u: doc.units })), update()), (ok) => (ok ? render() : undo()), 'Shell: type or scrub the wall thickness · [Enter] keeps it · [Esc] leaves nothing');
+  };
+  addEventListener('keydown', keys, { capture: true });
+  next();
+}
+
+/** Offset of the selected shapes of `sketch`: new outlines beside them (see `offsetTool`), the distance live. */
+function offsetShapes(sketch: string) {
+  const doc0 = history.current;
+  const k = doc0.sketches.findIndex((s) => s.id === sketch);
+  const shown = viewer.sketches.find((v) => v.id === sketch)!.shapes.filter((q) => shapeSel.includes(q.id));
+  const sources = doc0.sketches[k].shapes.filter((q) => shapeSel.includes(q.id));
+  const ids = sources.map(() => newId());
+  const made = (d: number): Profile[] =>
+    sources.map((q, n) => {
+      const p = shown.find((x) => x.id === q.id)!;
+      const id = ids[n];
+      if (q.kind === 'rect' && p.kind === 'rect') return { ...q, id, w: len(p.w + 2 * d), h: len(p.h + 2 * d), r: len(Math.max(0, p.r + d)) };
+      if (q.kind === 'circle' && p.kind === 'circle') return { ...q, id, d: len(Math.max(0.01, p.d + 2 * d)) };
+      if (q.kind === 'ngon' && p.kind === 'ngon') return { ...q, id, d: len(Math.max(0.01, p.d + (2 * d) / Math.cos(Math.PI / p.sides))) };
+      if (q.kind === 'polygon' && p.kind === 'polygon') return { ...q, id, pts: grown(p.pts, d).map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]) };
+      if (q.kind === 'line' && p.kind === 'line') return { ...q, id, pts: beside(p.pts, d).map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]) };
+      return { ...q, id };
+    });
+  const apply = (d: number) => {
+    const next = setIn(doc0, ['sketches', String(k), 'shapes'], [...doc0.sketches[k].shapes, ...made(d)]);
+    if (history.current === doc0) history.push(next);
+    else history.replace(next);
+    update();
+  };
+  shapeSel = ids;
+  apply(2);
+  valuePanel([{ label: 'Offset', value: fmt(2 / UNITS[doc0.units]) }], ([t]) => apply(length(t) ?? 0), (ok) => (ok ? render() : undo()), 'Offset: type or scrub how far outside (negative: inside; a line: to its left) · [Enter] keeps them · [Esc] leaves nothing');
 }
 
 /**
@@ -3145,6 +3280,7 @@ function render() {
     cutTool,
     revolveTool,
     sweepTool,
+    offsetTool,
     rotateTool,
     alignObjects,
     jointTool,

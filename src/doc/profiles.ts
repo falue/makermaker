@@ -142,6 +142,24 @@ export function closedLoop(lines: { id: string; pts: [number, number][] }[], sta
 }
 
 /** An open line moved `d` mm to its left, its corners mitred (as a parallel line at that distance). */
+/** A closed outline grown by `d` mm (negative: shrunk), its corners mitred. */
+export function grown(pts: [number, number][], d: number): [number, number][] {
+  const n = pts.length;
+  const ccw = pts.reduce((s, [x, y], i) => s + x * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * y, 0) > 0;
+  // the outward normal of the side from a to b
+  const out = (a: [number, number], b: [number, number]): [number, number] => {
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const s = ccw ? 1 : -1;
+    return [(s * (b[1] - a[1])) / l, (s * (a[0] - b[0])) / l];
+  };
+  return pts.map((p, i) => {
+    const [n0, n1] = [out(pts[(i - 1 + n) % n], p), out(p, pts[(i + 1) % n])];
+    const m = [n0[0] + n1[0], n0[1] + n1[1]];
+    const k = d / Math.max(0.2, (m[0] * n1[0] + m[1] * n1[1]) / (Math.hypot(...m) || 1)) / (Math.hypot(...m) || 1);
+    return [p[0] + m[0] * k, p[1] + m[1] * k];
+  });
+}
+
 export function beside(pts: [number, number][], d: number): [number, number][] {
   if (!d) return pts;
   const left = (a: [number, number], b: [number, number]): [number, number] => {

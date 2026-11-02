@@ -76,6 +76,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'revolve') apply(s.id, (cur) => revolve(cur, s, plan.get(s.id)));
       if (s.type === 'loft') apply(s.id, (cur) => loft(cur, s));
       if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
+      if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -389,6 +390,14 @@ function sweep(shape: Shape3D | null, s: Of<'sweep'>): Shape3D {
   const spine = (line ? line.done() : drawing(path)).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch;
   const tool = spine.sweepSketch((plane) => drawing(centred).sketchOnPlane(plane) as Sketch, { transitionMode: 'right' });
   return joined(shape, tool, 'add');
+}
+
+/** The body hollowed to walls `thickness` thick inside it, the faces through the `open` points taken away. */
+function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
+  if (!shape) throw new Error('nothing to hollow yet');
+  if (!s.open.length) throw new Error('pick a face to leave open');
+  if (!(s.thickness > 0)) throw new Error('the wall thickness must be greater than 0');
+  return shape.shell(s.thickness, (f) => f.either(s.open.map((p) => (g: typeof f) => g.containsPoint(p))));
 }
 
 /** `tool` joined to or cut from `shape` (none yet: `tool` itself); `tool` is used up. */

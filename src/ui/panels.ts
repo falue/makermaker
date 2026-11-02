@@ -64,6 +64,7 @@ export interface UIContext {
   cutTool(): void;
   revolveTool(): void;
   sweepTool(): void;
+  offsetTool(): void;
   rotateTool(): void;
   /** Aligns the selected objects (bodies, groups as one, whole sketches) by their boxes; see `alignObjects` in main. */
   alignObjects(how: ObjectAlign): void;
@@ -426,6 +427,7 @@ function toolbar(ctx: UIContext): Node[] {
       ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), on(kind))),
       h('hr'),
       tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude, on('extrude')),
+      tool('offset', 'Offset: the selected shapes get outlines a distance outside (negative: inside; a line moves to its left)', ctx.offsetTool),
       tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
     ];
   return [
@@ -455,6 +457,7 @@ function toolbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
+    tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
     tool('sweep', 'Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path it runs along)', ctx.sweepTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
     tool('cut', 'Cut: a body (selected, or clicked next) in two along a face\'s plane (turn and move it) or a sketch line or shape; keep both or delete one side', ctx.cutTool, on('cut')),
@@ -1128,6 +1131,8 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const sketch = src.kind === 'sketch' ? ctx.doc.sketches.find((k) => k.id === src.sketch) : undefined;
       return h('section', {}, h('h4', {}, mode, remove), h('div', { className: 'row' }, f('angle', 'Angle °'), h('span', { className: 'hint' }, sketch ? `From ${sketch.name}` : 'Its sketch was deleted')));
     }
+    case 'shell':
+      return h('section', {}, h('h4', {}, 'Shell', remove), h('div', { className: 'row' }, f('thickness', 'Wall'), h('span', { className: 'hint' }, `${feature.open.length} face${feature.open.length === 1 ? '' : 's'} open`)));
     case 'sweep': {
       const name = (q: { sketch: string }) => ctx.doc.sketches.find((k) => k.id === q.sketch)?.name ?? '?';
       return h('section', {}, h('h4', {}, 'Sweep', remove), h('p', { className: 'hint' }, `${name(feature.profile)} along ${name(feature.path)} (linked: editing either changes it)`));
