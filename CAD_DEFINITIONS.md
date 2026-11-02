@@ -70,7 +70,6 @@ Selecting and dragging native geometry should update its meaningful parameters w
 
 Grouping creates a hierarchy and a common placement; it does not automatically define a mechanical joint.
 
-- A **fixed joint** locks relative position and orientation.
 - A **hinge joint** permits rotation about an axis, optionally with limits.
 - A **slider joint** permits translation along an axis, optionally with limits.
 - Joints may connect bodies or groups, allowing a mechanism to be organized as nested groups.

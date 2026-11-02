@@ -141,6 +141,8 @@ let autosave = localStorage.getItem('makermaker.autosave') === 'on';
 let autosaveTimer = 0;
 /** The body shown alone, and what was visible before (bodies and sketches by id). */
 let isolated: { body: string; before: Map<string, boolean> } | null = null;
+/** All bodies or all sketches hidden for now (the list titles' eyes); their own eyes stay as they are. */
+const hideAll = { objects: false, sketches: false };
 
 const len = (mm: number, typed?: string) => ex(typed ?? fmt(mm / UNITS[history.current.units]), history.current.units);
 
@@ -471,7 +473,7 @@ function update() {
   const shown: ViewSketch[] = doc.sketches.flatMap((s, i) => {
     const r = sketches.get(s.id);
     const p = r?.plane;
-    if (!r || !p || !s.visible || !shownIn(s.group)) return [];
+    if (!r || !p || !s.visible || (hideAll.sketches && s.id !== sketching) || !shownIn(s.group)) return [];
     // a sketch moves with the body that extrudes it (its extrusion lies in that body's coordinates), else a base-plane one with its group
     const carrier = carrierOf(doc, s.id);
     const world = worldFrame(p);
@@ -495,10 +497,10 @@ function update() {
   // sphere centres snap like corners; their outlines give guides
   viewer.setSpheres(
     doc.bodies.flatMap((b) =>
-      b.visible && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [{ center: new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z])), r: f.d / 2, body: b.id }] : [])) : [],
+      b.visible && !hideAll.objects && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [{ center: new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z])), r: f.d / 2, body: b.id }] : [])) : [],
     ),
   );
-  viewer.setLooks(doc.bodies.map((b) => ({ ...b, visible: b.visible && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));
+  viewer.setLooks(doc.bodies.map((b) => ({ ...b, visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));
   viewer.select(contents(doc, selected));
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
@@ -2190,6 +2192,11 @@ function render() {
       drawConstruction = on;
     },
     folded,
+    hideAll,
+    toggleHideAll(list) {
+      hideAll[list] = !hideAll[list];
+      update();
+    },
     toggleFold(id) {
       if (!folded.delete(id)) folded.add(id);
       render();

@@ -48,8 +48,11 @@ export interface UIContext {
   select(id: string | null, how?: Pick): void;
   /** New sketch objects are drawn as construction lines or not, as the last object switched. */
   setDrawConstruction(on: boolean): void;
-  /** Folded groups in the object list. */
+  /** Folded groups in the object list, and folded lists (`list:objects`, `list:sketches`, `list:params`). */
   folded: Set<string>;
+  /** All bodies or all sketches hidden for now, their eyes kept. */
+  hideAll: { objects: boolean; sketches: boolean };
+  toggleHideAll(list: 'objects' | 'sketches'): void;
   toggleFold(group: string): void;
   /** Puts objects into a group (null: the top level). */
   moveInto(ids: string[], group: string | null): void;
@@ -441,8 +444,8 @@ const RESERVED = new Set([...Object.keys(UNITS), 'pi', 'sqrt', 'abs', 'min', 'ma
 
 function left(ctx: UIContext): Node[] {
   const { doc } = ctx;
-  // while a body is isolated the others grey out; their eyes still show or hide them
-  const dimmed = (id: string) => (ctx.isolated && ctx.isolated !== id ? ' dimmed' : '');
+  // while a body is isolated the others grey out (their eyes still show or hide them), all of a list while it is hidden
+  const dimmed = (id: string, list: 'objects' | 'sketches' = 'objects') => ((ctx.isolated && ctx.isolated !== id) || ctx.hideAll[list] ? ' dimmed' : '');
   const order = { objects: tree(doc, ctx.folded).map((r) => r.id), sketches: doc.sketches.map((s) => s.id) };
   /** Shows or hides bodies, sketches and groups by id (one step). */
   const setShown = (ids: string[], on: boolean) => {
@@ -561,9 +564,19 @@ function left(ctx: UIContext): Node[] {
     const body = owner
       ? h('button', { className: 'icon', innerHTML: icon('body'), title: `Object derived: ${owner.name}`, onclick: () => ctx.select(owner.id) })
       : h('span', { className: 'fold-space' });
-    return h('div', { className: `listed${dimmed(sk.id)}` }, item, body, eye('sketches', sk.id, sk.visible));
+    return h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, body, eye('sketches', sk.id, sk.visible));
   });
-  const head = h('div', { className: 'tree-head' }, h('h3', {}, h('span', { className: 'kind', innerHTML: icon('body') }), 'Objects'));
+  /** A list's title: a click folds it; objects and sketches have an eye that hides all of them for now (their eyes stay). */
+  const heading = (key: 'objects' | 'sketches' | 'params', label: string, kind?: Parameters<typeof icon>[0]) => {
+    const open = !ctx.folded.has(`list:${key}`);
+    const title = h('h3', { className: 'fold-head', title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(`list:${key}`) }, h('span', { className: `fold${open ? ' open' : ''}`, innerHTML: icon('chevron') }), ...(kind ? [h('span', { className: 'kind', innerHTML: icon(kind) })] : []), label);
+    const hidden = key !== 'params' && ctx.hideAll[key];
+    const all = key === 'params' ? [] : [h('button', { className: 'icon', innerHTML: icon(hidden ? 'eyeOff' : 'eye'), title: hidden ? 'Show them again as they were' : 'Hide all for now (each eye stays as it is)', onclick: () => ctx.toggleHideAll(key) })];
+    return { open, head: h('div', { className: 'tree-head' }, title, ...all) };
+  };
+  const { open: objectsOpen, head } = heading('objects', 'Objects', 'body');
+  const sketchList = heading('sketches', 'Sketch groups');
+  const paramList = heading('params', 'Parameters');
   head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));
   head.ondragleave = () => head.classList.remove('drop');
   head.ondrop = (e) => (e.preventDefault(), ctx.moveInto(JSON.parse(e.dataTransfer!.getData('text/plain')), null));
@@ -591,7 +604,14 @@ function left(ctx: UIContext): Node[] {
   addParam.dataset.complete = '';
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
-  return [head, ...rows, ...none, h('h3', {}, 'Sketch groups'), ...sketchRows, h('h3', {}, 'Parameters'), ...params, addParam];
+  return [
+    head,
+    ...(objectsOpen ? [...rows, ...none] : []),
+    sketchList.head,
+    ...(sketchList.open ? sketchRows : []),
+    paramList.head,
+    ...(paramList.open ? [...params, addParam] : []),
+  ];
 }
 
 function right(ctx: UIContext): Node[] {

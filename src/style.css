@@ -70,6 +70,12 @@
   box-sizing: border-box;
 }
 
+/* a sideways swipe on something that does not scroll is no "back" in Chrome */
+html,
+body {
+  overscroll-behavior-x: none;
+}
+
 body {
   margin: 0;
   height: 100vh;
@@ -848,6 +854,23 @@ input.color {
 .tree-head button {
   font-size: 11px;
   padding: 1px 8px;
+}
+.tree-head button.icon {
+  padding: 1px 4px;
+}
+h3.fold-head {
+  cursor: pointer;
+  user-select: none;
+}
+h3 .fold svg {
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  fill: none;
+  stroke: currentColor;
+}
+h3 .fold.open svg {
+  transform: rotate(90deg);
 }
 .listed .fold-space {
   display: inline-block;
