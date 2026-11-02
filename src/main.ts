@@ -2130,30 +2130,34 @@ function importMesh(name: string, { vertices, triangles }: { vertices: Float32Ar
 }
 
 /**
- * The unit of an imported mesh (its file has none): a small dialog, the body showing at each unit's size as it is
- * picked (the import's undo step, rewritten). ✓, Enter or Esc closes it.
+ * The size of an imported mesh (its file has no unit): a small dialog with the units (its numbers are mm, cm …) and
+ * its size along X, Y and Z: typing one scales it so, the others follow. The body shows at each size as it is set (the
+ * import's undo step, rewritten). ✓, Enter or Esc closes it.
  */
-function meshUnits(body: string, size: [number, number, number], unit: Unit) {
+function meshUnits(body: string, size: Vec3, unit: Unit) {
   const box = Object.assign(document.createElement('div'), { className: 'mesh-units' });
-  const sizeText = Object.assign(document.createElement('span'), { className: 'size' });
-  const buttons = (['mm', 'cm', 'm', 'in'] as Unit[]).map((u) => Object.assign(document.createElement('button'), { textContent: u, onclick: () => pick(u) }));
+  const buttons = (['mm', 'cm', 'm', 'in'] as Unit[]).map((u) => Object.assign(document.createElement('button'), { textContent: u, onclick: () => scaleTo(UNITS[u]) }));
+  const fields = size.map((_, k) => Object.assign(document.createElement('input'), { className: 'number', spellcheck: false, title: `Its size along ${'XYZ'[k]} (the others follow)` }));
+  fields.forEach((f, k) => (f.oninput = () => {
+    const mm = length(f.value);
+    if (mm && mm > 0 && size[k] > 0) scaleTo(mm / size[k], k);
+  }));
   const close = () => (box.remove(), removeEventListener('keydown', keys, { capture: true }));
   const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), close());
-  const pick = (u: Unit) => {
+  /** Scales the body by `s` (mm per file unit); the sizes show, but not in the field typed into (`typed`). */
+  const scaleTo = (s: number, typed?: number) => {
     const doc = history.current;
     const i = doc.bodies.findIndex((b) => b.id === body);
     if (i < 0) return close();
-    history.replace(setIn(doc, ['bodies', String(i), 'features', '0', 'scale'], ex(fmt(UNITS[u]))));
+    history.replace(setIn(doc, ['bodies', String(i), 'features', '0', 'scale'], ex(fmt(s))));
     update();
-    show(u);
+    buttons.forEach((b) => b.classList.toggle('on', Math.abs(UNITS[b.textContent as Unit] - s) < 1e-9));
+    fields.forEach((f, k) => k !== typed && (f.value = fmt((size[k] * s) / UNITS[history.current.units])));
   };
-  const show = (u: Unit) => {
-    buttons.forEach((b) => b.classList.toggle('on', b.textContent === u));
-    const d = history.current.units;
-    sizeText.textContent = `${size.map((v) => fmt((v * UNITS[u]) / UNITS[d])).join(' × ')} ${d}`;
-  };
-  box.append(Object.assign(document.createElement('span'), { textContent: 'The file has no unit. Its numbers are' }), ...buttons, sizeText, Object.assign(document.createElement('button'), { className: 'done', textContent: '✓', title: 'Done (Enter)', onclick: close }));
-  show(unit);
+  const axis = (k: number) => Object.assign(document.createElement('span'), { className: `axis-${'xyz'[k]}`, textContent: 'XYZ'[k] });
+  const text = (t: string) => Object.assign(document.createElement('span'), { textContent: t });
+  box.append(text('The file has no unit. Its numbers are'), ...buttons, text('or its size'), ...fields.flatMap((f, k) => [axis(k), f]), Object.assign(document.createElement('button'), { className: 'done', textContent: '✓', title: 'Done (Enter)', onclick: close }));
+  scaleTo(UNITS[unit]);
   document.body.append(box);
   addEventListener('keydown', keys, { capture: true });
 }

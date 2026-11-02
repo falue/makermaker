@@ -1227,9 +1227,11 @@ button.primary.wide {
   border-color: var(--accent);
   background: var(--selected);
 }
-.mesh-units .size {
-  margin: 0 6px;
-  color: var(--muted);
+.mesh-units input {
+  width: 70px;
+}
+.mesh-units > span {
+  white-space: nowrap;
 }
 
 /* a boolean's tool body in the list: the op's icon beside the row (a click frees it) */
