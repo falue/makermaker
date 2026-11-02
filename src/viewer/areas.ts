@@ -8,7 +8,7 @@ import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click areas to pick them (again to drop) · double-click picks everything inside a shape · [Enter] or [E] pulls the picked areas · [Esc] cancels';
-const PULL_HINT = 'Move to pull · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · type a depth, [Tab] how far back · click or [Enter]: done · [Esc] cancels';
+const PULL_HINT = 'Move to pull · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · type a depth, [Tab] how far back · [T] to object · click or [Enter]: done · [Esc] cancels';
 
 /** In a sketch: pick areas (where shapes overlap, each piece is an area), then pull them into one extrusion. */
 export class AreaTool implements Tool {
@@ -16,6 +16,8 @@ export class AreaTool implements Tool {
   private picked = new Set<number>();
   private hover: number | null = null;
   private pull: Pulling | null = null;
+  /** Pulling: waiting for the click that sets how far ("to object"). */
+  private reaching = false;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -38,6 +40,7 @@ export class AreaTool implements Tool {
   }
 
   dispose() {
+    this.view.aimAt(null);
     this.host.cursorTip(null);
     this.view.unlockPointer();
     this.clear();
@@ -47,7 +50,15 @@ export class AreaTool implements Tool {
 
   down(e: PointerEvent) {
     if (e.button !== 0) return false;
-    if (this.pull) this.commit();
+    if (this.pull && this.reaching) {
+      // "to object": the depth to the clicked point, along the plane's normal
+      const p = this.view.pointAt(e);
+      if (!p) return true;
+      this.reaching = false;
+      this.view.aimAt(null);
+      Object.assign(this.pull, { depth: p.sub(v3(this.target.frame.o)).dot(v3(this.target.frame.n)), typed: undefined });
+      this.commit();
+    } else if (this.pull) this.commit();
     else {
       const i = this.areaAt(e);
       if (i !== null && !this.picked.delete(i)) this.picked.add(i);
@@ -57,6 +68,7 @@ export class AreaTool implements Tool {
   }
 
   move(e: PointerEvent) {
+    if (this.reaching) return this.host.cursorTip(this.view.aimAt(e)); // aiming at what to reach
     if (this.pull) {
       const step = this.view.step(this.middle(), e);
       pullBy(this.view, e, this.target.frame.n, this.middle(), this.pull);
@@ -92,7 +104,12 @@ export class AreaTool implements Tool {
     if (p) {
       if (pressed(e, 'cancel')) return this.view.unlockPointer(), this.host.done(null), true;
       else if (pressed(e, 'confirm')) return this.commit(), true;
-      else if (!pullKey(e, p)) return false;
+      else if (p.typed === undefined && pressed(e, 'toObject')) {
+        // the next click picks how far: the pointer shows again for it
+        this.reaching = true;
+        this.view.unlockPointer();
+        return this.host.hint('Click a corner, edge or face: the extrusion reaches it · [Esc] cancels'), true;
+      } else if (!pullKey(e, p)) return false;
       this.host.hint(PULL_HINT);
     } else if (pressed(e, 'cancel')) return this.host.done(null), true;
     else if ((pressed(e, 'confirm') || pressed(e, 'pullPicked')) && this.picked.size) this.startPull();
