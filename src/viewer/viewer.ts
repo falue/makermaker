@@ -13,6 +13,7 @@ import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { area, centre, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
+import { lineFaceAt, type Face } from '../doc/arrangement';
 import { anchorAt, angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import type { AreaMesh } from '../kernel/build';
 import { AreaTool } from './areas';
@@ -69,6 +70,9 @@ export type PickedPart = { kind: 'face' | 'edge'; body: string; size: number; co
 export type FinishPick = { body: string; feature: string; mid: Vec3 | null };
 
 /** A face picked for a section: a point on it and the normal pointing away from the camera; `body`: whose face (none: a base plane). */
+/** A sketch shape under the pointer for Extrude (`onLine`: on its outline), or a face its lines enclose there. */
+type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number]; onLine: boolean } | { sketch: ViewSketch; face: Face };
+
 export interface PickedFace {
   point: THREE.Vector3;
   normal: THREE.Vector3;
@@ -731,31 +735,49 @@ export class Viewer implements ToolView {
     return best;
   }
 
-  /** Picking with sketches: the closed sketch shape under the pointer in front of any face, and whether on its outline. */
-  private sketchShapeAt(e: MouseEvent, hit: THREE.Intersection | undefined) {
+  /**
+   * Picking with sketches, in front of any face: a closed sketch shape's outline under the pointer (all of it), else the
+   * face lines enclose there (see `lineFaceAt`), else the closed shape the pointer is in; null: none.
+   */
+  private sketchShapeAt(e: MouseEvent, hit: THREE.Intersection | undefined): SketchHit | null {
     if (!this.pickSketches) return null;
-    const s = this.shapeAt(this.ray(e), hit?.distance);
+    const ray = this.ray(e);
+    const s = this.shapeAt(ray, hit?.distance);
     const sketch = s && this.sketches.find((k) => k.id === s.sketch);
     const q = sketch?.shapes.find((x) => x.id === s!.shape);
-    return sketch && q && !q.construction && q.kind !== 'line' ? { sketch, q, onLine: s!.edge < Infinity } : null;
+    const closed = q && !q.construction && q.kind !== 'line' ? q : null;
+    if (sketch && closed && s!.edge < Infinity) return { sketch, q: closed, onLine: true };
+    // inside lines' faces: the nearest sketch with lines that close a face around the pointer
+    for (const k of this.sketches.filter((x) => x.shapes.some((p) => p.kind === 'line' && !p.construction))) {
+      const p = planeHit(ray, k.frame);
+      if (!p || p.distanceTo(ray.origin) > (hit?.distance ?? Infinity) + 1e-3) continue;
+      const face = lineFaceAt(k.shapes.filter((x) => !x.construction), uvOf(k.frame, p));
+      if (face) return { sketch: k, face };
+    }
+    return sketch && closed ? { sketch, q: closed, onLine: false } : null;
   }
 
-  /** Lights what a click there pulls: on a shape's outline all of it (the outline too), inside it the piece without the shapes inside it. */
-  private markSketch(at: ReturnType<Viewer['sketchShapeAt']>) {
+  /** Lights what a click there pulls: on a shape's outline all of it (the outline too), inside it the piece without the shapes inside it, or a lines' face. */
+  private markSketch(at: SketchHit | null) {
     for (const o of this.sketchMark.children) {
       (o as THREE.Mesh).geometry.dispose();
       ((o as THREE.Mesh).material as THREE.Material).dispose();
     }
     this.sketchMark.clear();
     if (at) {
-      const { sketch, q, onLine } = at;
-      const f = sketch.frame;
-      const shape = shape2d(q);
-      if (!onLine) shape.holes = sketch.shapes.filter((o) => o !== q && !o.construction && o.kind !== 'line' && area(o) < area(q) && inside(q, ...centre(o))).map(shape2d);
+      const f = at.sketch.frame;
+      const poly = (pts: [number, number][]) => new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+      let shape: THREE.Shape;
+      if ('face' in at) (shape = poly(at.face.outer)).holes = at.face.holes.map(poly);
+      else {
+        const { sketch, q, onLine } = at;
+        shape = shape2d(q);
+        if (!onLine) shape.holes = sketch.shapes.filter((o) => o !== q && !o.construction && o.kind !== 'line' && area(o) < area(q) && inside(q, ...centre(o))).map(shape2d);
+      }
       const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape, 32), new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.35, depthTest: false, side: THREE.DoubleSide }));
       fill.matrixAutoUpdate = false;
       fill.matrix.makeBasis(new THREE.Vector3(...f.x), new THREE.Vector3(...f.y), new THREE.Vector3(...f.n)).setPosition(...f.o);
-      this.sketchMark.add(fill, ...(onLine ? [outline(q, f, 0xff8c1a, 0, 1.5, 4)] : []));
+      this.sketchMark.add(fill, ...('q' in at && at.onLine ? [outline(at.q, f, 0xff8c1a, 0, 1.5, 4)] : []));
       this.sketchMark.traverse((o) => (o.renderOrder = 1e6));
     }
     this.render();
@@ -1832,7 +1854,7 @@ export class Viewer implements ToolView {
     const hit = this.frontHit(e);
     if (this.quietPick) return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined });
     const s = this.sketchShapeAt(e, hit);
-    const sketch = s ? { sketch: { id: s.sketch.id, at: e, shape: s.onLine ? s.q.id : undefined } } : {};
+    const sketch = s ? { sketch: { id: s.sketch.id, at: e, shape: 'q' in s && s.onLine ? s.q.id : undefined } } : {};
     if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, ...sketch });
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const k = this.facingAxis();

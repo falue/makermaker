@@ -62,10 +62,14 @@ export interface Sketch {
 /** Which edges a finish takes: by rule, or picked ones (`pts`: per edge, points along it in body coordinates). */
 export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical' | { pts: [number, number, number][][] };
 
-/** An area of a sketch: inside all `in` shapes and outside all `out` shapes (shape ids). */
+/**
+ * An area of a sketch: inside all `in` shapes and outside all `out` shapes (shape ids); with `at`: the face that lines
+ * (and the shapes they reach) enclose around that point (see `lineFaces`).
+ */
 export interface Area {
   in: string[];
   out: string[];
+  at?: [number, number];
 }
 
 /**

@@ -121,8 +121,8 @@ export class AreaTool implements Tool {
     const picked = [...this.picked].map((i) => this.areas[i]);
     this.host.done({
       target: this.target,
-      shapes: [...new Set(picked.flatMap((a) => [...a.in, ...a.out]))], // outside shapes cut the areas, so they are needed too
-      areas: picked.map((a) => ({ in: a.in, out: a.out })),
+      shapes: [...new Set(picked.flatMap((a) => [...a.in, ...a.out, ...(a.uses ?? [])]))], // outside shapes cut the areas, lines close them: needed too
+      areas: picked.map((a) => ({ in: a.in, out: a.out, ...(a.at ? { at: a.at } : {}) })),
       depth,
       depthTyped: typed(this.pull!.typed),
       back,

@@ -1,6 +1,7 @@
 import { draw, drawCircle, drawRoundedRectangle, importSTEP, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
 import { add, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { centre, corners, nesting } from '../doc/profiles';
+import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, EdgeRule, Profile } from '../doc/types';
 
@@ -198,24 +199,46 @@ function area(byId: Map<string, Resolved<Profile>>, a: Area): Drawing {
   return a.out.reduce((d, id) => (byId.has(id) ? d.cut(get(id)) : d), inside);
 }
 
+/** A face as a drawing: its outline, its holes cut out. */
+function faceDrawing(f: Face): Drawing {
+  const poly = (pts: [number, number][]) => pts.slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(pts[0])).close();
+  return f.holes.reduce((d, h) => d.cut(poly(h)), poly(f.outer));
+}
+
 /** The picked areas together. */
 function areaDrawing(ps: Resolved<Profile>[], areas: Area[]): Drawing {
   const byId = new Map(ps.map((p) => [p.id, p]));
-  const d = areas.map((a) => area(byId, a)).reduce((x, y) => x.fuse(y));
+  const lined = (at: [number, number]) => {
+    const f = lineFaceAt(ps, at);
+    if (!f) throw new Error('a picked area is no longer closed by its lines');
+    return faceDrawing(f);
+  };
+  const d = areas.map((a) => (a.at ? lined(a.at) : area(byId, a))).reduce((x, y) => x.fuse(y));
   if (!filled(d)) throw new Error('the picked areas are empty');
   return d;
 }
 
-/** A drawing's areas, as triangles in its plane (x, y per corner). */
+/** A drawing's areas, as triangles in its plane (x, y per corner); `uses`: the shapes and lines a line-closed area needs. */
 export interface AreaMesh extends Area {
   tris: Float32Array;
+  uses?: string[];
+}
+
+/**
+ * The areas of a sketch's shapes, with triangles to show and pick them: where lines take part, the faces they and the
+ * shapes they reach enclose (see `lineFaces`); elsewhere the exact areas of overlapping shapes (see `shapeAreas`).
+ */
+export function areasOf(ps: Resolved<Profile>[]): AreaMesh[] {
+  const { faces, uses } = lineFaces(ps);
+  const lined = faces.map((f): AreaMesh => ({ in: f.in, out: [], at: f.at, uses, tris: triangles(faceDrawing(f)) }));
+  return [...shapeAreas(ps.filter((p) => p.kind !== 'line' && !uses.includes(p.id))), ...lined];
 }
 
 /**
  * Splits overlapping shapes into areas: each area lies inside some shapes and outside the others (an even/odd
- * independent overlay), with triangles to show and pick it.
+ * independent overlay).
  */
-export function areasOf(ps: Resolved<Profile>[]): AreaMesh[] {
+function shapeAreas(ps: Resolved<Profile>[]): AreaMesh[] {
   let bodies: { in: string[]; out: string[]; d: Drawing }[] = [];
   let all: Drawing | null = null;
   const seen: string[] = [];
@@ -239,7 +262,9 @@ export function areasOf(ps: Resolved<Profile>[]): AreaMesh[] {
 }
 
 function triangles(d: Drawing): Float32Array {
-  const faces = (d.sketchOnPlane('XY') as unknown as { faces(): Shape3D }).faces();
+  // one piece gives a sketch (its face), several give sketches (their faces)
+  const sketched = d.sketchOnPlane('XY') as unknown as { faces?(): Shape3D; face?(): Shape3D };
+  const faces = sketched.faces ? sketched.faces() : sketched.face!();
   const m = faces.mesh({ tolerance: 0.05, angularTolerance: 0.2 });
   const out = new Float32Array(m.triangles.length * 2);
   m.triangles.forEach((v, i) => out.set([m.vertices[v * 3], m.vertices[v * 3 + 1]], i * 2));

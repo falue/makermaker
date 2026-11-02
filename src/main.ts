@@ -1581,7 +1581,7 @@ async function extrudeAreas(all = false, first?: { at: MouseEvent; shape?: strin
   const s = viewer.sketches.find((v) => v.id === sketching);
   if (!s) return;
   stopTool();
-  const areas = await kernel.areas(s.shapes.filter((q) => !q.construction && q.kind !== 'line'));
+  const areas = await kernel.areas(s.shapes.filter((q) => !q.construction));
   if (!areas.length) return fail('Nothing to extrude yet: draw a shape first');
   viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas, all, first);
   toolMode = 'pull';
@@ -1643,6 +1643,8 @@ function extrude() {
   const id = activeSketch();
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return fail(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
+  // lines in it: what they enclose are areas, all of them picked to pull
+  if (!shapeSel.length && s.shapes.some((q) => q.kind === 'line' && !q.construction)) return enterSketch(s.id), void extrudeAreas(true);
   const target: Target = { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'its sketch' };
   const ids = (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction && q.kind !== 'line').map((q) => q.id);
   if (!ids.length) return fail('Construction lines and open lines are not extruded: pick other shapes');

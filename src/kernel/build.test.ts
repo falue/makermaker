@@ -4,7 +4,7 @@ import init from 'replicad-opencascadejs';
 import { setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { STILL } from '../doc/frames';
-import { buildBody, FeatureError, meshBody, type BuildFeature, type Finishing } from './build';
+import { areasOf, buildBody, FeatureError, meshBody, type BuildFeature, type Finishing } from './build';
 
 const wasm = readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm'));
 
@@ -124,6 +124,18 @@ describe('buildBody', () => {
     expect(holed.faces).toBeGreaterThan(raw.faces); // the hole wall (the 2D cut may split it in two)
     raw.done();
     holed.done();
+  });
+
+  it('finds the areas lines close, a line across splitting them, and extrudes one', () => {
+    const l = (id: string, ...pts: [number, number][]) => ({ id, kind: 'line' as const, pts });
+    const shapes = [l('a', [-2, 0], [12, 0]), l('b', [10, -2], [10, 12]), l('c', [12, 10], [-2, 10]), l('d', [0, 12], [0, -2]), l('e', [-3, 4], [13, 4])];
+    const areas = areasOf(shapes);
+    expect(areas).toHaveLength(2);
+    const lower = areas.find((a) => a.at![1] < 4)!;
+    const body = built([{ id: 'x', type: 'extrude', plane: ground, profiles: shapes, areas: [{ in: [], out: [], at: lower.at }], depth: 5, mode: 'add', through: false } as BuildFeature]);
+    expect(body.box.width).toBeCloseTo(10, 3);
+    expect(body.box.height).toBeCloseTo(4, 3);
+    body.done();
   });
 
   it('splits overlapping shapes into areas and extrudes only the picked ones', async () => {
