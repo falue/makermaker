@@ -1034,6 +1034,7 @@ export class Viewer implements ToolView {
       this.frame = 0;
       this.placeWheel();
       this.drawSky();
+      this.scaleDashes();
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
       // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
@@ -1041,6 +1042,16 @@ export class Viewer implements ToolView {
       this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
     });
   };
+
+  /** Dashed lines (construction lines, guides) keep `px` long dashes and gaps on screen at any zoom. */
+  private scaleDashes(px = 5) {
+    const mm = px / this.pixelsPerMm(this.controls.target);
+    for (const g of [this.sketchView, this.overlay])
+      g.traverse((o) => {
+        const m = (o as LineSegments2).material;
+        if (m instanceof LineMaterial && m.dashed) m.dashSize = m.gapSize = mm;
+      });
+  }
 
   private resize() {
     const { clientWidth: w, clientHeight: h } = this.el;
