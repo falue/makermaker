@@ -20,7 +20,7 @@ import { Kernel } from './kernel/client';
 import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
-import { pressed, type Action } from './ui/keys';
+import { MAC, pressed, type Action } from './ui/keys';
 import { installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
 import { SketchTool, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
@@ -134,7 +134,7 @@ let finishSel: FinishPick | null = null;
 /** A face pick running for the extrude tool (E, then a face). */
 let extrudePick = false;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
-let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'group'; pick(id: string): void; apply?(): void } | null = null;
+let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
 let autosave = localStorage.getItem('makermaker.autosave') === 'on';
 let autosaveTimer = 0;
 /** The body shown alone, and what was visible before (bodies and sketches by id). */
@@ -562,7 +562,8 @@ function select(id: string | null, how: Pick = false) {
   rendersOpen = false; // choosing something shows it, not the renders
   viewer.dropPicked(); // picked faces and edges start over
   if (finishSel) viewer.setFinishMark((finishSel = null));
-  if (pending && id && history.current.bodies.some((b) => b.id === id)) return pending.pick(id);
+  // objects to pick: bodies (moving: groups too)
+  if (pending && id && [...history.current.bodies, ...(pending.tool === 'move' ? history.current.groups : [])].some((o) => o.id === id)) return pending.pick(id, how);
   // while picking areas, a sketch chosen in the list gets all its areas picked
   if (toolMode === 'pull' && sketching && id && history.current.sketches.some((s) => s.id === id)) {
     if (id !== sketching) enterSketch(id);
@@ -902,7 +903,26 @@ function toggleVisible() {
  * Esc or leaving cancels all.
  */
 function moveAlong(first: number) {
-  if (!selected.length) return fail('Select something to move first');
+  if (!selected.length) {
+    // tool first: a click picks what moves and opens the field; Shift / ⌘ clicks collect several, Enter then
+    pending = {
+      tool: 'move',
+      pick(id, how) {
+        if (how) return (selected = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]), showSelection();
+        if (!selected.includes(id)) selected = [...selected, id];
+        cancelPending();
+        showSelection();
+        moveAlong(first);
+      },
+      apply() {
+        cancelPending();
+        render();
+        if (selected.length) moveAlong(first);
+      },
+    };
+    toolHint = `Click what to move along ${'XYZ'[first]} · Shift / ${MAC ? '⌘' : 'Ctrl'}-click several, then [Enter] · [Esc] cancels`;
+    return render();
+  }
   const fields: (HTMLInputElement | null)[] = [null, null, null];
   const box = Object.assign(document.createElement('div'), { className: 'axis-move' });
   const at = viewer.pointer() ?? { x: innerWidth / 2, y: innerHeight / 2 };
@@ -1043,9 +1063,8 @@ function moveBy(by: Vector3) {
   setShapes(moves.sketch, moves.updates);
 }
 
-/** Deletes the selected shapes of the selected sketch, else the selected bodies and sketches. */
 /** Tool first: the next clicked body gets `act`. */
-function pickFor(tool: 'delete' | 'duplicate', act: () => void) {
+function pickFor(tool: 'delete' | 'duplicate' | 'hide', act: () => void) {
   pending = {
     tool,
     pick(id) {
@@ -1063,6 +1082,7 @@ function cancelPending() {
   toolHint = null;
 }
 
+/** Deletes the selected shapes of the selected sketch, else the selected bodies and sketches. */
 function remove() {
   if (!selected.length) return pickFor('delete', remove);
   const doc = history.current;
@@ -2099,11 +2119,11 @@ addEventListener('keydown', (e) => {
   // nudges along the world axis nearest to the arrow's screen direction
   else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(e.ctrlKey ? settings.minStep : e.shiftKey ? 10 : 1).toArray());
   else if (pressed(e, 'selectAll')) selectAll();
-  else if (selected.length && pressed(e, 'toggleVisible')) toggleVisible();
-  else if (selected.length && pressed(e, 'delete')) remove();
+  // nothing selected: the next click picks what it acts on
+  else if (pressed(e, 'toggleVisible')) selected.length ? toggleVisible() : pickFor('hide', toggleVisible);
+  else if (pressed(e, 'delete')) remove();
   else if (selected.length && pressed(e, 'deselect')) select(null);
-  else if (shapeSel.length && pressed(e, 'duplicate')) duplicateShapes();
-  else if (selected.length && pressed(e, 'duplicate')) duplicate();
+  else if (pressed(e, 'duplicate')) shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate);
   else if (pressed(e, 'ungroup')) sketching && shapeSel.length ? groupShapes(true) : ungroup();
   else if (pressed(e, 'group')) sketching && shapeSel.length ? groupShapes() : groupTool();
   else return;
