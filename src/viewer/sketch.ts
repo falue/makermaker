@@ -154,6 +154,8 @@ type Phase =
   | { kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[]; raw: number; depth: number; typed: string | undefined };
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
+/** A line the pointer snaps to (world segments); sketch outlines keep their shape and sketch. */
+type SnapLine = { segs: Segment[]; what: string; shape?: { p: ViewSketch['shapes'][number]; sketch: ViewSketch } };
 const AXIS_NAME: Record<BasePlane, string> = { xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
 const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle', ngon: 'a regular polygon', polygon: 'a polygon', line: 'a line', sphere: 'a sphere' };
 
@@ -167,7 +169,7 @@ const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle
  */
 export class SketchTool implements Tool {
   private phase: Phase = { kind: 'hover' };
-  /** The point the pointer snapped to (world), shown as a squircle; on a line, that line is lit too. */
+  /** The point the pointer snapped to (world), shown as a squircle; the line or shape it belongs to is lit too. */
   private snapped: THREE.Vector3 | null = null;
   private snapLine: Segment[] | null = null;
   /** What the pointer snapped to ('corner', '1/2', 'crossing' …), shown next to it. */
@@ -362,43 +364,47 @@ export class SketchTool implements Tool {
   }
 
   /**
-   * Where the pointer snaps, in the target's plane coordinates, each with what it is: the plane origin; centres,
-   * corners (line ends), side middles and circle quadrants of the shapes of every visible sketch; body corners and the
-   * middles of straight body edges (from other planes: projected onto this one).
+   * Where the pointer snaps, in the target's plane coordinates, each with what it is and the outline it belongs to (lit
+   * while snapped): the plane origin; centres, corners (line ends), side middles and circle quadrants of the shapes of
+   * every visible sketch; the middles of straight body edges; body corners and sphere centres (their edges are looked
+   * up when snapped). From other planes: projected onto this one.
    */
-  private snapPoints(t: Target): { at: UV; what: string }[] {
-    const pts = [{ at: [0, 0] as UV, what: 'origin' }];
-    for (const s of this.view.sketches)
-      for (const p of s.shapes) {
-        const cs = corners(p);
-        const sides = p.kind === 'line' ? cs.slice(1).map((b, i) => [cs[i], b]) : cs.map((a, i) => [a, cs[(i + 1) % cs.length]]);
-        const own: [UV, string][] = [
-          ...(p.kind === 'line' ? [] : [[centre(p), 'centre'] as [UV, string]]),
-          ...cs.map((q): [UV, string] => [q, p.kind === 'line' ? 'end' : 'corner']),
-          ...sides.map(([a, b]): [UV, string] => [[(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], '1/2']),
-        ];
-        if (p.kind === 'circle') for (const [cx, cy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) own.push([[p.x + (cx * p.d) / 2, p.y + (cy * p.d) / 2], 'quadrant']);
-        for (const [q, what] of own) pts.push({ at: s.id === t.sketch ? q : uvOf(t.frame, v3(toWorld(s.frame, ...q))), what });
+  private snapPoints(t: Target, lines: SnapLine[]): { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3 }[] {
+    const pts: { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3 }[] = [{ at: [0, 0], what: 'origin' }];
+    for (const { segs, shape } of lines) {
+      if (!shape) {
+        if (segs.length === 1) pts.push({ at: uvOf(t.frame, segs[0][0].clone().lerp(segs[0][1], 0.5)), what: '1/2', line: segs });
+        continue;
       }
-    for (const c of this.view.corners()) pts.push({ at: uvOf(t.frame, c), what: 'corner' });
-    for (const e of this.view.edges()) if (e.length === 1) pts.push({ at: uvOf(t.frame, e[0][0].clone().lerp(e[0][1], 0.5)), what: '1/2' });
+      const { p, sketch } = shape;
+      const cs = corners(p);
+      const sides = p.kind === 'line' ? cs.slice(1).map((b, i) => [cs[i], b]) : cs.map((a, i) => [a, cs[(i + 1) % cs.length]]);
+      const own: [UV, string][] = [
+        ...(p.kind === 'line' ? [] : [[centre(p), 'centre'] as [UV, string]]),
+        ...cs.map((q): [UV, string] => [q, p.kind === 'line' ? 'end' : 'corner']),
+        ...sides.map(([a, b]): [UV, string] => [[(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], '1/2']),
+      ];
+      if (p.kind === 'circle') for (const [cx, cy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) own.push([[p.x + (cx * p.d) / 2, p.y + (cy * p.d) / 2], 'quadrant']);
+      for (const [q, what] of own) pts.push({ at: sketch.id === t.sketch ? q : uvOf(t.frame, v3(toWorld(sketch.frame, ...q))), what, line: segs });
+    }
+    for (const c of this.view.corners()) pts.push({ at: uvOf(t.frame, c), what: 'corner', corner: c });
     return pts;
   }
 
-  /** Lines to snap to, each as segments (world): outlines of every visible sketch's shapes, and body edges. */
-  private snapLines(): { segs: Segment[]; what: string }[] {
-    const outlines = this.view.sketches.flatMap((s) =>
-      s.shapes.map((p) => {
-        const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(s.frame, q.x, q.y)));
-        return { segs: (p.kind === 'line' ? pts.slice(0, -1) : pts).map((a, i): Segment => [a, pts[(i + 1) % pts.length]]), what: 'on line' }; // a line stays open
+  /** Lines to snap to, each as segments (world): outlines of every visible sketch's shapes (with the shape), and body edges. */
+  private snapLines(): SnapLine[] {
+    const outlines = this.view.sketches.flatMap((sketch) =>
+      sketch.shapes.map((p) => {
+        const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(sketch.frame, q.x, q.y)));
+        return { segs: (p.kind === 'line' ? pts.slice(0, -1) : pts).map((a, i): Segment => [a, pts[(i + 1) % pts.length]]), what: 'on line', shape: { p, sketch } }; // a line stays open
       }),
     );
     return [...outlines, ...this.view.edges().map((segs) => ({ segs, what: 'on edge' }))];
   }
 
-  /** The crossing of two of the lines near the pointer closest to it within `px` (plane coordinates), if any. */
-  private crossing(near: { line: number; a: UV; b: UV }[], t: Target, mx: number, my: number, px: number): UV | null {
-    let best: { at: UV; d: number } | null = null;
+  /** The crossing of two of the lines near the pointer closest to it within `px` (plane coordinates, with both lines' indices), if any. */
+  private crossing(near: { line: number; a: UV; b: UV }[], t: Target, mx: number, my: number, px: number) {
+    let best: { at: UV; lines: [number, number]; d: number } | null = null;
     for (let i = 0; i < near.length; i++)
       for (let j = i + 1; j < near.length; j++) {
         const [p, q] = [near[i], near[j]];
@@ -414,13 +420,13 @@ export class SketchTool implements Tool {
         const at: UV = [p.a[0] + k * r[0], p.a[1] + k * r[1]];
         const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...at)));
         const d = Math.hypot(mx - x, my - y);
-        if (d < px && (!best || d < best.d)) best = { at, d };
+        if (d < px && (!best || d < best.d)) best = { at, lines: [p.line, q.line], d };
       }
-    return best?.at ?? null;
+    return best;
   }
 
   /**
-   * Pointer on the target plane, in plane coordinates: on a snap point within `px` pixels, else on a crossing of lines
+   * Pointer on the target plane, in plane coordinates: on the nearest snap point within `px` pixels, else on a crossing of lines
    * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges; projected onto the plane), else
    * on the grid (Ctrl) or 0.1 mm. Sets `snapWhat`.
    */
@@ -429,17 +435,31 @@ export class SketchTool implements Tool {
     if (!p) return null;
     const r = this.view.el.getBoundingClientRect();
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
-    const near = this.snapPoints(t).find(({ at }) => {
-      const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...at)));
-      return Math.hypot(mx - x, my - y) < px;
-    });
+    const lines = this.snapLines();
+    let near: ReturnType<SketchTool['snapPoints']>[number] | undefined;
+    let nearest = px;
+    for (const q of this.snapPoints(t, lines)) {
+      const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...q.at)));
+      const d = Math.hypot(mx - x, my - y);
+      if (d < nearest) [near, nearest] = [q, d];
+    }
     this.snapLine = null;
     this.snapped = near ? v3(toWorld(t.frame, ...near.at)) : null;
     this.snapWhat = near?.what ?? null;
-    if (near) return near.at;
+    if (near) {
+      this.snapLine = near.line ?? null;
+      const c = near.corner;
+      if (c) {
+        // a body corner lights the edges meeting there; none: a sphere centre
+        const touching = lines.filter((l) => !l.shape && [l.segs[0][0], l.segs[l.segs.length - 1][1]].some((v) => v.distanceTo(c) < 1e-4)).flatMap((l) => l.segs);
+        if (touching.length) this.snapLine = touching;
+        else this.snapWhat = 'centre';
+      }
+      return near.at;
+    }
     let best: { at: THREE.Vector3; line: Segment[]; what: string; d: number } | null = null;
     const close: { line: number; a: UV; b: UV }[] = [];
-    for (const [line, { segs, what }] of this.snapLines().entries())
+    for (const [line, { segs, what }] of lines.entries())
       for (const [a, b] of segs) {
         const [ax, ay] = this.view.toScreen(a);
         const [bx, by] = this.view.toScreen(b);
@@ -452,9 +472,10 @@ export class SketchTool implements Tool {
       }
     const cross = this.crossing(close, t, mx, my, px);
     if (cross) {
-      this.snapped = v3(toWorld(t.frame, ...cross));
+      this.snapped = v3(toWorld(t.frame, ...cross.at));
+      this.snapLine = cross.lines.flatMap((i) => lines[i].segs);
       this.snapWhat = 'crossing';
-      return cross;
+      return cross.at;
     }
     if (best) {
       const uv = uvOf(t.frame, best.at);
@@ -620,7 +641,7 @@ export class SketchTool implements Tool {
         lit.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
         this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(this.snapLine.flat().flatMap((v) => v.toArray())), lit));
       }
-      this.view.overlay.add(marks([this.snapped], 0xff8c1a, this.snapLine ? 8 : 12));
+      this.view.overlay.add(marks([this.snapped], 0xff8c1a, this.snapWhat?.startsWith('on ') ? 8 : 12));
     }
     const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'hold Ctrl to start the line from the end of the last one' : null;
     this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, chain].filter(Boolean).join(' · ') || null);
