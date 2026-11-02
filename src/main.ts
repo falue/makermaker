@@ -339,10 +339,10 @@ function update() {
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
   const owner = ownersOf(doc);
-  // sphere centres snap like corners
-  viewer.setSnapPoints(
+  // sphere centres snap like corners; their outlines give guides
+  viewer.setSpheres(
     doc.bodies.flatMap((b) =>
-      b.visible && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z]))] : [])) : [],
+      b.visible && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [{ center: new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z])), r: f.d / 2 }] : [])) : [],
     ),
   );
   viewer.setLooks(doc.bodies.map((b) => ({ ...b, visible: b.visible && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.op === 'subtract' && f.body === b.id)) })));

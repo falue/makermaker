@@ -214,7 +214,7 @@ export class Viewer implements ToolView {
   /** The origin: three thick lines (AxesHelper's colours), drawn over everything. */
   private axes = originLines();
   /** Points to snap to besides body corners (sphere centres), with their marks. */
-  private snapPoints: THREE.Vector3[] = [];
+  private balls: { center: THREE.Vector3; r: number }[] = [];
   private centres = new THREE.Group();
 
   /** Visible range per axis in world mm (open ends: ±Infinity), fixed to the origin; inverted shows only what is outside. */
@@ -869,9 +869,10 @@ export class Viewer implements ToolView {
     return this.snapshot(width / this.renderer.domElement.width);
   }
 
-  /** Extra snap points (world), each with a small mark: sphere centres. */
-  setSnapPoints(points: THREE.Vector3[]) {
-    this.snapPoints = points;
+  /** Spheres (world): their centres snap, with a small mark. */
+  setSpheres(balls: { center: THREE.Vector3; r: number }[]) {
+    this.balls = balls;
+    const points = balls.map((b) => b.center);
     for (const o of this.centres.children) ((o as THREE.Points).geometry.dispose(), ((o as THREE.Points).material as THREE.Material).dispose());
     this.centres.clear();
     if (points.length) this.centres.add(marks(points, 0x6b6b6b, 6));
@@ -1163,7 +1164,11 @@ export class Viewer implements ToolView {
         const xyz = c.userData.corners as Float32Array | undefined;
         for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).applyMatrix4(g.matrix));
       }
-    return [...out, ...this.snapPoints];
+    return [...out, ...this.balls.map((b) => b.center)];
+  }
+
+  spheres() {
+    return this.balls;
   }
 
   /** A picking press ended: without dragging it picks a face or goes to the tool as a click. */

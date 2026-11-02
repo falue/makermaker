@@ -90,6 +90,8 @@ export interface ToolView {
   corners(): THREE.Vector3[];
   /** Body edges in the world (each as segments), to snap to. */
   edges(): [THREE.Vector3, THREE.Vector3][][];
+  /** Spheres in the world. */
+  spheres(): { center: THREE.Vector3; r: number }[];
   render(): void;
 }
 
@@ -491,6 +493,35 @@ export class SketchTool implements Tool {
     return [...outlines, ...this.view.edges().map((segs) => ({ segs, what: 'on edge' })), ...guides];
   }
 
+  /**
+   * For a guide at the top, bottom or a side of something round (as seen along the plane's axes): sketch circles,
+   * curved body edges, sphere outlines. The pointer within `px` of such a point gives the segment along the axis
+   * across it, projected onto the plane.
+   */
+  private roundSeg(e: MouseEvent, t: Target, lines: SnapLine[], px = 10): Segment | null {
+    const [u, v] = [v3(t.frame.x), v3(t.frame.y)];
+    const sides: [THREE.Vector3, THREE.Vector3][] = [[u, v], [u.clone().negate(), v], [v, u], [v.clone().negate(), u]]; // outward, along
+    const tops: [THREE.Vector3, THREE.Vector3][] = [];
+    for (const l of lines)
+      if (l.shape?.p.kind === 'circle' || (!l.shape && !l.guide && l.segs.length > 1)) {
+        const pts = [l.segs[0][0], ...l.segs.map((g) => g[1])];
+        for (const [w, along] of sides) tops.push([pts.reduce((a, b) => (b.dot(w) > a.dot(w) ? b : a)), along]);
+      }
+    for (const s of this.view.spheres()) for (const [w, along] of sides) tops.push([s.center.clone().addScaledVector(w, s.r), along]);
+    const r = this.view.el.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
+    let best: [THREE.Vector3, THREE.Vector3] | null = null;
+    let nearest = px;
+    for (const top of tops) {
+      const [x, y] = this.view.toScreen(top[0]);
+      const d = Math.hypot(mx - x, my - y);
+      if (d < nearest) [best, nearest] = [top, d];
+    }
+    if (!best) return null;
+    const at = v3(toWorld(t.frame, ...uvOf(t.frame, best[0])));
+    return [at, at.clone().add(best[1])];
+  }
+
   /** The guide the pointer is on, or the guide of the line it is on. */
   private hoveredGuide() {
     return this.onGuide ?? SketchTool.guides.find((g) => this.snapSeg && onLine(g, this.snapSeg));
@@ -544,18 +575,19 @@ export class SketchTool implements Tool {
    */
   private point(e: MouseEvent, t: Target, grid: boolean): UV | null {
     this.lastPoint = [e, t, grid];
-    const uv = this.snapAt(e, t, grid);
+    const lines = this.snapLines();
+    const uv = this.snapAt(e, t, grid, lines);
+    this.snapSeg ??= this.roundSeg(e, t, lines);
     if (this.showing !== this.snapKey) this.showing = null; // the pointer left the line just changed
     this.dots = this.showing ? this.snapPoints(t, this.snapLines()).filter((q) => q.key === this.showing).map((q) => v3(toWorld(t.frame, ...q.at))) : [];
     return uv;
   }
 
-  private snapAt(e: MouseEvent, t: Target, grid: boolean, px = 10, linePx = 8): UV | null {
+  private snapAt(e: MouseEvent, t: Target, grid: boolean, lines: SnapLine[], px = 10, linePx = 8): UV | null {
     const p = planeHit(this.view.ray(e), t.frame);
     if (!p) return null;
     const r = this.view.el.getBoundingClientRect();
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
-    const lines = this.snapLines();
     let near: SnapPoint | undefined;
     let nearest = px;
     for (const q of this.snapPoints(t, lines)) {
