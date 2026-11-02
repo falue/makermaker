@@ -85,4 +85,7 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Drawings**: paper sheets with scaled views, dimensions, sections, PDF export.
 - **Quad view**: four editable views at once.
 - **incase**: the sibling project ../incase should be included here.
-- **Desktop wrapper** (Tauri / Electron) with native file access; a shared command layer for shortcuts and automation.
+- **Central CAD command API**: every modeling action (create, edit, select bodies, sketches, features, materials, transforms, booleans, bevels, holes, ...) through one TypeScript API used by the GUI and scripting, independent of the UI and kernel where possible.
+- **LLM control**: an API through which an LLM can control everything.
+- **Python scripting**: an in-browser editor (Monaco + Pyodide) with the command API as a Python module (`cad.box(...)`, `cad.move(...)`, `cad.bevel(...)`, the selection), Run, console, errors, autocomplete, offline caching.
+- **Desktop wrapper** (Tauri / Electron) with native file access.

@@ -162,6 +162,12 @@ Undo history list: pressing ⌘Z twice in a row shows a list of the latest steps
 
 Expose operations through a shared command layer so mouse, shortcuts, and potential future automation can use the same behavior. Python/LLM integration is not an MVP deliverable.
 
+Later goals (2026-11-02):
+
+- [ ] **Central CAD command API:** all modeling actions available through one clean TypeScript API, used by both the GUI and scripting. Commands create, edit and select bodies, sketches, features, materials, transforms, booleans, bevels, holes, etc. Kept independent from the UI and the geometry kernel where possible. Wanted before rebindable hotkeys and before many more tools (they would use its command table).
+- [ ] **LLM control:** an API through which an LLM can control everything.
+- [ ] **Python scripting with an editor:** Monaco Editor plus Pyodide for in-browser Python. The command API exposed as a simple Python module such as `cad`, so scripts can do `cad.box(...)`, `cad.move(...)`, `cad.bevel(...)` and access the selected bodies and features. Run button, console output, errors, autocomplete, offline caching. (Both are new dependencies: approve when the time comes.)
+
 ## Performance and sample files
 
 Two representative workloads are required; neither is a guaranteed supported maximum before measurement:
