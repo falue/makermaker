@@ -7,12 +7,15 @@ import { BASE, capFrame, cutPlane, extent, frames, moved, placed as inWorld, pla
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, centre, closedLoop, corners, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
+import { icon } from './ui/icons';
+import { jointed } from './doc/joints';
+import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, Joint, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -69,6 +72,21 @@ const positions = new Map<string, Vec3>();
 const groupPlaces = new Map<string, Matrix4>();
 const bodyPlaces = new Map<string, Matrix4>();
 const groupPlace = (id: string | null) => groupPlaces.get(id ?? '') ?? new Matrix4();
+/** Own placements from the last update: a group's origin in its parent, a body's position and turn in its group. */
+const ownPlaces = new Map<string, Matrix4>();
+/** What a body's position or a group's origin counts from in the world: its group's origin, moved by its joint. */
+const parentPlace = (id: string) => (bodyPlaces.get(id) ?? groupPlace(id)).clone().multiply((ownPlaces.get(id) ?? new Matrix4()).clone().invert());
+/** Joints left still in the last update, and why. */
+let jointProblems: string[] = [];
+
+/** Where a joint is now: degrees (hinge) or mm (slider); 0 while its value is no number. */
+function jointValue(j: Joint, lookup: Lookup) {
+  try {
+    return evalLength(j.value, lookup);
+  } catch {
+    return 0;
+  }
+}
 
 /** A rigid matrix as a turn around an axis, then a move. */
 function toPlace(m: Matrix4): Place {
@@ -137,7 +155,7 @@ let finishSel: FinishPick | null = null;
 /** A face pick running for the extrude tool (E, then a face). */
 let extrudePick = false;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
-let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
+let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut' | 'joint'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
 let autosave = localStorage.getItem('makermaker.autosave') === 'on';
 let autosaveTimer = 0;
 /** The body shown alone, and what was visible before (bodies and sketches by id). */
@@ -337,28 +355,30 @@ function update() {
     }),
   );
   linkErrors = new Map();
-  // group origins in the world (a custom origin is moved and turned in its parent's) and whether groups are shown
+  // own placements (a custom group origin moved and turned in its parent's, a body's position and turn in its group),
+  // then everything in the world with the joints where they are now
+  ownPlaces.clear();
+  const fine = (v: number) => (Number.isFinite(v) ? v : 0);
+  const deg = (v: number) => (fine(v) * Math.PI) / 180;
+  doc.groups.forEach((g, i) => {
+    if (g.origin.kind !== 'custom') return;
+    const at = `groups.${i}.origin`;
+    const [x, y, z] = resolve(g.origin.position, lookup, `${at}.position`, exprErrors).map(fine);
+    const r = resolve(g.origin.rotation, lookup, `${at}.rotation`, exprErrors);
+    // degrees around the parent's X, then Y, then Z
+    ownPlaces.set(g.id, new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromEuler(new Euler(deg(r.rx), deg(r.ry), deg(r.rz), 'ZYX')), new Vector3(1, 1, 1)));
+  });
+  const still = new Set<string>(); // bodies whose position or turn is no number: they stay where they were
+  doc.bodies.forEach((p, i) => {
+    const local = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
+    const turned = resolve(p.rotation, lookup, `bodies.${i}.rotation`, exprErrors);
+    if (local.every(Number.isFinite) && [turned.rx, turned.ry, turned.rz].every(Number.isFinite)) ownPlaces.set(p.id, new Matrix4().compose(new Vector3(...local), turnOf(turned), new Vector3(1, 1, 1)));
+    else still.add(p.id);
+  });
+  const { placed, problems } = jointed(doc, ownPlaces, (j) => jointValue(j, lookup));
+  jointProblems = problems;
   groupPlaces.clear();
-  const groupAt = (id: string | null, seen: string[] = []): Matrix4 => {
-    const i = doc.groups.findIndex((g) => g.id === id);
-    const g = doc.groups[i];
-    if (!g || seen.includes(g.id)) return new Matrix4();
-    const done = groupPlaces.get(g.id);
-    if (done) return done;
-    const m = groupAt(g.parent, [...seen, g.id]).clone();
-    if (g.origin.kind === 'custom') {
-      const at = `groups.${i}.origin`;
-      const fine = (v: number) => (Number.isFinite(v) ? v : 0);
-      const [x, y, z] = resolve(g.origin.position, lookup, `${at}.position`, exprErrors).map(fine);
-      const r = resolve(g.origin.rotation, lookup, `${at}.rotation`, exprErrors);
-      const deg = (v: number) => (fine(v) * Math.PI) / 180;
-      // degrees around the parent's X, then Y, then Z
-      m.multiply(new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromEuler(new Euler(deg(r.rx), deg(r.ry), deg(r.rz), 'ZYX')), new Vector3(1, 1, 1)));
-    }
-    groupPlaces.set(g.id, m);
-    return m;
-  };
-  doc.groups.forEach((g) => groupAt(g.id));
+  for (const g of doc.groups) groupPlaces.set(g.id, placed.get(g.id)!);
   const shownIn = (id: string | null) => {
     for (const seen = new Set<string>(); id && !seen.has(id); ) {
       const g = doc.groups.find((q) => q.id === id);
@@ -372,10 +392,8 @@ function update() {
   // 1: own features (sketches on other bodies' faces wait for those faces; faces never depend on booleans)
   const own = new Map<string, Map<string, BuildFeature>>();
   let pending = doc.bodies.flatMap((p, i) => {
-    const local = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
-    const turned = resolve(p.rotation, lookup, `bodies.${i}.rotation`, exprErrors);
-    if (local.every(Number.isFinite) && [turned.rx, turned.ry, turned.rz].every(Number.isFinite)) {
-      const m = groupAt(p.group).clone().multiply(new Matrix4().compose(new Vector3(...local), turnOf(turned), new Vector3(1, 1, 1)));
+    if (!still.has(p.id)) {
+      const m = placed.get(p.id)!;
       bodyPlaces.set(p.id, m);
       const [at, turn] = [new Vector3(), new Quaternion()];
       m.decompose(at, turn, new Vector3());
@@ -404,7 +422,7 @@ function update() {
       // planes do): the body moves away from it freely, and its sketch is shown moved along
       // a cutting sketch where it is in the world (a base-plane one placed by its group), in this body's coordinates
       const cutterFrame = (sk: Resolved<Sketch>) => {
-        const w = sk.plane.kind === 'base' ? placeFrame(toPlace(groupAt(sk.group)), worldFrame(sk.plane)!) : worldFrame(sk.plane);
+        const w = sk.plane.kind === 'base' ? placeFrame(toPlace(groupPlace(sk.group)), worldFrame(sk.plane)!) : worldFrame(sk.plane);
         return w && placeFrame(at, w, true);
       };
       const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
@@ -478,7 +496,7 @@ function update() {
     // a sketch moves with the body that extrudes it (its extrusion lies in that body's coordinates), else a base-plane one with its group
     const carrier = carrierOf(doc, s.id);
     const world = worldFrame(p);
-    const frame = world && (carrier && bodyPlaces.has(carrier) ? placeFrame(bodyPlace(carrier), world) : p.kind === 'base' ? placeFrame(toPlace(groupAt(s.group)), world) : world);
+    const frame = world && (carrier && bodyPlaces.has(carrier) ? placeFrame(bodyPlace(carrier), world) : p.kind === 'base' ? placeFrame(toPlace(groupPlace(s.group)), world) : world);
     return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes, groups: s.groups }] : [];
   });
   viewer.setCustomSections(
@@ -575,7 +593,7 @@ function picked(sel: string[], list: string[], id: string, how: Pick) {
 function picks(id: string) {
   if (!pending) return false;
   const { bodies, sketches, groups } = history.current;
-  const lists = [bodies, ...(['boolean', 'group', 'cut'].includes(pending.tool) ? [] : [sketches]), ...(pending.tool === 'move' ? [groups] : [])];
+  const lists = [bodies, ...(['boolean', 'group', 'cut', 'joint'].includes(pending.tool) ? [] : [sketches]), ...(['move', 'joint'].includes(pending.tool) ? [groups] : [])];
   return lists.some((list) => list.some((o) => o.id === id));
 }
 
@@ -799,8 +817,8 @@ function withPlaces(doc: Doc, moves: { id: string; position: Vec3 }[]) {
     const i = doc.bodies.findIndex((p) => p.id === id);
     const before = positions.get(id);
     if (i < 0 || !before) continue;
-    // in the group's (turned) coordinates: axes whose local value changed are written
-    const toLocal = groupPlace(doc.bodies[i].group).clone().invert();
+    // in the group's (turned, jointed) coordinates: axes whose local value changed are written
+    const toLocal = parentPlace(id).invert();
     const [now, was] = [position, before].map((p) => new Vector3(...p).applyMatrix4(toLocal).toArray());
     now.forEach((v, k) => {
       if (Math.abs(v - was[k]) > 1e-9) next = setIn(next, ['bodies', String(i), 'position', String(k)], ex(fmt(v / UNITS[doc.units]), doc.units));
@@ -1674,7 +1692,7 @@ function rotateTool() {
   const ids = selected.filter((id) => !doc0.bodies.some((b) => b.id === id && inTurned(b.group)) && !doc0.groups.some((g) => g.id === id && inTurned(g.parent)));
   for (const [owned, by] of owner) if (ids.includes(by) && !ids.includes(owned)) ids.push(owned);
   const start = new Map(ids.map((id) => [id, (bodyPlaces.get(id) ?? groupPlace(id)).clone()]));
-  const parents = new Map(ids.map((id) => [id, groupPlace(doc0.bodies.find((b) => b.id === id)?.group ?? doc0.groups.find((g) => g.id === id)?.parent ?? null).clone()]));
+  const parents = new Map(ids.map((id) => [id, parentPlace(id)]));
   const shapes = sketch && frame ? viewer.sketches.find((v) => v.id === sketch)!.shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id)) : [];
   const deg = (r: number) => +fmt((r * 180) / Math.PI);
   /** The document turned `angle` degrees. */
@@ -1837,6 +1855,217 @@ function rotateTool() {
   viewer.el.addEventListener('pointermove', move);
   marks();
   turnPick();
+}
+
+/**
+ * Joint (J): the parent that stays (the first selected body or group, or the one clicked), then what moves (the other
+ * selected ones, or those clicked; Enter), then the axis (an edge or line, or a circle's or round edge's centre, square
+ * to it), then a panel: Hinge (turns, 0–180° first) or Slider (moves along it, 0 to the edge's length first), Min, Max.
+ * Enter or ✓ makes it (one undo step), Esc at any step leaves nothing.
+ */
+function jointTool() {
+  const isObject = (id: string) => history.current.bodies.some((b) => b.id === id) || history.current.groups.some((g) => g.id === id);
+  const [parent, ...children] = selected.filter(isObject);
+  if (!parent) {
+    pending = { tool: 'joint', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), jointTool()) };
+    toolHint = 'Joint: click the object that stays (a body or group) · [Esc] cancels';
+    return render();
+  }
+  if (!children.length) {
+    const moving: string[] = [];
+    pending = {
+      tool: 'joint',
+      pick(id) {
+        if (id === parent) return;
+        moving.splice(0, moving.length, ...(moving.includes(id) ? moving.filter((x) => x !== id) : [...moving, id]));
+        selected = [parent, ...moving];
+        showSelection();
+      },
+      apply() {
+        cancelPending();
+        if (moving.length) jointTool();
+        else render();
+      },
+    };
+    toolHint = 'Joint: click the objects that move (again: not), then [Enter] · [Esc] cancels';
+    return render();
+  }
+  toolHint = 'Joint: click its axis, an edge or line (or a circle or round edge: through its centre, square to it) · [Esc] cancels';
+  render();
+  viewer.pickAxis(
+    (a) => {
+      tips.cursorTip(null);
+      viewer.showAxis(null);
+      toolHint = null;
+      if (!a) return render();
+      jointPanel(parent, children, a);
+    },
+    (a) => (tips.cursorTip(a ? `${a.what}\nClick: the joint's axis` : null), viewer.showAxis(a, a?.at, 60)),
+  );
+}
+
+/** The joint being made: its axis shown, a panel with hinge or slider and the limits. */
+function jointPanel(parent: string, children: string[], a: TurnAxis) {
+  const doc = history.current;
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
+  let kind: Joint['kind'] = 'hinge';
+  const fields = { min: '0', max: '180' };
+  const slide = fmt((a.length ?? 50) / UNITS[doc.units]);
+  const inputs = (['min', 'max'] as const).map((k) => {
+    const input = Object.assign(document.createElement('input'), { value: fields[k], spellcheck: false, oninput: () => (fields[k] = input.value) });
+    return input;
+  });
+  const choices = (['hinge', 'slider'] as const).map((k) => {
+    const b = Object.assign(document.createElement('button'), { textContent: k === 'hinge' ? 'Hinge' : 'Slider', title: k === 'hinge' ? 'Turns around the axis' : 'Moves along the axis', onclick: () => choose(k) });
+    b.dataset.kind = k;
+    return b;
+  });
+  const labels = ['Min', 'Max'].map((t) => Object.assign(document.createElement('span'), { textContent: t }));
+  const choose = (k: Joint['kind']) => {
+    kind = k;
+    choices.forEach((b) => b.classList.toggle('on', b.dataset.kind === k));
+    [fields.min, fields.max] = k === 'hinge' ? ['0', '180'] : ['0', slide];
+    inputs.forEach((input, i) => (input.value = i ? fields.max : fields.min));
+    labels.forEach((l, i) => (l.textContent = `${i ? 'Max' : 'Min'}${k === 'hinge' ? ' °' : ''}`));
+  };
+  const segmented = Object.assign(document.createElement('span'), { className: 'segmented' });
+  segmented.append(...choices);
+  const finish = (ok: boolean) => {
+    box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    viewer.showAxis(null);
+    toolHint = null;
+    if (!ok || [fields.min, fields.max].some((t) => length(t) === null)) return render();
+    // the axis in the parent's coordinates: it moves with the parent
+    const back = (bodyPlaces.get(parent) ?? groupPlace(parent)).clone().invert();
+    const u = kind === 'hinge' ? 'mm' : doc.units; // degrees: numbers as typed
+    const joint: Joint = {
+      id: newId(),
+      name: `Joint ${doc.joints.length + 1}`,
+      kind,
+      parent,
+      children,
+      axis: { at: a.at.clone().applyMatrix4(back).toArray(), dir: a.dir.clone().transformDirection(back).toArray() },
+      min: { e: fields.min, u },
+      max: { e: fields.max, u },
+      value: { e: fields.min, u },
+      seconds: { e: '4', u: 'mm' },
+    };
+    selected = [parent];
+    commit({ ...doc, joints: [...doc.joints, joint] });
+  };
+  const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
+  box.append(segmented, labels[0], inputs[0], labels[1], inputs[1], Object.assign(document.createElement('button'), { textContent: '✓', title: 'Make the joint (Enter); Esc leaves nothing', onclick: () => finish(true) }));
+  choose('hinge');
+  document.body.append(box);
+  const r = viewer.el.getBoundingClientRect();
+  keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+  viewer.showAxis(a, a.at, 60);
+  toolHint = 'Joint: hinge or slider, its limits · [Enter] makes it · [Esc] leaves nothing';
+  render();
+  addEventListener('keydown', keys, { capture: true });
+}
+
+/**
+ * The joints box at the bottom right of the view (while there are joints): per joint ▶ plays it once from its min to
+ * its max (ease in and out, in its play time), ⟳ plays it back and forth until clicked again, and a slider sets where
+ * it is now (one undo step per drag). Playing only moves the view; afterwards everything is where it was. Joints left
+ * still are reported below.
+ */
+const jointsBox = Object.assign(document.createElement('div'), { className: 'joints-box' });
+viewer.el.append(jointsBox);
+let jointsKey = '';
+/** Joints playing: since when, and whether back and forth. */
+const playing = new Map<string, { t0: number; loop: boolean }>();
+function renderJoints() {
+  const doc = history.current;
+  const lookup = paramLookup(doc.params);
+  const num = (x: Expr, fallback: number) => {
+    try {
+      return evalLength(x, lookup);
+    } catch {
+      return fallback;
+    }
+  };
+  const key = JSON.stringify([doc.joints.map((j) => [j.id, j.name, j.kind, j.min, j.max]), jointProblems, [...playing.keys()]]);
+  if (key !== jointsKey) {
+    jointsKey = key;
+    jointsBox.hidden = !doc.joints.length;
+    jointsBox.replaceChildren(
+      ...doc.joints.map((j) => {
+        const [lo, hi] = [num(j.min, 0), num(j.max, 0)];
+        const slider = Object.assign(document.createElement('input'), { type: 'range', min: String(Math.min(lo, hi)), max: String(Math.max(lo, hi)), step: 'any', title: 'Where it is now: drag to move it (model there)' });
+        slider.dataset.joint = j.id;
+        let dragging = false;
+        slider.oninput = () => {
+          const k = history.current.joints.findIndex((x) => x.id === j.id);
+          const next = setIn(history.current, ['joints', String(k), 'value'], { ...j.value, e: fmt(+slider.value / (j.kind === 'hinge' ? 1 : UNITS[j.value.u])) });
+          if (dragging) history.replace(next);
+          else history.push(next), (dragging = true);
+          update();
+        };
+        slider.onchange = () => (dragging = false);
+        const play = (loop: boolean) => () => {
+          if (playing.has(j.id)) playing.delete(j.id);
+          else playing.set(j.id, { t0: performance.now(), loop });
+          if (playing.size === 1) requestAnimationFrame(animate);
+          render();
+        };
+        const on = playing.has(j.id);
+        const button = (name: 'play' | 'loop', title: string, onclick: () => void) => Object.assign(document.createElement('button'), { className: `icon${on && (name === 'loop') === playing.get(j.id)!.loop ? ' on' : ''}`, innerHTML: icon(name), title, onclick });
+        const row = document.createElement('div');
+        row.className = 'joint-row';
+        row.append(Object.assign(document.createElement('span'), { textContent: j.name, title: `${j.kind === 'hinge' ? 'Hinge' : 'Slider'}: select its parent to edit it` }), button('play', 'Play once from min to max (again: stop)', play(false)), button('loop', 'Play back and forth until clicked again', play(true)), slider);
+        return row;
+      }),
+      ...jointProblems.map((p) => Object.assign(document.createElement('p'), { className: 'error', textContent: p })),
+    );
+  }
+  // the sliders show where the joints are now (not while one is dragged)
+  for (const s of jointsBox.querySelectorAll<HTMLInputElement>('input[type=range]')) {
+    const j = doc.joints.find((x) => x.id === s.dataset.joint);
+    if (j && document.activeElement !== s) s.value = String(num(j.value, 0));
+  }
+}
+
+/** One frame of the joints playing: their objects moved in the view only (nothing is rebuilt or written). */
+function animate(now: number) {
+  const doc = history.current;
+  const lookup = paramLookup(doc.params);
+  const values = new Map<string, number>();
+  for (const [id, p] of playing) {
+    const j = doc.joints.find((x) => x.id === id);
+    if (!j) {
+      playing.delete(id);
+      continue;
+    }
+    const at = (x: Expr) => {
+      try {
+        return evalLength(x, lookup);
+      } catch {
+        return 0;
+      }
+    };
+    const t = (now - p.t0) / 1000 / Math.max(0.1, at(j.seconds));
+    if (!p.loop && t >= 1) {
+      playing.delete(id);
+      continue;
+    }
+    const phase = p.loop ? t % 2 : t;
+    const s = 0.5 - 0.5 * Math.cos(Math.PI * (phase > 1 ? 2 - phase : phase)); // ease in and out
+    values.set(id, at(j.min) + (at(j.max) - at(j.min)) * s);
+  }
+  const { placed } = jointed(doc, ownPlaces, (j) => values.get(j.id) ?? jointValue(j, lookup));
+  for (const b of doc.bodies) {
+    const m = placed.get(b.id);
+    if (!m || !bodyPlaces.has(b.id)) continue;
+    const [at, turn] = [new Vector3(), new Quaternion()];
+    m.decompose(at, turn, new Vector3());
+    viewer.setPlacement(b.id, at, turn);
+  }
+  viewer.render();
+  if (playing.size) requestAnimationFrame(animate);
+  else render(); // the buttons show stopped
 }
 
 /** Tool first: the next clicked body gets `act`. */
@@ -2572,6 +2801,12 @@ function render() {
     cutTool,
     revolveTool,
     rotateTool,
+    jointTool,
+    showJoint(id) {
+      const j = history.current.joints.find((x) => x.id === id);
+      if (j) viewer.select(contents(history.current, j.children));
+      else showSelection();
+    },
     loftTool,
     groupSelected: selected.some((id) => doc.groups.some((g) => g.id === id)),
     arrange,
@@ -2651,7 +2886,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 11, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 12, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -2659,6 +2894,7 @@ function render() {
     redo: () => undo(true),
   };
   renderUI(ctx);
+  renderJoints();
 }
 
 /**
@@ -2966,6 +3202,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'extrude')) extrude();
   else if (pressed(e, 'revolve')) revolveTool();
   else if (pressed(e, 'rotate')) rotateTool();
+  else if (pressed(e, 'joint')) jointTool();
   else if (pressed(e, 'loft')) loftTool();
   else if (pressed(e, 'sketch')) startNewSketch();
   else if (sketching && pressed(e, 'deselect')) sketchPath.length ? ((sketchPath = sketchPath.slice(0, -1)), (shapeSel = []), showSelection()) : exitSketch(); // up one sub-group, else out

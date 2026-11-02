@@ -170,9 +170,9 @@ Later goals (2026-11-02):
 
 Later goals (2026-11-02, from the design talks; STATUS.md → "CAD goals" lists them in order):
 
-- [ ] **Basic CAD completeness:** revolve and loft (then sweep), sketch arcs, dimensions with basic constraints, shell and draft, mirror and patterns, STEP export, measuring between two things, hole features, 2D drawings.
-- [ ] **Rotation tool:** rings on the move gizmo plus a key; a pivot that snaps (click it, click where it goes: a point moves it, an edge or line becomes the axis, a circle or arc gives its centre and normal); X / Y / Z lock the axis; angle entry exactly as when drawing lines.
-- [ ] **Joints (hinge, slider):** a static parent (body or group), one or more moving children, an axis picked like the Cut tool's, limits (hinge 0–180°, slider the axis' length), a joint position that stays while modelling (children are edited in their moved place), play once with ease in / out, loop, speed and scrubbing. Conflicting joints are reported, never solved by distorting bodies.
+- [ ] **Basic CAD completeness:** revolve and loft (built 2026-11-02), then sweep, sketch arcs, dimensions with basic constraints, shell and draft, mirror and patterns, STEP export, measuring between two things, hole features, 2D drawings.
+- [x] **Rotation tool:** (built 2026-11-02, gizmo rings still to come) rings on the move gizmo plus a key; a pivot that snaps (click it, click where it goes: a point moves it, an edge or line becomes the axis, a circle or arc gives its centre and normal); X / Y / Z lock the axis; angle entry exactly as when drawing lines.
+- [x] **Joints (hinge, slider):** (built 2026-11-02) a static parent (body or group), one or more moving children, an axis picked like the Cut tool's, limits (hinge 0–180°, slider the axis' length), a joint position that stays while modelling (children are edited in their moved place), play once with ease in / out, loop, speed and scrubbing. Conflicting joints are reported, never solved by distorting bodies.
 - [ ] **Flatten:** a body's whole recipe becomes one fixed solid (lossy, explicit), so booleans' tool bodies can be removed.
 - [ ] **Cut by any body:** planes, sketch shapes, balls and cylinders work; boxes, imported solids and any other body still to come.
 

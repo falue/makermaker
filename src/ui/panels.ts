@@ -4,7 +4,7 @@ import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
-import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Profile, Unit } from '../doc/types';
+import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml } from './axes';
@@ -64,6 +64,9 @@ export interface UIContext {
   cutTool(): void;
   revolveTool(): void;
   rotateTool(): void;
+  jointTool(): void;
+  /** Lights a joint's moving objects (null: the selection again). */
+  showJoint(joint: string | null): void;
   loftTool(): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
@@ -411,6 +414,7 @@ function toolbar(ctx: UIContext): Node[] {
     tool('cut', 'Cut: a body (selected, or clicked next) in two along a face\'s plane (turn and move it) or a sketch line or shape; keep both or delete one side', ctx.cutTool, on('cut')),
     h('hr'), // shaping above, organizing below
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? 'Ungroup (⇧⌘G): the contents move to the group\'s parent, staying where they are' : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
+    tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
     tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
     tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
   ];
@@ -518,6 +522,16 @@ function left(ctx: UIContext): Node[] {
     return el;
   };
   const sketchIcon = () => h('span', { className: 'kind', innerHTML: icon('sketch') });
+  /** A joint's parent or moving object: the joint icon (hovered, its moving objects light; a click selects it to edit the joint). */
+  const jointMark = (id: string) => {
+    const j = doc.joints.find((x) => x.parent === id || x.children.includes(id));
+    if (!j) return [];
+    const parent = j.parent === id;
+    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon('joint'), title: `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it`, onclick: () => ctx.select(id) });
+    el.onmouseenter = () => ctx.showJoint(j.id);
+    el.onmouseleave = () => ctx.showJoint(null);
+    return [el];
+  };
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
   const rows = tree(doc, ctx.folded).map((r) => {
     const { id, kind, depth } = r;
@@ -528,7 +542,7 @@ function left(ctx: UIContext): Node[] {
       const chevron = h('span', { className: `fold${r.open ? ' open' : ''}`, innerHTML: icon('chevron'), title: r.open ? 'Fold' : 'Unfold', onclick: (e) => (e.stopPropagation(), ctx.toggleFold(id)) });
       // a plain click also folds or unfolds it (not the click that starts renaming it)
       const pick = (how: Pick) => (!how && renaming !== id && ctx.toggleFold(id), ctx.select(id, how));
-      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye('objects', id, g.visible));
+      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), ...jointMark(id), eye('objects', id, g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -558,7 +572,7 @@ function left(ctx: UIContext): Node[] {
       op?.type === 'boolean'
         ? h('button', { className: 'icon tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name} · click: free it from the boolean`, onclick: () => ctx.commit(freed(doc, id)) })
         : look;
-    return row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...sketch, ...bools, tool);
+    return row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...sketch, ...bools, ...jointMark(id), tool);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
@@ -772,7 +786,31 @@ function selectionPanel(ctx: UIContext): Node[] {
       { className: 'row' },
       button('+ Fillet', () => setBody({ ...body, features: [...body.features, newFinish(ctx.doc.units)] })),
     ),
+    ...jointCards(ctx, body.id),
   ];
+}
+
+/** The joints `id` stays in or moves by: name, kind, where it is now, its limits and play time, delete. */
+function jointCards(ctx: UIContext, id: string): Node[] {
+  const nameOf = (o: string) => [...ctx.doc.bodies, ...ctx.doc.groups].find((x) => x.id === o)?.name ?? '?';
+  return ctx.doc.joints.flatMap((j, k) => {
+    if (j.parent !== id && !j.children.includes(id)) return [];
+    const at = `joints.${k}`;
+    const set = (next: Partial<Joint>) => ctx.commit(setIn(ctx.doc, ['joints', String(k)], { ...j, ...next }));
+    const deg = j.kind === 'hinge'; // degrees: shown as typed, never unit-converted
+    const kind = select(j.kind, { hinge: 'Hinge: turns', slider: 'Slider: moves along' }, (v) => set({ kind: v }));
+    const remove = button('×', () => ctx.commit({ ...ctx.doc, joints: ctx.doc.joints.filter((x) => x !== j) }), 'Delete the joint: what it moved goes back to where it is without it');
+    return [
+      h(
+        'section',
+        { className: 'joint-card' },
+        h('div', { className: 'head' }, input(`${at}.name`, j.name, (name) => set({ name })), kind, remove),
+        h('p', { className: 'hint' }, `${nameOf(j.parent)} stays; ${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'move' : 'moves'}. Model them where they are now; play and scrub in the view's joints box.`),
+        h('div', { className: 'row' }, exprField(ctx, `${at}.value`, deg ? 'Now °' : 'Now', deg), exprField(ctx, `${at}.min`, deg ? 'Min °' : 'Min', deg), exprField(ctx, `${at}.max`, deg ? 'Max °' : 'Max', deg)),
+        h('div', { className: 'row' }, exprField(ctx, `${at}.seconds`, 'Play s', true)),
+      ),
+    ];
+  });
 }
 
 /** A group: name, delete (with its contents), and its origin: the parent's, or a custom point its contents count from. */
@@ -795,6 +833,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
           h('p', { className: 'hint' }, 'Its contents count from this point and turn with it (degrees around X, then Y, then Z); inside, they are edited unturned.'),
         ]
       : [h('p', { className: 'hint' }, "Its contents count from the parent's origin.")]),
+    ...jointCards(ctx, g.id),
   ];
 }
 

@@ -76,8 +76,8 @@ export type Aim = { at: THREE.Vector3; what: string };
 /** A sketch shape under the pointer for Extrude (`onLine`: on its outline), or a face its lines enclose there. */
 type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number]; onLine: boolean } | { sketch: ViewSketch; face: Face };
 
-/** A line to turn around (world): through `at` along unit `dir`; `what` it was taken from. */
-export type TurnAxis = { at: THREE.Vector3; dir: THREE.Vector3; what: string };
+/** A line to turn around (world): through `at` along unit `dir`; `what` it was taken from, `length`: the edge's or line's. */
+export type TurnAxis = { at: THREE.Vector3; dir: THREE.Vector3; what: string; length?: number };
 
 export interface PickedFace {
   point: THREE.Vector3;
@@ -957,7 +957,7 @@ export class Viewer implements ToolView {
   private axisAt(e: MouseEvent): TurnAxis | null {
     const ray = this.ray(e);
     const nearest = (segs: [THREE.Vector3, THREE.Vector3][]) => segs.reduce((best, s) => (ray.distanceSqToSegment(...s) < ray.distanceSqToSegment(...best) ? s : best));
-    const line = ([a, b]: [THREE.Vector3, THREE.Vector3], what: string) => ({ at: a.clone(), dir: b.clone().sub(a).normalize(), what });
+    const line = ([a, b]: [THREE.Vector3, THREE.Vector3], what: string) => ({ at: a.clone(), dir: b.clone().sub(a).normalize(), what, length: a.distanceTo(b) });
     const edge = this.edgeAt(e);
     if (edge) {
       const circle = circleOf(edge.segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)]));

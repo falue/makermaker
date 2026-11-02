@@ -240,14 +240,34 @@ export interface RenderShot {
   results: { at: string; preview: string; nice: boolean }[];
 }
 
+/**
+ * A joint: `parent` (a body or group) stays, `children` (bodies or groups) move with it and along the joint: a hinge
+ * turns them around `axis`, a slider moves them along it (a line through `at` along `dir`, in the parent's
+ * coordinates); `value` (degrees or mm, between `min` and `max`) is where they are now, and modelling happens there;
+ * playing it runs from `min` to `max` in `seconds`.
+ */
+export interface Joint {
+  id: string;
+  name: string;
+  kind: 'hinge' | 'slider';
+  parent: string;
+  children: string[];
+  axis: { at: [number, number, number]; dir: [number, number, number] };
+  min: Expr;
+  max: Expr;
+  value: Expr;
+  seconds: Expr;
+}
+
 export interface Doc {
-  schema: 11;
+  schema: 12;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];
   sketches: Sketch[];
   groups: Group[];
   sections: Section[];
+  joints: Joint[];
   /** Renders (snapshots and nice ones), newest first. */
   renders: RenderShot[];
 }

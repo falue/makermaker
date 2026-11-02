@@ -1327,3 +1327,46 @@ button.icon.tool-op {
 .cut-panel input {
   width: 56px;
 }
+
+/* joints: play, loop and where each is now, at the bottom right of the view */
+.joints-box {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+}
+.joints-box[hidden] {
+  display: none;
+}
+.joint-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.joint-row span {
+  min-width: 60px;
+}
+.joint-row button.icon.on {
+  color: var(--accent);
+}
+.joint-row input[type='range'] {
+  width: 120px;
+}
+.joints-box .error {
+  margin: 0;
+  max-width: 260px;
+}
+.listed button.icon.joint {
+  flex: none;
+  color: var(--muted);
+}
+.listed button.icon.joint.parent {
+  color: var(--accent);
+}
