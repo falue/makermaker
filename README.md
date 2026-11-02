@@ -10,18 +10,21 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 
 ## What it can do
 
-- **Draw and pull**: rectangles, circles, polygons, lines and spheres, drawn on the ground, on any flat face or on a sketch, then pulled into solid bodies. Their faces can be pushed and pulled afterwards.
+- **Draw and pull**: rectangles, circles, polygons, lines and spheres, drawn on the ground, on any flat face, on a sketch or on a green work plane (halfway between two faces, say), then pulled into solid bodies. Their faces can be pushed and pulled afterwards.
+- **More ways to make solids**: revolve a profile around an axis, loft through shapes on several sketches, sweep a shape along a path, hollow a body into walls (shell), offset outlines, mirror shapes and bodies.
+- **Real threads**: click a hole's or shaft's edge and get an ISO metric thread cut into it, ready to print.
 - **Round, chamfer, cut and join**: fillets and chamfers stay editable; bodies cut, join or intersect each other and stay movable while they do.
-- **Cut in two**: split a body along a plane (turned and moved as you like) or along a sketch line; keep both halves or just one.
+- **Cut in two**: split a body along a plane (turned around any edge), a sketch line or shape, a ball or a cylinder; keep both halves or just one.
 - **Type instead of fiddling**: every number can be a unit or a formula with named values (`2*ply + 10`); change `ply` once and everything that uses it follows. Names complete as you type.
 - **Snap to what matters**: corners, centres, middles, crossings, evenly spaced points along any line, and guide lines that extend an edge across the whole view.
-- **Move precisely**: drag along an axis, or press X, Y or Z (M: all three) and type a distance; the part shows where it goes before you confirm.
+- **Move precisely**: drag along an axis, or press X, Y or Z (M: all three) and type a distance; rotate around any edge, line, circle or point; align parts to each other. Press T to take a distance from something you click, and calculate on with it (`T/2`).
+- **Joints**: hinges and sliders between parts, played back with ease in and out, and you keep modelling while a lid stands half open.
 - **Look inside**: section views along X, Y, Z and any face, on the fly.
 - **Groups**: nest, fold and turn groups of parts with their own origin; sketches are sketch groups with nested sub-groups, opened by double-click like in Illustrator.
 - **Import** with the import button or by dropping a file:
   - **STEP** (`.step`, `.stp`) becomes a real solid: round and chamfer its edges, cut or join it with other parts, sketch on its faces, export it. It has no history to edit, and its faces cannot be pushed or pulled yet.
   - **STL** and **OBJ** stay meshes: move, group, colour, section and render them; no cutting, joining or export yet. Tiny meshes (no unit in the file) are scaled up, the scale stays editable.
-- **Export**: STL for the 3D printer, SVG outlines for the laser.
+- **Export**: STEP for other CAD tools, STL for the 3D printer, SVG outlines for the laser.
 - **Render**: snapshots and nicer path-traced renders of saved views, queued, downloaded automatically, and rendered again on demand when the model changed.
 
 ## Get started

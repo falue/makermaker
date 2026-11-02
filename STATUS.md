@@ -98,19 +98,18 @@ Chromium-based browsers only.
 
 ## CAD goals
 
-What a basic, fully working CAD tool still needs (2026-11-02), most important first; 1–3 and 7 make it one people can rely on.
+What a basic, fully working CAD tool still needs, most important first (revolve, loft, sweep, shell, mirror, threads, rotation, work planes and STEP export are built, 2026-11-02).
 
-
-2. **Arcs in sketches**, tangent arcs too: rounded profiles without approximating them.
-3. **Dimensions and basic constraints** (fixed length, parallel, perpendicular, equal, coincident): truly parametric sketches.
-4. **Draft** (shell is built).
-5. **Patterns** (linear, circular) for bodies and features (mirror is built).
-6. **Rotation** with a pivot and axis that snap: the Rotate tool is built (2026-11-02); rings on the move gizmo still to come.
-8. **Edge references that survive edits** (the biggest risk for finishes).
-9. **Measure** between two things (distance, angle); the Info panel measures one.
-10. **Holes as a feature** (counterbore, countersink; threads are built) and a **2D drawing / PDF** of a part.
-
-Also: **Flatten** a body (its whole recipe as one fixed solid, kept as STEP data; booleans' tool bodies can go then; lossy, only ⌘Z undoes it), and any body as a cutter in the Cut tool (now: planes, sketch lines and shapes, balls, cylinders).
+1. **Arcs in sketches**, tangent arcs too: rounded profiles without approximating them.
+2. **Dimensions and basic constraints** (fixed length, parallel, perpendicular, equal, coincident): truly parametric sketches.
+3. **Edge references that survive edits** (the biggest risk for finishes).
+4. **Patterns** (linear, circular) for bodies and features.
+5. **Measure** between two things (distance, angle); the Info panel measures one.
+6. **Holes as a feature** (counterbore, countersink) and a **2D drawing / PDF** of a part.
+7. **Draft** on faces.
+8. **Rotation rings** on the move gizmo.
+9. **Flatten** a body (its whole recipe as one fixed solid, kept as STEP data; booleans' tool bodies can go then; lossy, only ⌘Z undoes it).
+10. **Any body as a cutter** in the Cut tool (now: planes, sketch lines and shapes, balls, cylinders).
 
 ## Planned, not built yet
 
@@ -128,16 +127,14 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Joints, further**: a fixed joint, limits enforced while dragging, joints solved against each other (now each joint only places its own children).
 - **Duplicates**: linked copies (shared design, own placement) next to independent ones.
 - **Cutters, further**: one cutter cutting several bodies, an editing mode that reveals hidden cutters, a note when a cutter removes nothing.
-- **Edge references**: picked edges (now matched by points along them) that survive edits which move or split them.
 - **Face edits**: moving faces that no extrusion made (fillet, boolean and sphere faces).
-- **Sketching**: arcs, dimensions, constraints if needed.
 - **Drawings**: paper sheets with scaled views, dimensions, sections, PDF export.
 - **Quad view**: four editable views at once.
 - **incase**: the sibling project ../incase should be included here.
 - **Rotating in the 3D view** as in incase.
 - **Render camera**: change the field of view for renders, set it as real-life camera focal length in mm, and a default field of view in the settings.
 - **Threads, further**: inch threads (UNC / UNF), fine pitches as a choice, left-hand threads (metric coarse is built); special geometry that is always modelled, built so that e.g. the top edge of a threaded hole or cylinder can still be chamfered.
-- Super nice joint tool (hinges and rotations), set clamping positions, and ease-in-out animations
+- **Joints, clamping positions**: named positions a joint snaps to.
 - **Mesh to CAD model**: a button that turns a mesh into a CAD model, like [this video](https://youtu.be/meBi616y1mg) shows ([ScanRuler](https://github.com/CNCKitchen/ScanRuler) by CNC Kitchen).
 - **Central CAD command API**: every modeling action (create, edit, select bodies, sketches, features, materials, transforms, booleans, bevels, holes, ...) through one TypeScript API used by the GUI and scripting, independent of the UI and kernel where possible.
 - **LLM control**: an API through which an LLM can control everything.
