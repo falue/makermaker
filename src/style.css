@@ -1415,3 +1415,14 @@ button.to-object svg,
 .joint-card h4 > span:first-child {
   flex: 1;
 }
+
+/* range sliders: no browser focus outline (it shows as a blue frame while dragged or focused) */
+input[type='range'] {
+  outline: none;
+}
+input[type='range']:focus,
+input[type='range']:focus-visible,
+input[type='range']:active {
+  outline: none;
+  box-shadow: none;
+}

@@ -390,7 +390,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark, this.cutMark, this.axisMark);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark, this.cutMark, this.axisMark, this.ticks);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -696,8 +696,10 @@ export class Viewer implements ToolView {
     const turn = handles.filter((h) => h.handle.kind === 'rotate').map((h) => h.world);
     if (resize.length) this.sketchView.add(marks(resize, 0xff8c1a));
     if (turn.length) {
-      const top = resize[2]; // the handle at (0, 1): the middle of the top edge
-      this.sketchView.add(marks(turn, 0x1d4ed8), new THREE.Line(new THREE.BufferGeometry().setFromPoints([top, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
+      // the line reaches in to the point the shape turns around (its centre), marked with a ring
+      const h = this.handled()!;
+      const pivot = new THREE.Vector3(...toWorld(h.sketch.frame, ...centre(h.shape)));
+      this.sketchView.add(marks(turn, 0x1d4ed8), marks([pivot], 0x1d4ed8, 9), new THREE.Line(new THREE.BufferGeometry().setFromPoints([pivot, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
     }
     this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' || o.type === 'Line2' ? 1e6 : 0));
     if (refs.length) this.sketchView.add(...refs); // under the handles: a handle on the reference point gets a blue ring
@@ -940,8 +942,9 @@ export class Viewer implements ToolView {
   private axisHover: ((a: TurnAxis | null) => void) | null = null;
 
   /**
-   * The next click picks an axis (`show`n while hovering): on a round edge or sketch circle the line through its centre
-   * square to it, on a straight edge or sketch line that line; null: nothing there, or Esc.
+   * The next click picks an axis (`show`n while hovering): at a corner or centre the vertical (Z) through it, on a
+   * round edge or sketch circle the line through its centre square to it, on a straight edge or sketch line that line,
+   * on a face the vertical through that point; null: nothing there, or Esc.
    */
   pickAxis(done: (a: TurnAxis | null) => void, show: (a: TurnAxis | null) => void) {
     let last: TurnAxis | null = null;
@@ -953,9 +956,12 @@ export class Viewer implements ToolView {
     }, true);
   }
 
-  /** The axis a click there takes: a body edge near the pointer, else the outline of a sketch shape. */
+  /** The axis a click there takes: a corner or centre (Z through it), a body edge, the outline of a sketch shape, a face point (Z). */
   private axisAt(e: MouseEvent): TurnAxis | null {
     const ray = this.ray(e);
+    const z = new THREE.Vector3(0, 0, 1);
+    const point = this.snapAt(e);
+    if (point && (point.what === 'corner' || point.what === 'centre')) return { at: point.at, dir: z, what: `${point.what}: Z through it` };
     const nearest = (segs: [THREE.Vector3, THREE.Vector3][]) => segs.reduce((best, s) => (ray.distanceSqToSegment(...s) < ray.distanceSqToSegment(...best) ? s : best));
     const line = ([a, b]: [THREE.Vector3, THREE.Vector3], what: string) => ({ at: a.clone(), dir: b.clone().sub(a).normalize(), what, length: a.distanceTo(b) });
     const edge = this.edgeAt(e);
@@ -966,7 +972,7 @@ export class Viewer implements ToolView {
     const s = this.shapeAt(ray, this.frontHit(e)?.distance);
     const sketch = s && s.edge < Infinity ? this.sketches.find((k) => k.id === s.sketch) : undefined;
     const q = sketch?.shapes.find((x) => x.id === s!.shape);
-    if (!sketch || !q) return null;
+    if (!sketch || !q) return point ? { at: point.at, dir: z, what: 'point: Z through it' } : null;
     const f = sketch.frame;
     if (q.kind === 'circle') return { at: new THREE.Vector3(...toWorld(f, q.x, q.y)), dir: new THREE.Vector3(...f.n), what: 'circle: its centre' };
     const pts = (q.kind === 'line' ? q.pts : [...corners(q), corners(q)[0]]).map(([u, v]) => new THREE.Vector3(...toWorld(f, u, v)));
@@ -974,6 +980,32 @@ export class Viewer implements ToolView {
   }
 
   private axisMark = new THREE.Group();
+
+  /** Where the pointer's ray meets the plane through `at` square to `n` (null: parallel to it). */
+  pointOnPlane(e: MouseEvent, at: THREE.Vector3, n: THREE.Vector3) {
+    return this.ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n, at), new THREE.Vector3());
+  }
+
+  private ticks = new THREE.Group();
+
+  /**
+   * A turn's angle steps: ticks every `step` degrees around `at` (square to `dir`), from the ray towards `from` at
+   * radius |from − at|, and the ray turned to `angle` degrees (null: gone).
+   */
+  showTicks(t: { at: THREE.Vector3; dir: THREE.Vector3; from: THREE.Vector3; step: number; angle: number } | null) {
+    for (const o of this.ticks.children) ((o as THREE.LineSegments).geometry.dispose(), ((o as THREE.LineSegments).material as THREE.Material).dispose());
+    this.ticks.clear();
+    if (t) {
+      const ray = t.from.clone().sub(t.at);
+      const along = (deg: number, k: number) => t.at.clone().add(ray.clone().applyAxisAngle(t.dir, (deg * Math.PI) / 180).multiplyScalar(k));
+      const n = Math.min(360, Math.round(360 / t.step));
+      const marks = Array.from({ length: n }, (_, i) => [along(i * t.step, 0.88), along(i * t.step, 1)]).flat();
+      const look = (color: number) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true });
+      this.ticks.add(Object.assign(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(marks), look(0x8a8f98)), { renderOrder: 1e6 }));
+      this.ticks.add(Object.assign(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([t.at, along(0, 1), t.at, along(t.angle, 1.1)]), look(0xff8c1a)), { renderOrder: 1e6 }));
+    }
+    this.render();
+  }
 
   /** An axis drawn dashed in the cut's red, `half` mm both ways from the point on it nearest `mid` (null: gone). */
   showAxis(a: TurnAxis | null, mid = new THREE.Vector3(), half = 50) {

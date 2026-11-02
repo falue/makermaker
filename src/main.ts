@@ -1658,14 +1658,12 @@ function loftTool() {
 }
 
 /**
- * Rotate (W): the selection (or what is clicked next) turns around an axis through a pivot, at first the selection's
- * middle and the world axis that faces the view most (in a sketch: the selected shapes' middle, around the sketch's
- * normal). The pointer turns it around the pivot as the line tool turns a line (1° steps, Shift the angle step, A /
- * Shift A finer / coarser, Ctrl the minimum angle); a click keeps it. A panel at the top middle of the view: Turn °
- * (typed or scrubbed; typed, the pointer leaves it), X / Y / Z (around that world axis through the pivot), Set axis
- * (an edge or line: around it; a circle or round edge: around its centre, square to it), Pivot (a corner, edge or face
- * point: the axis goes through it). The axis shows dashed, the pivot as a cross. Enter or ✓ keeps it (one undo step),
- * Esc puts it back.
+ * Rotate (W): the selection (or what is clicked next) turns around an axis clicked next: an edge or line (around it),
+ * a circle or round edge (around its centre, square to it), or a point (Z through it; clicking it again: X, then Y);
+ * in a sketch the click only sets the point it turns around (in its plane). Then the pointer turns it as the line tool
+ * turns a line (1° steps, Shift the angle step shown as ticks, A / Shift A finer / coarser, Ctrl the minimum angle); a
+ * click keeps it. A panel at the top middle of the view: Turn ° (typed or scrubbed; typed, the pointer leaves it),
+ * X / Y / Z (that world axis through the point), Set axis. Enter or ✓ keeps it (one undo step), Esc puts it back.
  */
 function rotateTool() {
   if (!selected.length) {
@@ -1677,10 +1675,11 @@ function rotateTool() {
   const sketch = activeSketch();
   const frame = viewer.sketches.find((v) => v.id === sketch)?.frame;
   const spans = [0, 1, 2].map(extentAlong);
-  let pivot = spans.every(Boolean) ? new Vector3(...spans.map((r) => (r![0] + r![1]) / 2)) : new Vector3();
-  const facing = viewer.screenDir(1, 0).cross(viewer.screenDir(0, 1)).normalize(); // towards the camera
-  const k = [0, 1, 2].reduce((a, b) => (Math.abs(facing.getComponent(b)) > Math.abs(facing.getComponent(a)) ? b : a));
-  let dir = frame ? new Vector3(...frame.n) : new Vector3().setComponent(k, Math.sign(facing.getComponent(k)) || 1);
+  const middle = spans.every(Boolean) ? new Vector3(...spans.map((r) => (r![0] + r![1]) / 2)) : new Vector3();
+  // none until clicked: nothing turns before
+  let pivot: Vector3 | null = null;
+  let dir = frame ? new Vector3(...frame.n) : new Vector3(0, 0, 1);
+  let point = false; // the axis goes through a clicked point: clicking it again takes the next world axis
   // what turns: in a sketch its shapes (all, or the selected ones), else bodies with their tool bodies and groups, not twice inside a turned group
   const owner = ownersOf(doc0);
   const inTurned = (group: string | null): boolean => !!group && (selected.includes(group) || inTurned(doc0.groups.find((g) => g.id === group)?.parent ?? null));
@@ -1692,8 +1691,9 @@ function rotateTool() {
   const deg = (r: number) => +fmt((r * 180) / Math.PI);
   /** The document turned `angle` degrees. */
   const turned = (angle: number): Doc => {
+    const at = pivot ?? middle;
     if (frame && sketch) {
-      const [pu, pv] = uvOf(frame, pivot);
+      const [pu, pv] = uvOf(frame, at);
       const [c, s] = [Math.cos((angle * Math.PI) / 180), Math.sin((angle * Math.PI) / 180)];
       const around = ([u, v]: [number, number]): [number, number] => [pu + (u - pu) * c - (v - pv) * s, pv + (u - pu) * s + (v - pv) * c];
       return withShapes(doc0, sketch, shapes.map((q) => {
@@ -1702,7 +1702,7 @@ function rotateTool() {
         return { id: q.id, profile: shifted(rotated(q, angle), n[0] - m[0], n[1] - m[1]) };
       }));
     }
-    const turn = new Matrix4().makeTranslation(pivot).multiply(new Matrix4().makeRotationAxis(dir, (angle * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(pivot.clone().negate()));
+    const turn = new Matrix4().makeTranslation(at).multiply(new Matrix4().makeRotationAxis(dir, (angle * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(at.clone().negate()));
     let next = doc0;
     for (const id of ids) {
       const local = parents.get(id)!.clone().invert().multiply(turn).multiply(start.get(id)!);
@@ -1720,8 +1720,8 @@ function rotateTool() {
   };
   let angle = 0;
   let typed = false; // a typed angle: the pointer no longer turns it
-  let from: number | null = null; // the pointer's screen angle around the pivot when it started turning
-  let mode: 'turn' | 'pivot' | 'axis' = 'turn';
+  let from: { screen: number; at: Vector3 } | null = null; // where the pointer started turning it
+  let mode: 'turn' | 'axis' = 'axis';
   let ended = false;
   const apply = (a: number) => {
     angle = a;
@@ -1733,7 +1733,8 @@ function rotateTool() {
   };
   const marks = () => {
     viewer.showPoint(pivot);
-    viewer.showAxis({ at: pivot, dir, what: '' }, pivot, 60);
+    viewer.showAxis(pivot && { at: pivot, dir, what: '' }, pivot ?? undefined, 60);
+    viewer.showTicks(pivot && from ? { at: pivot, dir, from: from.at, step: SketchTool.angleStep, angle } : null);
   };
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const input = Object.assign(document.createElement('input'), { value: '0', spellcheck: false });
@@ -1741,54 +1742,65 @@ function rotateTool() {
   const fromField = (text: string) => {
     const v = length(text || '0');
     input.classList.toggle('invalid', v === null);
-    if (v !== null) apply(v / UNITS[doc0.units]); // degrees: the number as typed, not a length
+    if (v !== null && pivot) apply(v / UNITS[doc0.units]); // degrees: the number as typed, not a length
   };
   input.oninput = () => ((typed = true), fromField(input.value));
   const label = Object.assign(document.createElement('span'), { textContent: 'Turn °' });
   scrub(label, input, () => input.value, 'mm', settings.minAngle, (text) => ((typed = true), (input.value = text), fromField(text)), () => (input.focus(), input.select()));
   const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { textContent: text, title, onclick });
-  const along = (axis: number) => ((dir = new Vector3().setComponent(axis, 1)), apply(angle));
-  /** Waits for the click that keeps it (a drag turns the view); Esc puts it back. */
+  /** Around world axis `k` through the point (none yet: the selection's middle). */
+  const along = (k: number) => {
+    [dir, pivot, from] = [new Vector3().setComponent(k, 1), pivot ?? middle, null];
+    apply(0);
+    turnPick();
+  };
+  /** Turning: waits for the click that keeps it (a drag turns the view; a click on its point takes the next axis); Esc puts it back. */
   const turnPick = () => {
     mode = 'turn';
-    toolHint = `Move the pointer around the pivot to turn (Shift: ${SketchTool.angleStep}° steps, A / Shift A finer / coarser, Ctrl: ${settings.minAngle}°) or type degrees · click or [Enter] keeps it · [Esc] puts it back`;
+    toolHint = `Move the pointer around the axis to turn (Shift: ${SketchTool.angleStep}° steps, A / Shift A finer / coarser, Ctrl: ${settings.minAngle}°) or type degrees${point ? ' · click its point again: the next axis' : ''} · click or [Enter] keeps it · [Esc] puts it back`;
     render();
-    viewer.pickFace((face) => !ended && mode === 'turn' && finish(!!face), true);
+    viewer.pickFace((face) => {
+      if (ended || mode !== 'turn') return;
+      const at = viewer.pointer();
+      const r = viewer.el.getBoundingClientRect();
+      const [x, y] = viewer.toScreen(pivot!);
+      // its point clicked again: Z, then X, then Y through it
+      if (face && point && !frame && at && Math.hypot(at.x - r.left - x, at.y - r.top - y) < 14) {
+        dir = new Vector3().setComponent((dir.z ? 0 : dir.x ? 1 : 2), 1);
+        from = null;
+        typed = false;
+        apply(0);
+        return turnPick();
+      }
+      finish(!!face);
+    }, true);
   };
+  /** The next click sets the axis (in a sketch: the point it turns around). */
   const setAxis = () => {
     mode = 'axis'; // before ending the turn's pick: that pick then does nothing
     viewer.cancelFacePick();
-    toolHint = 'Click an edge or line (it turns around it) or a circle or round edge (around its centre) · [Esc] keeps the axis';
+    viewer.showTicks(null);
+    toolHint = frame
+      ? 'Rotate: click the point it turns around (a corner, a circle: its centre) · [Esc] ' + (pivot ? 'keeps the axis' : 'cancels')
+      : 'Rotate: click the axis, an edge or line, a circle (its centre), or a point (Z through it; again: X, then Y) · [Esc] ' + (pivot ? 'keeps the axis' : 'cancels');
     render();
     viewer.pickAxis(
       (a) => {
         tips.cursorTip(null);
+        if (!a && !pivot) return finish(false);
         if (a) {
-          // in a sketch: the pivot only (it turns in its plane)
+          point = a.what.includes('Z through');
+          // in a sketch: the point only (it turns in its plane)
           if (frame) pivot = new Vector3(...toWorld(frame, ...uvOf(frame, a.at)));
-          else [pivot, dir] = [a.at.clone().addScaledVector(a.dir, pivot.clone().sub(a.at).dot(a.dir)), a.dir.clone()];
+          else [pivot, dir] = [a.at.clone().addScaledVector(a.dir, middle.clone().sub(a.at).dot(a.dir)), a.dir.clone()];
+          if (point && !frame) pivot = a.at.clone();
+          from = null;
         }
         apply(angle);
         turnPick();
       },
-      (a) => (tips.cursorTip(a ? `${a.what}\nClick: it turns around it` : null), a ? viewer.showAxis(a, pivot, 60) : marks()),
+      (a) => (tips.cursorTip(a ? `${a.what}\nClick: it turns around it` : null), a ? viewer.showAxis(a, a.at, 60) : marks()),
     );
-  };
-  const setPivot = () => {
-    mode = 'pivot';
-    viewer.cancelFacePick();
-    toolHint = 'Click a corner, edge or face: the axis goes through it · [Esc] keeps the pivot';
-    render();
-    viewer.aiming = (a) => tips.cursorTip([a?.what, 'Click: the pivot'].filter(Boolean).join('\n'));
-    viewer.aiming(viewer.aimHere());
-    viewer.pickFace((face) => {
-      viewer.aiming = null;
-      viewer.aimAt(null);
-      tips.cursorTip(null);
-      if (face?.snap) pivot = frame ? new Vector3(...toWorld(frame, ...uvOf(frame, face.snap))) : face.snap.clone();
-      apply(angle);
-      turnPick();
-    }, true);
   };
   const finish = (ok: boolean) => {
     if (ended) return;
@@ -1800,35 +1812,44 @@ function rotateTool() {
     viewer.el.removeEventListener('pointermove', move);
     viewer.showPoint(null);
     viewer.showAxis(null);
+    viewer.showTicks(null);
     tips.cursorTip(null);
     toolHint = null;
     if (!ok && history.current !== doc0) return undo();
     render();
   };
-  // the pointer around the pivot, as the line tool turns a line: counter-clockwise on screen is positive seen from the axis' tip
+  // the pointer around the axis, as the line tool turns a line: counter-clockwise on screen is positive seen from the axis' tip
   const move = (e: PointerEvent) => {
-    if (mode !== 'turn' || typed || e.buttons) return;
+    if (mode !== 'turn' || typed || e.buttons || !pivot) return;
     const r = viewer.el.getBoundingClientRect();
     const [x, y] = viewer.toScreen(pivot);
     const now = Math.atan2(-(e.clientY - r.top - y), e.clientX - r.left - x);
-    from ??= now;
+    if (!from) {
+      const at = viewer.pointOnPlane(e, pivot, dir);
+      if (!at || at.distanceTo(pivot) < 1e-6) return;
+      from = { screen: now, at };
+    }
     const sign = dir.dot(viewer.screenDir(1, 0).cross(viewer.screenDir(0, 1))) >= 0 ? 1 : -1;
-    const raw = ((((now - from) * 180) / Math.PI) * sign + 540) % 360 - 180;
+    const raw = ((((now - from.screen) * 180) / Math.PI) * sign + 540) % 360 - 180;
     const step = e.shiftKey ? SketchTool.angleStep : e.ctrlKey ? settings.minAngle : 1;
     const a = Math.round(raw / step) * step;
     tips.cursorTip(`${fmt(a)}°`);
     if (a !== angle) apply(a);
+    else marks();
   };
   const keys = (e: KeyboardEvent) => {
     if (e.defaultPrevented) return; // the view's Esc ending a pick
     // typing degrees goes into the field (the key lands there)
-    if (/^[\d.-]$/.test(e.key) && document.activeElement !== input && !e.metaKey && !e.ctrlKey) return (input.value = ''), input.focus();
+    if (pivot && /^[\d.-]$/.test(e.key) && document.activeElement !== input && !e.metaKey && !e.ctrlKey) return (input.value = ''), input.focus();
     const axis = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
     const step = pressed(e, 'moreSnaps') ? 1 : pressed(e, 'fewerSnaps') ? -1 : 0;
     if (axis >= 0 && !frame) along(axis);
-    else if (step && document.activeElement !== input) SketchTool.angleStep = ANGLE_STEPS[Math.min(ANGLE_STEPS.length - 1, Math.max(0, ANGLE_STEPS.indexOf(SketchTool.angleStep) + step))], turnPick();
-    else if (pressed(e, 'confirm')) finish(true);
-    else if (pressed(e, 'cancel')) (mode === 'turn' ? finish(false) : viewer.cancelFacePick());
+    else if (step && document.activeElement !== input) {
+      SketchTool.angleStep = ANGLE_STEPS[Math.min(ANGLE_STEPS.length - 1, Math.max(0, ANGLE_STEPS.indexOf(SketchTool.angleStep) + step))];
+      marks();
+      if (mode === 'turn') turnPick();
+    } else if (pressed(e, 'confirm')) finish(true);
+    else if (pressed(e, 'cancel')) (mode === 'turn' || !pivot ? finish(false) : viewer.cancelFacePick());
     else return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -1836,9 +1857,8 @@ function rotateTool() {
   box.append(
     label,
     input,
-    ...(frame ? [] : [0, 1, 2].map((a) => button('XYZ'[a], `Around the world ${'XYZ'[a]} axis through the pivot (${'XYZ'[a]})`, () => along(a)))),
-    button('Set axis', 'Click an edge or line (it turns around it) or a circle or round edge (around its centre)', setAxis),
-    button('Pivot', 'Click a corner, edge or face: the axis goes through it', setPivot),
+    ...(frame ? [] : [0, 1, 2].map((a) => button('XYZ'[a], `Around the world ${'XYZ'[a]} axis through its point (${'XYZ'[a]})`, () => along(a)))),
+    button('Set axis', 'Click an edge or line, a circle (its centre) or a point (Z through it; again: X, then Y)', setAxis),
     button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
   );
   document.body.append(box);
@@ -1848,8 +1868,7 @@ function rotateTool() {
   keepInside(box, left, r.top + (left + w > r.right - 110 ? 150 : 44), false, [r.left, r.top, r.right, r.bottom]);
   addEventListener('keydown', keys, { capture: true });
   viewer.el.addEventListener('pointermove', move);
-  marks();
-  turnPick();
+  setAxis();
 }
 
 /**
