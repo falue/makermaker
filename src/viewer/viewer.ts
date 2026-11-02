@@ -288,8 +288,36 @@ export class Viewer implements ToolView {
   private backdrop: Settings['background'] = { mode: 'solid', top: '#ffffff', bottom: '#ffffff', sky: 0 };
   /** The gradient background: a column redrawn when the camera tilts (`drawn`: for which tilt and view). */
   private sky = { canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 256 }), texture: null as THREE.CanvasTexture | null, drawn: '' };
-  /** Selected bodies: their edges drawn thick, in cyan. */
-  private selectedEdges = new LineMaterial({ color: 0x00bcd4, linewidth: 3 });
+  /** Selected bodies get an outline around their silhouette: they are drawn into `mask`, then a ring of `px` around it on top. */
+  private silhouette = {
+    mask: new THREE.WebGLRenderTarget(1, 1),
+    flat: new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
+    // covers the screen, whatever the camera sees
+    quad: Object.assign(new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.ShaderMaterial({
+        uniforms: { mask: { value: null }, texel: { value: new THREE.Vector2() }, width: { value: 3 }, color: { value: new THREE.Vector3(0, 0xbc / 255, 0xd4 / 255) } },
+        vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        // outside the mask, within `width` px of it: the colour, edges smoothed over half a pixel
+        fragmentShader: `uniform sampler2D mask; uniform vec2 texel; uniform float width; uniform vec3 color; varying vec2 vUv;
+          void main() {
+            if (texture2D(mask, vUv).r > 0.5) discard;
+            float a = 0.0;
+            for (int x = -8; x <= 8; x++) for (int y = -8; y <= 8; y++) {
+              float d = length(vec2(x, y));
+              if (d > width + 0.5 || texture2D(mask, vUv + vec2(x, y) * texel).r < 0.5) continue;
+              a = max(a, clamp(width + 0.5 - d, 0.0, 1.0));
+            }
+            if (a <= 0.0) discard;
+            gl_FragColor = vec4(color, a);
+          }`,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    ), { frustumCulled: false }),
+    px: 3,
+  };
   /** Owner per owned body (a tool body belongs to the body whose boolean uses it): it moves along. */
   private owners = new Map<string, string>();
 
@@ -721,10 +749,7 @@ export class Viewer implements ToolView {
     edges.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const lines = new THREE.LineSegments(edges);
     lines.userData.edgeGroups = mesh.edgeGroups;
-    const thick = new LineSegments2(new LineSegmentsGeometry().setPositions(mesh.edges), this.selectedEdges);
-    thick.raycast = () => {}; // never picked
-    thick.userData.outline = true;
-    group.add(solid, lines, thick);
+    group.add(solid, lines);
     this.dress(id);
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
     if (!this.fitted) {
@@ -795,13 +820,12 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** Materials of a body: its colour, or a cutter's red outline (orange when selected); selected: thick cyan edges. */
+  /** Materials of a body: its colour, or a cutter's red outline (orange when selected). */
   private dress(id: string) {
-    const [solid, lines, thick] = this.bodies.get(id)?.children ?? [];
+    const [solid, lines] = this.bodies.get(id)?.children ?? [];
     if (!solid) return;
     const cutter = this.cutters.has(id);
     const faded = !cutter && !!this.focus && !this.focus.solid.has(id);
-    thick.visible = !cutter && this.selection.includes(id); // a selected cutter turns orange instead
     (solid as THREE.Mesh).material = cutter ? this.ghost : faded ? this.fadedOf(id) : this.materialOf(id);
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdges[+this.selection.includes(id)] : faded ? this.fadedEdges : this.edgeMaterial;
     // a see-through body's depth, drawn before the see-through colours (sections and picking skip it)
@@ -1151,11 +1175,46 @@ export class Viewer implements ToolView {
       this.scaleDashes();
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
+      this.drawSilhouette();
       // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
       const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.camera.quaternion)).invert().elements;
       this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
     });
   };
+
+  /** The outline around the selected bodies' silhouettes (cut ones too), over the finished picture. */
+  private drawSilhouette() {
+    const ids = new Set(this.selection.filter((id) => !this.cutters.has(id) && !this.hidden.has(id)));
+    if (!ids.size) return;
+    const solids = this.boxes.length
+      ? this.sectionView.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && ids.has(c.userData.bodyId))
+      : [...ids].flatMap((id) => (this.bodies.get(id)?.children[0] as THREE.Mesh | undefined) ?? []);
+    if (!solids.length) return;
+    const { mask, flat, quad, px } = this.silhouette;
+    const r = this.renderer;
+    const size = r.getDrawingBufferSize(new THREE.Vector2());
+    if (mask.width !== size.x || mask.height !== size.y) mask.setSize(size.x, size.y);
+    const [clear, alpha, autoClear] = [r.getClearColor(new THREE.Color()), r.getClearAlpha(), r.autoClear];
+    r.setRenderTarget(mask);
+    r.setClearColor(0x000000, 0);
+    r.clear();
+    for (const s of solids) {
+      const own = s.material as THREE.Material;
+      flat.clippingPlanes = own.clippingPlanes; // a cut copy stays cut
+      s.material = flat;
+      r.render(s, this.camera);
+      s.material = own;
+    }
+    r.setRenderTarget(null);
+    r.setClearColor(clear, alpha);
+    const u = (quad.material as THREE.ShaderMaterial).uniforms;
+    u.mask.value = mask.texture;
+    u.texel.value.set(1 / size.x, 1 / size.y);
+    u.width.value = px * r.getPixelRatio();
+    r.autoClear = false;
+    r.render(quad, this.camera);
+    r.autoClear = autoClear;
+  }
 
   /** Dashed lines (construction lines, guides) keep `px` long dashes and gaps on screen at any zoom. */
   private scaleDashes(px = 5) {
@@ -1171,7 +1230,6 @@ export class Viewer implements ToolView {
     const { clientWidth: w, clientHeight: h } = this.el;
     if (!w || !h) return;
     this.renderer.setSize(w, h);
-    this.selectedEdges.resolution.set(w, h);
     this.dropComposer();
     (this.axes.material as LineMaterial).resolution.set(w, h);
     this.updateFrustums(w / h);
@@ -1606,6 +1664,7 @@ export class Viewer implements ToolView {
           copy.position.copy(g.position);
           copy.quaternion.copy(g.quaternion);
           copy.renderOrder = 1e6;
+          copy.userData.bodyId = id; // its outline when selected
           this.sectionView.add(copy);
         }
     }
