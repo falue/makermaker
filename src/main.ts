@@ -1419,8 +1419,8 @@ function render() {
     statusError,
     info: infoOf(),
     solid,
-    toggleSolid(id) {
-      solid = new Set(solid.has(id) ? [...solid].filter((x) => x !== id) : [...solid, id]);
+    setSolid(ids, on) {
+      solid = new Set(on ? [...solid, ...ids] : [...solid].filter((x) => !ids.includes(x)));
       render();
     },
     paramValue(name) {

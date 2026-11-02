@@ -35,7 +35,7 @@ export interface UIContext {
   info: { title: string; rows: [string, string][] } | null;
   /** In sketch mode: bodies shown fully (their eye switched them back); the others are see-through. */
   solid: Set<string>;
-  toggleSolid(id: string): void;
+  setSolid(ids: string[], on: boolean): void;
   paramValue(name: string): string;
   commit(doc: Doc): void;
   /** `live`: replaces the current undo step (scrubbing). */
@@ -140,6 +140,9 @@ export interface RenderJob {
 export type ShapeField = 'x' | 'y' | 'w' | 'h' | 'd' | 'rot';
 
 /** A list click as in file lists: Shift a range, ⌘ / Ctrl toggles. Ctrl-click on macOS (a context menu click) toggles too. */
+/** The last eye clicked (its list and row) and what it switched to: a Shift-click on another eye applies that to the rows between. */
+let lastEye: { list: 'objects' | 'sketches' | 'solid'; id: string; on: boolean } | null = null;
+
 /** The list row whose name is edited in place (its id). */
 let renaming: string | null = null;
 
@@ -408,8 +411,24 @@ function left(ctx: UIContext): Node[] {
   const { doc } = ctx;
   // while a body is isolated the others grey out; their eyes still show or hide them
   const dimmed = (id: string) => (ctx.isolated && ctx.isolated !== id ? ' dimmed' : '');
-  const eye = (path: string[], on: boolean) =>
-    h('button', { className: 'icon', title: on ? 'Hide' : 'Show', innerHTML: icon(on ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, path, !on)) });
+  const order = { objects: tree(doc, ctx.folded).map((r) => r.id), sketches: doc.sketches.map((s) => s.id) };
+  /** Shows or hides bodies, sketches and groups by id (one step). */
+  const setShown = (ids: string[], on: boolean) => {
+    const set = <T extends { id: string; visible: boolean }>(list: T[]) => list.map((o) => (ids.includes(o.id) ? { ...o, visible: on } : o));
+    ctx.commit({ ...doc, bodies: set(doc.bodies), sketches: set(doc.sketches), groups: set(doc.groups) });
+  };
+  /** An eye switched to `on`; with Shift, every row from the last eye clicked in its list to this one goes the way that one went. */
+  const eyeClick = (list: 'objects' | 'sketches' | 'solid', id: string, on: boolean, e: MouseEvent, apply: (ids: string[], on: boolean) => void) => {
+    const rows = order[list === 'sketches' ? 'sketches' : 'objects'];
+    if (e.shiftKey && lastEye?.list === list && rows.includes(lastEye.id)) {
+      const [a, b] = [rows.indexOf(lastEye.id), rows.indexOf(id)].sort((x, y) => x - y);
+      return apply(rows.slice(a, b + 1), lastEye.on);
+    }
+    lastEye = { list, id, on };
+    apply([id], on);
+  };
+  const eye = (list: 'objects' | 'sketches', id: string, on: boolean) =>
+    h('button', { className: 'icon', title: `${on ? 'Hide' : 'Show'} (Shift-click another eye: the same for all rows between)`, innerHTML: icon(on ? 'eye' : 'eyeOff'), onclick: (e) => eyeClick(list, id, !on, e, setShown) });
   // rows can be dragged (with the rest of the selection): the upper or lower half of a row puts them before or after
   // it (in its group), the middle of a group row into the group, the header to the end of the top level
   const dragged = (id: string) => (ctx.selected.includes(id) ? ctx.selected : [id]);
@@ -459,23 +478,23 @@ function left(ctx: UIContext): Node[] {
     if (kind === 'group') {
       const i = doc.groups.findIndex((g) => g.id === id);
       const g = doc.groups[i];
-      return row(id, depth, true, ...fold(r), listItem(id, `${selectedClass(id)} group`, (how) => ctx.select(id, how), nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye(['groups', String(i), 'visible'], g.visible));
+      return row(id, depth, true, ...fold(r), listItem(id, `${selectedClass(id)} group`, (how) => ctx.select(id, how), nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye('objects', id, g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
     const swatch = h('span', { className: 'swatch' });
     swatch.style.background = p.color;
-    const look = eye(['bodies', String(i), 'visible'], p.visible);
-    look.title += ' (Ctrl-click: show only this body)';
+    const look = eye('objects', p.id, p.visible);
+    look.title += ' · Ctrl-click: show only this body';
     // Ctrl-click on macOS is a context menu click: both isolate
     const isolate = (e: MouseEvent) => (e.preventDefault(), ctx.isolate(p.id));
     look.oncontextmenu = isolate;
-    look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : ctx.commit(setIn(doc, ['bodies', String(i), 'visible'], !p.visible)));
+    look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : eyeClick('objects', p.id, !p.visible, e, setShown));
     if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again', innerHTML: icon('isolate') });
     // a sketch group open: shown bodies are see-through; the eye switches one to fully shown and back (V still hides)
     else if (ctx.sketching && p.visible) {
       const full = ctx.solid.has(p.id);
-      Object.assign(look, { innerHTML: icon(full ? 'eye' : 'eyeFaded'), title: full ? 'Shown fully: click to make it see-through again' : 'See-through while the sketch group is open: click to show it fully', onclick: () => ctx.toggleSolid(p.id) });
+      Object.assign(look, { innerHTML: icon(full ? 'eye' : 'eyeFaded'), title: full ? 'Shown fully: click to make it see-through again' : 'See-through while the sketch group is open: click to show it fully', onclick: (e: MouseEvent) => eyeClick('solid', p.id, !full, e, ctx.setSolid) });
     }
     // its sketches have their own list: this button draws into the (first) one
     const own = sketchesOf(doc, p.id);
@@ -494,7 +513,7 @@ function left(ctx: UIContext): Node[] {
     // a plain click draws into it: sketch mode, looking at its plane
     const item = listItem(sk.id, selectedClass(sk.id), (how) => (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']), ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
     item.title = `${whose(doc, sk.id)} · click to draw into it`;
-    return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye(['sketches', String(i), 'visible'], sk.visible));
+    return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye('sketches', sk.id, sk.visible));
   });
   const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'));
   head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));
