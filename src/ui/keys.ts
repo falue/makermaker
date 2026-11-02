@@ -19,7 +19,7 @@ export interface Binding {
 
 /**
  * Every keyboard action, in one place: every key the app reacts to must be listed here (the settings dialog shows
- * this list; a keyboard mapper will edit it later). App actions run from the app's key handler; tool keys act while a
+ * this list; a keyboard mapper will edit it later). X, Y and Z stay free (taken later). App actions run from the app's key handler; tool keys act while a
  * tool, a move, a resize or a pick runs. Typed values (digits, units, expressions) and the drag modifiers (Ctrl snaps,
  * Alt free, Shift proportional) are not listed here yet.
  */
@@ -36,7 +36,7 @@ export const KEYS = {
   ngon: { name: 'Regular polygon', order: 42, default: [{ key: 'n' }], hint: 'Draw a regular polygon' },
   polygon: { name: 'Polygon', order: 43, default: [{ key: 'p' }], hint: 'Draw a polygon corner by corner (Esc: leave it open)' },
   line: { name: 'Line', order: 43.5, default: [{ key: 'l' }], hint: 'Draw a single line (never extruded); Ctrl-click: the next line from where the last one ended' },
-  construction: { name: 'Construction', order: 43.8, default: [{ key: 'x' }], hint: 'Switch selected sketch objects to construction lines and back; the next ones are drawn the same' },
+  construction: { name: 'Construction', order: 43.8, default: [{ key: 'q' }], hint: 'Switch selected sketch objects to construction lines and back; the next ones are drawn the same' },
   sphere: { name: 'Sphere', order: 44, default: [{ key: 'o' }], hint: 'Draw a sphere from its centre' },
   sketch: { name: 'New sketch', order: 45, default: [{ key: 's' }], hint: 'A new sketch on a face or a base plane' },
   extrude: { name: 'Extrude', order: 46, default: [{ key: 'e' }], hint: 'Pull shapes or areas, or push and pull a face' },
