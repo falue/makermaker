@@ -231,6 +231,22 @@ export class Viewer implements ToolView {
   /** End faces of extrusions, where sketches can start. */
   /** Visible sketches (world frames) and the selected one with its selected shapes. */
   sketches: ViewSketch[] = [];
+  workPlanes: { id: string; name: string; frame: Frame; half: number }[] = [];
+  private workMark = new THREE.Group();
+
+  /** The work planes: green, half see-through squares with their outlines (a selected one stronger). */
+  setWorkPlanes(planes: { id: string; name: string; frame: Frame; selected: boolean }[], half = 60) {
+    this.workPlanes = planes.map((p) => ({ ...p, half }));
+    for (const o of this.workMark.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
+    this.workMark.clear();
+    for (const p of planes) {
+      const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => new THREE.Vector3(...toWorld(p.frame, u * half, v * half)));
+      const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([c[0], c[1], c[2], c[0], c[2], c[3]]), new THREE.MeshBasicMaterial({ color: 0x2fae5a, transparent: true, opacity: p.selected ? 0.28 : 0.14, side: THREE.DoubleSide, depthWrite: false }));
+      const rim = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c), new THREE.LineBasicMaterial({ color: 0x2fae5a }));
+      this.workMark.add(fill, rim);
+    }
+    this.render();
+  }
   activeSketch: string | null = null;
   /** Reference points of shapes (by id; none: the centre), shown on the active sketch's shapes. */
   shapeRefs = new Map<string, [number, number]>();
@@ -390,7 +406,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark, this.cutMark, this.axisMark, this.ticks);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark, this.cutMark, this.axisMark, this.ticks, this.workMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);

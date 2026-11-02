@@ -64,6 +64,9 @@ export interface UIContext {
   cutTool(): void;
   revolveTool(): void;
   sweepTool(): void;
+  planeTool(): void;
+  /** A new sketch on work plane `id`, opened. */
+  drawOn(id: string): void;
   offsetTool(): void;
   mirrorTool(): void;
   rotateTool(): void;
@@ -436,6 +439,7 @@ function toolbar(ctx: UIContext): Node[] {
     tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
     ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), on(kind))),
     tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), on('sphere')),
+    tool('plane', 'Work plane: a green plane on a face clicked next (or the base plane facing you), moved by an offset (T: a point\'s distance, e.g. /2 for halfway); drawing tools draw on it', ctx.planeTool),
     h('hr'), // drawing above, shaping below
     tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a face (clicked before or after)', ctx.extrude, on('extrude')),
     h(
@@ -665,16 +669,22 @@ function left(ctx: UIContext): Node[] {
     return h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, body, eye('sketches', sk.id, sk.visible));
   });
   /** A list's title: a click folds it; objects and sketches have an eye that hides all of them for now (their eyes stay). */
-  const heading = (key: 'objects' | 'sketches' | 'params', label: string, kind?: Parameters<typeof icon>[0]) => {
+  const heading = (key: 'objects' | 'sketches' | 'params' | 'planes', label: string, kind?: Parameters<typeof icon>[0]) => {
     const open = !ctx.folded.has(`list:${key}`);
     const title = h('h3', { className: 'fold-head', title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(`list:${key}`) }, h('span', { className: `fold${open ? ' open' : ''}`, innerHTML: icon('chevron') }), ...(kind ? [h('span', { className: 'kind', innerHTML: icon(kind) })] : []), label);
-    const hidden = key !== 'params' && ctx.hideAll[key];
-    const all = key === 'params' ? [] : [h('button', { className: 'icon', innerHTML: icon(hidden ? 'eyeOff' : 'eye'), title: hidden ? 'Show them again as they were' : 'Hide all for now (each eye stays as it is)', onclick: () => ctx.toggleHideAll(key) })];
+    const hidden = (key === 'objects' || key === 'sketches') && ctx.hideAll[key];
+    const all = key !== 'objects' && key !== 'sketches' ? [] : [h('button', { className: 'icon', innerHTML: icon(hidden ? 'eyeOff' : 'eye'), title: hidden ? 'Show them again as they were' : 'Hide all for now (each eye stays as it is)', onclick: () => ctx.toggleHideAll(key) })];
     return { open, head: h('div', { className: 'tree-head' }, title, ...all) };
   };
   const { open: objectsOpen, head } = heading('objects', 'Objects', 'body');
   const sketchList = heading('sketches', 'Sketch groups');
   const paramList = heading('params', 'Parameters');
+  const planeList = heading('planes', 'Work planes');
+  const planeRows = doc.planes.map((w, i) => {
+    const item = listItem(w.id, selectedClass(w.id), (how) => ctx.select(w.id, how), h('span', { className: 'kind plane-swatch' }), nameOf(w.id, w.name, ['planes', String(i), 'name']));
+    const look = h('button', { className: 'icon', title: w.visible ? 'Hide' : 'Show', innerHTML: icon(w.visible ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, ['planes', String(i), 'visible'], !w.visible)) });
+    return h('div', { className: 'listed' }, item, look);
+  });
   head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));
   head.ondragleave = () => head.classList.remove('drop');
   head.ondrop = (e) => (e.preventDefault(), ctx.moveInto(JSON.parse(e.dataTransfer!.getData('text/plain')), null));
@@ -707,6 +717,7 @@ function left(ctx: UIContext): Node[] {
     ...(objectsOpen ? [...rows, ...none] : []),
     sketchList.head,
     ...(sketchList.open ? sketchRows : []),
+    ...(doc.planes.length ? [planeList.head, ...(planeList.open ? planeRows : [])] : []),
     paramList.head,
     ...(paramList.open ? [...params, addParam] : []),
   ];
@@ -817,6 +828,15 @@ function selectionPanel(ctx: UIContext): Node[] {
     ];
   const k = ctx.doc.sketches.findIndex((s) => s.id === ctx.selected[0]);
   if (k >= 0) return sketchPanel(ctx, k);
+  const wi = ctx.doc.planes.findIndex((w) => w.id === ctx.selected[0]);
+  if (wi >= 0) {
+    const w = ctx.doc.planes[wi];
+    return [
+      h('div', { className: 'head' }, input(`planes.${wi}.name`, w.name, (name) => ctx.commit(setIn(ctx.doc, ['planes', String(wi), 'name'], name))), button('Delete', () => ctx.commit({ ...ctx.doc, planes: ctx.doc.planes.filter((x) => x !== w) }), 'Delete the work plane (sketches on it lose their plane)')),
+      h('div', { className: 'row' }, exprField(ctx, `planes.${wi}.offset`, 'Offset'), button('Draw on it', () => ctx.drawOn(w.id), 'A new sketch on it, opened (drawing tools also draw on it directly)')),
+      h('p', { className: 'hint' }, 'Moved along its normal from where it was made; T in Offset: a clicked point\'s distance (type on, e.g. /2 for halfway). Sketches on it follow it.'),
+    ];
+  }
   const gi = ctx.doc.groups.findIndex((g) => g.id === ctx.selected[0]);
   if (gi >= 0) return groupPanel(ctx, gi);
   const i = ctx.doc.bodies.findIndex((p) => p.id === ctx.selected[0]);
@@ -932,7 +952,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
   const where =
     p.kind === 'base'
       ? [select(p.axis, { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' }, (axis) => set({ plane: { ...p, axis } })), exprField(ctx, `${at}.plane.offset`, 'Offset')]
-      : [h('span', { className: 'hint' }, p.kind === 'plane' ? 'On a fixed plane (where a face was)' : `On a face of ${doc.bodies.find((q) => q.id === p.body)?.name ?? 'a deleted body'}`)];
+      : [h('span', { className: 'hint' }, p.kind === 'plane' ? 'On a fixed plane (where a face was)' : p.kind === 'work' ? `On the work plane ${doc.planes.find((w) => w.id === p.plane)?.name ?? '(deleted)'}` : `On a face of ${doc.bodies.find((q) => q.id === p.body)?.name ?? 'a deleted body'}`)];
   const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon', line: 'Line' };
   // in sketch mode with shapes selected, only those show
   const only = ctx.sketching === s.id && ctx.shapes.length > 0;

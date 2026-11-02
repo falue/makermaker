@@ -1440,3 +1440,14 @@ input[type='range']:active {
 .flyout.align-menu .menu-item:last-child {
   grid-column: 1 / -1;
 }
+
+/* a work plane in the list: a green square */
+.plane-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border: 1px solid #2fae5a;
+  background: rgba(47, 174, 90, 0.3);
+  border-radius: 2px;
+}

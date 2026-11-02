@@ -70,6 +70,8 @@ export interface SketchResult {
 /** What the tool needs from the viewport. */
 export interface ToolView {
   el: HTMLElement;
+  /** The shown work planes (world frames, `half`: half their size in mm): drawing tools draw on them. */
+  workPlanes: { id: string; name: string; frame: Frame; half: number }[];
   overlay: THREE.Group;
   /** The step a drag moves in near `at` (mm), by the zoom and modifiers (Shift ×10 unless `coarse` is false, Ctrl the minimum). */
   step(at: THREE.Vector3, e?: { shiftKey: boolean; ctrlKey: boolean }, coarse?: boolean): number;
@@ -585,6 +587,14 @@ export class SketchTool implements Tool {
       if (d < nearest) [onSketch, nearest] = [s, d];
     }
     if (onSketch) return this.sketchTarget(onSketch);
+    // a work plane in front of any face: its sketch, or a new one on it
+    for (const w of this.view.workPlanes) {
+      const p = planeHit(ray, w.frame);
+      if (!p || (hit && p.distanceTo(ray.origin) > hit.distance + 1e-3) || uvOf(w.frame, p).some((c) => Math.abs(c) > w.half)) continue;
+      const placement = { kind: 'work' as const, plane: w.id };
+      const existing = this.view.sketches.find((s) => s.placement.kind === 'work' && s.placement.plane === w.id);
+      return existing ? this.sketchTarget(existing) : { sketch: null, placement, frame: w.frame, body: null, name: w.name };
+    }
     if (hit) {
       // a back face seen through a section cut: the cut face in front of it takes the shapes
       const placed = hit.face!.normal.dot(ray.direction) > 0 ? this.view.cutPlane(e) : this.view.placeOn(hit);

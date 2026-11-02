@@ -15,7 +15,7 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, Joint, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -96,6 +96,10 @@ function measureAt([k, i, ...rest]: string[]): ((p: Vector3) => number) | null {
     const n = new Vector3(...s.normal).normalize();
     return (p) => p.clone().sub(new Vector3(...s.origin)).dot(n);
   }
+  if (k === 'planes' && at === 'offset') {
+    const w = doc.planes[+i];
+    return (p) => p.clone().sub(new Vector3(...w.o)).dot(new Vector3(...w.n));
+  }
   const s = k === 'sketches' && at === 'plane.offset' ? doc.sketches[+i] : undefined;
   if (s?.plane.kind === 'base') {
     const n = new Vector3(...BASE[s.plane.axis].n);
@@ -108,6 +112,9 @@ function measureAt([k, i, ...rest]: string[]): ((p: Vector3) => number) | null {
   }
   return null;
 }
+
+/** `o` moved `d` along `n`. */
+const add3 = (o: Vec3, n: Vec3, d: number): Vec3 => [o[0] + n[0] * d, o[1] + n[1] * d, o[2] + n[2] * d];
 
 /** Where a joint is now: degrees (hinge) or mm (slider); 0 while its value is no number. */
 function jointValue(j: Joint, lookup: Lookup) {
@@ -435,10 +442,19 @@ function update() {
     return exprErrors.size === before ? [{ id: p.id, resolved, at: bodyPlace(p.id) }] : [];
   });
   const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
+  // work planes: moved along their normal by their offset; shown green, drawing tools take them
+  const workFrames = new Map(
+    doc.planes.map((w, i) => {
+      const d = resolve(w.offset, lookup, `planes.${i}.offset`, exprErrors);
+      return [w.id, { o: add3(w.o, w.n, Number.isFinite(d) ? d : 0), x: w.x, y: w.y, n: w.n }] as const;
+    }),
+  );
+  viewer.setWorkPlanes(doc.planes.filter((w) => w.visible).map((w) => ({ id: w.id, name: w.name, frame: workFrames.get(w.id)!, selected: selected.includes(w.id) })));
   /** A placement's frame in the world; undefined while its body is not built (or its face is gone). */
   const worldFrame = (p: Resolved<SketchPlacement>): Frame | undefined => {
     if (p.kind === 'base') return { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) };
     if (p.kind === 'plane') return { o: p.o, x: p.x, y: p.y, n: p.n };
+    if (p.kind === 'work') return workFrames.get(p.plane);
     if (p.kind === 'cap') return caps.find((c) => c.body === p.body && c.feature === p.feature)?.frame;
     const parts = own.get(p.body);
     const f = parts && sideFrame([...parts.values()], p.feature, p.shape, p.edge, p.flip);
@@ -457,7 +473,7 @@ function update() {
       };
       const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
         const f = worldFrame(p);
-        return f && (p.kind !== 'plane' && p.body === id ? placeFrame(at, f, true) : f);
+        return f && ((p.kind === 'cap' || p.kind === 'side') && p.body === id ? placeFrame(at, f, true) : f);
       };
       const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
@@ -538,7 +554,7 @@ function update() {
   const ids = new Set(doc.bodies.map((p) => p.id));
   for (const id of kernelErrors.keys()) if (!ids.has(id)) kernelErrors.delete(id);
   for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id), bodyPlaces.delete(id);
-  selected = selected.filter((id) => ids.has(id) || [...doc.sketches, ...doc.groups].some((o) => o.id === id));
+  selected = selected.filter((id) => ids.has(id) || [...doc.sketches, ...doc.groups, ...doc.planes].some((o) => o.id === id));
   if (isolated && !ids.has(isolated.body)) isolated = null;
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
@@ -1857,6 +1873,30 @@ function offsetShapes(sketch: string) {
   shapeSel = ids;
   apply(2);
   valuePanel([{ label: 'Offset', value: fmt(2 / UNITS[doc0.units]) }], ([t]) => apply(length(t) ?? 0), (ok) => (ok ? render() : undo()), 'Offset: type or scrub how far outside (negative: inside; a line: to its left) · [Enter] keeps them · [Esc] leaves nothing');
+}
+
+/**
+ * Work plane: a face clicked (or empty space: the base plane facing you) gets a green plane on it, its offset typed in
+ * a panel (T: a clicked point's distance, to calculate on: `/2` for halfway to another face). Drawing tools draw on it.
+ */
+function planeTool() {
+  toolHint = 'Work plane: click a face (or empty space: the base plane facing you) · [Esc] cancels';
+  render();
+  viewer.pickFace((face) => {
+    toolHint = null;
+    if (!face) return render();
+    const n = face.normal.clone().negate().normalize(); // out of the face, towards the viewer off bodies
+    const x = new Vector3(0, 0, 1).cross(n);
+    if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+    x.normalize();
+    const doc = history.current;
+    const plane: WorkPlane = { id: newId(), name: `Plane ${doc.planes.length + 1}`, o: face.point.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: n.toArray(), offset: len(0), visible: true };
+    selected = [plane.id];
+    commit({ ...doc, planes: [...doc.planes, plane] });
+    const i = history.current.planes.length - 1;
+    const write = ([t]: string[]) => (history.replace(setIn(history.current, ['planes', String(i), 'offset'], { e: t, u: doc.units })), update());
+    valuePanel([{ label: 'Offset', value: '0', reach: (p) => p.clone().sub(face.point).dot(n) }], write, (ok) => (ok ? render() : undo()), "Work plane: type or scrub its offset (T: a point's distance; type on, e.g. /2 for halfway) · [Enter] keeps it · [Esc] leaves nothing");
+  });
 }
 
 /**
@@ -3361,6 +3401,13 @@ function render() {
     cutTool,
     revolveTool,
     sweepTool,
+    planeTool,
+    drawOn(id) {
+      const doc = history.current;
+      const sketch: Sketch = { id: newId(), name: `Sketch ${doc.sketches.length + 1}`, group: null, plane: { kind: 'work', plane: id }, shapes: [], groups: [], visible: true };
+      commit({ ...doc, sketches: [...doc.sketches, sketch] });
+      enterSketch(sketch.id, null, true);
+    },
     offsetTool,
     mirrorTool,
     rotateTool,
@@ -3465,7 +3512,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 13, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 14, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

@@ -21,7 +21,8 @@ export type SketchPlacement =
   | { kind: 'base'; axis: BasePlane; offset: Expr }
   | { kind: 'cap'; body: string; feature: string }
   | { kind: 'side'; body: string; feature: string; shape: string; edge: number; flip: boolean }
-  | { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] };
+  | { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] }
+  | { kind: 'work'; plane: string };
 
 /**
  * A shape in sketch plane coordinates: rect, circle and regular polygon (`ngon`: `sides` corners on diameter `d`)
@@ -254,6 +255,18 @@ export interface RenderShot {
   results: { at: string; preview: string; nice: boolean }[];
 }
 
+/** A work plane (world): through `o` moved `offset` along `n`, `x` and `y` in it; shown green, sketches go on it and follow it. */
+export interface WorkPlane {
+  id: string;
+  name: string;
+  o: [number, number, number];
+  x: [number, number, number];
+  y: [number, number, number];
+  n: [number, number, number];
+  offset: Expr;
+  visible: boolean;
+}
+
 /**
  * A joint: `parent` (a body or group) stays, `children` (bodies or groups) move with it and along the joint: a hinge
  * turns them around `axis`, a slider moves them along it (a line through `at` along `dir`, in the parent's
@@ -274,7 +287,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 13;
+  schema: 14;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];
@@ -282,6 +295,7 @@ export interface Doc {
   groups: Group[];
   sections: Section[];
   joints: Joint[];
+  planes: WorkPlane[];
   /** Renders (snapshots and nice ones), newest first. */
   renders: RenderShot[];
 }
