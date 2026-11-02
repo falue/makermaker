@@ -1058,6 +1058,7 @@ button.primary.wide {
 }
 .item .fold {
   display: inline-flex;
+  color: var(--text); /* black on light, white on dark */
   width: 10px;
   margin-right: 6px;
   vertical-align: -1px;
