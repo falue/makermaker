@@ -32,10 +32,8 @@ export interface UIContext {
   setValue(path: string[], value: unknown, live?: boolean): void;
   /** `how`: true toggles the object, 'range' selects from the last selected one in its list to it. */
   select(id: string | null, how?: Pick): void;
-  /** New sketch objects are drawn as construction lines; set by switching an object, or toggled. */
-  drawConstruction: boolean;
+  /** New sketch objects are drawn as construction lines or not, as the last object switched. */
   setDrawConstruction(on: boolean): void;
-  toggleConstruction(): void;
   /** Folded groups in the object list. */
   folded: Set<string>;
   toggleFold(group: string): void;
@@ -301,15 +299,13 @@ function toolbar(ctx: UIContext): Node[] {
     ['circle', 'Circle (C)'],
     ['ngon', 'Regular polygon (N)'],
     ['polygon', 'Polygon (P)'],
-    ['line', 'Line (L): an open line, never extruded'],
+    ['line', 'Line (L): a single line, never extruded'],
   ] as const;
-  const construction = tool('construction', ctx.drawConstruction ? 'Drawing construction lines (X): click to draw normal shapes again' : 'Draw construction lines (X): dashed, snapped to, never extruded', ctx.toggleConstruction, ctx.drawConstruction);
   const on = (name: string) => ctx.active === name;
   if (ctx.sketching)
     return [
       tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.active),
       ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), on(kind))),
-      construction,
       h('hr'),
       tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude, on('extrude')),
       tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
@@ -317,7 +313,6 @@ function toolbar(ctx: UIContext): Node[] {
   return [
     tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
     ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), on(kind))),
-    construction,
     tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), on('sphere')),
     tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a face (clicked before or after)', ctx.extrude, on('extrude')),
     h(

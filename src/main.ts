@@ -845,7 +845,7 @@ function toggleConstruction() {
   const doc = history.current;
   const k = doc.sketches.findIndex((s) => s.id === activeSketch());
   if (k >= 0 && shapeSel.length) commit(setIn(doc, ['sketches', String(k), 'shapes'], doc.sketches[k].shapes.map((q) => (shapeSel.includes(q.id) ? { ...q, construction: drawConstruction } : q))));
-  else render();
+  else notify(drawConstruction ? 'The next shapes are construction lines' : 'The next shapes are normal shapes');
 }
 
 /** The `count`-th body at the origin (of `group`), with a colour from a small palette. */
@@ -1187,11 +1187,9 @@ function render() {
       return { x, y, w, h, centred: centred(p, ref) };
     },
     transformShape,
-    drawConstruction,
     setDrawConstruction(on) {
       drawConstruction = on;
     },
-    toggleConstruction,
     folded,
     toggleFold(id) {
       if (!folded.delete(id)) folded.add(id);

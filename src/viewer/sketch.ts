@@ -170,6 +170,8 @@ export class SketchTool implements Tool {
   /** The point the pointer snapped to (world), shown as a squircle; on a line, that line is lit too. */
   private snapped: THREE.Vector3 | null = null;
   private snapLine: Segment[] | null = null;
+  /** Where the last line ended (world; kept across tool restarts): a Ctrl-click draws the next line from there. */
+  private static lineEnd: THREE.Vector3 | null = null;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -212,6 +214,11 @@ export class SketchTool implements Tool {
       const at = this.point(e, target, e.ctrlKey);
       if (!at) return true;
       this.view.markFace();
+      if (this.kind === 'line' && SketchTool.lineEnd && (e.ctrlKey || e.metaKey)) {
+        this.phase = { kind: 'polygon', target, pts: [uvOf(target.frame, SketchTool.lineEnd), at], cur: at };
+        this.finishLine();
+        return this.update(), true;
+      }
       this.phase =
         this.kind === 'polygon' || this.kind === 'line'
           ? { kind: 'polygon', target, pts: [at], cur: at }
@@ -226,10 +233,9 @@ export class SketchTool implements Tool {
         const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...q)));
         return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
       };
-      // the first point closes (a line becomes a polygon); for a line the last point again ends it
-      if (ph.pts.length >= 3 && near(ph.pts[0])) this.closePolygon();
-      else if (this.kind === 'line' && ph.pts.length >= 2 && near(ph.pts[ph.pts.length - 1])) this.finishLine();
-      else ph.pts.push(at);
+      ph.pts.push(at);
+      if (this.kind === 'line') this.finishLine(); // a line is done at its second point
+      else if (ph.pts.length >= 4 && near(ph.pts[0])) (ph.pts.pop(), this.closePolygon()); // the first corner closes it
     } else if (ph.kind === 'pull') this.commit();
     this.update();
     return true;
@@ -270,7 +276,7 @@ export class SketchTool implements Tool {
   }
 
   dblclick() {
-    if (this.phase.kind === 'polygon') this.kind === 'line' ? this.finishLine() : this.closePolygon();
+    if (this.phase.kind === 'polygon') this.closePolygon();
     this.update();
   }
 
@@ -281,6 +287,7 @@ export class SketchTool implements Tool {
     if (pressed(e, 'cancel')) {
       if (ph.kind === 'hover') return this.host.done(null), true;
       if (ph.kind === 'pull') return this.commit(true), this.update(), true; // a drawn shape stays flat
+      if (ph.kind === 'polygon' && ph.pts.length >= 2) return this.finishLine(), this.update(), true; // an open polygon
       this.phase = { kind: 'hover' };
       this.host.hint(this.hoverHint());
     } else if (ph.kind === 'shape') {
@@ -290,7 +297,7 @@ export class SketchTool implements Tool {
       else if (pressed(e, 'confirm')) this.shapeDone();
       else return false;
     } else if (ph.kind === 'polygon') {
-      if (pressed(e, 'confirm')) this.kind === 'line' ? this.finishLine() : this.closePolygon();
+      if (pressed(e, 'confirm')) this.closePolygon();
       else if (pressed(e, 'erase') && ph.pts.length > 1) ph.pts.pop();
       else return false;
     } else if (ph.kind === 'pull') {
@@ -305,7 +312,7 @@ export class SketchTool implements Tool {
 
   private hoverHint(target?: Target) {
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
-    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? 'Click points' : 'Drag (or click twice)';
+    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? `Click two points${SketchTool.lineEnd ? ' ([Ctrl]-click: on from the last end)' : ''}` : 'Drag (or click twice)';
     if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]} · [R] [C] [P] switch · snaps to corners and centres · [Ctrl] grid · [Esc] stops drawing shapes`;
     return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] snaps · right-drag turns the view · [Esc] stops`;
   }
@@ -470,12 +477,13 @@ export class SketchTool implements Tool {
     this.drawn(ph.target, { profile, typed: {} });
   }
 
-  /** Ends a line at its points so far (an open line is never pulled: it stays flat). */
+  /** Ends a line or an open polygon at its points so far (never pulled: it stays flat). */
   private finishLine() {
     const ph = this.phase;
     if (ph.kind !== 'polygon') return;
     const pts = ph.pts.filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 0.05);
     if (pts.length < 2) return this.host.hint('A line needs 2 points · ' + LINE_HINT);
+    SketchTool.lineEnd = v3(toWorld(ph.target.frame, ...pts[pts.length - 1]));
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
     this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts }, typed: {} }, depth: 0, mode: 'add' });
@@ -606,8 +614,8 @@ export class SketchTool implements Tool {
 }
 
 const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] snaps · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
-const LINE_HINT = 'Click points · click the last one again, double-click or [Enter] to finish (the first one closes it into a polygon) · [Backspace] removes the last · [Esc] cancels';
-const POLYGON_HINT = 'Click corners · click the first one, double-click or [Enter] to finish · [Backspace] removes the last · [Esc] cancels';
+const LINE_HINT = 'Click the end point · [Ctrl] snaps · [Esc] cancels';
+const POLYGON_HINT = 'Click corners · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
 const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done';
 
 /** Where the ray meets the frame's plane (null: parallel or behind). */
