@@ -1152,6 +1152,20 @@ function moveBy(by: Vector3) {
   commit(next);
 }
 
+/** What ⌘C remembered (objects, and shapes of the one selected sketch), for ⌘V. */
+let copied: { ids: string[]; shapes: string[] } | null = null;
+
+/** ⌘V: copies of what ⌘C remembered, as Duplicate makes them (what is gone meanwhile is left out; nothing: pick what to copy). */
+function paste() {
+  const doc = history.current;
+  const ids = copied?.ids.filter((id) => [...doc.bodies, ...doc.sketches].some((o) => o.id === id)) ?? [];
+  if (!ids.length) return pickFor('duplicate', duplicate);
+  const shapes = doc.sketches.find((s) => ids.length === 1 && s.id === ids[0])?.shapes.filter((q) => copied!.shapes.includes(q.id)).map((q) => q.id) ?? [];
+  [selected, shapeSel] = [ids, shapes];
+  if (shapes.length) duplicateShapes();
+  else duplicate();
+}
+
 /** Tool first: the next clicked body gets `act`. */
 function pickFor(tool: 'delete' | 'duplicate' | 'hide', act: () => void) {
   pending = {
@@ -2241,6 +2255,8 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'delete')) remove();
   else if (selected.length && pressed(e, 'deselect')) select(null);
   else if (pressed(e, 'duplicate')) shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate);
+  else if (pressed(e, 'copy')) copied = selected.length ? { ids: [...selected], shapes: [...shapeSel] } : null;
+  else if (pressed(e, 'paste')) paste();
   else if (pressed(e, 'ungroup')) sketching && shapeSel.length ? groupShapes(true) : ungroup();
   else if (pressed(e, 'group')) sketching && shapeSel.length ? groupShapes() : groupTool();
   else return;

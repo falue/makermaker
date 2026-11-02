@@ -48,6 +48,8 @@ export const KEYS = {
   group: { chapter: 'Organize', name: 'Group', order: 50, default: [{ key: 'g', mod: true, shift: false }], hint: 'Group the selection (nothing selected: the objects clicked next)' },
   ungroup: { chapter: 'Organize', name: 'Ungroup', order: 51, default: [{ key: 'g', mod: true, shift: true }], hint: 'Ungroup the selected group; its contents stay where they are' },
   duplicate: { chapter: 'Organize', name: 'Duplicate', order: 52, default: [{ key: 'd', mod: true }], hint: 'Duplicate the selection (or the selected shapes)' },
+  copy: { chapter: 'Organize', name: 'Copy', order: 52.2, default: [{ key: 'c', mod: true }], hint: 'Remember the selection (bodies, sketches or shapes) for Paste' },
+  paste: { chapter: 'Organize', name: 'Paste', order: 52.4, default: [{ key: 'v', mod: true }], hint: 'Copies of what Copy remembered, as Duplicate makes them (nothing copied: click what to copy)' },
   delete: { chapter: 'Organize', name: 'Delete', order: 53, default: [{ key: 'delete' }, { key: 'backspace' }], hint: 'Delete the selection, or the selected part of a fillet' },
   deselect: { chapter: 'Edit', name: 'Deselect', order: 54, default: [{ key: 'escape' }], hint: 'Clear the selection; in sketch mode leave the sketch' },
   selectAll: { chapter: 'Edit', name: 'Select all', order: 54.2, default: [{ key: 'a', mod: true }], hint: 'Select all bodies (in sketch mode: all shapes of the sketch); in a field: all its text' },
