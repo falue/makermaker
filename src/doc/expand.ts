@@ -21,9 +21,9 @@ export function toBuild(
   if (!sketch) return 'its sketch was deleted';
   const found = source.shapes.map((id) => sketch.shapes.find((s) => s.id === id));
   if (!found.length || found.some((s) => !s)) return 'a shape of its sketch was deleted';
-  // construction lines never extrude, also when a shape became one later
-  const profiles = found.filter((s) => !s!.construction);
-  if (!profiles.length) return 'its shapes are all construction lines';
+  // construction lines and open lines never extrude, also when a shape became one later
+  const profiles = found.filter((s) => !s!.construction && s!.kind !== 'line');
+  if (!profiles.length) return 'its shapes are all construction or open lines';
   const p = sketch.plane;
   const plane = p.kind === 'base' ? p : p.kind === 'cap' && p.body === body ? ({ kind: 'cap', feature: p.feature } as const) : faceOf(p);
   if (!plane) return null;

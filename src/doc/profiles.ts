@@ -5,9 +5,10 @@ import type { Profile } from './types';
 export type DrawnProfile = Resolved<Profile> extends infer P ? (P extends unknown ? Omit<P, 'id'> : never) : never;
 type P = DrawnProfile;
 
-/** The rect's or polygon's corners, turned by `rot`; a circle has none. */
+/** The rect's or polygon's corners, turned by `rot` (a line: its points); a circle has none. */
 export function corners(p: P): [number, number][] {
   if (p.kind === 'circle') return [];
+  if (p.kind === 'line') return p.pts;
   if (p.kind === 'ngon') {
     const n = Math.max(3, Math.round(p.sides));
     // the first corner points up (before turning)
@@ -69,20 +70,22 @@ export function alignment(boxes: [number, number, number, number][], how: Align)
 export type Align = 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom' | 'distributeX' | 'distributeY';
 
 export function area(p: P): number {
+  if (p.kind === 'line') return 0;
   if (p.kind === 'rect') return p.w * p.h;
   if (p.kind === 'circle') return (Math.PI * p.d * p.d) / 4;
   const pts = corners(p);
   return Math.abs(pts.reduce((s, [x, y], i) => s + x * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * y, 0)) / 2;
 }
 
-/** Rect and circle: their centre; polygon: the centre of its corners (unchanged by turning). */
+/** Rect and circle: their centre; polygon and line: the centre of their points (unchanged by turning). */
 export function centre(p: P): [number, number] {
-  if (p.kind !== 'polygon') return [p.x, p.y];
+  if (p.kind !== 'polygon' && p.kind !== 'line') return [p.x, p.y];
   const n = p.pts.length;
   return [p.pts.reduce((s, q) => s + q[0], 0) / n, p.pts.reduce((s, q) => s + q[1], 0) / n];
 }
 
 export function inside(p: P, u: number, v: number): boolean {
+  if (p.kind === 'line') return false; // open: nothing inside
   if (p.kind === 'circle') return Math.hypot(u - p.x, v - p.y) <= p.d / 2;
   const pts = corners(p);
   let odd = false;
@@ -94,12 +97,12 @@ export function inside(p: P, u: number, v: number): boolean {
   return odd;
 }
 
-/** Distance (mm) from plane point (u, v) to the outline (rounded corners counted sharp). */
+/** Distance (mm) from plane point (u, v) to the outline (rounded corners counted sharp; a line stays open). */
 export function edgeDistance(p: P, u: number, v: number): number {
   if (p.kind === 'circle') return Math.abs(Math.hypot(u - p.x, v - p.y) - p.d / 2);
   const pts = corners(p);
   return Math.min(
-    ...pts.map(([x0, y0], i) => {
+    ...(p.kind === 'line' ? pts.slice(0, -1) : pts).map(([x0, y0], i) => {
       const [x1, y1] = pts[(i + 1) % pts.length];
       const [dx, dy] = [x1 - x0, y1 - y0];
       const t = Math.max(0, Math.min(1, ((u - x0) * dx + (v - y0) * dy) / (dx * dx + dy * dy || 1)));

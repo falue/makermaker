@@ -25,7 +25,7 @@ export type SketchPlacement =
 
 /**
  * A shape in sketch plane coordinates: rect, circle and regular polygon (`ngon`: `sides` corners on diameter `d`)
- * centred on x, y; polygon corners in mm. `rot` (degrees) turns rect and ngon around their centre and a polygon around
+ * centred on x, y; polygon corners in mm; `line`: an open line through its points (mm), never extruded. `rot` (degrees) turns rect and ngon around their centre and a polygon around
  * the centre of its corners.
  */
 export type Profile = (
@@ -33,6 +33,7 @@ export type Profile = (
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
   | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr }
   | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr; rot: Expr }
+  | { id: string; kind: 'line'; pts: [number, number][] }
 ) & {
   /** A construction line: drawn dashed, snapped to, never extruded. */
   construction?: boolean;

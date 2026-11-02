@@ -503,8 +503,8 @@ function duplicateShapes(offset = 10) {
     const src = sel.source.shapes.find((x) => x.id === q.id)!;
     const m = shifted(q, offset, -offset);
     const copy = { ...structuredClone(src), id: newId() };
-    if (copy.kind === 'polygon' && m.kind === 'polygon') return { ...copy, pts: m.pts.map(([x, y]) => [+fmt(x), +fmt(y)]) };
-    return m.kind === 'polygon' || copy.kind === 'polygon' ? copy : { ...copy, x: len(m.x), y: len(m.y) };
+    if ((copy.kind === 'polygon' || copy.kind === 'line') && (m.kind === 'polygon' || m.kind === 'line')) return { ...copy, pts: m.pts.map(([x, y]) => [+fmt(x), +fmt(y)]) };
+    return m.kind === 'polygon' || m.kind === 'line' || copy.kind === 'polygon' || copy.kind === 'line' ? copy : { ...copy, x: len(m.x), y: len(m.y) };
   });
   const doc = history.current;
   shapeSel = copies.map((c) => c.id);
@@ -784,12 +784,18 @@ function sketched(r: SketchResult): string {
   return id;
 }
 
-function profileOf({ profile: p, typed: t }: Drawn): Profile {
+function profileOf(drawn: Drawn): Profile {
+  const profile = shapeOf(drawn);
+  return drawConstruction ? { ...profile, construction: true } : profile;
+}
+
+function shapeOf({ profile: p, typed: t }: Drawn): Profile {
   const id = newId();
   if (p.kind === 'rect') return { id, kind: 'rect', x: len(p.x), y: len(p.y), w: len(p.w, t.w), h: len(p.h, t.h), r: len(p.r), rot: ex(fmt(p.rot)) };
   if (p.kind === 'circle') return { id, kind: 'circle', x: len(p.x), y: len(p.y), d: len(p.d, t.d) };
   if (p.kind === 'ngon') return { id, kind: 'ngon', x: len(p.x), y: len(p.y), d: len(p.d, t.d), sides: ex(fmt(p.sides)), rot: ex(fmt(p.rot)) };
-  return { id, kind: 'polygon', pts: p.pts.map(([x, y]) => [+fmt(x), +fmt(y)]), r: len(p.r), rot: ex(fmt(p.rot)) };
+  const pts = p.pts.map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]);
+  return p.kind === 'line' ? { id, kind: 'line', pts } : { id, kind: 'polygon', pts, r: len(p.r), rot: ex(fmt(p.rot)) };
 }
 
 function stopTool() {
@@ -827,7 +833,20 @@ const toolHost: ToolHost = {
     render();
   },
   cursorTip: (text) => tips.cursorTip(text),
+  construction: () => drawConstruction,
 };
+
+/** New sketch objects are drawn as construction lines (follows the last switch of an object, or the X key). */
+let drawConstruction = false;
+
+/** Switches what new sketch objects are drawn as; with sketch objects selected, they switch to it too. */
+function toggleConstruction() {
+  drawConstruction = !drawConstruction;
+  const doc = history.current;
+  const k = doc.sketches.findIndex((s) => s.id === activeSketch());
+  if (k >= 0 && shapeSel.length) commit(setIn(doc, ['sketches', String(k), 'shapes'], doc.sketches[k].shapes.map((q) => (shapeSel.includes(q.id) ? { ...q, construction: drawConstruction } : q))));
+  else render();
+}
 
 /** The `count`-th body at the origin (of `group`), with a colour from a small palette. */
 function newBody(count: number, features: Feature[], group: string | null = null, palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f']): Body {
@@ -919,7 +938,7 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
 }
 
 /** The reference point is the stored centre: X / Y fields then edit the stored expressions. */
-const centred = (p: DrawnProfile, ref: [number, number]) => !ref[0] && !ref[1] && p.kind !== 'polygon';
+const centred = (p: DrawnProfile, ref: [number, number]) => !ref[0] && !ref[1] && p.kind !== 'polygon' && p.kind !== 'line';
 
 /**
  * Pushes or pulls a face live (one undo step): an end face changes its extrusion's depth, a side moves that side of
@@ -973,7 +992,7 @@ async function extrudeAreas(all = false) {
   const s = viewer.sketches.find((v) => v.id === sketching);
   if (!s) return;
   stopTool();
-  const areas = await kernel.areas(s.shapes.filter((q) => !q.construction));
+  const areas = await kernel.areas(s.shapes.filter((q) => !q.construction && q.kind !== 'line'));
   if (!areas.length) return notify('Nothing to extrude yet: draw a shape first');
   viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas, all);
   toolMode = 'pull';
@@ -1040,8 +1059,8 @@ function extrude() {
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return notify(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
   const target: Target = { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'its sketch' };
-  const ids = (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction).map((q) => q.id);
-  if (!ids.length) return notify('Construction lines are not extruded: pick other shapes');
+  const ids = (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction && q.kind !== 'line').map((q) => q.id);
+  if (!ids.length) return notify('Construction lines and open lines are not extruded: pick other shapes');
   viewer.startPull(toolHost, target, ids);
   toolMode = 'pull';
   render();
@@ -1168,6 +1187,11 @@ function render() {
       return { x, y, w, h, centred: centred(p, ref) };
     },
     transformShape,
+    drawConstruction,
+    setDrawConstruction(on) {
+      drawConstruction = on;
+    },
+    toggleConstruction,
     folded,
     toggleFold(id) {
       if (!folded.delete(id)) folded.add(id);
@@ -1468,6 +1492,7 @@ const TOOL_KEYS: [Action, ToolKind][] = [
   ['circle', 'circle'],
   ['ngon', 'ngon'],
   ['polygon', 'polygon'],
+  ['line', 'line'],
   ['sphere', 'sphere'],
 ];
 /** Arrow actions and their screen direction. */
@@ -1491,6 +1516,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'redo')) undo(true);
   else if (pressed(e, 'fit')) viewer.fit();
   else if (tool) startTool(tool);
+  else if (pressed(e, 'construction')) toggleConstruction();
   else if (pressed(e, 'extrude')) extrude();
   else if (pressed(e, 'sketch')) startNewSketch();
   else if (sketching && pressed(e, 'deselect')) exitSketch();

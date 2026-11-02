@@ -7,7 +7,7 @@ export type Handle = { kind: 'resize'; sx: number; sy: number } | { kind: 'rotat
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
 const turn = ([x, y]: UV, deg: number): UV => [x * Math.cos(rad(deg)) - y * Math.sin(rad(deg)), x * Math.sin(rad(deg)) + y * Math.cos(rad(deg))];
-const rotOf = (p: DrawnProfile) => (p.kind === 'circle' ? 0 : p.rot);
+const rotOf = (p: DrawnProfile) => (p.kind === 'circle' || p.kind === 'line' ? 0 : p.rot);
 
 /** Point in the shape's own frame: around its centre, unturned. */
 function local(p: DrawnProfile, [u, v]: UV): UV {
@@ -37,7 +37,7 @@ export function handlesOf(p: DrawnProfile, reach: number): { at: UV; handle: Han
   const round = p.kind === 'circle' || p.kind === 'ngon'; // resized evenly: edge handles only
   const dirs = round ? [[1, 0], [0, 1], [-1, 0], [0, -1]] : [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
   const out: { at: UV; handle: Handle }[] = dirs.map(([sx, sy]) => ({ at: at(sx * half[0], sy * half[1]), handle: { kind: 'resize', sx, sy } }));
-  if (p.kind !== 'circle') out.push({ at: at(0, half[1] + reach), handle: { kind: 'rotate' } });
+  if (p.kind !== 'circle' && p.kind !== 'line') out.push({ at: at(0, half[1] + reach), handle: { kind: 'rotate' } });
   return out;
 }
 
@@ -77,25 +77,25 @@ export function resized(p: DrawnProfile, h: { sx: number; sy: number }, q0: UV, 
   const [cx, cy] = centre(p);
   if (p.kind === 'rect') return { ...p, x: cx + gx, y: cy + gy, w: size[0], h: size[1] };
   if (p.kind === 'circle' || p.kind === 'ngon') return { ...p, x: cx + gx, y: cy + gy, d: size[dir[0] ? 0 : 1] };
-  // polygon: scale its corners in its own frame around the anchor, then store them unturned around their new centre
+  // polygon or line: scale its points in its own frame around the anchor, then store them unturned around their new centre
   const anchor = (k: number) => mid[k] - (o.alt ? 0 : dir[k] * half[k]);
   const scaled = p.pts.map((pt) => {
     const l = local(p, pt);
     const s = l.map((v, k) => (full[k] ? anchor(k) + (v - anchor(k)) * (size[k] / full[k]) : v)) as UV;
-    const [x, y] = turn(s, p.rot);
+    const [x, y] = turn(s, rotOf(p));
     return [cx + x, cy + y] as UV;
   });
   const n = scaled.length;
   const c: UV = [scaled.reduce((t, s) => t + s[0], 0) / n, scaled.reduce((t, s) => t + s[1], 0) / n];
-  return { ...p, pts: scaled.map(([x, y]) => turn([x - c[0], y - c[1]], -p.rot).map((v, k) => v + c[k]) as UV) };
+  return { ...p, pts: scaled.map(([x, y]) => turn([x - c[0], y - c[1]], -rotOf(p)).map((v, k) => v + c[k]) as UV) };
 }
 
 /** The shape turned by `deg` around its centre. */
-export const rotated = (p: DrawnProfile, deg: number): DrawnProfile => (p.kind === 'circle' ? p : { ...p, rot: p.rot + deg });
+export const rotated = (p: DrawnProfile, deg: number): DrawnProfile => (p.kind === 'circle' || p.kind === 'line' ? p : { ...p, rot: p.rot + deg });
 
 /** The shape shifted by (du, dv). */
 export function moved(p: DrawnProfile, du: number, dv: number): DrawnProfile {
-  if (p.kind === 'polygon') return { ...p, pts: p.pts.map(([x, y]) => [x + du, y + dv]) };
+  if (p.kind === 'polygon' || p.kind === 'line') return { ...p, pts: p.pts.map(([x, y]) => [x + du, y + dv]) };
   return { ...p, x: p.x + du, y: p.y + dv };
 }
 

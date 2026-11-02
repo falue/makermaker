@@ -32,6 +32,10 @@ export interface UIContext {
   setValue(path: string[], value: unknown, live?: boolean): void;
   /** `how`: true toggles the object, 'range' selects from the last selected one in its list to it. */
   select(id: string | null, how?: Pick): void;
+  /** New sketch objects are drawn as construction lines; set by switching an object, or toggled. */
+  drawConstruction: boolean;
+  setDrawConstruction(on: boolean): void;
+  toggleConstruction(): void;
   /** Folded groups in the object list. */
   folded: Set<string>;
   toggleFold(group: string): void;
@@ -297,12 +301,15 @@ function toolbar(ctx: UIContext): Node[] {
     ['circle', 'Circle (C)'],
     ['ngon', 'Regular polygon (N)'],
     ['polygon', 'Polygon (P)'],
+    ['line', 'Line (L): an open line, never extruded'],
   ] as const;
+  const construction = tool('construction', ctx.drawConstruction ? 'Drawing construction lines (X): click to draw normal shapes again' : 'Draw construction lines (X): dashed, snapped to, never extruded', ctx.toggleConstruction, ctx.drawConstruction);
   const on = (name: string) => ctx.active === name;
   if (ctx.sketching)
     return [
       tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.active),
       ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), on(kind))),
+      construction,
       h('hr'),
       tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude, on('extrude')),
       tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
@@ -310,6 +317,7 @@ function toolbar(ctx: UIContext): Node[] {
   return [
     tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
     ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), on(kind))),
+    construction,
     tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), on('sphere')),
     tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a face (clicked before or after)', ctx.extrude, on('extrude')),
     h(
@@ -649,7 +657,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       : [h('span', { className: 'hint' }, p.kind === 'plane' ? 'On a fixed plane (where a face was)' : `On a face of ${doc.bodies.find((q) => q.id === p.body)?.name ?? 'a deleted body'}`)];
   const show = h('input', { type: 'checkbox', checked: s.visible });
   show.onchange = () => set({ visible: show.checked });
-  const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon' };
+  const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon', line: 'Line' };
   // in sketch mode with shapes selected, only those show
   const only = ctx.sketching === s.id && ctx.shapes.length > 0;
   const shapes = s.shapes.flatMap((q, j) => {
@@ -657,7 +665,8 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
     const name = listItem(`item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
     const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
     const box = h('input', { type: 'checkbox', checked: !!q.construction });
-    box.onchange = () => set({ shapes: s.shapes.map((r) => (r === q ? { ...r, construction: box.checked } : r)) });
+    // the next objects are drawn as this one now is
+    box.onchange = () => (ctx.setDrawConstruction(box.checked), set({ shapes: s.shapes.map((r) => (r === q ? { ...r, construction: box.checked } : r)) }));
     const construction = h('label', { className: 'check', title: 'Construction line: dashed, snapped to, never extruded' }, box, 'Construction');
     return [h('div', { className: 'shape' }, h('div', { className: 'listed' }, name, construction, drop), ...shapeFields(ctx, `${at}.shapes.${j}`, q))];
   });
@@ -717,10 +726,11 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   const row = (...cells: HTMLElement[]) => h('div', { className: 'row' }, ...cells);
   const pos = [refGrid(ctx, p.id), tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
   if (p.kind === 'circle') return [row(...pos, tf('d', 'Ø', stored('d')))];
-  const rot = tf('rot', '°', stored('rot'), true); // degrees: shown as typed, never unit-converted
-  if (p.kind === 'ngon') return [row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true))];
   const link = tool('link', ctx.linkSize(p.id) ? 'Width and height change together: click to unlink' : 'Link width and height: they change together', () => ctx.toggleLinkSize(p.id), ctx.linkSize(p.id));
   const [w, hh] = p.kind === 'rect' ? [stored('w'), stored('h')] : [mm(m.w), mm(m.h)];
+  if (p.kind === 'line') return [row(...pos), row(tf('w', 'W', w), link, tf('h', 'H', hh))]; // no corners to round, no turn of its own
+  const rot = tf('rot', '°', stored('rot'), true); // degrees: shown as typed, never unit-converted
+  if (p.kind === 'ngon') return [row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true))];
   return [row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), pf('r', 'R'))];
 }
 

@@ -106,6 +106,7 @@ export function sideOf(p: DrawnProfile, [u, v]: UV, n: UV, eps: number): { edge:
 
 /** Shape `p` with side `edge` moved `by` mm outwards: rect sides move alone, circles and regular polygons grow evenly. */
 export function pushed(p: DrawnProfile, edge: number, by: number): DrawnProfile {
+  if (p.kind === 'line') return p; // never extruded: no side
   if (p.kind === 'circle') return { ...p, d: p.d + 2 * by };
   if (p.kind === 'ngon') return { ...p, d: p.d + (2 * by) / Math.cos(Math.PI / Math.max(3, Math.round(p.sides))) };
   const a = (p.rot * Math.PI) / 180;

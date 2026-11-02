@@ -1601,7 +1601,7 @@ export class Viewer implements ToolView {
     if (ed.handle.kind === 'rotate') {
       const deg = angleAt(st, q) - ed.a0;
       ed.next = rotated(st, e?.shiftKey ? Math.round(deg / 15) * 15 : Math.round(deg * 10) / 10);
-      this.label(`${(ed.next.kind === 'circle' ? 0 : ed.next.rot).toFixed(1)}°`, world);
+      this.label(`${(ed.next.kind === 'circle' || ed.next.kind === 'line' ? 0 : ed.next.rot).toFixed(1)}°`, world);
     } else {
       const typed = ed.typed.map((t) => (t === undefined ? undefined : (this.host.length(t) ?? undefined))) as [number | undefined, number | undefined];
       ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e?.altKey, shift: !!e?.shiftKey, step: e?.ctrlKey ? this.snapStep : 0.1, typed });

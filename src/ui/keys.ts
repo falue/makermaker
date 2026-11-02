@@ -35,6 +35,8 @@ export const KEYS = {
   circle: { name: 'Circle', order: 41, default: [{ key: 'c' }], hint: 'Draw a circle (a cylinder when pulled)' },
   ngon: { name: 'Regular polygon', order: 42, default: [{ key: 'n' }], hint: 'Draw a regular polygon' },
   polygon: { name: 'Polygon', order: 43, default: [{ key: 'p' }], hint: 'Draw a polygon corner by corner' },
+  line: { name: 'Line', order: 43.5, default: [{ key: 'l' }], hint: 'Draw an open line point by point (never extruded)' },
+  construction: { name: 'Construction', order: 43.8, default: [{ key: 'x' }], hint: 'Draw the next sketch objects as construction lines, or as normal ones again; selected sketch objects switch too' },
   sphere: { name: 'Sphere', order: 44, default: [{ key: 'o' }], hint: 'Draw a sphere from its centre' },
   sketch: { name: 'New sketch', order: 45, default: [{ key: 's' }], hint: 'A new sketch on a face or a base plane' },
   extrude: { name: 'Extrude', order: 46, default: [{ key: 'e' }], hint: 'Pull shapes or areas, or push and pull a face' },

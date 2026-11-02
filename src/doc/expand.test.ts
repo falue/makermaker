@@ -23,6 +23,6 @@ describe('toBuild', () => {
   });
 
   it('reports a sketch of construction lines only', () => {
-    expect(toBuild(linked, 'b', new Map([['s', sketch(true)]]), () => undefined)).toMatch('construction lines');
+    expect(toBuild(linked, 'b', new Map([['s', sketch(true)]]), () => undefined)).toMatch('construction or open lines');
   });
 });

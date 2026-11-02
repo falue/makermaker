@@ -163,6 +163,8 @@ function drawing(p: Resolved<Profile>): Drawing {
       positive(p.d, 'diameter');
       if (!(p.sides >= 3)) throw new Error('a regular polygon needs 3 sides');
       return corners(p).slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(corners(p)[0])).close();
+    case 'line':
+      throw new Error('an open line cannot be extruded');
     case 'polygon': {
       if (p.pts.length < 3) throw new Error('a polygon needs 3 corners');
       if (p.r < 0) throw new Error('corner radius must not be negative');

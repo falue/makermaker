@@ -9,7 +9,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { pressed } from '../ui/keys';
 
-export type ToolKind = 'rect' | 'circle' | 'ngon' | 'polygon' | 'sphere';
+export type ToolKind = 'rect' | 'circle' | 'ngon' | 'polygon' | 'line' | 'sphere';
 export type { DrawnProfile };
 
 /** End face of an extrude feature, in world coordinates. */
@@ -139,6 +139,8 @@ export interface ToolHost {
   hint(text: string): void;
   /** A note that follows the pointer (null: none). */
   cursorTip(text: string | null): void;
+  /** New shapes are drawn as construction lines. */
+  construction(): boolean;
 }
 
 type UV = [number, number];
@@ -153,7 +155,7 @@ type Phase =
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const AXIS_NAME: Record<BasePlane, string> = { xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
-const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle', ngon: 'a regular polygon', polygon: 'a polygon', sphere: 'a sphere' };
+const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle', ngon: 'a regular polygon', polygon: 'a polygon', line: 'a line', sphere: 'a sphere' };
 
 /**
  * Draws rectangles, circles and polygons into sketches and pulls them into extrusions. A shape goes into the sketch
@@ -211,17 +213,22 @@ export class SketchTool implements Tool {
       if (!at) return true;
       this.view.markFace();
       this.phase =
-        this.kind === 'polygon'
+        this.kind === 'polygon' || this.kind === 'line'
           ? { kind: 'polygon', target, pts: [at], cur: at }
           : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, alt: e.altKey, shift: e.shiftKey };
-      this.host.hint(this.kind === 'polygon' ? POLYGON_HINT : SHAPE_HINT);
+      this.host.hint(this.kind === 'polygon' ? POLYGON_HINT : this.kind === 'line' ? LINE_HINT : SHAPE_HINT);
     } else if (ph.kind === 'shape') this.shapeDone(); // second click of click-click drawing
     else if (ph.kind === 'polygon') {
       const at = this.point(e, ph.target, e.ctrlKey);
       if (!at) return true;
-      const [fx, fy] = this.view.toScreen(v3(toWorld(ph.target.frame, ...ph.pts[0])));
       const r = this.view.el.getBoundingClientRect();
-      if (ph.pts.length >= 3 && Math.hypot(e.clientX - r.left - fx, e.clientY - r.top - fy) < 8) this.closePolygon();
+      const near = (q: UV) => {
+        const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...q)));
+        return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
+      };
+      // the first point closes (a line becomes a polygon); for a line the last point again ends it
+      if (ph.pts.length >= 3 && near(ph.pts[0])) this.closePolygon();
+      else if (this.kind === 'line' && ph.pts.length >= 2 && near(ph.pts[ph.pts.length - 1])) this.finishLine();
       else ph.pts.push(at);
     } else if (ph.kind === 'pull') this.commit();
     this.update();
@@ -263,7 +270,7 @@ export class SketchTool implements Tool {
   }
 
   dblclick() {
-    if (this.phase.kind === 'polygon') this.closePolygon();
+    if (this.phase.kind === 'polygon') this.kind === 'line' ? this.finishLine() : this.closePolygon();
     this.update();
   }
 
@@ -283,7 +290,7 @@ export class SketchTool implements Tool {
       else if (pressed(e, 'confirm')) this.shapeDone();
       else return false;
     } else if (ph.kind === 'polygon') {
-      if (pressed(e, 'confirm')) this.closePolygon();
+      if (pressed(e, 'confirm')) this.kind === 'line' ? this.finishLine() : this.closePolygon();
       else if (pressed(e, 'erase') && ph.pts.length > 1) ph.pts.pop();
       else return false;
     } else if (ph.kind === 'pull') {
@@ -298,7 +305,7 @@ export class SketchTool implements Tool {
 
   private hoverHint(target?: Target) {
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
-    const how = this.kind === 'polygon' ? 'Click corners' : 'Drag (or click twice)';
+    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? 'Click points' : 'Drag (or click twice)';
     if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]} · [R] [C] [P] switch · snaps to corners and centres · [Ctrl] grid · [Esc] stops drawing shapes`;
     return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] snaps · right-drag turns the view · [Esc] stops`;
   }
@@ -363,8 +370,8 @@ export class SketchTool implements Tool {
   private snapLines(): Segment[][] {
     const outlines = this.view.sketches.flatMap((s) =>
       s.shapes.map((p) => {
-        const pts = shape2d(p).getPoints(48).map((q) => v3(toWorld(s.frame, q.x, q.y)));
-        return pts.map((a, i): Segment => [a, pts[(i + 1) % pts.length]]);
+        const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(s.frame, q.x, q.y)));
+        return (p.kind === 'line' ? pts.slice(0, -1) : pts).map((a, i): Segment => [a, pts[(i + 1) % pts.length]]); // a line stays open
       }),
     );
     return [...outlines, ...this.view.edges()];
@@ -442,7 +449,7 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     if (ph.kind !== 'shape') return;
     const profile = this.shape(ph);
-    const size = profile.kind === 'rect' ? Math.min(profile.w, profile.h) : profile.kind === 'polygon' ? 1 : profile.d;
+    const size = profile.kind === 'rect' ? Math.min(profile.w, profile.h) : profile.kind === 'polygon' || profile.kind === 'line' ? 1 : profile.d;
     if (!(size > 0)) return this.host.hint('Too small: drag further or type a size · [Esc] cancels');
     const [a, b] = ph.typed.map((t) => (this.typed(t) === undefined ? undefined : t));
     if (this.kind === 'sphere' && profile.kind === 'circle') {
@@ -463,9 +470,20 @@ export class SketchTool implements Tool {
     this.drawn(ph.target, { profile, typed: {} });
   }
 
-  /** A finished shape: in sketch mode it stays flat and drawing goes on, else pulling starts. */
+  /** Ends a line at its points so far (an open line is never pulled: it stays flat). */
+  private finishLine() {
+    const ph = this.phase;
+    if (ph.kind !== 'polygon') return;
+    const pts = ph.pts.filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 0.05);
+    if (pts.length < 2) return this.host.hint('A line needs 2 points · ' + LINE_HINT);
+    this.phase = { kind: 'hover' };
+    this.host.hint(this.hoverHint());
+    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts }, typed: {} }, depth: 0, mode: 'add' });
+  }
+
+  /** A finished shape: in sketch mode or as a construction line it stays flat and drawing goes on, else pulling starts. */
   private drawn(target: Target, drawn: Drawn) {
-    if (this.mode?.kind !== 'draw') return this.enterPull(target, [drawn.profile], drawn);
+    if (this.mode?.kind !== 'draw' && !this.host.construction()) return this.enterPull(target, [drawn.profile], drawn);
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
     this.host.done({ target, drawn, depth: 0, mode: 'add' });
@@ -526,7 +544,9 @@ export class SketchTool implements Tool {
       labels.push([`${name} ${typed === undefined ? fmt(mm) : `${typed}▏`}`, at, active]);
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
-      const profile: DrawnProfile = ph.kind === 'shape' ? this.shape(ph) : { kind: 'polygon', pts: [...ph.pts, ph.cur], r: 0, rot: 0 };
+      const pts: UV[] = ph.kind === 'polygon' ? [...ph.pts, ph.cur] : [];
+      const drawing: DrawnProfile = ph.kind === 'shape' ? this.shape(ph) : this.kind === 'line' ? { kind: 'line', pts } : { kind: 'polygon', pts, r: 0, rot: 0 };
+      const profile = { ...drawing, construction: this.host.construction() }; // dashed while drawing construction lines
       this.view.overlay.add(outline(profile, f));
       if (profile.kind === 'rect' && ph.kind === 'shape') {
         label('W', ph.typed[0], profile.w, v3(toWorld(f, profile.x, profile.y - profile.h / 2)), ph.axis === 0);
@@ -586,6 +606,7 @@ export class SketchTool implements Tool {
 }
 
 const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] snaps · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
+const LINE_HINT = 'Click points · click the last one again, double-click or [Enter] to finish (the first one closes it into a polygon) · [Backspace] removes the last · [Esc] cancels';
 const POLYGON_HINT = 'Click corners · click the first one, double-click or [Enter] to finish · [Backspace] removes the last · [Esc] cancels';
 const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done';
 
@@ -607,9 +628,10 @@ export function shape2d(p: DrawnProfile): THREE.Shape {
 /** The shape's outline on the frame's plane, lifted `lift` mm along the normal (0: drawn over everything, for previews); construction lines dashed. */
 export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0, dashMm = 1.5) {
   const n = v3(f.n).multiplyScalar(lift);
-  const pts = shape2d(p).getPoints(48).map((q) => v3(toWorld(f, q.x, q.y)).add(n));
+  const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)).add(n));
   const material = p.construction
     ? new THREE.LineDashedMaterial({ color, dashSize: dashMm, gapSize: dashMm, depthTest: lift !== 0 })
     : new THREE.LineBasicMaterial({ color, depthTest: lift !== 0 });
-  return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), material).computeLineDistances();
+  const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+  return (p.kind === 'line' ? new THREE.Line(geometry, material) : new THREE.LineLoop(geometry, material)).computeLineDistances(); // a line stays open
 }
