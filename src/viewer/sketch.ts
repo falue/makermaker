@@ -192,8 +192,7 @@ function fraction(i: number, n: number) {
 }
 /** A line the pointer snaps to (world segments); sketch outlines keep their shape and sketch, guides themselves. */
 type SnapLine = { segs: Segment[]; what: string; shape?: { p: ViewSketch['shapes'][number]; sketch: ViewSketch }; guide?: { at: THREE.Vector3; dir: THREE.Vector3; fixed: boolean } };
-/** Hover time (ms) on a line before it gets a guide; guides' colour and reach (mm each way: practically endless). */
-const GUIDE_MS = 333;
+/** Guides' colour and reach (mm each way: practically endless). */
 const GUIDE_COLOR = 0xd946ef;
 const guideSeg = (g: { at: THREE.Vector3; dir: THREE.Vector3 }, reach = 1e4): Segment => [g.at.clone().addScaledVector(g.dir, -reach), g.at.clone().addScaledVector(g.dir, reach)];
 /** Whether the segment lies on the guide's line. */
@@ -238,11 +237,13 @@ export class SketchTool implements Tool {
   /** The last pointer position snapped, to snap again when the points change. */
   private lastPoint: [MouseEvent, Target] | null = null;
   /**
-   * Guide lines (world, through `at` along `dir`): a straight line or edge hovered for `GUIDE_MS` gets one, snapped to
+   * Guide lines (world, through `at` along `dir`): a straight line or edge hovered for `guideMs` gets one, snapped to
    * like any line. One per direction (a parallel one replaces it); a click or the tool ending drops them, unless fixed
    * (G): those stay until G again or sketch mode ends (`dropGuides`).
    */
   private static guides: { at: THREE.Vector3; dir: THREE.Vector3; fixed: boolean }[] = [];
+  /** Hover time (ms) on a line before it gets a guide (Settings → General). */
+  static guideMs = 333;
   /** The straight line or edge the pointer is on (world), for a guide. */
   private snapSeg: Segment | null = null;
   /** Drops all guide lines, fixed ones too (sketch mode ended). */
@@ -934,7 +935,7 @@ export class SketchTool implements Tool {
     if (!sameSeg(this.snapSeg, this.dwell.seg)) {
       clearTimeout(this.dwell.timer);
       const seg = this.snapSeg;
-      this.dwell = { seg, timer: seg ? window.setTimeout(() => this.addGuide(seg), GUIDE_MS) : 0 };
+      this.dwell = { seg, timer: seg ? window.setTimeout(() => this.addGuide(seg), SketchTool.guideMs) : 0 };
     }
     this.clearPreview();
     const labels: [string, THREE.Vector3, boolean][] = []; // text, where, typed into

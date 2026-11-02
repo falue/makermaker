@@ -292,6 +292,7 @@ viewer.onBounds = sections.bounds;
 function applySettings() {
   viewer.minStep = settings.minStep;
   viewer.minAngle = settings.minAngle;
+  SketchTool.guideMs = settings.guideMs;
   viewer.setAO(settings.ao);
   viewer.setBackdrop(settings.background);
 }

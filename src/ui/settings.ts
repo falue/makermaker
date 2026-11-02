@@ -11,12 +11,14 @@ export interface Settings {
   minStep: number;
   /** The smallest step angles move in when drawn precisely (Ctrl), in degrees. */
   minAngle: number;
+  /** How long (ms) the pointer rests on a line or point while drawing before it gets guide lines. */
+  guideMs: number;
   /** Background of the 3D view and of new renders: the theme's grey, two colours meeting sharply at the horizon, or a sky preset (`sky`: its index). */
   background: { mode: 'solid' | 'colours' | 'sky'; top: string; bottom: string; sky: number };
 }
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4 } };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4 } };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
@@ -48,21 +50,20 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     [
       'General',
       () => {
-        const minStep = input({ type: 'number', min: '0.0001', step: 'any', value: String(s.minStep), className: 'number' });
-        minStep.onchange = () => +minStep.value > 0 && set({ ...s, minStep: +minStep.value }, false);
-        const minAngle = input({ type: 'number', min: '0.0001', step: 'any', value: String(s.minAngle), className: 'number' });
-        minAngle.onchange = () => +minAngle.value > 0 && set({ ...s, minAngle: +minAngle.value }, false);
+        // a positive number setting: its heading, what it does, its field
+        const number = (key: 'minStep' | 'minAngle' | 'guideMs', title: string, hint: string) => {
+          const field = input({ type: 'number', min: '0', step: 'any', value: String(s[key]), className: 'number' });
+          field.onchange = () => +field.value > 0 && set({ ...s, [key]: +field.value }, false);
+          return [make('h3', {}, title), make('p', { className: 'hint' }, hint), make('div', { className: 'row' }, field)];
+        };
         const units = make('select', { onchange: () => (doc.setUnits(units.value as Unit), draw()) }, ...Object.keys(UNITS).map((u) => make('option', { value: u, selected: u === doc.units(), textContent: u }))) as HTMLSelectElement;
         return [
           make('h3', {}, 'Units'),
           make('p', { className: 'hint' }, "Of this document (saved in its file): how lengths show, and what plain numbers you type mean. Values keep the unit they were typed in."),
           make('div', { className: 'row' }, units),
-          make('h3', {}, 'Minimum step'),
-          make('p', { className: 'hint' }, 'The smallest step a drag moves in while Ctrl is held (precise), in mm. Without Ctrl the step follows the zoom.'),
-          make('div', { className: 'row' }, minStep),
-          make('h3', {}, 'Minimum angle'),
-          make('p', { className: 'hint' }, 'The smallest step a drawn line turns in while Ctrl is held, in degrees. Without a key it turns in 1° steps.'),
-          make('div', { className: 'row' }, minAngle),
+          ...number('minStep', 'Minimum step', 'The smallest step a drag moves in while Ctrl is held (precise), in mm. Without Ctrl the step follows the zoom.'),
+          ...number('minAngle', 'Minimum angle', 'The smallest step a drawn line turns in while Ctrl is held, in degrees. Without a key it turns in 1° steps.'),
+          ...number('guideMs', 'Guide delay', 'How long the pointer rests on a line or a point while drawing before guide lines show, in milliseconds.'),
         ];
       },
     ],
