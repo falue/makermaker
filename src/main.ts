@@ -607,29 +607,51 @@ function nudge(by: Vec3) {
   }));
 }
 
-/** X / Y / Z: a field at the pointer takes a distance (expressions, units); Enter moves the selection that far along that axis, Esc cancels. */
-function moveAlong(axis: number) {
+/**
+ * X / Y / Z: a field at the pointer takes a distance (expressions, units) per axis; X / Y / Z in it switch the axis
+ * (not inside a word: names may hold those letters), the others' values show beside it. While typing the selection
+ * shows moved; Enter moves it by all of them, Esc cancels all.
+ */
+function moveAlong(first: number) {
   if (!selected.length) return notify('Select something to move first');
-  const name = 'XYZ'[axis];
+  const texts = ['', '', ''];
+  let axis = first;
+  const letter = document.createElement('span');
   const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}` });
+  const others = Object.assign(document.createElement('span'), { className: 'others' });
   const box = Object.assign(document.createElement('label'), { className: 'axis-move' });
-  box.append(Object.assign(document.createElement('span'), { className: `axis-${name.toLowerCase()}`, textContent: name }), input);
+  box.append(letter, input, others);
   const at = viewer.pointer() ?? { x: innerWidth / 2, y: innerHeight / 2 };
   box.style.cssText = `left:${at.x + 14}px;top:${at.y + 14}px`;
   document.body.append(box);
   input.focus();
+  /** The move so far (null: a value is not a distance); empty axes stay. */
   const by = () => {
-    const mm = length(input.value);
-    return mm === null ? null : new Vector3().setComponent(axis, mm);
+    texts[axis] = input.value;
+    const mm = texts.map((t) => (t.trim() ? length(t) : 0));
+    return mm.includes(null) ? null : new Vector3(...(mm as number[]));
   };
-  // a preview while typing; leaving the field cancels
-  input.oninput = () => {
+  const show = () => {
+    const name = 'XYZ'[axis];
+    Object.assign(letter, { className: `axis-${name.toLowerCase()}`, textContent: name });
+    others.replaceChildren(...texts.flatMap((t, k) => (k === axis || !t.trim() ? [] : [Object.assign(document.createElement('span'), { className: `axis-${'xyz'[k]}`, textContent: 'XYZ'[k] }), ` ${t} `])));
     const b = by();
-    input.classList.toggle('invalid', !b && !!input.value.trim());
+    input.classList.toggle('invalid', !b);
     viewer.previewMove(b ?? new Vector3(), b ? (shapeMoves(b)?.updates ?? []) : []);
   };
-  input.onblur = () => (box.remove(), viewer.previewMove(null));
+  show();
+  input.oninput = show;
+  input.onblur = () => (box.remove(), viewer.previewMove(null)); // leaving the field cancels
   input.onkeydown = (e) => {
+    const k = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
+    const word = input.value.slice(0, input.selectionStart ?? 0).match(/[A-Za-z_]\w*$/)?.[0];
+    if (k >= 0 && (!word || word in UNITS)) {
+      e.preventDefault();
+      texts[axis] = input.value;
+      axis = k;
+      input.value = texts[k];
+      return show();
+    }
     if (pressed(e, 'cancel')) return input.blur();
     if (!pressed(e, 'confirm')) return;
     const b = by();

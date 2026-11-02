@@ -1104,3 +1104,6 @@ button.primary.wide {
 .axis-move input {
   width: 90px;
 }
+.axis-move .others:empty {
+  display: none;
+}
