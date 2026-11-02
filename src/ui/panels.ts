@@ -64,6 +64,8 @@ export interface UIContext {
   cutTool(): void;
   revolveTool(): void;
   rotateTool(): void;
+  /** Aligns the selected objects (bodies, groups as one, whole sketches) by their boxes; see `alignObjects` in main. */
+  alignObjects(how: ObjectAlign): void;
   jointTool(): void;
   /** Lights a joint's moving objects (null: the selection again). */
   showJoint(joint: string | null): void;
@@ -441,7 +443,16 @@ function toolbar(ctx: UIContext): Node[] {
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
     tool('move', 'Move (M): type distances along X, Y and Z (Tab: the next); the selection, or what is clicked next', ctx.moveTool, on('move')),
-    tool('rotate', 'Rotate (W): turn the selection (or what is clicked next) around an axis through a pivot; the pointer, typed degrees, X / Y / Z, Set axis or Pivot', ctx.rotateTool),
+    tool('rotate', 'Rotate (W): turn the selection (or what is clicked next) around an axis clicked next: an edge, line, circle or point', ctx.rotateTool),
+    h(
+      'div',
+      { className: 'flyout-at' },
+      tool('align', 'Align the selected objects by their boxes (bodies, groups as one, whole sketches); 2 or more, distribute 3 or more', () => {
+        alignOpen = !alignOpen;
+        renderUI(ctx);
+      }, alignOpen),
+      ...(alignOpen ? [h('div', { className: 'flyout align-menu' }, ...alignTools(ctx))] : []),
+    ),
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
     tool('cut', 'Cut: a body (selected, or clicked next) in two along a face\'s plane (turn and move it) or a sketch line or shape; keep both or delete one side', ctx.cutTool, on('cut')),
@@ -455,6 +466,23 @@ function toolbar(ctx: UIContext): Node[] {
 
 /** The boolean flyout of the toolbar is open. */
 let flyout = false;
+/** The align menu of the toolbar is open. */
+let alignOpen = false;
+
+/** How objects align: their box's min, middle or max along an axis onto all of theirs, equal gaps, or onto the first one's middle. */
+export type ObjectAlign = `${'min' | 'mid' | 'max' | 'spread'}${'X' | 'Y' | 'Z'}` | 'first';
+
+function alignTools(ctx: UIContext) {
+  const n = ctx.selected.length;
+  const item = (how: ObjectAlign, label: string, title: string) =>
+    h('button', { className: 'menu-item', textContent: label, title, disabled: n < (how.startsWith('spread') ? 3 : 2), onclick: () => ((alignOpen = false), ctx.alignObjects(how)) });
+  return (['X', 'Y', 'Z'] as const).flatMap((a) => [
+    item(`min${a}`, `${a} min`, `Their lowest ${a} onto the lowest of all`),
+    item(`mid${a}`, `${a} middle`, `Their middles onto the middle of all along ${a}`),
+    item(`max${a}`, `${a} max`, `Their highest ${a} onto the highest of all`),
+    item(`spread${a}`, `${a} distribute`, `Equal gaps along ${a}; the outermost stay (3 or more)`),
+  ]).concat(item('first', 'Middle on first', 'Their middles onto the middle of the first selected'));
+}
 
 function booleanTools(ctx: UIContext, picked = () => {}) {
   const ops: [BooleanOp, string][] = [

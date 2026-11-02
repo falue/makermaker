@@ -21,7 +21,7 @@ import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, scrub, toObjectButton, wantsT, type Measure, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, type Action } from './ui/keys';
@@ -1933,6 +1933,62 @@ function rotateTool() {
 }
 
 /**
+ * Align (as in incase): the selected bodies, groups (as one) and whole sketches by their boxes in the world: their min,
+ * middle or max along an axis onto that of all of them, equal gaps along it (the outermost stay), or their middles onto
+ * the first one's. One undo step.
+ */
+function alignObjects(how: ObjectAlign) {
+  const doc = history.current;
+  const units = selected.filter((id) => [...doc.bodies, ...doc.groups, ...doc.sketches].some((o) => o.id === id));
+  const boxOf = (id: string) => {
+    const box = new Box3();
+    const s = viewer.sketches.find((v) => v.id === id);
+    if (s) for (const q of s.shapes) for (const [u, v] of corners2(bounds(q))) box.expandByPoint(new Vector3(...toWorld(s.frame, u, v)));
+    for (const b of contents(doc, [id])) {
+      const m = doc.bodies.some((x) => x.id === b) && viewer.measure(b);
+      if (m) box.union(m.box);
+    }
+    return box.isEmpty() ? null : box;
+  };
+  const boxes = units.map(boxOf);
+  if (units.length < 2 || boxes.some((b) => !b)) return fail('Select two shown objects or more to align them');
+  const all = boxes.reduce((a, b) => a!.clone().union(b!), boxes[0]!)!;
+  const k = 'XYZ'.indexOf(how.at(-1)!);
+  const lo = (b: Box3) => b.min.getComponent(k);
+  const hi = (b: Box3) => b.max.getComponent(k);
+  const mid = (b: Box3) => (lo(b) + hi(b)) / 2;
+  const shifts = boxes.map(() => new Vector3());
+  if (how === 'first') boxes.forEach((b, i) => shifts[i].copy(boxes[0]!.getCenter(new Vector3()).sub(b!.getCenter(new Vector3()))));
+  else if (how.startsWith('spread')) {
+    const gap = (hi(all) - lo(all) - boxes.reduce((n, b) => n + hi(b!) - lo(b!), 0)) / (units.length - 1);
+    let at = lo(all);
+    for (const i of boxes.map((_, i) => i).sort((i, j) => lo(boxes[i]!) - lo(boxes[j]!))) {
+      shifts[i].setComponent(k, at - lo(boxes[i]!));
+      at += hi(boxes[i]!) - lo(boxes[i]!) + gap;
+    }
+  } else boxes.forEach((b, i) => shifts[i].setComponent(k, how.startsWith('min') ? lo(all) - lo(b!) : how.startsWith('max') ? hi(all) - hi(b!) : mid(all) - mid(b!)));
+  let next = doc;
+  units.forEach((id, i) => {
+    const by = shifts[i];
+    if (by.lengthSq() < 1e-12) return;
+    const s = viewer.sketches.find((v) => v.id === id);
+    if (s) {
+      // a whole sketch: its shapes along its plane, a base plane's offset across it
+      const [du, dv] = [by.dot(new Vector3(...s.frame.x)), by.dot(new Vector3(...s.frame.y))];
+      next = withShapes(next, id, s.shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })));
+      const k2 = next.sketches.findIndex((x) => x.id === id);
+      const p = next.sketches[k2].plane;
+      if (p.kind === 'base') next = setIn(next, ['sketches', String(k2), 'plane', 'offset'], plus(p.offset, resolve(p.offset, paramLookup(doc.params), '', new Map()), by.dot(new Vector3(...s.frame.n))));
+    }
+    next = withPlaces(next, contents(doc, [id]).flatMap((b) => (positions.has(b) ? [{ id: b, position: new Vector3(...positions.get(b)!).add(by).toArray() }] : [])));
+  });
+  commit(next);
+}
+
+/** The corners of a 2D box (x0, y0, x1, y1). */
+const corners2 = ([x0, y0, x1, y1]: number[]): [number, number][] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+
+/**
  * Joint (J): the parent that stays (the first selected body or group, or the one clicked), then what moves (the other
  * selected ones, or those clicked; Enter), then the axis (an edge or line, or a circle's or round edge's centre, square
  * to it): the joint is made (a hinge, 0–180°) and its edit panel opens.
@@ -3063,6 +3119,7 @@ function render() {
     cutTool,
     revolveTool,
     rotateTool,
+    alignObjects,
     jointTool,
     editJoint: (id) => jointPanel(id, false),
     reach(path, insert) {

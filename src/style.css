@@ -1426,3 +1426,17 @@ input[type='range']:active {
   outline: none;
   box-shadow: none;
 }
+
+/* the align menu: per axis min, middle, max, distribute; then middle on first */
+.flyout.align-menu {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+}
+.flyout.align-menu .menu-item {
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.flyout.align-menu .menu-item:last-child {
+  grid-column: 1 / -1;
+}
