@@ -239,6 +239,7 @@ export function renderUI(ctx: UIContext) {
   rendering = true;
   $('topbar').replaceChildren(...topbar(ctx));
   $('toolbar').replaceChildren(...toolbar(ctx));
+  $('editbar').replaceChildren(...editbar(ctx));
   $('custom-sections').replaceChildren(...customSections(ctx));
   $('left').replaceChildren(...left(ctx));
   $('right').replaceChildren(...right(ctx));
@@ -418,33 +419,51 @@ function topbar(ctx: UIContext): Node[] {
   ];
 }
 
-/** Left of the 3D view (incase's toolbar). */
+const SHAPES = [
+  ['rect', 'Rectangle (R)'],
+  ['circle', 'Circle (C)'],
+  ['ngon', 'Regular polygon (N)'],
+  ['polygon', 'Polygon (P)'],
+  ['line', 'Line (L): a single line, never extruded'],
+] as const;
+
+/** Left of the 3D view (incase's toolbar): sketching and making things, grouping, duplicating, deleting. */
 function toolbar(ctx: UIContext): Node[] {
-  const shapes = [
-    ['rect', 'Rectangle (R)'],
-    ['circle', 'Circle (C)'],
-    ['ngon', 'Regular polygon (N)'],
-    ['polygon', 'Polygon (P)'],
-    ['line', 'Line (L): a single line, never extruded'],
-  ] as const;
   const on = (name: string) => ctx.active === name;
   if (ctx.sketching)
     return [
       tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.active),
-      ...shapes.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), on(kind))),
-      h('hr'),
-      tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude, on('extrude')),
-      tool('mirror', 'Mirror: the selected shapes across a line or edge clicked next: mirrored copies', ctx.mirrorTool),
-      tool('offset', 'Offset: the selected shapes get outlines a distance outside (negative: inside; a line moves to its left)', ctx.offsetTool),
-      tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
+      ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), on(kind))),
     ];
   return [
     tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
-    ...shapes.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), on(kind))),
+    ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), on(kind))),
     tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), on('sphere')),
-    tool('plane', 'Work plane: a green plane on a face clicked next (or the base plane facing you), moved by an offset (T: a point\'s distance, e.g. /2 for halfway); drawing tools draw on it', ctx.planeTool),
-    h('hr'), // drawing above, shaping below
+    tool('plane', "Work plane: a green plane on a face clicked next (or the base plane facing you), moved by an offset (T: a point's distance, e.g. /2 for halfway); drawing tools draw on it", ctx.planeTool),
+    h('hr'), // making above, organizing below
+    tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? "Ungroup (⇧⌘G): the contents move to the group's parent, staying where they are" : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
+    tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
+    tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
+  ];
+}
+
+/** Above the 3D view: the tools that edit things (shaping, moving, joints). */
+function editbar(ctx: UIContext): Node[] {
+  const on = (name: string) => ctx.active === name;
+  if (ctx.sketching)
+    return [
+      tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude, on('extrude')),
+      tool('mirror', 'Mirror: the selected shapes across a line or edge clicked next: mirrored copies', ctx.mirrorTool),
+      tool('offset', 'Offset: the selected shapes get outlines a distance outside (negative: inside; a line moves to its left)', ctx.offsetTool),
+      h('hr'),
+      tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
+    ];
+  return [
     tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a face (clicked before or after)', ctx.extrude, on('extrude')),
+    tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
+    tool('sweep', 'Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path it runs along)', ctx.sweepTool),
+    tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
+    h('hr'),
     h(
       'div',
       { className: 'flyout-at' },
@@ -454,6 +473,11 @@ function toolbar(ctx: UIContext): Node[] {
       }, flyout || on('boolean')),
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
+    tool('cut', "Cut: a body (selected, or clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
+    tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
+    tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
+    tool('thread', 'Thread: click the round edge at the end of a hole or a shaft: a real metric thread (coarse pitch) cut into it, pitch and length typed', ctx.threadTool),
+    h('hr'),
     tool('move', 'Move (M): type distances along X, Y and Z (Tab: the next); the selection, or what is clicked next', ctx.moveTool, on('move')),
     tool('rotate', 'Rotate (W): turn the selection (or what is clicked next) around an axis clicked next: an edge, line, circle or point', ctx.rotateTool),
     h(
@@ -465,18 +489,7 @@ function toolbar(ctx: UIContext): Node[] {
       }, alignOpen),
       ...(alignOpen ? [h('div', { className: 'flyout align-menu' }, ...alignTools(ctx))] : []),
     ),
-    tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
-    tool('thread', 'Thread: click the round edge at the end of a hole or a shaft: a real metric thread (coarse pitch) cut into it, pitch and length typed', ctx.threadTool),
-    tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
-    tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
-    tool('sweep', 'Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path it runs along)', ctx.sweepTool),
-    tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
-    tool('cut', 'Cut: a body (selected, or clicked next) in two along a face\'s plane (turn and move it) or a sketch line or shape; keep both or delete one side', ctx.cutTool, on('cut')),
-    h('hr'), // shaping above, organizing below
-    tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? 'Ungroup (⇧⌘G): the contents move to the group\'s parent, staying where they are' : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
-    tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
-    tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
   ];
 }
 

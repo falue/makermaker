@@ -80,8 +80,8 @@ body {
   margin: 0;
   height: 100vh;
   display: grid;
-  grid-template: 40px 1fr 24px / 220px 44px 1fr 300px;
-  grid-template-areas: 'top top top top' 'left tools view right' 'hint hint hint hint';
+  grid-template: 40px 42px 1fr 24px / 220px 44px 1fr 300px;
+  grid-template-areas: 'top top top top' 'left tools edit right' 'left tools view right' 'hint hint hint hint';
   background: var(--bg);
 }
 
@@ -639,6 +639,28 @@ canvas.drawing,
   padding: 8px 0;
   background: var(--panel);
   border-right: 1px solid var(--line);
+}
+/* the editing tools: a row above the 3D view */
+#editbar {
+  grid-area: edit;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+#editbar hr {
+  height: 24px;
+  width: 0;
+  border: none;
+  border-left: 1px solid var(--line);
+  margin: 0 4px;
+}
+#editbar .flyout {
+  left: 0;
+  top: 100%;
+  margin: 6px 0 0;
 }
 #toolbar hr {
   width: 24px;
