@@ -2567,8 +2567,8 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
 const jointsBox = Object.assign(document.createElement('div'), { className: 'joints-box' });
 viewer.el.append(jointsBox);
 let jointsKey = '';
-/** Joints playing: their phase (0 → 1 from min to max; repeating 1 → 2 back) and the last frame's time. */
-const playing = new Map<string, { phase: number; last: number }>();
+/** Joints playing: their phase (0 → 1 from min to max, 1 → 2 back), where a single play stops (1 or 2), the last frame's time. */
+const playing = new Map<string, { phase: number; end: number; last: number }>();
 /** Joints that play back and forth (this session). */
 const repeating = new Set<string>();
 function renderJoints() {
@@ -2630,15 +2630,16 @@ function jointRow(j: Joint) {
   return row;
 }
 
-/** Plays joint `id` from where it is (from its min again when it stands at its max and does not repeat). */
+/** Plays joint `id` from where it is to its max (standing at its max: back to its min). */
 function start(id: string) {
   const j = history.current.joints.find((x) => x.id === id);
   if (!j) return;
   const [lo, hi] = jointRange(j);
   const s = hi === lo ? 0 : Math.min(1, Math.max(0, (jointValue(j, paramLookup(history.current.params)) - lo) / (hi - lo)));
-  // the phase whose eased position is s (going up)
-  const phase = !repeating.has(id) && s > 0.999 ? 0 : Math.acos(1 - 2 * s) / Math.PI;
-  playing.set(id, { phase, last: performance.now() });
+  // the phase whose eased position is s, going up (at the max: going down)
+  const down = s > 0.999;
+  const phase = down ? 1 : Math.acos(1 - 2 * s) / Math.PI;
+  playing.set(id, { phase, end: down ? 2 : 1, last: performance.now() });
   if (playing.size === 1) requestAnimationFrame(animate);
   render();
 }
@@ -2681,8 +2682,8 @@ function animate(now: number) {
     }
     p.phase += (now - p.last) / 1000 / Math.max(0.1, settings.jointSeconds / speed);
     p.last = now;
-    if (!repeating.has(id) && p.phase >= 1) {
-      pause(id, jointRange(j, lookup)[1]);
+    if (!repeating.has(id) && p.phase >= p.end) {
+      pause(id, jointRange(j, lookup)[p.end === 1 ? 1 : 0]);
       continue;
     }
     p.phase %= 2; // back and forth: smooth at both ends
@@ -2780,7 +2781,7 @@ function movedInto(doc: Doc, ids: string[], group: string | null, target: Matrix
   return { ...doc, bodies, sketches, groups, joints };
 }
 
-/** Group tool: ungroups a selected group, groups the selection, or (nothing selected) groups the objects clicked next on Enter. */
+/** Group tool: ungroups a single selected group, groups the selection (groups too), or (nothing selected) groups the objects clicked next on Enter. */
 function groupTool() {
   const doc = history.current;
   // in sketch mode: shapes into a sub-group, or one sub-group selected apart
@@ -2789,7 +2790,8 @@ function groupTool() {
     const u = unitAt(s, shapeSel[0], sketchPath.at(-1) ?? null);
     return groupShapes(!!u?.group && u.shapes.length === shapeSel.length && u.shapes.every((id) => shapeSel.includes(id)));
   }
-  if (selected.some((id) => doc.groups.some((g) => g.id === id))) return ungroup();
+  // ungroup only a single selected group; several objects (groups too) get grouped
+  if (selected.length === 1 && doc.groups.some((g) => g.id === selected[0])) return ungroup();
   if (selected.length) return groupSelection();
   pending = {
     tool: 'group',
@@ -3488,7 +3490,7 @@ function render() {
       else showSelection();
     },
     loftTool,
-    groupSelected: selected.some((id) => doc.groups.some((g) => g.id === id)),
+    groupSelected: selected.length === 1 && doc.groups.some((g) => g.id === selected[0]),
     arrange,
     select,
     isolated: isolated?.body ?? null,
