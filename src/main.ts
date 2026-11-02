@@ -926,9 +926,10 @@ function toggleVisible() {
  * X / Y / Z: a field at the pointer takes a distance (expressions, units) along that axis; X / Y / Z in it (or Tab:
  * the next axis) add or go to that axis' field (always in X Y Z order), unless in the middle of a name, or where a name could start and a
  * parameter starts with the letter (then it is typed: Tab completes the name). While typing the selection shows moved; Enter moves it by all of them,
- * Esc or leaving cancels all. `all` (M): all three fields at once, X first.
+ * Esc or leaving cancels all. `all` (M): all three fields at once, X first, starting at `start` (mm; selected, so
+ * typing replaces them).
  */
-function moveAlong(first: number, all = false) {
+function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
   if (!selected.length) {
     // tool first: a click picks what moves and opens the field; Shift / ⌘ clicks collect several, Enter then
     pending = {
@@ -938,12 +939,12 @@ function moveAlong(first: number, all = false) {
         if (!selected.includes(id)) selected = [...selected, id];
         cancelPending();
         showSelection();
-        moveAlong(first, all);
+        moveAlong(first, all, start);
       },
       apply() {
         cancelPending();
         render();
-        if (selected.length) moveAlong(first, all);
+        if (selected.length) moveAlong(first, all, start);
       },
     };
     toolHint = `Click what to move${all ? '' : ` along ${'XYZ'[first]}`} · Shift / ${MAC ? '⌘' : 'Ctrl'}-click several, then [Enter] · [Esc] cancels`;
@@ -1030,8 +1031,9 @@ function moveAlong(first: number, all = false) {
   const open = (k: number) => {
     if (!fields[k]) {
       const name = 'XYZ'[k];
-      // all three at once (M): they start at 0, selected, so typing replaces it
-      const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}`, value: all ? '0' : '' });
+      // all three at once (M): they start at their start value, selected, so typing replaces it
+      const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}`, value: all ? fmt(start[k] / UNITS[history.current.units]) : '' });
+      input.dataset.start = input.value;
       input.dataset.complete = '';
       input.dataset.grow = '90'; // px at least; wider for long text and its result
       input.oninput = show;
@@ -1044,7 +1046,7 @@ function moveAlong(first: number, all = false) {
       fields[k] = input;
     }
     fields[k]!.focus();
-    if (fields[k]!.value === '0') fields[k]!.select();
+    if (fields[k]!.value && fields[k]!.value === fields[k]!.dataset.start) fields[k]!.select(); // untouched: typing replaces it
   };
   const keys = (e: KeyboardEvent, input: HTMLInputElement) => {
     const k = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
@@ -1705,8 +1707,8 @@ async function toggleAutosave() {
 }
 
 /**
- * Copies the selected bodies and sketches in place and selects the copies; the move fields open at 0 (the originals
- * show as ghosts), to type where the copies go.
+ * Copies the selected bodies and sketches in place and selects the copies; the move fields open at 5, 5, 0 mm (the
+ * copies show moved there, the originals as ghosts), to type where the copies go.
  */
 function duplicate() {
   const doc = history.current;
@@ -1728,7 +1730,7 @@ function duplicate() {
     });
   selected = [...copies, ...sketches].map((c) => c.id);
   commit({ ...doc, bodies: [...doc.bodies, ...copies], sketches: [...doc.sketches, ...sketches] });
-  if (selected.length) moveAlong(0, true);
+  if (selected.length) moveAlong(0, true, [5, 5, 0]);
 }
 
 /** Sketch mode's open sub-group: the view fades the rest and shows the way down (when it changed). */
