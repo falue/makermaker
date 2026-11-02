@@ -1193,11 +1193,8 @@ button.primary.wide {
   color: var(--muted);
 }
 
-/* a boolean's tool body in the list: the op's icon after its name */
-.tool-op {
-  display: inline-flex;
-  margin-left: 6px;
-  vertical-align: middle;
+/* a boolean's tool body in the list: the op's icon beside the row (a click frees it) */
+button.icon.tool-op {
   color: var(--error);
 }
 .tool-op svg {
