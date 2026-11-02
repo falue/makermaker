@@ -3,7 +3,7 @@ import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
-import { BASE, capFrame, cutPlane, frames, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
+import { BASE, capFrame, cutPlane, extent, frames, moved, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, closedLoop, corners, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -1214,18 +1214,28 @@ function cutTool() {
   }
   [selected, shapeSel] = [[body], []];
   showSelection();
-  toolHint = 'Click a face or empty space (a straight cut on its plane), a sketch line or shape (cut along it), or a ball (cut along its surface) · [Esc] cancels';
+  toolHint = 'Click a face or empty space (a straight cut on its plane), a sketch line or shape (cut along it), or a ball or cylinder (cut along its surface) · [Esc] cancels';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
     if (!face) return render();
     const pl = bodyPlace(body);
     if (face.sketch?.shape) return cutPanel(body, { kind: 'shape', sketch: face.sketch.id, shape: face.sketch.shape, offset: len(0) });
-    // another body that is a ball: along its surface
-    const ball = face.body !== body ? doc.bodies.find((b) => b.id === face.body)?.features : undefined;
-    if (ball?.length === 1 && ball[0].type === 'sphere') {
-      const { x, y, z } = resolve(ball[0], paramLookup(doc.params), '', new Map());
-      return cutPanel(body, { kind: 'sphere', c: unplaced(pl, inWorld(bodyPlace(face.body!), [x, y, z])), d: structuredClone(ball[0].d), offset: len(0) });
+    // another body that is a ball or a cylinder (one circle pulled): along its surface
+    const other = face.body !== body ? doc.bodies.find((b) => b.id === face.body)?.features : undefined;
+    const [solid] = other?.length === 1 ? (built.get(face.body!) ?? []) : [];
+    const there = bodyPlace(face.body!);
+    if (other?.[0].type === 'sphere') {
+      const { x, y, z } = resolve(other[0], paramLookup(doc.params), '', new Map());
+      return cutPanel(body, { kind: 'sphere', c: unplaced(pl, inWorld(there, [x, y, z])), d: structuredClone(other[0].d), offset: len(0) });
+    }
+    const pulled = solid?.type === 'extrude' && solid.mode === 'add' && !solid.through && solid.profiles.length === 1 ? solid : null;
+    const circle = pulled?.profiles[0];
+    const f = pulled && frames([pulled]).get(pulled.id);
+    if (pulled && circle?.kind === 'circle' && f) {
+      const [from, to] = extent(pulled.depth, pulled.back);
+      const c = inWorld(there, toWorld(moved(f, scale(f.n, from)), circle.x, circle.y));
+      return cutPanel(body, { kind: 'cylinder', c: unplaced(pl, c), dir: unplaced(pl, inWorld(there, f.n, true), true), h: to - from, d: len(circle.d), offset: len(0) });
     }
     // on the face clicked (its normal into the body), or the plane facing you
     const n = face.normal.clone().normalize();
@@ -1241,7 +1251,7 @@ let cutting: { chunk: string } | null = null;
 
 /**
  * The cut being set up, shown as it will be: the body (chunk A: the side the cutter faces, into the body from a face,
- * a line's left, a shape's or ball's inside) and its copy (chunk B, the other side, its own colour, not listed yet) cut, the
+ * a line's left, a shape's, ball's or cylinder's inside) and its copy (chunk B, the other side, its own colour, not listed yet) cut, the
  * one to be deleted see-through red, the cutting surface red and half see-through, a bit larger than the body. A panel at
  * the top middle of the view has the offset from the plane, face or line (from 0, the cursor in it; T or To object:
  * click a point it goes through), a plane's turn around its axis (dashed; Set axis: click an edge, line or circle),
@@ -1313,9 +1323,10 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
       if (!picking) viewer.showAxis(axisOf(c, f), mid, size * 1.2);
       return viewer.showCut([[at(g, -size, -size), at(g, size, -size), at(g, size, size), at(g, -size, size)]]);
     }
-    if (c.kind === 'sphere') {
+    if (c.kind === 'sphere' || c.kind === 'cylinder') {
       const { c: o, d, offset } = resolve(c, lookup, '', new Map());
-      return viewer.showCut({ at: new Vector3(...inWorld(bodyPlace(body), o)), r: Math.max(d / 2 + offset, 0) });
+      const dir = c.kind === 'cylinder' ? new Vector3(...inWorld(bodyPlace(body), c.dir, true)) : undefined;
+      return viewer.showCut({ at: new Vector3(...inWorld(bodyPlace(body), o)), r: Math.max(d / 2 + offset, 0), dir, h: c.kind === 'cylinder' ? c.h : 0 });
     }
     const s = viewer.sketches.find((k) => k.id === c.sketch);
     const q = s?.shapes.find((k) => k.id === c.shape);
@@ -1365,10 +1376,12 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
         const n = new Vector3(...f0.n);
         const per = new Vector3(...f1.o).sub(new Vector3(...f0.o)).dot(n);
         values.offset = Math.abs(per) > 1e-6 ? fmt(p.clone().sub(new Vector3(...f0.o)).dot(n) / per / UNITS[u]) : before;
-      } else if (p && c?.kind === 'sphere') {
-        // a ball: grown or shrunk to reach the point
+      } else if (p && (c?.kind === 'sphere' || c?.kind === 'cylinder')) {
+        // a ball or cylinder: grown or shrunk to reach the point (a cylinder: its distance from the axis)
         const { c: o, d } = resolve(c, lookup, '', new Map());
-        values.offset = fmt((p.distanceTo(new Vector3(...inWorld(bodyPlace(body), o))) - d / 2) / UNITS[u]);
+        const v = p.clone().sub(new Vector3(...inWorld(bodyPlace(body), o)));
+        if (c.kind === 'cylinder') v.projectOnPlane(new Vector3(...inWorld(bodyPlace(body), c.dir, true)));
+        values.offset = fmt((v.length() - d / 2) / UNITS[u]);
       } else if (p && s && line?.kind === 'line') {
         // a line: the point's distance from it in the sketch's plane, on its left positive (the way the offset moves it)
         const [x, y] = uvOf(s.frame, p);

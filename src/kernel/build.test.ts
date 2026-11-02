@@ -127,6 +127,11 @@ describe('buildBody', () => {
     const outer = built([base(100), ball(-1)]);
     expect(outer.box.width).toBeCloseTo(100, 3);
     outer.done();
+    // a cylinder Ø 20 up through the plate: inside it a disc Ø 20, as thick as the plate
+    const pin = built([base(100), { id: 's', type: 'split', cutter: { kind: 'cylinder', c: [0, 0, -10], dir: [0, 0, 1], h: 30, d: 20, offset: 0 }, side: 1 } as BuildFeature]);
+    expect(pin.box.width).toBeCloseTo(20, 1);
+    expect(pin.box.bounds.map((b) => +b[2].toFixed(3))).toEqual([0, 4]);
+    pin.done();
   });
 
   it('cuts a blind pocket into the top face', () => {

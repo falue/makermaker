@@ -989,14 +989,20 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The cut tool's cutting surfaces (quads, 4 world corners each, with their outlines; or a ball; null: gone): red, half see-through. */
-  showCut(quads: THREE.Vector3[][] | { at: THREE.Vector3; r: number } | null) {
+  /**
+   * The cut tool's cutting surfaces (quads, 4 world corners each, with their outlines; a ball around `at`; with `dir`, a
+   * cylinder from `at` `h` mm along it; null: gone): red, half see-through.
+   */
+  showCut(quads: THREE.Vector3[][] | { at: THREE.Vector3; r: number; dir?: THREE.Vector3; h?: number } | null) {
     for (const o of this.cutMark.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
     this.cutMark.clear();
     if (quads && !Array.isArray(quads)) {
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(quads.r, 48, 24), new THREE.MeshBasicMaterial({ color: 0xe5484d, transparent: true, opacity: 0.25, depthWrite: false }));
-      ball.position.copy(quads.at);
-      this.cutMark.add(ball);
+      const { at, r, dir, h = 0 } = quads;
+      const geo = dir ? new THREE.CylinderGeometry(r, r, h, 48) : new THREE.SphereGeometry(r, 48, 24);
+      const solid = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xe5484d, transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide }));
+      solid.position.copy(at);
+      if (dir) solid.position.addScaledVector(dir, h / 2), solid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); // three's cylinder: centred, along y
+      this.cutMark.add(solid);
     } else if (quads) {
       const tris = quads.flatMap(([p, q, r, s]) => [p, q, r, p, r, s]);
       const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints(tris), new THREE.MeshBasicMaterial({ color: 0xe5484d, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }));

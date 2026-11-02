@@ -978,7 +978,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
     case 'step':
       return h('section', {}, h('h4', {}, 'STEP solid', remove), h('p', { className: 'hint' }, `Imported from ${feature.source}`));
     case 'split': {
-      // which side stays; a plane's turn and offset, a ball's size, or the shape it cuts along
+      // which side stays; a plane's turn and offset, a ball's or cylinder's size, or the shape it cuts along
       const c = feature.cutter;
       const side = select(String(feature.side) as '1' | '-1', { '1': 'Cut: keep side A', '-1': 'Cut: keep side B' }, (v) => setFeature({ ...feature, side: v === '1' ? 1 : -1 }));
       const sketch = c.kind === 'shape' ? ctx.doc.sketches.find((k) => k.id === c.sketch) : undefined;
@@ -986,8 +986,8 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const what =
         c.kind === 'plane'
           ? h('div', { className: 'row' }, f('cutter.offset', 'Offset'), exprField(ctx, `${at}.cutter.turn`, 'Turn °', true))
-          : c.kind === 'sphere'
-            ? h('div', { className: 'row' }, f('cutter.d', 'Ball Ø'), f('cutter.offset', 'Offset'))
+          : c.kind === 'sphere' || c.kind === 'cylinder'
+            ? h('div', { className: 'row' }, f('cutter.d', c.kind === 'sphere' ? 'Ball Ø' : 'Cylinder Ø'), f('cutter.offset', 'Offset'))
             : h('div', { className: 'row' }, h('span', { className: 'hint' }, shape ? `Along ${sketch!.name}: ${shape.kind}` : 'Its cutting shape was deleted'), ...(shape?.kind === 'line' ? [f('cutter.offset', 'Offset')] : []));
       return h('section', {}, h('h4', {}, side, remove), what);
     }

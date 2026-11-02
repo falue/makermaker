@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
+import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeCylinder, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
 import { add, cutPlane, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { beside, centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
@@ -374,12 +374,13 @@ function split(shape: Shape3D | null, s: Of<'split'>): Shape3D {
   }
 }
 
-/** The solid on the cutter's kept side (+1), `far` mm beyond everything: past a plane, left of a line, inside a shape or ball. */
+/** The solid on the cutter's kept side (+1), `far` mm beyond everything: past a plane, left of a line, inside a shape, ball or cylinder. */
 function cutterSide(c: Of<'split'>['cutter'], far: number): Shape3D {
   if (c.kind === 'shape') throw new Error('its cutting shape is not found');
-  if (c.kind === 'sphere') {
-    if (c.d / 2 + c.offset <= 0) throw new Error('the ball has no size');
-    return makeSphere(c.d / 2 + c.offset).translate(...c.c);
+  if (c.kind === 'sphere' || c.kind === 'cylinder') {
+    const r = c.d / 2 + c.offset;
+    if (r <= 0) throw new Error(`the ${c.kind === 'sphere' ? 'ball' : 'cylinder'} has no size`);
+    return c.kind === 'sphere' ? makeSphere(r).translate(...c.c) : makeCylinder(r, c.h, c.c, c.dir);
   }
   if (c.kind === 'plane') {
     const f = cutPlane(c);

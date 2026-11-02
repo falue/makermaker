@@ -117,13 +117,13 @@ export type Feature =
  * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the
  * other) of a plane (body-local through `o`, normal `n`, `x` along it; moved `offset` along its normal, then turned
  * `turn` degrees around `axis`: a line through `at` along `dir`, none: its own x through its moved `o`), of a sketch shape cut straight through along its sketch's normal (linked;
- * a line moved `offset` to its left), or of a ball (side 1: its inside; centre `c` body-local, diameter `d`, its
- * radius grown by `offset`).
+ * a line moved `offset` to its left), or of a ball or cylinder (side 1: its inside; body-local, a ball centred on `c`,
+ * a cylinder from `c` `h` mm along `dir`; diameter `d`, its radius grown by `offset`).
  */
 export interface SplitFeature {
   id: string;
   type: 'split';
-  cutter: { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; n: [number, number, number]; turn: Expr; axis: { at: [number, number, number]; dir: [number, number, number] } | null; offset: Expr } | { kind: 'shape'; sketch: string; shape: string; offset: Expr } | { kind: 'sphere'; c: [number, number, number]; d: Expr; offset: Expr };
+  cutter: { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; n: [number, number, number]; turn: Expr; axis: { at: [number, number, number]; dir: [number, number, number] } | null; offset: Expr } | { kind: 'shape'; sketch: string; shape: string; offset: Expr } | { kind: 'sphere'; c: [number, number, number]; d: Expr; offset: Expr } | { kind: 'cylinder'; c: [number, number, number]; dir: [number, number, number]; h: number; d: Expr; offset: Expr };
   side: 1 | -1;
 }
 
