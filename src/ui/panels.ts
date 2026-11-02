@@ -1,7 +1,7 @@
 import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { getIn, setIn } from '../doc/resolve';
 import { ex, newFinish } from '../doc/sample';
-import { ownerOf, sketchesOf, tree, type Row } from '../doc/groups';
+import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
 import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
@@ -485,9 +485,7 @@ function left(ctx: UIContext): Node[] {
     const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
     // a plain click draws into it: sketch mode, looking at its plane
     const item = listItem(sk.id, selectedClass(sk.id), (how) => (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']), ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
-    // whose it is: the body extruded from it, else the body it lies on; none: free
-    const extruded = owner?.features.some((f) => f.type === 'extrude' && f.source.kind === 'sketch' && f.source.sketch === sk.id);
-    item.title = `Sketch: ${sk.name} · ${!owner ? 'a free sketch: it belongs to no object (nothing is extruded from it, it lies on no face)' : extruded ? `belongs to ${owner.name}, which is extruded from it` : `belongs to ${owner.name}: it lies on its face`} · click to draw into it`;
+    item.title = `Sketch: ${sk.name} · ${whose(doc, sk.id)} · click to draw into it`;
     return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye(['sketches', String(i), 'visible'], sk.visible));
   });
   const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'));

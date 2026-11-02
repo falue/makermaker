@@ -821,15 +821,15 @@ export class Viewer implements ToolView {
 
   /**
    * Sketch mode inside sketch group `focus.sketch`, sub-group `focus.group` (null: none open): bodies and other shapes
-   * faint; `crumbs` names the way down (clicking one goes there, `go(level)`).
+   * faint; `crumbs` shows the way down with a hover text each (clicking one goes there, `go(level)`).
    */
-  setFocus(focus: { sketch: string; group: string | null } | null, crumbs: string[] = [], go: (level: number) => void = () => {}) {
+  setFocus(focus: { sketch: string; group: string | null } | null, crumbs: { label: string; title: string }[] = [], go: (level: number) => void = () => {}) {
     this.focus = focus;
     this.crumbs.hidden = !crumbs.length;
     this.crumbs.replaceChildren(
-      ...crumbs.flatMap((name, i) => [
+      ...crumbs.flatMap(({ label, title }, i) => [
         ...(i ? [Object.assign(document.createElement('span'), { className: 'sep', textContent: '›' })] : []),
-        Object.assign(document.createElement('button'), { textContent: name, className: i === crumbs.length - 1 ? 'here' : '', title: i === crumbs.length - 1 ? 'You are here' : `Back to ${name}`, onclick: () => go(i) }),
+        Object.assign(document.createElement('button'), { textContent: label, className: i === crumbs.length - 1 ? 'here' : '', title, onclick: () => go(i) }),
       ]),
     );
     for (const id of this.bodies.keys()) this.dress(id);

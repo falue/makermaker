@@ -9,7 +9,7 @@ import { alignment, area, bounds, corners, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { contents, ownerOf, tree, within } from './doc/groups';
+import { contents, ownerOf, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
@@ -1375,8 +1375,16 @@ let focused = '';
 function syncFocus() {
   const s = history.current.sketches.find((x) => x.id === sketching);
   if (s) sketchPath = sketchPath.filter((id) => s.groups.some((g) => g.id === id)); // sub-groups undone meanwhile
-  const crumbs = s ? [s.name, ...sketchPath.map((id) => s.groups.find((g) => g.id === id)?.name ?? '?')] : [];
-  const key = `${sketching} ${sketchPath.join()} ${crumbs.join('›')}`;
+  const doc = history.current;
+  const names = s ? sketchPath.map((id) => s.groups.find((g) => g.id === id)?.name ?? '?') : [];
+  // the sketch group, then the open sub-groups; each says what it is and how to get back to it
+  const crumbs = s
+    ? [
+        { label: `Sketch: ${s.name}`, title: `Sketch: ${s.name} · ${whose(doc, s.id)} · ${names.length ? 'click to go back to it' : 'Esc leaves it'}` },
+        ...names.map((name, i) => ({ label: name, title: `Sub-group ${name} of ${i ? names[i - 1] : s.name} · ${i < names.length - 1 ? 'click to go back to it' : 'Esc goes up a level'}` })),
+      ]
+    : [];
+  const key = `${sketching} ${sketchPath.join()} ${crumbs.map((c) => c.title).join('›')}`;
   if (key === focused) return;
   focused = key;
   viewer.setFocus(s ? { sketch: s.id, group: sketchPath.at(-1) ?? null } : null, crumbs, (level) => {
