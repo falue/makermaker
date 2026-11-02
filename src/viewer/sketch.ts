@@ -10,6 +10,7 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { comboText, KEYS, MAC, mod, pressed } from '../ui/keys';
+import { keepInside } from '../ui/inside';
 
 export type ToolKind = 'rect' | 'circle' | 'ngon' | 'polygon' | 'line' | 'sphere';
 export type { DrawnProfile };
@@ -1007,14 +1008,9 @@ export class SketchTool implements Tool {
       if (depth) this.solid(ph.shapes, f, depth);
       label('Depth', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), true);
     }
-    const r = this.view.el.getBoundingClientRect();
-    const els = labels.map(([text, at, active]) => {
-      const [x, y] = this.view.toScreen(at);
-      const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text });
-      el.style.cssText = `left:${Math.min(Math.max(x, 0), r.width)}px;top:${Math.min(Math.max(y, 0), r.height)}px`;
-      return el;
-    });
+    const els = labels.map(([text, , active]) => Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text }));
     this.labels.replaceChildren(...els);
+    labels.forEach(([, at], i) => keepInside(els[i], ...this.view.toScreen(at)));
     if (angle) this.angleLabel(angle, els);
     this.view.render();
   }
@@ -1058,7 +1054,7 @@ export class SketchTool implements Tool {
       ...[1.6, 2.4, 3.4].flatMap((k) => [0.5, 0.9, 1.4].flatMap((d) => [at(a0 - s * d, k * ARC_PX), at(a1 + s * d, k * ARC_PX)])),
     ];
     const [px, py] = spots.find(fits) ?? spots[0];
-    el.style.cssText = `left:${px}px;top:${py}px`;
+    keepInside(el, px, py);
   }
 
   /** Translucent extrusion of the shapes; shapes inside an odd number of others are holes. */

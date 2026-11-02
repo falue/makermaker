@@ -25,6 +25,7 @@ import { axisHtml } from '../ui/axes';
 import type { Settings } from '../ui/settings';
 import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 import { picksFace, pressed, toggles } from '../ui/keys';
+import { keepInside } from '../ui/inside';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -2177,7 +2178,7 @@ export class Viewer implements ToolView {
   private label(text: string, at: THREE.Vector3) {
     const [x, y] = this.toScreen(at);
     Object.assign(this.moveLabel, { hidden: false, innerHTML: axisHtml(text) });
-    this.moveLabel.style.cssText = `left:${x + 60}px;top:${y + 40}px`;
+    keepInside(this.moveLabel, x + 60, y + 40);
   }
 
   /** Resizes (incase-style: Alt from the middle, Shift proportional, Ctrl precise, typed sizes) or turns (1°; Shift 15°, Ctrl 0.1°) the shape. */

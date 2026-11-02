@@ -23,11 +23,13 @@ import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, type Action } from './ui/keys';
 import { installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
+import { keepInside } from './ui/inside';
 import { SketchTool, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import { Viewer, type FinishPick, type PickedFace, type PickedPart, type Vec3 } from './viewer/viewer';
 
-const tips = installTooltips();
+// over the 3D view, the pointer's note stays inside it
+const tips = installTooltips(500, () => document.getElementById('viewport')!.getBoundingClientRect());
 // a calculation's result: turns in degrees, sides and scales bare, else lengths in the document's units
 installCompletion(
   () => Object.keys(history.current.params),
@@ -949,8 +951,13 @@ function moveAlong(first: number, all = false) {
   const fields: (HTMLInputElement | null)[] = [null, null, null];
   const box = Object.assign(document.createElement('div'), { className: 'axis-move' });
   const at = viewer.pointer() ?? { x: innerWidth / 2, y: innerHeight / 2 };
-  box.style.cssText = `left:${at.x + 14}px;top:${at.y + 14}px`;
   document.body.append(box);
+  // hanging from the pointer, inside the 3D view (again whenever the fields grow)
+  const inView = new ResizeObserver(() => {
+    const r = viewer.el.getBoundingClientRect();
+    keepInside(box, at.x + 14, at.y + 14, false, [r.left, r.top, r.right, r.bottom]);
+  });
+  inView.observe(box);
   /** The move so far (null: a value is not a distance); empty axes stay. */
   const by = () => {
     const mm = fields.map((f) => (f?.value.trim() ? length(f.value) : 0));
@@ -984,6 +991,7 @@ function moveAlong(first: number, all = false) {
   const close = () => {
     if (closed) return;
     closed = true;
+    inView.disconnect();
     box.remove();
     removeEventListener('pointerup', refocus, true);
     tips.cursorTip(null);

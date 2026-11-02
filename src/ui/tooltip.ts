@@ -3,7 +3,7 @@
  * while a button is held. Titles move into data-tip on first hover, so the browser's own tooltip never shows.
  * `cursorTip` shows a note that follows the pointer at once (e.g. what a key does now).
  */
-export function installTooltips(delay = 500) {
+export function installTooltips(delay = 500, within?: () => DOMRect) {
   const tip = Object.assign(document.createElement('div'), { className: 'tooltip', hidden: true });
   const follow = Object.assign(document.createElement('div'), { className: 'tooltip follow', hidden: true });
   document.body.append(tip, follow);
@@ -13,8 +13,12 @@ export function installTooltips(delay = 500) {
 
   const place = (el: HTMLElement) => {
     const { offsetWidth: w, offsetHeight: h } = el;
-    el.style.left = `${Math.min(pointer.x + 14, innerWidth - w - 8)}px`;
-    el.style.top = `${pointer.y + 18 + h > innerHeight ? pointer.y - h - 10 : pointer.y + 18}px`;
+    // the pointer's note stays inside `within` while the pointer is in it, else in the window
+    const area = el === follow ? within?.() : undefined;
+    const inside = area && pointer.x >= area.left && pointer.x <= area.right && pointer.y >= area.top && pointer.y <= area.bottom;
+    const [l, t, r, b] = inside ? [area.left, area.top, area.right, area.bottom] : [0, 0, innerWidth, innerHeight];
+    el.style.left = `${Math.max(l + 8, Math.min(pointer.x + 14, r - w - 8))}px`;
+    el.style.top = `${Math.max(t + 8, pointer.y + 18 + h > b ? pointer.y - h - 10 : pointer.y + 18)}px`;
   };
   const hide = () => {
     clearTimeout(timer);

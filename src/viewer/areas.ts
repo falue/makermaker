@@ -4,6 +4,7 @@ import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
 import { planeHit, pullBy, uvOf, type PullStart, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
+import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click areas to pick them (again to drop) · double-click picks everything inside a shape · [Enter] or [E] pulls the picked areas · [Esc] cancels';
@@ -214,8 +215,8 @@ export class AreaTool implements Tool {
       const [x, y] = this.view.toScreen(at);
       const p = this.pull;
       const el = Object.assign(document.createElement('div'), { className: 'size-label active', textContent: `Depth ${p.typed === undefined ? depth.toFixed(2) : `${p.typed}▏`}` });
-      el.style.cssText = `left:${x}px;top:${y}px`;
       this.labels.append(el);
+      keepInside(el, x, y);
     }
     this.view.render();
   }

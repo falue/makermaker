@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { V3 } from '../doc/frames';
 import { pullBy, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
+import { keepInside } from '../ui/inside';
 
 const HINT = 'Move to push or pull the face · [Shift] coarse · [Ctrl] precise · type a distance · [T] to object · click or [Enter]: done · [Esc] puts it back';
 
@@ -111,8 +112,8 @@ export class FacePullTool implements Tool {
       className: 'size-label active',
       textContent: this.look.label(this.value(), this.typed),
     });
-    el.style.cssText = `left:${x}px;top:${y}px`;
     this.labels.replaceChildren(el);
+    keepInside(el, x, y);
     this.view.render();
   }
 }
