@@ -331,6 +331,21 @@ export class Viewer implements ToolView {
       if (f) this.host.pickFinish({ body: hit.object.userData.bodyId, feature: f.feature, mid: null });
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // Ctrl+click on macOS would open it
+    // scrolling sideways (trackpad, Shift+wheel) pans sideways; up and down stays the orbit controls' zoom
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const by = this.screenDir(1, 0).multiplyScalar(e.deltaX / this.pixelsPerMm(this.controls.target));
+        this.camera.position.add(by);
+        this.controls.target.add(by);
+        this.controls.update();
+        this.render();
+      },
+      { capture: true, passive: false },
+    );
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement || !this.locked) return;
       this.locked = false;
