@@ -134,6 +134,8 @@ export function pullBy(view: ToolView, e: PointerEvent, normal: V3, middle: THRE
 export interface ToolHost {
   /** A typed size in mm (expressions and units allowed), or null if invalid. */
   length(text: string): number | null;
+  /** A length (mm) as shown, in the document's units. */
+  lengthText(mm: number): string;
   /** A finished action (null: cancelled or stopped). After a flat shape the tool goes on. */
   done(result: SketchResult | null): void;
   hint(text: string): void;
@@ -154,6 +156,8 @@ type Phase =
   | { kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[]; raw: number; depth: number; typed: string | undefined };
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
+/** A point the pointer snaps to (plane coordinates), what it is, and the outline it belongs to; a body corner keeps where it is (world). */
+type SnapPoint = { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3 };
 /** A line the pointer snaps to (world segments); sketch outlines keep their shape and sketch. */
 type SnapLine = { segs: Segment[]; what: string; shape?: { p: ViewSketch['shapes'][number]; sketch: ViewSketch } };
 const AXIS_NAME: Record<BasePlane, string> = { xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
@@ -376,8 +380,8 @@ export class SketchTool implements Tool {
    * every visible sketch; the middles of straight body edges; body corners and sphere centres (their edges are looked
    * up when snapped). Only points in the plane drawn on: one off it would snap to its projection, away from what it is.
    */
-  private snapPoints(t: Target, lines: SnapLine[]): { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3 }[] {
-    const pts: { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3 }[] = [{ at: [0, 0], what: 'origin' }];
+  private snapPoints(t: Target, lines: SnapLine[]): SnapPoint[] {
+    const pts: SnapPoint[] = [{ at: [0, 0], what: 'origin' }];
     const add = (v: THREE.Vector3, what: string, line?: Segment[], corner?: THREE.Vector3) => inPlane(t.frame, v) && pts.push({ at: uvOf(t.frame, v), what, line, corner });
     for (const { segs, shape } of lines) {
       if (!shape) {
@@ -453,7 +457,7 @@ export class SketchTool implements Tool {
     const r = this.view.el.getBoundingClientRect();
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
     const lines = this.snapLines();
-    let near: ReturnType<SketchTool['snapPoints']>[number] | undefined;
+    let near: SnapPoint | undefined;
     let nearest = px;
     for (const q of this.snapPoints(t, lines)) {
       const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...q.at)));
@@ -463,6 +467,11 @@ export class SketchTool implements Tool {
     this.snapLine = null;
     this.snapped = near ? v3(toWorld(t.frame, ...near.at)) : null;
     this.snapWhat = near?.what ?? null;
+    if (near?.what === '1/2') {
+      const [a, b] = near.line![0]; // a middle lights its own side: each half is half of it
+      const half = this.host.lengthText(a.distanceTo(b) / 2);
+      this.snapWhat = `1/2 (${half} | ${half})`;
+    }
     if (near) {
       this.snapLine = near.line ?? null;
       const c = near.corner;

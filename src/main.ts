@@ -806,6 +806,7 @@ function stopTool() {
 
 const toolHost: ToolHost = {
   length,
+  lengthText: (mm) => `${+(mm / UNITS[history.current.units]).toFixed(2)}${history.current.units}`,
   /**
    * Tools stay on until Esc: in sketch mode a shape stays flat and the tool goes on; a direct shape left flat enters
    * sketch mode on its sketch, a pulled one starts the tool again; after a pull (E) the next face can be picked. A
