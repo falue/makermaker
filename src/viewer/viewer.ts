@@ -409,9 +409,7 @@ export class Viewer implements ToolView {
     });
     canvas.addEventListener('dblclick', (e) => {
       if (this.tool) return this.tool.dblclick(e);
-      // Ctrl near an edge: its loop; on a sketch shape: into its sketch group; on a finish face: the whole finish
-      const loop = this.focus || !picksFace(e) ? null : this.edgeLoop(e);
-      if (loop) return this.host.select(loop.body, false), this.pickEdges(loop);
+      // on a sketch shape: into its sketch group; on a finish face: the whole finish (an edge loop: a double Ctrl press, see down)
       const hit = this.frontHit(e);
       const shape = this.shapeAt(this.ray(e), this.focus ? undefined : hit?.distance);
       if (shape) return this.host.enterShape(shape.sketch, shape.shape);
@@ -492,6 +490,8 @@ export class Viewer implements ToolView {
   /** An edge picked with Ctrl-click (world segments), lit until its body is no longer selected. */
   private pickedEdge: { body: string; edges: [THREE.Vector3, THREE.Vector3][][] } | null = null;
   private edgeMark = new THREE.Group();
+  /** The last Ctrl press (time, client px), for telling a double one. */
+  private lastPick: { t: number; x: number; y: number } | null = null;
   /** The open sketch group and sub-group (sketch mode): bodies see-through (except `solid` ones), other shapes faint. */
   private focus: { sketch: string; group: string | null; solid: Set<string> } | null = null;
   private faded = new Map<string, THREE.MeshStandardMaterial>();
@@ -1893,6 +1893,12 @@ export class Viewer implements ToolView {
       return this.startShapeMove(ray.ray, shape.sketch, member && this.selectedShapes.length > 1 ? shape.shape : null, e);
     }
     if (picksFace(e)) {
+      // a second press soon after near the first: the edge loop (counted here: on a Mac a Ctrl-click sends no dblclick)
+      const now = performance.now();
+      const again = !!this.lastPick && now - this.lastPick.t < 400 && Math.hypot(e.clientX - this.lastPick.x, e.clientY - this.lastPick.y) < 5;
+      this.lastPick = again ? null : { t: now, x: e.clientX, y: e.clientY };
+      const loop = again ? this.edgeLoop(e) : null;
+      if (loop) return this.host.select(loop.body, false), this.pickEdges(loop);
       // an edge near the pointer, else the face: its body selected and the part lit (a face: E pulls it, S sketches on it)
       const edge = this.edgeAt(e);
       if (!edge && !hit) return;
