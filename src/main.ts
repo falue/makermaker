@@ -169,6 +169,43 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     render();
   },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
+  dragEdges(body, edges) {
+    const before = history.current;
+    const i = before.bodies.findIndex((b) => b.id === body);
+    if (i < 0) return;
+    // the edges in body coordinates (the finish runs there), as polylines
+    const pl = bodyPlace(body);
+    const pts = edges.map((segs) => [segs[0][0], ...segs.map((s) => s[1])].map((v) => unplaced(pl, v.toArray()).map((x) => +x.toFixed(4)) as [number, number, number]));
+    const id = newId();
+    const apply = (mm: number) =>
+      setIn(before, ['bodies', String(i), 'features'], [...before.bodies[i].features, { id, type: 'finish', mode: mm >= 0 ? 'fillet' : 'chamfer', size: len(Math.max(Math.abs(mm), 0.1)), edges: { pts }, enabled: true, baked: false, skip: [] } satisfies Feature]);
+    const [a, b] = edges[0][Math.floor(edges[0].length / 2)];
+    let pushed = false;
+    viewer.startFacePull(
+      toolHost,
+      viewer.screenDir(0, 1).toArray(),
+      a.clone().lerp(b, 0.5),
+      (mm, phase) => {
+        if (phase === 'cancel') {
+          if (pushed) history.undo();
+          stopTool();
+          return update();
+        }
+        if (pushed || Math.abs(mm) >= 0.1) {
+          if (pushed) history.replace(apply(mm));
+          else history.push(apply(mm));
+          pushed = true;
+          update();
+        }
+        if (phase === 'done') stopTool(), render();
+      },
+      {
+        hint: 'Drag up: fillet, down: chamfer · [Ctrl] snaps · type a size (minus: chamfer) · release or [Enter]: done · [Esc] puts it back',
+        label: (mm, typed) => `${mm >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(mm).toFixed(2) : `${typed}▏`}`,
+        endOnUp: true,
+      },
+    );
+  },
   enterShape(sketch, shape) {
     const s = history.current.sketches.find((x) => x.id === sketch);
     const q = s?.shapes.find((x) => x.id === shape);
@@ -1457,7 +1494,13 @@ function render() {
     busy: [...[...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => `Reading ${r.name}`), ...busy],
     shapes: shapeSel,
     active: pending?.tool ?? (extrudePick || (toolMode === 'pull' && !viewer.activeTool) ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
-    hint: toolHint ?? (finishSel ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish` : null),
+    hint:
+      toolHint ??
+      (finishSel
+        ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
+        : pickedPart?.kind === 'edge'
+          ? 'Drag a picked edge up: fillet, down: chamfer · [Ctrl]-click another edge, double-click: its loop · [Esc] deselect'
+          : null),
     autosave,
     notify: fail,
     statusError,

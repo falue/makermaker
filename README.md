@@ -34,10 +34,11 @@ MAKERMAKER is young: some parts are proofs of concept, see [STATUS.md](STATUS.md
 ## Why not Fusion 360?
 Inconsistent tools, fragile semantics, poor interoperability/lock-in, and geometry editing that is much less direct than it ought to be, too much state/history management where no history is wiscalledhed for..
 - No subscription, no account, no cloud: Your designs are files on your disk, and it works offline.
+- Consistent user interfaces
+- Less clicking: Tools stay on until ESC, works tool first or object first, values are typed in place without dialogs
+- Select an object that is BEHIND the thing in front
 - The view cube does not freak out.
-- Less clicking: tools stay on until ESC, works tool first or object first, values are typed in place without dialogs, and autosave writes the file a moment after each change.
-- consistent user interfaces
-- A render pipeline that actually works: queued renders of saved views, automatic download, a history of results per view, and one click to render a view again with the model as it is now.
+- A render pipeline that actually works: Queued renders of saved views, automatic download, a history of results per view, and one click to render a view again with the model as it is now.
 - Actual keyboard controls
 - Hotkey editing: soon!
 - Smart and automatic exports for laser cutters, 3d printers

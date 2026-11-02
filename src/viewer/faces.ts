@@ -5,9 +5,14 @@ import { pressed } from '../ui/keys';
 
 const HINT = 'Move to push or pull the face · [Ctrl] snaps · type a distance · click or [Enter]: done · [Esc] puts it back';
 
+/** What a pull shows and how it ends: its hint, its label at the pointer, and whether releasing the button finishes it. */
+export type PullLook = { hint: string; label: (mm: number, typed?: string) => string; endOnUp?: boolean };
+
+const FACE: PullLook = { hint: HINT, label: (mm, typed) => `Face ${typed === undefined ? `${mm >= 0 ? '+' : ''}${mm.toFixed(2)}` : `${typed}▏`}` };
+
 /**
- * Pulls a face along its outward normal `n`: reports the distance (mm, outwards positive) live, then once more when
- * done or cancelled (0).
+ * Pulls a face along its outward normal `n` (or anything along a direction): reports the distance (mm, along `n`
+ * positive) live, then once more when done or cancelled (0).
  */
 export class FacePullTool implements Tool {
   readonly kind = null;
@@ -22,11 +27,12 @@ export class FacePullTool implements Tool {
     private n: V3,
     private at: THREE.Vector3,
     private onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void,
+    private look: PullLook = FACE,
   ) {
     view.el.append(this.labels);
     view.unflatten(new THREE.Vector3(...n));
     view.lockPointer();
-    host.hint(HINT);
+    host.hint(look.hint);
     this.update();
   }
 
@@ -49,7 +55,9 @@ export class FacePullTool implements Tool {
     this.update();
   }
 
-  up() {}
+  up() {
+    if (this.look.endOnUp) this.finish('done');
+  }
 
   refresh() {
     this.update();
@@ -84,7 +92,7 @@ export class FacePullTool implements Tool {
     const [x, y] = this.view.toScreen(this.at.clone().addScaledVector(new THREE.Vector3(...this.n), this.value()));
     const el = Object.assign(document.createElement('div'), {
       className: 'size-label active',
-      textContent: `Face ${this.typed === undefined ? `${this.value() >= 0 ? '+' : ''}${this.value().toFixed(2)}` : `${this.typed}▏`}`,
+      textContent: this.look.label(this.value(), this.typed),
     });
     el.style.cssText = `left:${x}px;top:${y}px`;
     this.labels.replaceChildren(el);

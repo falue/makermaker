@@ -16,7 +16,7 @@ import { inGroup } from '../doc/shapegroups';
 import { anchorAt, angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
 import type { AreaMesh } from '../kernel/build';
 import { AreaTool } from './areas';
-import { FacePullTool } from './faces';
+import { FacePullTool, type PullLook } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
@@ -51,6 +51,8 @@ export interface ViewerHost {
   pickFinish(sel: FinishPick | null): void;
   /** A length in mm, as shown to the user. */
   format(mm: number): string;
+  /** A press on picked edges (world segments per edge): drag a fillet or chamfer onto them. */
+  dragEdges(body: string, edges: [THREE.Vector3, THREE.Vector3][][]): void;
   /** A double-click on a sketch shape: open its sketch group, down to its sub-group. */
   enterShape(sketch: string, shape: string): void;
   /** A face or edges picked (Ctrl-click; double-click: an edge loop), with the area (mm²) or length (mm), the edge count and one circle's Ø; null: none any more. */
@@ -514,9 +516,9 @@ export class Viewer implements ToolView {
   }
 
   /** Pushes or pulls a face along its outward normal `n` from `at` (E on a face). */
-  startFacePull(host: ToolHost, n: Vec3, at: THREE.Vector3, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void) {
+  startFacePull(host: ToolHost, n: Vec3, at: THREE.Vector3, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void, look?: PullLook) {
     this.stopTool();
-    this.tool = new FacePullTool(this, host, n, at, onPull);
+    this.tool = new FacePullTool(this, host, n, at, onPull, look);
     this.toolButtons(true);
   }
 
@@ -1858,6 +1860,17 @@ export class Viewer implements ToolView {
       this.markFace(this.pickedFace ?? undefined);
       const f = this.pickedFace;
       return this.host.pickedPart(f ? { kind: 'face', body: f.object.userData.bodyId, size: faceArea(f) } : null);
+    }
+    // pressing a picked edge drags a fillet (up) or chamfer (down) onto the picked edges
+    const near = this.pickedEdge && !toggles(e) ? this.edgeAt(e) : null;
+    if (near && this.pickedEdge!.edges.some((segs) => segs[0][0].distanceTo(near.segs[0][0]) < 1e-6)) {
+      const { body, edges } = this.pickedEdge!;
+      this.pickedEdge = null; // they turn into the finish
+      this.markEdge();
+      this.host.pickedPart(null);
+      this.host.dragEdges(body, edges);
+      this.toolPress = !!this.tool; // the drag tool gets the release
+      return;
     }
     if (!hit) return;
     const id = hit.object.userData.bodyId as string;

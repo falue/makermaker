@@ -4,7 +4,7 @@ import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
-import type { BasePlane, Body, BooleanOp, Doc, EdgeRule, Expr, Feature, Group, Profile, Unit } from '../doc/types';
+import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml } from './axes';
@@ -942,11 +942,13 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const enabled = h('input', { type: 'checkbox', checked: feature.enabled, title: 'Enabled' });
       enabled.onchange = () => setFeature({ ...feature, enabled: enabled.checked });
       const mode = select(feature.mode, { fillet: 'Fillet', chamfer: 'Chamfer' }, (m) => setFeature({ ...feature, mode: m }));
-      const edges = select<EdgeRule>(
-        feature.edges,
-        { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' },
-        (r) => setFeature({ ...feature, edges: r }),
-      );
+      // picked edges (dragged on the body) keep their pick; a rule can replace it
+      const rules = { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' };
+      const picked = typeof feature.edges === 'object' ? feature.edges.pts.length : 0;
+      const edges =
+        typeof feature.edges === 'object'
+          ? select<keyof typeof rules | 'picked'>('picked', { picked: `Picked edges (${picked})`, ...rules }, (r) => r !== 'picked' && setFeature({ ...feature, edges: r }))
+          : select<keyof typeof rules>(feature.edges, rules, (r) => setFeature({ ...feature, edges: r }));
       const bake = h(
         'button',
         {

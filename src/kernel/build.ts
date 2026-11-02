@@ -340,7 +340,7 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
   const pick = (e: Edge) => rule(e) && !s.skip.some((p) => Math.hypot(...at(e, 0.5).map((v, k) => v - p[k])) < 0.01);
   const picked = shape.edges.filter(pick);
   const count = picked.length;
-  if (!count) throw new Error(`no edges match "${s.edges}"`);
+  if (!count) throw new Error(typeof s.edges === 'object' ? 'the picked edges are gone' : `no edges match "${s.edges}"`);
   for (const e of picked) finishing?.edges.push({ feature: s.id, size: s.size, mid: at(e, 0.5), pts: Array.from({ length: 9 }, (_, i) => at(e, i / 8)) });
   const size = (e: Edge) => (pick(e) ? s.size : null);
   try {
@@ -350,7 +350,12 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
   }
 }
 
-function edgeRule(rule: EdgeRule, bottom: number, top: number, circles: Circle[]): (e: Edge) => boolean {
+function edgeRule(rule: EdgeRule, bottom: number, top: number, circles: Circle[], tol = 0.05): (e: Edge) => boolean {
+  if (typeof rule === 'object') {
+    // picked edges: its ends and middle lie on one of their polylines
+    const lines = rule.pts.map((pts) => pts.flat());
+    return (e) => lines.some((line) => [0, 0.5, 1].every((t) => toLine(e.pointAt(t).toTuple() as V3, line, false) < tol));
+  }
   return (e) => {
     const [[x0, y0, z0], [x1, y1, z1]] = e.boundingBox.bounds;
     const vertical = x1 - x0 < EPS && y1 - y0 < EPS;

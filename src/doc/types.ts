@@ -59,7 +59,8 @@ export interface Sketch {
   visible: boolean;
 }
 
-export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical';
+/** Which edges a finish takes: by rule, or picked ones (`pts`: per edge, points along it in body coordinates). */
+export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical' | { pts: [number, number, number][][] };
 
 /** An area of a sketch: inside all `in` shapes and outside all `out` shapes (shape ids). */
 export interface Area {

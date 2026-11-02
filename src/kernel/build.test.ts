@@ -191,3 +191,26 @@ describe('buildBody', () => {
     }
   });
 });
+
+describe('picked edges', () => {
+  // a 40 × 60 × 4 block: one vertical edge picked by points along it
+  const edge = (x: number, y: number) => [[x, y, 0], [x, y, 2], [x, y, 4]] as [number, number, number][];
+  const one = (mode: 'fillet' | 'chamfer', at = edge(20, 30)): BuildFeature => ({ id: 'p', type: 'finish', mode, size: 2, edges: { pts: [at] }, enabled: true, baked: false, skip: [] });
+
+  it('chamfers only the picked edge', () => {
+    const b = built([base(40), one('chamfer')]);
+    expect(b.faces).toBe(7); // the box's 6 faces and one chamfer
+    b.done();
+  });
+
+  it('fillets only the picked edge', () => {
+    const b = built([base(40), one('fillet')]);
+    expect(b.faces).toBe(7);
+    b.done();
+  });
+
+  it('reports picked edges that are gone', () => {
+    const gone = one('fillet', edge(99, 99));
+    expect(() => buildBody([base(40), gone])).toThrow('picked edges are gone');
+  });
+});
