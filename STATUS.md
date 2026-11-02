@@ -83,6 +83,23 @@ Chromium-based browsers only.
 - Autosave toggle: writes into the open file a moment after each change (Chromium; no history snapshot, ⌘S adds one).
 - Icons and toolbar in incase's style.
 
+## CAD goals
+
+What a basic, fully working CAD tool still needs (2026-11-02), most important first; 1–3 and 7 make it one people can rely on.
+
+1. **More ways to make solids**: revolve (turned parts, knobs, bottles), loft between profiles, later sweep along a path.
+2. **Arcs in sketches**, tangent arcs too: rounded profiles without approximating them.
+3. **Dimensions and basic constraints** (fixed length, parallel, perpendicular, equal, coincident): truly parametric sketches.
+4. **Shell** (hollow a body with a wall thickness, for enclosures) and **draft**.
+5. **Mirror and patterns** (linear, circular) for bodies and features.
+6. **Rotation** with a pivot and axis that snap (see the rotation tool).
+7. **STEP export**: today STEP only comes in, so work cannot go on to other CAD tools or fabricators.
+8. **Edge references that survive edits** (the biggest risk for finishes).
+9. **Measure** between two things (distance, angle); the Info panel measures one.
+10. **Holes as a feature** (counterbore, countersink, later threads) and a **2D drawing / PDF** of a part.
+
+Also: **Flatten** a body (its whole recipe as one fixed solid, kept as STEP data; booleans' tool bodies can go then; lossy, only ⌘Z undoes it), and any body as a cutter in the Cut tool (now: planes, sketch lines and shapes, balls, cylinders).
+
 ## Planned, not built yet
 
 Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order they were asked for.
