@@ -13,7 +13,7 @@ export type Request =
   | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[] }
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
   | { kind: 'export'; format: 'stl' | 'svg'; id: number; bodies: { name: string; features: BuildFeature[]; place: Place }[] };
-export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string };
+export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string; max?: number };
 export type Response = { kind: 'build'; results: BodyResult[] } | { kind: 'areas'; id: number; areas: AreaMesh[] } | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] };
 
 const ready = init({ locateFile: () => wasmUrl }).then(setOC);
@@ -66,7 +66,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
         finishing.base?.delete();
       }
     } catch (err) {
-      return err instanceof FeatureError ? { id, error: err.message, featureId: err.featureId } : { id, error: String(err), featureId: '' };
+      return err instanceof FeatureError ? { id, error: err.message, featureId: err.featureId, max: err.max } : { id, error: String(err), featureId: '' };
     }
   });
   const transfer = results.flatMap((r) => ('mesh' in r ? Object.values(r.mesh).flatMap((a) => (ArrayBuffer.isView(a) ? [a.buffer] : [])) : []));

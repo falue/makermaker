@@ -37,9 +37,11 @@ export interface Finishing {
 }
 
 export class FeatureError extends Error {
+  /** `max`: the largest size that works (a finish too big), for clamping to. */
   constructor(
     readonly featureId: string,
     message: string,
+    readonly max?: number,
   ) {
     super(message);
   }
@@ -342,11 +344,22 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
   const count = picked.length;
   if (!count) throw new Error(typeof s.edges === 'object' ? 'the picked edges are gone' : `no edges match "${s.edges}"`);
   for (const e of picked) finishing?.edges.push({ feature: s.id, size: s.size, mid: at(e, 0.5), pts: Array.from({ length: 9 }, (_, i) => at(e, i / 8)) });
-  const size = (e: Edge) => (pick(e) ? s.size : null);
+  const sized = (v: number) => (s.mode === 'fillet' ? shape.fillet((e) => (pick(e) ? v : null)) : shape.chamfer((e) => (pick(e) ? v : null)));
   try {
-    return s.mode === 'fillet' ? shape.fillet(size) : shape.chamfer(size);
+    return sized(s.size);
   } catch {
-    throw new Error(`${s.mode} on ${count} edges failed (size too large?${s.baked ? '' : ' Bake it to leave edges of later cuts sharp'})`);
+    // too big: the largest size that works (the gap halved 10 times), for clamping to
+    let [lo, hi] = [0, s.size];
+    for (let k = 0; k < 10; k++) {
+      const mid = (lo + hi) / 2;
+      try {
+        sized(mid).delete();
+        lo = mid;
+      } catch {
+        hi = mid;
+      }
+    }
+    throw new FeatureError(s.id, `${s.mode} on ${count} edges failed (size too large?${s.baked ? '' : ' Bake it to leave edges of later cuts sharp'})`, lo || undefined);
   }
 }
 

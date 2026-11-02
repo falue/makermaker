@@ -178,8 +178,9 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     // fillets count up from 0, chamfers down: dragging past 0 turns one into the other
     const mm = evalLength(f.size, paramLookup(before.params));
     const start = f.mode === 'fillet' ? mm : -mm;
+    for (const kind of ['fillet', 'chamfer']) finishMax.delete(`${feature} ${kind}`); // learnt again while dragging
     const apply = (d: number) => {
-      const v = start + d;
+      const v = clamped(feature, start + d);
       const mode = v >= 0 ? 'fillet' : 'chamfer';
       const size = mode === f.mode ? plus(f.size, mm, Math.max(Math.abs(v), 0.1) - mm) : len(Math.max(Math.abs(v), 0.1)); // same kind: the expression stays
       return setIn(before, ['bodies', String(i), 'features', String(j)], { ...f, mode, size });
@@ -206,7 +207,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
       {
         hint: 'Drag up: bigger, down: smaller (past 0 a fillet turns into a chamfer and back) · [Ctrl] snaps · type a change · release or [Enter]: done · [Esc] puts it back',
         label: (d, typed) => {
-          const v = start + d;
+          const v = clamped(feature, start + d);
           return `${v >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(v).toFixed(2) : `${typed}▏`}`;
         },
         endOnUp: true,
@@ -221,8 +222,9 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     const pl = bodyPlace(body);
     const pts = edges.map((segs) => [segs[0][0], ...segs.map((s) => s[1])].map((v) => unplaced(pl, v.toArray()).map((x) => +x.toFixed(4)) as [number, number, number]));
     const id = newId();
+    // sizes stop at the largest the kernel found to fit (learnt while dragging)
     const apply = (mm: number) =>
-      setIn(before, ['bodies', String(i), 'features'], [...before.bodies[i].features, { id, type: 'finish', mode: mm >= 0 ? 'fillet' : 'chamfer', size: len(Math.max(Math.abs(mm), 0.1)), edges: { pts }, enabled: true, baked: false, skip: [] } satisfies Feature]);
+      setIn(before, ['bodies', String(i), 'features'], [...before.bodies[i].features, { id, type: 'finish', mode: mm >= 0 ? 'fillet' : 'chamfer', size: len(Math.max(Math.abs(clamped(id, mm)), 0.1)), edges: { pts }, enabled: true, baked: false, skip: [] } satisfies Feature]);
     const [a, b] = edges[0][Math.floor(edges[0].length / 2)];
     let pushed = false;
     viewer.startFacePull(
@@ -286,7 +288,10 @@ const kernel = new Kernel((r) => {
   if ('mesh' in r) {
     kernelErrors.delete(r.id);
     viewer.setBody(r.id, r.mesh);
-  } else kernelErrors.set(r.id, r); // the viewer keeps the last valid geometry
+  } else {
+    kernelErrors.set(r.id, r); // the viewer keeps the last valid geometry
+    if (r.max) clampFinish(r.id, r.featureId, r.max);
+  }
   render();
 });
 
@@ -827,6 +832,26 @@ function infoOf(): { title: string; rows: [string, string, number?][]; box?: Box
   }
   rows.push(['Volume', num(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', num(m.reduce((n, x) => n + x.area, 0), 2)]);
   return { title: b ? b.name : `${ids.length} bodies`, rows, box };
+}
+
+/** The largest sizes found for finishes that were too big (by feature id and kind, `id fillet`): drags stop there. */
+const finishMax = new Map<string, number>();
+/** A finish size `mm` (fillet positive, chamfer negative) cut to the largest known to fit, a hair under it. */
+const clamped = (feature: string, v: number) => Math.sign(v) * Math.min(Math.abs(v), Math.floor((finishMax.get(`${feature} ${v >= 0 ? 'fillet' : 'chamfer'}`) ?? Infinity) * 100) / 100);
+
+/** A finish too big for its edges: its size becomes the largest that works (in the same undo step). */
+function clampFinish(body: string, feature: string, max: number) {
+  const doc = history.current;
+  const i = doc.bodies.findIndex((b) => b.id === body);
+  const j = doc.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
+  const f = doc.bodies[i]?.features[j];
+  if (f?.type !== 'finish') return;
+  finishMax.set(`${feature} ${f.mode}`, max);
+  const size = Math.floor(max * 100) / 100; // a hair under the limit
+  if (!(size > 0) || size >= evalLength(f.size, paramLookup(doc.params))) return;
+  history.replace(setIn(doc, ['bodies', String(i), 'features', String(j), 'size'], len(size)));
+  update();
+  notify(`${f.mode === 'fillet' ? 'Fillet' : 'Chamfer'} set to ${fmt(size / UNITS[doc.units])} ${doc.units}: the largest that fits`);
 }
 
 /** A fillet / chamfer size set below 0 (`path`, `value`): the finish turns into the other kind, the size positive. */
