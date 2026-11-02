@@ -100,17 +100,17 @@ Chromium-based browsers only.
 
 ## CAD goals
 
-What a basic, fully working CAD tool still needs, most important first (revolve, loft, sweep, shell, mirror, threads, rotation, work planes and STEP export are built, 2026-11-02).
+What a basic, fully working CAD tool still needs, most important first (revolve, loft, sweep, shell, mirror, pattern, linked copies, threads, rotation, work planes and STEP export are built, 2026-11-02).
 
 1. **Arcs in sketches**, tangent arcs too: rounded profiles without approximating them.
 2. **Dimensions and basic constraints** (fixed length, parallel, perpendicular, equal, coincident): truly parametric sketches.
 3. **Edge references that survive edits** (the biggest risk for finishes).
-5. **Measure** between two things (distance, angle); the Info panel measures one.
-6. **Holes as a feature** (counterbore, countersink) and a **2D drawing / PDF** of a part.
-7. **Draft** on faces.
-8. **Rotation rings** on the move gizmo.
-9. **Flatten** a body (its whole recipe as one fixed solid, kept as STEP data; booleans' tool bodies can go then; lossy, only ⌘Z undoes it).
-10. **Any body as a cutter** in the Cut tool (now: planes, sketch lines and shapes, balls, cylinders).
+4. **Measure** between two things (distance, angle); the Info panel measures one.
+5. **Holes as a feature** (counterbore, countersink) and a **2D drawing / PDF** of a part.
+6. **Draft** on faces.
+7. **Rotation rings** on the move gizmo.
+8. **Flatten** a body (its whole recipe as one fixed solid, kept as STEP data; booleans' tool bodies can go then; lossy, only ⌘Z undoes it).
+9. **Any body as a cutter** in the Cut tool (now: planes, sketch lines and shapes, balls, cylinders).
 
 ## Planned, not built yet
 
