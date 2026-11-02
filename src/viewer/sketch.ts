@@ -715,7 +715,8 @@ export class SketchTool implements Tool {
     }
     if (this.dots.length && ph.kind !== 'pull') this.view.overlay.add(marks(this.dots, 0xff8c1a, 7));
     const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'Hold Ctrl to start the line from the end of the last one' : null;
-    const more = this.snapKey ? `Press ${comboText(KEYS.moreSnaps.default[0])} for more points, ${comboText(KEYS.fewerSnaps.default[0])} for fewer` : null;
+    // on a point along a line (not anywhere along it)
+    const more = this.snapKey && !this.snapWhat?.startsWith('on ') ? `Press ${comboText(KEYS.moreSnaps.default[0])} for more points, ${comboText(KEYS.fewerSnaps.default[0])} for fewer` : null;
     this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, more, chain].filter(Boolean).join('\n') || null); // one per line
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
