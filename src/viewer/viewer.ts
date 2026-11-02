@@ -2121,6 +2121,14 @@ export class Viewer implements ToolView {
     const s = this.sketchShapeAt(e, hit);
     const sketch = s ? { sketch: { id: s.sketch.id, at: e, shape: 'q' in s && s.onLine ? s.q.id : undefined } } : {};
     if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), ...sketch });
+    // a body cut open by a section: its cut face (only back faces are hit through it)
+    const behind = this.intersect(this.raycaster(e))[0];
+    const cut = behind && this.cutPlane(e);
+    if (behind && cut) {
+      const n = new THREE.Vector3(...cut.frame.n);
+      const p = this.ray(e).intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n, new THREE.Vector3(...cut.frame.o)), new THREE.Vector3());
+      if (p) return this.endFacePick({ point: p, normal: n.negate(), body: behind.object.userData.bodyId, ...sketch });
+    }
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const k = this.facingAxis();
     this.endFacePick({ point: new THREE.Vector3(), normal: unit(k).multiplyScalar(Math.sign(look.getComponent(k)) || 1), ...sketch });
