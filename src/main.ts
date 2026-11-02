@@ -1216,7 +1216,7 @@ function render() {
     extrude,
     sketching,
     newSketch: startNewSketch,
-    editSketch: (id) => enterSketch(id, null, true),
+    editSketch: (id) => (select(id), enterSketch(id, null, true)),
     exitSketch,
     stopTool: () => (stopTool(), render()),
     align: alignShapes,

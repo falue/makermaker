@@ -58,6 +58,7 @@ export interface UIContext {
   sketching: string | null;
   /** Pick a plane for a new sketch, enter sketch mode on a sketch, leave it, stop the sketch tool. */
   newSketch(): void;
+  /** Sketch mode on the sketch (selected), looking at its plane. */
   editSketch(sketch: string): void;
   exitSketch(): void;
   stopTool(): void;
@@ -453,17 +454,18 @@ function left(ctx: UIContext): Node[] {
     look.oncontextmenu = isolate;
     look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : ctx.commit(setIn(doc, ['bodies', String(i), 'visible'], !p.visible)));
     if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again', innerHTML: icon('isolate') });
-    // its sketches have their own list: this button picks the (first) one
+    // its sketches have their own list: this button draws into the (first) one
     const own = sketchesOf(doc, p.id);
     const sketch = own.length
-      ? h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.select(own[0].id) })
+      ? h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Sketch: ${own.map((q) => q.name).join(', ')} (draw into it)`, onclick: () => ctx.editSketch(own[0].id) })
       : h('span', { className: 'fold-space' });
     return row(id, depth, false, ...fold(r), listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), sketch, look);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
     const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
-    const item = listItem(sk.id, selectedClass(sk.id), (how) => ctx.select(sk.id, how), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']), ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
+    // a plain click draws into it: sketch mode, looking at its plane
+    const item = listItem(sk.id, selectedClass(sk.id), (how) => (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']), ...(owner ? [h('span', { className: 'owner' }, owner.name)] : []));
     return h('div', { className: `listed${dimmed(sk.id)}` }, item, eye(['sketches', String(i), 'visible'], sk.visible));
   });
   const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'));
