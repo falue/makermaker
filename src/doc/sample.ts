@@ -100,7 +100,7 @@ export function sampleDoc(): Doc {
       { id: newId(), type: 'finish', mode: 'fillet', size: ex(2), edges: 'top', enabled: true, baked: false, skip: [] },
     ],
   };
-  const corner = { id: newId(), name: 'Corner pieces', parent: null, visible: true, origin: { kind: 'parent' } as const };
+  const corner = { id: newId(), name: 'A group of objects', parent: null, visible: true, origin: { kind: 'parent' } as const };
   const pin = solid('Pin', '#c7b3dc', [30, 0, -10], [circle(0, 0, 16)], 30);
   const block = solid('Block', '#b8cfa1', [-30, 40, 0], [rect(50, 30)], 25, corner.id);
   const ball: Body = {
