@@ -46,13 +46,16 @@ function edgeTests(): Body[] {
   ];
 }
 
-/** A test piece for booleans: a block with a ball cut into its corner and a cylinder cut through it (shown under it in the list). */
+/** A test piece for booleans: a block with a ball cut into its corner, a cylinder cut through it and a polygon joined on another corner (shown under it in the list). */
 function cutTest(): Body[] {
   const ball: Body = { ...solid('Cut ball', '#d9a98f', [115, -110, 25], [], 0), features: [{ id: newId(), type: 'sphere', x: ex(0), y: ex(0), z: ex(0), d: ex(24) }] };
   const pipe = solid('Cut cylinder', '#a8c0dc', [90, -90, -5], [circle(0, 0, 12)], 35);
+  // a 20 × 20 × 30 polygon on the block's back right corner, joined
+  const square: Profile = { id: newId(), kind: 'polygon', pts: [[-10, -10], [10, -10], [10, 10], [-10, 10]], r: ex(0), rot: ex(0) };
+  const post = { ...solid('Join polygon', '#b8d4a8', [115, -70, 0], [square], 30), visible: false }; // as the boolean tool leaves join tools
   const block = solid('Cut block', '#e0c9a0', [90, -90, 0], [rect(50, 40)], 25);
-  const cut = (tool: Body) => ({ id: newId(), type: 'boolean' as const, op: 'subtract' as const, body: tool.id });
-  return [{ ...block, features: [...block.features, cut(ball), cut(pipe)] }, ball, pipe];
+  const op = (tool: Body, op: 'subtract' | 'union') => ({ id: newId(), type: 'boolean' as const, op, body: tool.id });
+  return [{ ...block, features: [...block.features, op(ball, 'subtract'), op(pipe, 'subtract'), op(post, 'union')] }, ball, pipe, post];
 }
 
 /**
