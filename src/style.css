@@ -1449,19 +1449,6 @@ input[type='range']:active {
   box-shadow: none;
 }
 
-/* the align menu: per axis min, middle, max, distribute; then middle on first */
-.flyout.align-menu {
-  display: grid;
-  grid-template-columns: repeat(4, auto);
-}
-.flyout.align-menu .menu-item {
-  white-space: nowrap;
-  font-size: 12px;
-  padding: 3px 8px;
-}
-.flyout.align-menu .menu-item:last-child {
-  grid-column: 1 / -1;
-}
 
 /* a work plane in the list: a green square */
 .plane-swatch {
@@ -1485,4 +1472,98 @@ input[type='range']:active {
   height: 13px;
   fill: none;
   stroke: currentColor;
+}
+
+/* ✓ (keep it): filled green */
+button.ok {
+  background: #2e9e4f;
+  border-color: #2e9e4f;
+  color: #fff;
+}
+button.ok:hover {
+  background: #268742;
+}
+
+/* To object (and Set axis) joined to the field it fills: one piece */
+input:has(+ .to-object),
+.to-object:has(+ .set-axis) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+input + .to-object,
+.to-object + .set-axis {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -7px; /* over the panels' 6 px gap, the borders on top of each other */
+}
+
+/* checkboxes in the panels: beside their words */
+.axis-move input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+.axis-move label,
+.axis-move label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* icons in two greys: the shape, its dashed (secondary) parts lighter */
+.tool svg [stroke-dasharray] {
+  stroke: color-mix(in srgb, currentColor 50%, transparent);
+}
+.tool.on svg [stroke-dasharray] {
+  stroke: currentColor;
+}
+
+/* toolbar menus (boolean, align), as in incase: rows of icon and words */
+.flyout.menu {
+  display: grid;
+  grid-auto-flow: row;
+  gap: 1px;
+  padding: 4px;
+}
+.flyout.menu.align-menu {
+  grid-template-columns: repeat(4, auto);
+}
+.flyout.menu .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+}
+.flyout.menu .menu-item:hover:not(:disabled) {
+  background: var(--selected);
+}
+.flyout.menu .menu-item:disabled {
+  opacity: 0.4;
+}
+.flyout.menu .menu-item svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  flex: none;
+}
+.flyout.menu.align-menu .menu-item:last-child {
+  grid-column: 1 / -1;
+}
+input:has(+ .set-axis) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+input + .set-axis {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -7px;
 }

@@ -8,6 +8,7 @@ import { History } from './doc/history';
 import { alignment, area, beside, bounds, centre, closedLoop, corners, grown, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { icon } from './ui/icons';
+import { axisHtml } from './ui/axes';
 import { jointed } from './doc/joints';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -1603,10 +1604,10 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     ...field('Offset', () => values.offset, (t) => (values.offset = t)),
     toObjectButton(aim, 'Click a corner, edge or face: the cut goes through it'),
     ...(cutter.kind === 'plane'
-      ? [...field('Turn °', () => values.turn, (t) => (values.turn = t)), Object.assign(document.createElement('button'), { textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
+      ? [...field('Turn °', () => values.turn, (t) => (values.turn = t)), Object.assign(document.createElement('button'), { className: 'set-axis', textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
       : []),
     segmented,
-    Object.assign(document.createElement('button'), { textContent: '✓', title: 'Cut (Enter); Esc leaves the body as it was', onclick: () => finish(true) }),
+    panelButton('✓', 'Cut (Enter); Esc leaves the body as it was', () => finish(true)),
   );
   choose('A');
   // centred at the top of the view, below its switches; below the view cube where it would reach it
@@ -1688,7 +1689,7 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
     render();
   };
   const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
-  box.append(label, input, Object.assign(document.createElement('button'), { textContent: '✓', title: 'Keep it (Enter); Esc leaves nothing', onclick: () => finish(true) }));
+  box.append(label, input, panelButton('✓', 'Keep it (Enter); Esc leaves nothing', () => finish(true)));
   document.body.append(box);
   const r = viewer.el.getBoundingClientRect();
   keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
@@ -1709,10 +1710,10 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
   let last = inputs[0];
   const emit = () => inputs.every((i) => length(i.value || '0') !== null) && change(inputs.map((i) => i.value || '0'));
-  const aim = () => {
-    const f = fields[inputs.indexOf(last)];
+  const aim = (k = inputs.indexOf(last)) => {
+    const f = fields[k];
     if (!f.reach) return;
-    const field = last;
+    const field = inputs[k];
     viewer.aiming = (a) => tips.cursorTip([a?.what, 'To object: click, its value goes into the field'].filter(Boolean).join('\n'));
     viewer.aiming(viewer.aimHere());
     viewer.pickFace((face) => {
@@ -1732,11 +1733,12 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     input.oninput = () => (input.classList.toggle('invalid', length(input.value || '0') === null), emit());
     input.onfocus = () => (last = input);
     input.onkeydown = (e) => {
-      if (f.reach && wantsT(e, input, history.current.params)) e.preventDefault(), aim();
+      if (f.reach && wantsT(e, input, history.current.params)) e.preventDefault(), aim(k);
     };
-    const label = Object.assign(document.createElement('span'), { textContent: f.label });
+    const label = Object.assign(document.createElement('span'), { innerHTML: axisHtml(f.label) });
     scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()));
-    return [label, input];
+    // To object right after the field it fills
+    return [label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field')] : [])];
   });
   const end = (ok: boolean) => {
     viewer.aiming = null;
@@ -1752,7 +1754,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     e.preventDefault();
     end(pressed(e, 'confirm'));
   };
-  box.append(...extra, ...cells, ...(fields.some((f) => f.reach) ? [toObjectButton(aim, 'Click a point: its value goes into the field')] : []), Object.assign(document.createElement('button'), { textContent: '✓', title: 'Keep it (Enter); Esc drops it', onclick: () => end(true) }));
+  box.append(...extra, ...cells, panelButton('✓', 'Keep it (Enter); Esc drops it', () => end(true)));
   document.body.append(box);
   const r = viewer.el.getBoundingClientRect();
   keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
@@ -1770,6 +1772,11 @@ function placementIn(parent: Matrix4, world: Matrix4) {
   const e = new Euler().setFromQuaternion(q, 'ZYX');
   const deg = (r: number) => ex(fmt((r * 180) / Math.PI));
   return { position: at.toArray().map((v) => len(v)) as [Expr, Expr, Expr], rotation: { rx: deg(e.x), ry: deg(e.y), rz: deg(e.z) } };
+}
+
+/** A panel button; ✓ (keep it) is filled green. */
+function panelButton(text: string, title: string, onclick: () => void) {
+  return Object.assign(document.createElement('button'), { textContent: text, title, onclick, className: text === '✓' ? 'ok' : '' });
 }
 
 /** A checkbox with its words, for the panels. */
@@ -1892,7 +1899,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
           overall = on;
           panel.inputs.slice(3, 6).forEach((input, k) => {
             const label = input.previousElementSibling as HTMLElement;
-            label.textContent = `${'XYZ'[k]} ${on ? 'overall' : 'gap'}`;
+            label.innerHTML = axisHtml(`${'XYZ'[k]} ${on ? 'overall' : 'gap'}`);
           });
           apply();
         })];
@@ -2289,7 +2296,7 @@ function rotateTool() {
   input.oninput = () => ((typed = true), fromField(input.value));
   const label = Object.assign(document.createElement('span'), { textContent: 'Turn °' });
   scrub(label, input, () => input.value, 'mm', settings.minAngle, (text) => ((typed = true), (input.value = text), fromField(text)), () => (input.focus(), input.select()));
-  const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { textContent: text, title, onclick });
+  const button = panelButton;
   /** Around world axis `k` through the point (none yet: the selection's middle). */
   const along = (k: number) => {
     [dir, pivot, from] = [new Vector3().setComponent(k, 1), pivot ?? middle, null];
@@ -2426,12 +2433,13 @@ function rotateTool() {
     e.preventDefault();
     e.stopImmediatePropagation();
   };
+  const axisButton = (a: number) => Object.assign(button('', `Around the world ${'XYZ'[a]} axis through its point (${'XYZ'[a]})`, () => along(a)), { innerHTML: axisHtml('XYZ'[a]) });
   box.append(
     label,
     input,
-    ...(frame ? [] : [0, 1, 2].map((a) => button('XYZ'[a], `Around the world ${'XYZ'[a]} axis through its point (${'XYZ'[a]})`, () => along(a)))),
-    button('Set axis', 'Click an edge or line, a circle (its centre) or a point (Z through it; again: X, then Y)', setAxis),
     toObjectButton(aimAngle, 'Click where something is now, then where it should go: their angle goes into Turn °'),
+    Object.assign(button('Set axis', 'Click an edge or line, a circle (its centre) or a point (Z through it; again: X, then Y)', setAxis), { className: 'set-axis' }),
+    ...(frame ? [] : [0, 1, 2].map(axisButton)),
     button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
   );
   document.body.append(box);
@@ -2720,7 +2728,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     e.preventDefault();
     finish(pressed(e, 'confirm'));
   };
-  const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { textContent: text, title, onclick });
+  const button = panelButton;
   box.append(
     segmented,
     minLabel,
@@ -3980,7 +3988,7 @@ function meshUnits(body: string, size: Vec3, unit: Unit) {
   };
   const axis = (k: number) => Object.assign(document.createElement('span'), { className: `axis-${'xyz'[k]}`, textContent: 'XYZ'[k] });
   const text = (t: string) => Object.assign(document.createElement('span'), { textContent: t });
-  box.append(text('The file has no unit. Its numbers are'), ...buttons, text('or its size'), ...fields.flatMap((f, k) => [axis(k), f]), Object.assign(document.createElement('button'), { className: 'done', textContent: '✓', title: 'Done (Enter)', onclick: close }));
+  box.append(text('The file has no unit. Its numbers are'), ...buttons, text('or its size'), ...fields.flatMap((f, k) => [axis(k), f]), panelButton('✓', 'Done (Enter)', close));
   scaleTo(UNITS[unit]);
   document.body.append(box);
   addEventListener('keydown', keys, { capture: true });

@@ -8,7 +8,7 @@ import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Prof
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml } from './axes';
-import { icon, tool } from './icons';
+import { icon, tool, type IconName } from './icons';
 import { MAC, mod, pressed } from './keys';
 
 export interface UIContext {
@@ -474,7 +474,7 @@ function editbar(ctx: UIContext): Node[] {
         flyout = !flyout;
         renderUI(ctx);
       }, flyout || on('boolean')),
-      ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
+      ...(flyout ? [h('div', { className: 'flyout menu' }, ...booleanMenu(ctx))] : []),
     ),
     tool('cut', "Cut: a body (selected, or clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
     tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
@@ -491,7 +491,7 @@ function editbar(ctx: UIContext): Node[] {
         alignOpen = !alignOpen;
         renderUI(ctx);
       }, alignOpen),
-      ...(alignOpen ? [h('div', { className: 'flyout align-menu' }, ...alignTools(ctx))] : []),
+      ...(alignOpen ? [h('div', { className: 'flyout menu align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
   ];
@@ -499,22 +499,50 @@ function editbar(ctx: UIContext): Node[] {
 
 /** The boolean flyout of the toolbar is open. */
 let flyout = false;
+// a click anywhere else closes the boolean and align menus
+addEventListener('pointerdown', (e) => {
+  if ((flyout || alignOpen) && !(e.target as Element).closest?.('.flyout-at')) {
+    flyout = alignOpen = false;
+    for (const m of document.querySelectorAll('.flyout-at .flyout')) m.remove();
+    for (const b of document.querySelectorAll('.flyout-at > .tool.on')) b.classList.remove('on');
+  }
+}, true);
 /** The align menu of the toolbar is open. */
 let alignOpen = false;
 
 /** How objects align: their box's min, middle or max along an axis onto all of theirs, equal gaps, or onto the first one's middle. */
 export type ObjectAlign = `${'min' | 'mid' | 'max' | 'spread'}${'X' | 'Y' | 'Z'}` | 'first';
 
+/** A row of a toolbar menu (as in incase): its icon and words; a click runs it and closes the menu. */
+function menuItem(name: IconName, label: string, title: string, onclick: () => void, disabled = false) {
+  return h('button', { className: 'menu-item', innerHTML: `${icon(name)}<span>${label}</span>`, title, disabled, onclick: () => ((flyout = alignOpen = false), onclick()) });
+}
+
 function alignTools(ctx: UIContext) {
   const n = ctx.selected.length;
-  const item = (how: ObjectAlign, label: string, title: string) =>
-    h('button', { className: 'menu-item', textContent: label, title, disabled: n < (how.startsWith('spread') ? 3 : 2), onclick: () => ((alignOpen = false), ctx.alignObjects(how)) });
-  return (['X', 'Y', 'Z'] as const).flatMap((a) => [
-    item(`min${a}`, `${a} min`, `Their lowest ${a} onto the lowest of all`),
-    item(`mid${a}`, `${a} middle`, `Their middles onto the middle of all along ${a}`),
-    item(`max${a}`, `${a} max`, `Their highest ${a} onto the highest of all`),
-    item(`spread${a}`, `${a} distribute`, `Equal gaps along ${a}; the outermost stay (3 or more)`),
-  ]).concat(item('first', 'Middle on first', 'Their middles onto the middle of the first selected'));
+  // per axis: the icons of incase's align menu (min, middle, max, distribute), the axis letter in its colour
+  const icons: Record<'X' | 'Y' | 'Z', [IconName, IconName, IconName, IconName]> = { X: ['left', 'centerX', 'right', 'distributeX'], Y: ['bottom', 'centerY', 'top', 'distributeY'], Z: ['bottom', 'centerY', 'top', 'distributeY'] };
+  const item = (how: ObjectAlign, name: IconName, label: string, title: string) => menuItem(name, label, title, () => ctx.alignObjects(how), n < (how.startsWith('spread') ? 3 : 2));
+  return (['X', 'Y', 'Z'] as const).flatMap((a) => {
+    const [lo, mid, hi, spread] = icons[a];
+    const k = axisHtml(a);
+    return [
+      item(`min${a}`, lo, `${k} min`, `Their lowest ${a} onto the lowest of all`),
+      item(`mid${a}`, mid, `${k} middle`, `Their middles onto the middle of all along ${a}`),
+      item(`max${a}`, hi, `${k} max`, `Their highest ${a} onto the highest of all`),
+      item(`spread${a}`, spread, `${k} distribute`, `Equal gaps along ${a}; the outermost stay (3 or more)`),
+    ];
+  }).concat(item('first', 'centerX', 'Middle on first', 'Their middles onto the middle of the first selected'));
+}
+
+/** The boolean menu's rows (as the align menu's). */
+function booleanMenu(ctx: UIContext) {
+  const ops: [BooleanOp, string, string][] = [
+    ['union', 'Join', 'One body from all of them'],
+    ['subtract', 'Cut', 'The others cut the first'],
+    ['intersect', 'Intersect', 'Only where all of them overlap'],
+  ];
+  return ops.map(([op, label, title]) => menuItem(op, label, title, () => ctx.boolean(op)));
 }
 
 function booleanTools(ctx: UIContext, picked = () => {}) {

@@ -22,6 +22,16 @@ export function installTooltips(delay = 500, within?: () => DOMRect) {
     el.style.left = `${Math.max(l + 8, Math.min(pointer.x + 14, r - w - 8))}px`;
     el.style.top = `${Math.max(t + 8, pointer.y + 18 + h > b ? pointer.y - h - 10 : pointer.y + 18)}px`;
   };
+  /** A toolbar button's help sits by the button: right of it, centred (left toolbar), or below it, left-aligned (edit bar). */
+  const byButton = () => {
+    const bar = target?.closest('#toolbar, #editbar');
+    if (!bar || !target) return false;
+    const r = target.getBoundingClientRect();
+    const side = bar.id === 'toolbar';
+    tip.style.left = `${side ? r.right + 12 : r.left}px`;
+    tip.style.top = `${side ? r.top + r.height / 2 - tip.offsetHeight / 2 : r.bottom + 10}px`;
+    return true;
+  };
   const hide = () => {
     clearTimeout(timer);
     target = null;
@@ -44,9 +54,9 @@ export function installTooltips(delay = 500, within?: () => DOMRect) {
         timer = window.setTimeout(() => {
           tip.textContent = target!.getAttribute('data-tip');
           tip.hidden = !tip.textContent;
-          place(tip);
+          if (!byButton()) place(tip);
         }, delay);
-    } else if (!tip.hidden) place(tip);
+    } else if (!tip.hidden && !byButton()) place(tip);
   }, true);
   addEventListener('pointerdown', hide);
   document.documentElement.addEventListener('pointerleave', hide);
