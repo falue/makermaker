@@ -503,7 +503,9 @@ function left(ctx: UIContext): Node[] {
       const g = doc.groups[i];
       // its fold arrow where a body has its colour, so names line up
       const chevron = h('span', { className: `fold${r.open ? ' open' : ''}`, innerHTML: icon('chevron'), title: r.open ? 'Fold' : 'Unfold', onclick: (e) => (e.stopPropagation(), ctx.toggleFold(id)) });
-      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, (how) => ctx.select(id, how), chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye('objects', id, g.visible));
+      // a plain click also folds or unfolds it (not the click that starts renaming it)
+      const pick = (how: Pick) => (!how && renaming !== id && ctx.toggleFold(id), ctx.select(id, how));
+      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye('objects', id, g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
