@@ -1,7 +1,8 @@
 # MAKERMAKER
 
 > WIP!
-> Compületely AI vibe coded.
+>
+> Attention: Completely AI vibe coded.
 
 CAD in the browser for people who build things: props, fitted parts, boxes and brackets, cut on a laser or printed in 3D. Draw a shape, pull it up, round its edges, cut holes into it, and send it to the machine.
 
