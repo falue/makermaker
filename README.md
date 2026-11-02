@@ -101,6 +101,7 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **LLM control**: an API through which an LLM can control everything.
 - **Python scripting**: an in-browser editor (Monaco + Pyodide) with the command API as a Python module (`cad.box(...)`, `cad.move(...)`, `cad.bevel(...)`, the selection), Run, console, errors, autocomplete, offline caching.
 - **Desktop wrapper** (Tauri / Electron) with native file access.
+- **Image as plane** (stretch goal; the one Fusion feature worth copying): insert a PNG, WebP, JPG, GIF or SVG on a picked plane; calibrate its size by clicking two points on it and typing their real distance, the image scales to match. Bonus: an AI model (Gemini or similar) turns a photo or scan of a technical drawing into an SVG that is placed instead, with a preview before it is used.
 
 ### Design notes
 
