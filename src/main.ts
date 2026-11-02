@@ -25,7 +25,7 @@ import { installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
 import { SketchTool, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
-import { Viewer, type FinishPick, type PickedFace, type Vec3 } from './viewer/viewer';
+import { Viewer, type FinishPick, type PickedFace, type PickedPart, type Vec3 } from './viewer/viewer';
 
 const tips = installTooltips();
 // a calculation's result: turns in degrees, sides and scales bare, else lengths in the document's units
@@ -125,7 +125,7 @@ let statusError = false;
 const reading = new Map<string, { name: string; steps: string[] }>();
 const readSteps = new Set<string>();
 /** A face or edge picked with Ctrl-click, with its area (mm²) or length (mm). */
-let pickedPart: { kind: 'face' | 'edge'; body: string; size: number } | null = null;
+let pickedPart: PickedPart | null = null;
 /** Other work going on, shown with the same bar (e.g. "Snapshot"). */
 const busy = new Set<string>();
 let toolHint: string | null = null;
@@ -710,7 +710,14 @@ function infoOf(): { title: string; rows: [string, string, number?][]; box?: Box
     const [name, size] = power === 1 ? [u, UNITS[u]] : up[u];
     return `${fmt(+(mm / size ** power).toFixed(3))} ${name}${power === 2 ? '²' : power === 3 ? '³' : ''}`;
   };
-  if (pickedPart) return pickedPart.kind === 'edge' ? { title: 'Edge', rows: [['Length', num(pickedPart.size)]] } : { title: 'Face', rows: [['Area', num(pickedPart.size, 2)]] };
+  if (pickedPart?.kind === 'face') return { title: 'Face', rows: [['Area', num(pickedPart.size, 2)]] };
+  if (pickedPart) {
+    const n = pickedPart.count ?? 1;
+    const rows: [string, string][] = [['Length', num(pickedPart.size)]];
+    if (n > 1) rows.push(['Edges', String(n)]);
+    if (pickedPart.diameter) rows.push(['Ø', num(pickedPart.diameter)]);
+    return { title: pickedPart.diameter ? 'Circle' : n > 1 ? 'Edges' : 'Edge', rows };
+  }
   const lookup = paramLookup(doc.params);
   const s = doc.sketches.find((x) => x.id === activeSketch());
   if (s) {

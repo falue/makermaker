@@ -741,7 +741,7 @@ function hint(selected: number, shapes: number) {
   if (selected > 1)
     return 'Drag to move them all (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Shift] / [⌘]-click adds or removes · [arrows] nudge ([Shift] ×10) · [V] hide · [Del] delete · [⌘D] duplicate · [Esc] deselect';
   if (selected)
-    return 'Drag to move (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Ctrl]-click a face (or edge): [E] pulls it, [S] sketches on it · [Shift] / [⌘]-click selects more · [arrows] nudge · [V] hide · [Del] delete · [⌘D] duplicate';
+    return 'Drag to move (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Ctrl]-click a face or edge (double-click an edge: its loop) · [Shift] / [⌘]-click selects more · [arrows] nudge · [V] hide · [Del] delete · [⌘D] duplicate';
   return 'Drag a body to move it · [Ctrl]-click a face or edge picks it · [Tab] next body under the pointer · [F] fit · drag to orbit, right-drag, scroll sideways or [Shift] wheel to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
