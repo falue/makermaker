@@ -2131,8 +2131,8 @@ function planeTool() {
 }
 
 /**
- * Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path, any
- * sketch): a new body, the profile's middle on the path's start, square to it. Linked to both; Esc leaves nothing.
+ * Sweep: a line or shape outline clicked (the path, any sketch), then the outline of a closed sketch shape (the
+ * profile): a new body, the profile's middle on the path's start, square to it. Linked to both; Esc leaves nothing.
  */
 function sweepTool() {
   const pick = (hint: string, done: (at: { sketch: string; shape: string }) => void) => {
@@ -2145,8 +2145,8 @@ function sweepTool() {
       done({ sketch: face.sketch.id, shape: q });
     }, false, 'outlines');
   };
-  pick('Sweep: click the outline of the closed shape to sweep (the profile) · [Esc] cancels', (profile) =>
-    pick('Sweep: click the line or shape outline it runs along (the path) · [Esc] cancels', (path) => {
+  pick('Sweep: click the line or shape outline it runs along (the path) · [Esc] cancels', (path) =>
+    pick('Sweep: click the outline of the closed shape to sweep along it (the profile) · [Esc] cancels', (profile) => {
       const doc = history.current;
       const body = newBody(doc.bodies.length, [{ id: newId(), type: 'sweep', profile, path }]);
       [selected, shapeSel] = [[body.id], []];

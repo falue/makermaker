@@ -462,7 +462,7 @@ function editbar(ctx: UIContext): Node[] {
   return [
     tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a face (clicked before or after)', ctx.extrude, on('extrude')),
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
-    tool('sweep', 'Sweep: the outline of a closed sketch shape clicked (the profile), then a line or shape outline (the path it runs along)', ctx.sweepTool),
+    tool('sweep', 'Sweep: a line or shape outline clicked (the path), then the outline of a closed sketch shape to run along it (the profile)', ctx.sweepTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
     h('hr'),
     h(
