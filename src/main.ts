@@ -701,7 +701,7 @@ function selectAll() {
  * The info panel's rows for what is selected: a picked edge (length) or face (area); sketch shapes (size, Ø, area, a
  * line's length); bodies (box size; one body: position and turn; volume and surface area from their triangles).
  */
-function infoOf(): { title: string; rows: [string, string][] } | null {
+function infoOf(): { title: string; rows: [string, string, number?][]; box?: Box3 } | null {
   const doc = history.current;
   const u = doc.units;
   // areas and volumes one unit up (mm → cm², cm³), else the numbers get long
@@ -728,7 +728,8 @@ function infoOf(): { title: string; rows: [string, string][] } | null {
   if (!m.length) return null;
   const box = m.reduce((b, x) => b.union(x.box), new Box3());
   const size = box.getSize(new Vector3());
-  const rows: [string, string][] = [['Size', `${num(size.x)} × ${num(size.y)} × ${num(size.z)}`]];
+  // L / W / H along x / y / z: hovering one shows it on the box
+  const rows: [string, string, number?][] = [['L', num(size.x), 0], ['W', num(size.y), 1], ['H', num(size.z), 2]];
   const b = ids.length === 1 && doc.bodies.find((x) => x.id === ids[0]);
   if (b) {
     const at = positions.get(b.id);
@@ -737,7 +738,7 @@ function infoOf(): { title: string; rows: [string, string][] } | null {
     rows.push(['Rotation', `${fmt(turn.rx)}°, ${fmt(turn.ry)}°, ${fmt(turn.rz)}°`]);
   }
   rows.push(['Volume', num(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', num(m.reduce((n, x) => n + x.area, 0), 2)]);
-  return { title: b ? b.name : `${ids.length} bodies`, rows };
+  return { title: b ? b.name : `${ids.length} bodies`, rows, box };
 }
 
 /** A fillet / chamfer size set below 0 (`path`, `value`): the finish turns into the other kind, the size positive. */
@@ -1435,6 +1436,7 @@ function syncFocus() {
 function render() {
   viewer.el.classList.toggle('picking', !!pending); // objects to pick: crosshair
   syncFocus();
+  const info = infoOf();
   const doc = history.current;
   const lookup = paramLookup(doc.params);
   const ctx: UIContext = {
@@ -1452,7 +1454,8 @@ function render() {
     autosave,
     notify: fail,
     statusError,
-    info: infoOf(),
+    info,
+    showMeasure: (axis) => viewer.showMeasure(axis === null ? null : (info?.box ?? null), axis ?? 0),
     solid,
     setSolid(ids, on) {
       solid = new Set(on ? [...solid, ...ids] : [...solid].filter((x) => !ids.includes(x)));

@@ -1219,6 +1219,9 @@ button.primary.wide {
 #right .info dt {
   color: var(--muted);
 }
+#right .info .measures {
+  cursor: help;
+}
 #right .info dd {
   margin: 0;
   font-variant-numeric: tabular-nums;

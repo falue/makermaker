@@ -332,7 +332,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.measureMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -995,7 +995,7 @@ export class Viewer implements ToolView {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
     const cutters = [...this.cutters].flatMap((id) => this.bodies.get(id) ?? []);
-    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, this.edgeMark, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
+    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, this.edgeMark, this.measureMark, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
     const selection = this.selection;
     helpers.forEach((o) => (o.visible = false));
     this.select([]);
@@ -1382,6 +1382,25 @@ export class Viewer implements ToolView {
         best = { ...edge, d };
       }
     return best && { body: best.body, segs: best.segs };
+  }
+
+  private measureMark = new THREE.Group();
+
+  /** One measure of a box (world) drawn along its edge in `axis` (0 x, 1 y, 2 z) with end ticks; null: clears it. */
+  showMeasure(box: THREE.Box3 | null, axis: number) {
+    for (const o of this.measureMark.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
+    this.measureMark.clear();
+    if (box) {
+      const [a, b] = [box.min.clone(), box.min.clone()];
+      // the front edge: x along the front bottom, y and z up the right front corner
+      if (axis) [a.x, b.x] = [box.max.x, box.max.x];
+      b.setComponent(axis, box.max.getComponent(axis));
+      const tick = box.getSize(new THREE.Vector3()).length() * 0.03;
+      const across = new THREE.Vector3().setComponent(axis === 2 ? 0 : 2, tick);
+      const pts = [a, b, a.clone().sub(across), a.clone().add(across), b.clone().sub(across), b.clone().add(across)];
+      this.measureMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(pts.flatMap((v) => v.toArray())), new LineMaterial({ color: 0xff8c1a, linewidth: 3, depthTest: false })), { renderOrder: 1e6 }));
+    }
+    this.render();
   }
 
   /** Lights `segs` (world) as the picked or hovered edge; none: clears it. */
