@@ -501,7 +501,9 @@ function left(ctx: UIContext): Node[] {
     if (kind === 'group') {
       const i = doc.groups.findIndex((g) => g.id === id);
       const g = doc.groups[i];
-      return row(id, depth, true, ...fold(r), listItem(id, `${selectedClass(id)} group`, (how) => ctx.select(id, how), nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye('objects', id, g.visible));
+      // its fold arrow where a body has its colour, so names line up
+      const chevron = h('span', { className: `fold${r.open ? ' open' : ''}`, innerHTML: icon('chevron'), title: r.open ? 'Fold' : 'Unfold', onclick: (e) => (e.stopPropagation(), ctx.toggleFold(id)) });
+      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, (how) => ctx.select(id, how), chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), eye('objects', id, g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];

@@ -39,6 +39,14 @@ export function whose(doc: Doc, sketch: string): string {
 }
 
 /** The object list in order (sketches have their own list): per level its groups, each followed by its contents unless folded, then its bodies. */
+/** Where a group or body sits among its siblings in the object list: its `order`, else groups first, then bodies, each as listed. */
+export function rank(doc: Doc, id: string): number {
+  const g = doc.groups.findIndex((x) => x.id === id);
+  if (g >= 0) return doc.groups[g].order ?? g - 1e6;
+  const b = doc.bodies.findIndex((x) => x.id === id);
+  return doc.bodies[b]?.order ?? b;
+}
+
 export function tree(doc: Doc, folded: Set<string>): Row[] {
   const out: Row[] = [];
   const owner = ownersOf(doc);
@@ -50,14 +58,19 @@ export function tree(doc: Doc, folded: Set<string>): Row[] {
     out.push({ id, kind: 'body', depth, open });
     if (open) for (const t of tools) body(t.id, depth + 1);
   };
+  // per level its groups and bodies in their places (see `rank`)
   const walk = (parent: string | null, depth: number) => {
-    for (const g of doc.groups)
-      if (parentOf(doc, g.parent) === parent) {
-        const open = !folded.has(g.id);
-        out.push({ id: g.id, kind: 'group', depth, open });
-        if (open) walk(g.id, depth + 1);
+    const groups = doc.groups.filter((g) => parentOf(doc, g.parent) === parent).map((g) => ({ id: g.id, group: true }));
+    const bodies = doc.bodies.filter((b) => parentOf(doc, b.group) === parent && !owner.has(b.id)).map((b) => ({ id: b.id, group: false }));
+    for (const { id, group } of [...groups, ...bodies].sort((a, b) => rank(doc, a.id) - rank(doc, b.id) || +b.group - +a.group)) {
+      if (!group) {
+        body(id, depth);
+        continue;
       }
-    for (const b of doc.bodies) if (parentOf(doc, b.group) === parent && !owner.has(b.id)) body(b.id, depth);
+      const open = !folded.has(id);
+      out.push({ id, kind: 'group', depth, open });
+      if (open) walk(id, depth + 1);
+    }
   };
   walk(null, 0);
   return out;

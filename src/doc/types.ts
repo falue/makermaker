@@ -141,6 +141,8 @@ export interface Body {
   visible: boolean;
   position: [Expr, Expr, Expr];
   features: Feature[];
+  /** Its place among its group's groups and bodies in the object list (none: after the groups, as listed). */
+  order?: number;
 }
 
 /** Custom section plane (world coordinates): keeps the side `normal` points to, cut at `origin` moved `offset` along it. */
@@ -164,6 +166,8 @@ export interface Group {
   parent: string | null;
   visible: boolean;
   origin: { kind: 'parent' } | { kind: 'custom'; position: [Expr, Expr, Expr]; rotation: { rx: Expr; ry: Expr; rz: Expr } };
+  /** Its place among its parent's groups and bodies in the object list (none: first, as listed). */
+  order?: number;
 }
 
 /** A camera as it was: enough to render the same picture again with newer model data. */

@@ -9,7 +9,7 @@ import { alignment, area, bounds, closedLoop, corners, type Align } from './doc/
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { carrierOf, contents, onFaceOf, ownersOf, tree, whose, within } from './doc/groups';
+import { carrierOf, contents, onFaceOf, ownersOf, rank, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
@@ -1302,14 +1302,13 @@ function arrange(ids: string[], target: string, where: 'before' | 'after' | 'int
   const parent = where === 'into' ? target : (doc.groups.find((g) => g.id === target)?.parent ?? doc.bodies.find((b) => b.id === target)?.group ?? null);
   doc = movedInto(doc, ids, parent);
   if (where !== 'into') {
-    // in the list of the target's kind: the moved ones right before or after it
-    const place = <T extends { id: string }>(list: T[]) => {
-      const moving = list.filter((o) => ids.includes(o.id));
-      const rest = list.filter((o) => !ids.includes(o.id));
-      const i = rest.findIndex((o) => o.id === target);
-      return i < 0 || !moving.length ? list : [...rest.slice(0, i + (where === 'after' ? 1 : 0)), ...moving, ...rest.slice(i + (where === 'after' ? 1 : 0))];
-    };
-    doc = { ...doc, bodies: place(doc.bodies), groups: place(doc.groups) };
+    // that level's groups and bodies in their places, the moved ones right before or after the target, numbered anew
+    const level = [...doc.groups.filter((g) => g.parent === parent), ...doc.bodies.filter((b) => b.group === parent)].map((o) => o.id).sort((a, b) => rank(doc, a) - rank(doc, b));
+    const rest = level.filter((id) => !ids.includes(id));
+    const i = rest.indexOf(target) + (where === 'after' ? 1 : 0);
+    const order = new Map([...rest.slice(0, i), ...level.filter((id) => ids.includes(id)), ...rest.slice(i)].map((id, k) => [id, k]));
+    const numbered = <T extends { id: string; order?: number }>(list: T[]) => list.map((o) => (order.has(o.id) ? { ...o, order: order.get(o.id) } : o));
+    doc = { ...doc, bodies: numbered(doc.bodies), groups: numbered(doc.groups) };
   }
   commit(doc);
 }
@@ -1322,7 +1321,9 @@ function groupSelection() {
     ...doc.groups.filter((g) => selected.includes(g.id)).map((g) => g.parent),
   ]);
   const parent = parents.size === 1 ? [...parents][0] : null;
-  const group: Group = { id: newId(), name: `Group ${doc.groups.length + 1}`, parent, visible: true, origin: { kind: 'parent' } };
+  // named after the first object picked, in its place in the list
+  const first = [...doc.bodies, ...doc.groups, ...doc.sketches].find((o) => o.id === selected[0]);
+  const group: Group = { id: newId(), name: first?.name ?? `Group ${doc.groups.length + 1}`, parent, visible: true, origin: { kind: 'parent' }, order: first && rank(doc, first.id) };
   const ids = selected;
   [selected, shapeSel] = [[group.id], []];
   commit(movedInto({ ...doc, groups: [...doc.groups, group] }, ids, group.id, groupPlace(parent)));
