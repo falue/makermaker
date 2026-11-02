@@ -8,6 +8,7 @@ import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml } from './axes';
 import { icon, tool } from './icons';
+import { pressed } from './keys';
 
 export interface UIContext {
   doc: Doc;
@@ -185,8 +186,8 @@ function input(path: string, shown: string, apply: (text: string) => void, error
   el.oninput = () => (el.dataset.dirty = '1');
   el.onblur = commit;
   el.onkeydown = (e) => {
-    if (e.key === 'Enter') commit();
-    else if (e.key === 'Escape') {
+    if (pressed(e, 'confirm')) commit();
+    else if (pressed(e, 'cancel')) {
       el.value = shown;
       el.blur();
     }

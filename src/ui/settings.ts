@@ -1,6 +1,7 @@
 import { UNITS } from '../doc/expr';
 import type { Unit } from '../doc/types';
 import { backdropCss, SKIES } from '../viewer/sky';
+import { pressed } from './keys';
 
 /** Settings of this browser (not of the document). */
 export interface Settings {
@@ -97,7 +98,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     removeEventListener('keydown', esc, { capture: true });
     dialog.remove();
   };
-  const esc = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopImmediatePropagation(), close());
+  const esc = (e: KeyboardEvent) => pressed(e, 'cancel') && (e.stopImmediatePropagation(), close());
   const dialog = make(
     'div',
     {

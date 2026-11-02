@@ -19,6 +19,7 @@ import { Kernel } from './kernel/client';
 import { renderUI, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
+import { pressed, type Action } from './ui/keys';
 import { installTooltips } from './ui/tooltip';
 import type { Cap, Drawn, DrawnProfile, SketchResult, Target, ToolHost, ToolKind, ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
@@ -1462,39 +1463,48 @@ async function save() {
   notify(`Saved ${new Date().toLocaleTimeString()}`);
 }
 
-const TOOL_KEYS: Record<string, ToolKind> = { r: 'rect', c: 'circle', n: 'ngon', p: 'polygon', o: 'sphere' };
+const TOOL_KEYS: [Action, ToolKind][] = [
+  ['rect', 'rect'],
+  ['circle', 'circle'],
+  ['ngon', 'ngon'],
+  ['polygon', 'polygon'],
+  ['sphere', 'sphere'],
+];
+/** Arrow actions and their screen direction. */
+const NUDGES: [Action, [number, number]][] = [
+  ['nudgeLeft', [-1, 0]],
+  ['nudgeRight', [1, 0]],
+  ['nudgeUp', [0, 1]],
+  ['nudgeDown', [0, -1]],
+];
 
+// app shortcuts (their keys: KEYS in ui/keys); tools, moves and picks in the 3D view see keys first
 addEventListener('keydown', (e) => {
-  const key = e.key.toLowerCase();
-  const mod = e.metaKey || e.ctrlKey;
-  const plain = !mod && !e.altKey;
-  const arrows: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
-  if (mod && key === 's') run(save);
-  else if (mod && key === 'o') run(openDesign);
+  const tool = TOOL_KEYS.find(([a]) => pressed(e, a))?.[1];
+  const arrow = NUDGES.find(([a]) => pressed(e, a))?.[1];
+  if (pressed(e, 'save')) run(save);
+  else if (pressed(e, 'open')) run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-  else if (pending && e.key === 'Enter') pending.apply?.();
-  else if (pending && e.key === 'Escape') cancelPending(), render();
-  else if (mod && key === 'z') undo(e.shiftKey);
-  else if (mod && key === 'y') undo(true);
-  else if (plain && key === 'f') viewer.fit();
-  else if (plain && TOOL_KEYS[key]) startTool(TOOL_KEYS[key]);
-  else if (plain && key === 'e') extrude();
-  else if (plain && key === 's') startNewSketch();
-  else if (sketching && e.key === 'Escape') exitSketch();
-  else if (e.key === 'Tab') viewer.cycle(e.shiftKey ? -1 : 1);
-  else if (shapeSel.length && arrows[e.key]) {
-    const [x, y] = arrows[e.key];
-    nudgeShapes(viewer.screenDir(x, y), e.shiftKey ? 10 : 1);
-  } else if (selected.length && arrows[e.key]) {
-    // nudges along the world axis nearest to the arrow's screen direction
-    const [x, y] = arrows[e.key];
-    nudge(viewer.screenAxis(x, y).multiplyScalar(e.shiftKey ? 10 : 1).toArray());
-  } else if (selected.length && (e.key === 'Delete' || e.key === 'Backspace')) remove();
-  else if (selected.length && e.key === 'Escape') select(null);
-  else if (shapeSel.length && mod && key === 'd') duplicateShapes();
-  else if (selected.length && mod && key === 'd') duplicate();
-  else if (mod && key === 'g' && e.shiftKey) ungroup();
-  else if (mod && key === 'g') groupTool();
+  else if (pending && pressed(e, 'confirm')) pending.apply?.();
+  else if (pending && pressed(e, 'cancel')) cancelPending(), render();
+  else if (pressed(e, 'undo')) undo();
+  else if (pressed(e, 'redo')) undo(true);
+  else if (pressed(e, 'fit')) viewer.fit();
+  else if (tool) startTool(tool);
+  else if (pressed(e, 'extrude')) extrude();
+  else if (pressed(e, 'sketch')) startNewSketch();
+  else if (sketching && pressed(e, 'deselect')) exitSketch();
+  else if (pressed(e, 'cycle')) viewer.cycle(1);
+  else if (pressed(e, 'cycleBack')) viewer.cycle(-1);
+  else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.shiftKey ? 10 : 1);
+  // nudges along the world axis nearest to the arrow's screen direction
+  else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(e.shiftKey ? 10 : 1).toArray());
+  else if (selected.length && pressed(e, 'delete')) remove();
+  else if (selected.length && pressed(e, 'deselect')) select(null);
+  else if (shapeSel.length && pressed(e, 'duplicate')) duplicateShapes();
+  else if (selected.length && pressed(e, 'duplicate')) duplicate();
+  else if (pressed(e, 'ungroup')) ungroup();
+  else if (pressed(e, 'group')) groupTool();
   else return;
   e.preventDefault();
 });

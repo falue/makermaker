@@ -3,6 +3,7 @@ import { toWorld, type V3 } from '../doc/frames';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
 import { planeHit, pullBy, uvOf, type PullStart, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { pressed } from '../ui/keys';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click areas to pick them (again to drop) · double-click picks everything inside a shape · [Enter] or [E] pulls the picked areas · [Esc] cancels';
@@ -81,14 +82,14 @@ export class AreaTool implements Tool {
   key(e: KeyboardEvent) {
     const p = this.pull;
     if (p) {
-      if (e.key === 'Escape') return this.view.unlockPointer(), this.host.done(null), true;
-      else if (e.key === 'Enter') return this.commit(), true;
-      else if (e.key === 'Backspace') p.typed = p.typed?.slice(0, -1) || undefined;
+      if (pressed(e, 'cancel')) return this.view.unlockPointer(), this.host.done(null), true;
+      else if (pressed(e, 'confirm')) return this.commit(), true;
+      else if (pressed(e, 'erase')) p.typed = p.typed?.slice(0, -1) || undefined;
       else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) p.typed = (p.typed ?? '') + e.key;
       else return false;
       this.host.hint(PULL_HINT);
-    } else if (e.key === 'Escape') return this.host.done(null), true;
-    else if ((e.key === 'Enter' || e.key.toLowerCase() === 'e') && this.picked.size) {
+    } else if (pressed(e, 'cancel')) return this.host.done(null), true;
+    else if ((pressed(e, 'confirm') || pressed(e, 'pullPicked')) && this.picked.size) {
       this.pull = { raw: 0, depth: 0, typed: undefined };
       this.view.unflatten(v3(this.target.frame.n));
       this.view.lockPointer();

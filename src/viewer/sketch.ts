@@ -7,6 +7,7 @@ import { marks } from './marks';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { pressed } from '../ui/keys';
 
 export type ToolKind = 'rect' | 'circle' | 'ngon' | 'polygon' | 'sphere';
 export type { DrawnProfile };
@@ -270,25 +271,25 @@ export class SketchTool implements Tool {
   key(e: KeyboardEvent): boolean {
     const ph = this.phase;
     const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull');
-    if (e.key === 'Escape') {
+    if (pressed(e, 'cancel')) {
       if (ph.kind === 'hover') return this.host.done(null), true;
       if (ph.kind === 'pull') return this.commit(true), this.update(), true; // a drawn shape stays flat
       this.phase = { kind: 'hover' };
       this.host.hint(this.hoverHint());
     } else if (ph.kind === 'shape') {
       if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
-      else if (e.key === 'Backspace') ph.typed[ph.axis] = ph.typed[ph.axis]?.slice(0, -1) || undefined;
-      else if (e.key === 'Tab' && (this.kind === 'rect' || this.kind === 'ngon')) ph.axis = 1 - ph.axis;
-      else if (e.key === 'Enter') this.shapeDone();
+      else if (pressed(e, 'erase')) ph.typed[ph.axis] = ph.typed[ph.axis]?.slice(0, -1) || undefined;
+      else if (pressed(e, 'otherSide') && (this.kind === 'rect' || this.kind === 'ngon')) ph.axis = 1 - ph.axis;
+      else if (pressed(e, 'confirm')) this.shapeDone();
       else return false;
     } else if (ph.kind === 'polygon') {
-      if (e.key === 'Enter') this.closePolygon();
-      else if (e.key === 'Backspace' && ph.pts.length > 1) ph.pts.pop();
+      if (pressed(e, 'confirm')) this.closePolygon();
+      else if (pressed(e, 'erase') && ph.pts.length > 1) ph.pts.pop();
       else return false;
     } else if (ph.kind === 'pull') {
       if (typing) ph.typed = (ph.typed ?? '') + e.key;
-      else if (e.key === 'Backspace') ph.typed = ph.typed?.slice(0, -1) || undefined;
-      else if (e.key === 'Enter') this.commit();
+      else if (pressed(e, 'erase')) ph.typed = ph.typed?.slice(0, -1) || undefined;
+      else if (pressed(e, 'confirm')) this.commit();
       else return false;
     } else return false;
     this.update();

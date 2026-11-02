@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { V3 } from '../doc/frames';
 import { pullBy, type Tool, type ToolHost, type ToolView } from './sketch';
+import { pressed } from '../ui/keys';
 
 const HINT = 'Move to push or pull the face · [Ctrl] snaps · type a distance · click or [Enter]: done · [Esc] puts it back';
 
@@ -57,12 +58,13 @@ export class FacePullTool implements Tool {
   dblclick() {}
 
   key(e: KeyboardEvent) {
-    if (e.key === 'Escape') this.finish('cancel');
-    else if (e.key === 'Enter') this.finish('done');
-    else if (e.key === 'Backspace') this.typed = this.typed?.slice(0, -1) || undefined;
+    const [cancel, confirm] = [pressed(e, 'cancel'), pressed(e, 'confirm')];
+    if (cancel) this.finish('cancel');
+    else if (confirm) this.finish('done');
+    else if (pressed(e, 'erase')) this.typed = this.typed?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) this.typed = (this.typed ?? '') + e.key;
     else return false;
-    if (e.key !== 'Escape' && e.key !== 'Enter') {
+    if (!cancel && !confirm) {
       this.onPull(this.value(), 'live');
       this.update();
     }

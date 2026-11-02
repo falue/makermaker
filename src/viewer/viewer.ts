@@ -23,6 +23,7 @@ import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
 import type { Settings } from '../ui/settings';
 import { outline, planeHit, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
+import { pressed } from '../ui/keys';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -338,13 +339,13 @@ export class Viewer implements ToolView {
       (e) => {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
         // the Esc that freed a locked pointer was already handled
-        if (e.key === 'Escape' && performance.now() - this.escFreed < 300) return e.preventDefault(), e.stopPropagation();
+        if (pressed(e, 'cancel') && performance.now() - this.escFreed < 300) return e.preventDefault(), e.stopPropagation();
         const used = this.drag?.moved
           ? this.dragKey(e)
           : this.edit?.next
             ? this.editKey(e)
             : this.facePick
-              ? e.key === 'Escape' && (this.endFacePick(null), true)
+              ? pressed(e, 'cancel') && (this.endFacePick(null), true)
               : this.tool?.key(e);
         if (!used) return;
         e.preventDefault();
@@ -1615,10 +1616,10 @@ export class Viewer implements ToolView {
   /** Keys while resizing: typing sets the size of the marked axis, Tab the other one, Enter keeps, Esc undoes. */
   private editKey(e: KeyboardEvent): boolean {
     const ed = this.edit!;
-    if (e.key === 'Enter' || e.key === 'Escape') return this.endEdit(e.key === 'Enter'), true;
+    if (pressed(e, 'confirm') || pressed(e, 'cancel')) return this.endEdit(pressed(e, 'confirm')), true;
     if (ed.handle.kind !== 'resize') return false;
-    if (e.key === 'Tab') ed.axis = 1 - ed.axis;
-    else if (e.key === 'Backspace') ed.typed[ed.axis] = ed.typed[ed.axis]?.slice(0, -1) || undefined;
+    if (pressed(e, 'otherSide')) ed.axis = 1 - ed.axis;
+    else if (pressed(e, 'erase')) ed.typed[ed.axis] = ed.typed[ed.axis]?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) ed.typed[ed.axis] = (ed.typed[ed.axis] ?? '') + e.key;
     else return false;
     this.applyEdit(ed);
@@ -1644,8 +1645,8 @@ export class Viewer implements ToolView {
   /** Keys during a move: typing sets the distance, Enter keeps the move, Esc undoes it. */
   private dragKey(e: KeyboardEvent): boolean {
     const d = this.drag!;
-    if (e.key === 'Enter' || e.key === 'Escape') this.endDrag(e.key === 'Enter');
-    else if (e.key === 'Backspace') d.typed = d.typed?.slice(0, -1) || undefined;
+    if (pressed(e, 'confirm') || pressed(e, 'cancel')) this.endDrag(pressed(e, 'confirm'));
+    else if (pressed(e, 'erase')) d.typed = d.typed?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) d.typed = (d.typed ?? '') + e.key;
     else return false;
     if (this.drag) this.applyDrag(d);
