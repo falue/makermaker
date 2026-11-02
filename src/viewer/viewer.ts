@@ -447,6 +447,17 @@ export class Viewer implements ToolView {
     this.selectedShapes = shapes;
     this.overrides.clear();
     this.renderSketches();
+    this.rebound();
+  }
+
+  /** The section sliders' range: around the bodies and the shown sketches' outlines. */
+  private rebound() {
+    const bounds = new THREE.Box3();
+    for (const g of this.bodies.values()) bounds.expandByObject(g);
+    for (const o of this.sketchView.children) if (o.type === 'Line2') bounds.expandByObject(o);
+    if (bounds.equals(this.lastBounds)) return;
+    this.lastBounds = bounds;
+    this.onBounds?.(bounds);
   }
 
   /** The single selected shape (with its sketch), which gets handles. */
@@ -1285,14 +1296,7 @@ export class Viewer implements ToolView {
     this.sectionView.clear();
     const axes = ['x', 'y', 'z'] as const;
     const active = this.custom.length > 0 || axes.some((a) => this.inverted[a] || this.sections[a].some(Number.isFinite));
-    if (rebound) {
-      const bounds = new THREE.Box3();
-      for (const g of this.bodies.values()) bounds.expandByObject(g);
-      if (!bounds.equals(this.lastBounds)) {
-        this.lastBounds = bounds;
-        this.onBounds?.(bounds);
-      }
-    }
+    if (rebound) this.rebound();
     const spans = (a: Axis): Span[] => {
       const [lo, hi] = this.sections[a];
       return this.inverted[a] ? ([[-Infinity, lo], [hi, Infinity]] as Span[]).filter(([s, e]) => s < e) : [[lo, hi]];
