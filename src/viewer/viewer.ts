@@ -298,7 +298,7 @@ export class Viewer implements ToolView {
   private edgeMaterial = new THREE.LineBasicMaterial({ vertexColors: true });
   /** Cutters (tool bodies of cuts): red outlines seen through everything, no fill (still picked by their faces). */
   private cutters = new Set<string>();
-  private cutterEdges = [0xe5484d, 0xff8c1a].map((color) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
+  private cutterEdge = new THREE.LineBasicMaterial({ color: 0xe5484d, depthTest: false, transparent: true });
   private ghost = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   /** Ambient occlusion (three's GTAO pass) on or off; its composer is made for the current camera when needed. */
   private ao = {
@@ -314,7 +314,7 @@ export class Viewer implements ToolView {
   private backdrop: Settings['background'] = { mode: 'solid', top: '#ffffff', bottom: '#ffffff', sky: 0 };
   /** The gradient background: a column redrawn when the camera tilts (`drawn`: for which tilt and view). */
   private sky = { canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 256 }), texture: null as THREE.CanvasTexture | null, drawn: '' };
-  /** Selected bodies get an outline around their silhouette: they are drawn into `mask`, then a ring of `px` around it on top. */
+  /** Selected bodies get an outline around their silhouette (tool bodies in red): they are drawn into `mask`, then a ring of `px` around it on top. */
   private silhouette = {
     mask: new THREE.WebGLRenderTarget(1, 1),
     flat: new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
@@ -888,14 +888,14 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** Materials of a body: its colour, or a cutter's red outline (orange when selected). */
+  /** Materials of a body: its colour, or a cutter's red edges. */
   private dress(id: string) {
     const [solid, lines] = this.bodies.get(id)?.children ?? [];
     if (!solid) return;
     const cutter = this.cutters.has(id);
     const faded = !cutter && !!this.focus && !this.focus.solid.has(id);
     (solid as THREE.Mesh).material = cutter ? this.ghost : faded ? this.fadedOf(id) : this.materialOf(id);
-    (lines as THREE.LineSegments).material = cutter ? this.cutterEdges[+this.selection.includes(id)] : faded ? this.fadedEdges : this.edgeMaterial;
+    (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
     // a see-through body's depth, drawn before the see-through colours (sections and picking skip it)
     const g = this.bodies.get(id)!;
     let depth = g.children.find((c) => c.userData.depth);
@@ -1257,11 +1257,21 @@ export class Viewer implements ToolView {
 
   /** The outline around the selected bodies' silhouettes (cut ones too), over the finished picture. */
   private drawSilhouette() {
-    const ids = new Set(this.selection.filter((id) => !this.cutters.has(id) && !this.hidden.has(id)));
-    if (!ids.size) return;
+    const shown = this.selection.filter((id) => !this.hidden.has(id));
+    const bodies = new Set(shown.filter((id) => !this.cutters.has(id)));
+    // cut bodies from their section copies; tool bodies (not cut, not copied) as they are, outlined in red
     const solids = this.boxes.length
-      ? this.sectionView.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && ids.has(c.userData.bodyId))
-      : [...ids].flatMap((id) => (this.bodies.get(id)?.children[0] as THREE.Mesh | undefined) ?? []);
+      ? this.sectionView.children.filter((c): c is THREE.Mesh => c instanceof THREE.Mesh && bodies.has(c.userData.bodyId))
+      : [...bodies].flatMap((id) => (this.bodies.get(id)?.children[0] as THREE.Mesh | undefined) ?? []);
+    this.outline(solids, [0, 0xbc / 255, 0xd4 / 255]);
+    this.outline(
+      shown.filter((id) => this.cutters.has(id)).flatMap((id) => (this.bodies.get(id)?.children[0] as THREE.Mesh | undefined) ?? []),
+      [0xe5 / 255, 0x48 / 255, 0x4d / 255],
+    );
+  }
+
+  /** The silhouette of `solids` outlined in `rgb` (0..1) over the picture. */
+  private outline(solids: THREE.Mesh[], rgb: [number, number, number]) {
     if (!solids.length) return;
     const { mask, flat, quad, px } = this.silhouette;
     const r = this.renderer;
@@ -1282,6 +1292,7 @@ export class Viewer implements ToolView {
     r.setClearColor(clear, alpha);
     const u = (quad.material as THREE.ShaderMaterial).uniforms;
     u.mask.value = mask.texture;
+    u.color.value.set(...rgb);
     u.texel.value.set(1 / size.x, 1 / size.y);
     u.width.value = px * r.getPixelRatio();
     r.autoClear = false;
