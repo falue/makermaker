@@ -113,6 +113,8 @@ export interface Body {
   name: string;
   /** The group it is in (null: none); its position counts from the group's origin. */
   group: string | null;
+  /** Its own turn about its origin, degrees around the group's X, then Y, then Z. */
+  rotation: { rx: Expr; ry: Expr; rz: Expr };
   /** Display colour (#rrggbb). */
   color: string;
   visible: boolean;
@@ -179,7 +181,7 @@ export interface RenderShot {
 }
 
 export interface Doc {
-  schema: 9;
+  schema: 10;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

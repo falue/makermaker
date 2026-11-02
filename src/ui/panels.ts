@@ -582,6 +582,9 @@ function selectionPanel(ctx: UIContext): Node[] {
     ),
     h('h3', {}, 'Position'),
     h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `${at}.position.${k}`, l))),
+    h('h3', {}, 'Rotation'),
+    // degrees: shown as typed, never unit-converted; the ring in the 3D view turns it about Z
+    h('div', { className: 'row' }, ...(['rx', 'ry', 'rz'] as const).map((k) => exprField(ctx, `${at}.rotation.${k}`, `${k[1].toUpperCase()}°`, true))),
     ...body.features.map((feature, j) => {
       const card = featureCard(ctx, body, feature, `${at}.features.${j}`, setBody);
       if (failure && (failure.featureId === feature.id || (!failure.featureId && j === 0)))

@@ -4,6 +4,9 @@ export const ex = (e: string | number, u: Unit = 'mm'): Expr => ({ e: String(e),
 
 export const newId = () => crypto.randomUUID().slice(0, 8);
 
+/** No turn. */
+export const unturned = () => ({ rx: ex(0), ry: ex(0), rz: ex(0) });
+
 export const newFinish = (u: Unit): Feature => ({
   id: newId(),
   type: 'finish',
@@ -23,6 +26,7 @@ const solid = (name: string, color: string, at: [number, number, number], profil
   id: newId(),
   name,
   group,
+  rotation: unturned(),
   color,
   visible: true,
   position: [ex(at[0]), ex(at[1]), ex(at[2])],
@@ -47,6 +51,7 @@ export function sampleDoc(): Doc {
     id: newId(),
     name: 'Plate',
     group: null,
+    rotation: unturned(),
     color: '#d8c3a0',
     visible: true,
     position: [ex(0), ex(0), ex(0)],
@@ -61,6 +66,7 @@ export function sampleDoc(): Doc {
     id: newId(),
     name: 'Disc',
     group: null,
+    rotation: unturned(),
     color: '#a9c4d8',
     visible: true,
     position: [ex(110), ex(0), ex(0)],
@@ -77,6 +83,7 @@ export function sampleDoc(): Doc {
     id: newId(),
     name: 'Ball',
     group: corner.id,
+    rotation: unturned(),
     color: '#d9a98f',
     visible: true,
     position: [ex(-5), ex(55), ex(25)],
@@ -84,7 +91,7 @@ export function sampleDoc(): Doc {
   };
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
-    schema: 9,
+    schema: 10,
     units: 'mm',
     params: { ply: ex('4mm') },
     bodies: [plate, disc, pin, block, ball, nut],

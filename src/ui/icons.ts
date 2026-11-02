@@ -19,7 +19,7 @@ const ICONS = {
   select: '<path d="M6 3l12 9-6 1-3 6z"/>',
   finish: '<path d="M5 12l5 5 9-10"/>',
   extrude: '<path d="M4 17l8 4 8-4-8-4z"/><path d="M12 15V3M8 7l4-4 4 4"/>',
-  look: '<path d="M13.5 5L22 12l-8.5 7"/><path d="M13.5 5a8.5 8.5 0 0 0 0 14"/><path d="M11.4 10a2.6 2.6 0 0 0 0 4"/><path d="M12.5 3.2q1.6.6 1 1.8M12.5 20.8q1.6-.6 1-1.8"/><path d="M4.5 9.5l3 1M4.5 12h3M4.5 14.5l3-1"/><path d="M2 5v14"/>',
+  look: '<path d="M15 7.5l6.5 4.5-6.5 4.5"/><path d="M15 7.5a5.5 5.5 0 0 0 0 9"/><path d="M13.6 10.7a1.6 1.6 0 0 0 0 2.6"/><path d="M5 12h5" stroke-dasharray="1.5 1.5"/><path d="M2.5 6v12"/>',
   eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   isolate: '<path d="M3 7V3h4M17 3h4v4M21 17v4h-4M7 21H3v-4"/><path d="M5 12s3-4.5 7-4.5 7 4.5 7 4.5-3 4.5-7 4.5S5 12 5 12z"/><circle cx="12" cy="12" r="2" fill="currentColor"/>',
   eyeOff: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" opacity=".35"/><path d="M4 4l16 16"/>',

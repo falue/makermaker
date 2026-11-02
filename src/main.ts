@@ -7,7 +7,7 @@ import { BASE, capFrame, frames, placed as inWorld, placeFrame, scale, unplaced,
 import { History } from './doc/history';
 import { alignment, bounds, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
-import { ex, newId, sampleDoc } from './doc/sample';
+import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { contents, ownerOf, tree, within } from './doc/groups';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement } from './doc/types';
@@ -55,6 +55,38 @@ function toPlace(m: Matrix4): Place {
   const s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
   const angle = (2 * Math.acos(Math.min(1, q.w)) * 180) / Math.PI;
   return { axis: s < 1e-9 ? [0, 0, 1] : [q.x / s, q.y / s, q.z / s], angle: s < 1e-9 ? 0 : angle, offset: offset.toArray() };
+}
+
+/** A turn in degrees around X, then Y, then Z (of the parent) as a quaternion. */
+const turnOf = (r: { rx: number; ry: number; rz: number }) => {
+  const rad = (v: number) => (v * Math.PI) / 180;
+  return new Quaternion().setFromEuler(new Euler(rad(r.rx), rad(r.ry), rad(r.rz), 'ZYX'));
+};
+
+/**
+ * Turns a body by `deg` degrees about the world's vertical through `centre` (world mm): its origin swings around it
+ * and its own turn grows (incase's rotation handle). Positions keep their expressions; the turn is written as numbers.
+ */
+function rotateBody(id: string, centre: Vec3, deg: number) {
+  const doc = history.current;
+  const i = doc.bodies.findIndex((b) => b.id === id);
+  if (i < 0 || !deg) return;
+  const b = doc.bodies[i];
+  const lookup = paramLookup(doc.params);
+  const toLocal = groupPlace(b.group).clone().invert();
+  const c = new Vector3(...centre).applyMatrix4(toLocal);
+  const q = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1).transformDirection(toLocal), (deg * Math.PI) / 180);
+  const at = resolve(b.position, lookup, '', new Map());
+  const now = new Vector3(...at).sub(c).applyQuaternion(q).add(c).toArray();
+  const e = new Euler().setFromQuaternion(q.multiply(turnOf(resolve(b.rotation, lookup, '', new Map()))), 'ZYX');
+  const deg3 = (v: number) => ex(fmt(+((v * 180) / Math.PI).toFixed(4)));
+  commit(
+    setIn(doc, ['bodies', String(i)], {
+      ...b,
+      position: b.position.map((x, k) => plus(x, at[k], now[k] - at[k])) as Body['position'],
+      rotation: { rx: deg3(e.x), ry: deg3(e.y), rz: deg3(e.z) },
+    }),
+  );
 }
 
 /** Where body `id` sits in the world. */
@@ -124,6 +156,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   setShapes,
   length,
   placeOn,
+  rotate: rotateBody,
   touched() {
     if (!rendersOpen) return;
     rendersOpen = false; // choosing something in the view shows it, not the renders
@@ -218,8 +251,9 @@ function update() {
   const own = new Map<string, Map<string, BuildFeature>>();
   let pending = doc.bodies.flatMap((p, i) => {
     const local = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
-    if (local.every(Number.isFinite)) {
-      const m = groupAt(p.group).clone().multiply(new Matrix4().makeTranslation(...local));
+    const turned = resolve(p.rotation, lookup, `bodies.${i}.rotation`, exprErrors);
+    if (local.every(Number.isFinite) && [turned.rx, turned.ry, turned.rz].every(Number.isFinite)) {
+      const m = groupAt(p.group).clone().multiply(new Matrix4().compose(new Vector3(...local), turnOf(turned), new Vector3(1, 1, 1)));
       bodyPlaces.set(p.id, m);
       const [at, turn] = [new Vector3(), new Quaternion()];
       m.decompose(at, turn, new Vector3());
@@ -823,7 +857,7 @@ const toolHost: ToolHost = {
 
 /** The `count`-th body at the origin (of `group`), with a colour from a small palette. */
 function newBody(count: number, features: Feature[], group: string | null = null, palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f']): Body {
-  return { id: newId(), name: `Body ${count + 1}`, group, color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features };
+  return { id: newId(), name: `Body ${count + 1}`, group, rotation: unturned(), color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features };
 }
 
 /** A new, empty sketch at a picked target (the `count`-th sketch). */
@@ -1235,7 +1269,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 9, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 10, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
