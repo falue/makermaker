@@ -9,7 +9,7 @@ import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml } from './axes';
 import { icon, tool } from './icons';
-import { pressed } from './keys';
+import { MAC, mod, pressed } from './keys';
 
 export interface UIContext {
   doc: Doc;
@@ -31,6 +31,8 @@ export interface UIContext {
   /** A refusal in the top bar, in red. */
   notify(message: string): void;
   statusError: boolean;
+  /** The smallest step values move in (mm; Settings → General). */
+  minStep: number;
   /** Measurements of the selection, for the info panel (null: nothing to measure). */
   info: { title: string; rows: [string, string, number?][] } | null;
   /** Shows one box measure (axis 0 / 1 / 2) on the selection in the view; null: none. */
@@ -57,7 +59,7 @@ export interface UIContext {
   groupSelected: boolean;
   /** Moves objects before or after another one (into its group), or into a group. */
   arrange(ids: string[], target: string, where: 'before' | 'after' | 'into'): void;
-  /** The body shown alone (its eye was Ctrl-clicked), if any. */
+  /** The body shown alone (its eye was ⌘ / Ctrl-clicked), if any. */
   isolated: string | null;
   /** Shows only this body; again (or for the isolated body) shows what was shown before. */
   isolate(id: string): void;
@@ -278,7 +280,9 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
           // the pointer hides and the screen edge no longer stops it (on body: the field is rebuilt meanwhile)
           Promise.resolve(document.body.requestPointerLock()).catch(() => {});
         } else travel += m.movementX;
-        const text = fmt(base + Math.round(travel / (m.shiftKey ? 10 : 1)) * step) + num[2];
+        // per px: Shift ten times more, Ctrl the minimum step (Settings → General)
+        const per = m.ctrlKey ? ctx.minStep / UNITS[unit] : m.shiftKey ? step * 10 : step;
+        const text = fmt(base + Math.round(travel) * per) + num[2];
         if (text === last) return;
         set({ e: text, u }, last !== shown);
         last = text;
@@ -498,11 +502,9 @@ function left(ctx: UIContext): Node[] {
     const swatch = h('span', { className: 'swatch' });
     swatch.style.background = p.color;
     const look = eye('objects', p.id, p.visible);
-    look.title += ' · Ctrl-click: show only this body';
-    // Ctrl-click on macOS is a context menu click: both isolate
+    look.title += ` · ${MAC ? '⌘' : 'Ctrl'}-click: show only this body`;
     const isolate = (e: MouseEvent) => (e.preventDefault(), ctx.isolate(p.id));
-    look.oncontextmenu = isolate;
-    look.onclick = (e) => (e.ctrlKey || e.metaKey || ctx.isolated === p.id ? isolate(e) : eyeClick('objects', p.id, !p.visible, e, setShown));
+    look.onclick = (e) => (mod(e) || ctx.isolated === p.id ? isolate(e) : eyeClick('objects', p.id, !p.visible, e, setShown));
     if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again', innerHTML: icon('isolate') });
     // a sketch group open: shown bodies are see-through; the eye switches one to fully shown and back (V still hides)
     else if (ctx.sketching && p.visible) {
@@ -748,10 +750,10 @@ function hint(selected: number, shapes: number) {
   if (shapes)
     return 'Drag to move in the sketch plane · [X] [Y] [Z] move by a typed distance · handles resize ([Alt] from the middle, [Shift] keep proportions, type a size, [Tab] other side) · round handle turns ([Shift] 15°) · [E] extrude · [Del] delete';
   if (selected > 1)
-    return 'Drag to move them all (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Shift] / [⌘]-click adds or removes · [arrows] nudge ([Shift] ×10) · [V] hide · [Del] delete · [⌘D] duplicate · [Esc] deselect';
+    return 'Drag to move them all (the direction picks X, Y or Z; [Shift] coarse, [Ctrl] precise) · [X] [Y] [Z] move by a typed distance · [Shift] / [⌘]-click adds or removes · [arrows] nudge ([Shift] ×10) · [V] hide · [Del] delete · [⌘D] duplicate · [Esc] deselect';
   if (selected)
-    return 'Drag to move (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Ctrl]-click a face or edge ([Shift] adds more; double right-click an edge: its loop) · [Shift] / [⌘]-click selects more · [arrows] nudge · [V] hide · [Del] delete · [⌘D] duplicate';
-  return 'Drag a body to move it · [Ctrl]-click a face or edge picks it · [Tab] next body under the pointer · [F] fit · drag to orbit, right-drag, scroll sideways or [Shift] wheel to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
+    return 'Drag to move (the direction picks X, Y or Z; [Shift] coarse, [Ctrl] precise) · [X] [Y] [Z] move by a typed distance · [Alt]-click a face or edge ([Shift] adds more; double right-click an edge: its loop) · [Shift] / [⌘]-click selects more · [arrows] nudge · [V] hide · [Del] delete · [⌘D] duplicate';
+  return 'Drag a body to move it · [Alt]-click a face or edge picks it · [Tab] next body under the pointer · [F] fit · drag to orbit, right-drag, scroll sideways or [Shift] wheel to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
 /** A sketch: its plane, visibility, and shapes (click a label to select it, ⌘ / Ctrl toggles, Shift a range). */

@@ -124,7 +124,7 @@ let statusError = false;
 /** Bodies whose STEP files the kernel reads now (shown with a progress bar), and the STEP features read already. */
 const reading = new Map<string, { name: string; steps: string[] }>();
 const readSteps = new Set<string>();
-/** A face or edge picked with Ctrl-click, with its area (mm²) or length (mm). */
+/** Faces or edges picked with Alt-click, with their area (mm²) or length (mm). */
 let pickedPart: PickedPart | null = null;
 /** Other work going on, shown with the same bar (e.g. "Snapshot"). */
 const busy = new Set<string>();
@@ -205,7 +205,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
         if (phase === 'done') stopTool(), render();
       },
       {
-        hint: 'Drag up: bigger, down: smaller (past 0 a fillet turns into a chamfer and back) · [Ctrl] snaps · type a change · release or [Enter]: done · [Esc] puts it back',
+        hint: 'Drag up: bigger, down: smaller (past 0 a fillet turns into a chamfer and back) · [Shift] coarse · [Ctrl] precise · type a change · release or [Enter]: done · [Esc] puts it back',
         label: (d, typed) => {
           const v = clamped(feature, start + d);
           return `${v >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(v).toFixed(2) : `${typed}▏`}`;
@@ -246,7 +246,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
         if (phase === 'done') stopTool(), render();
       },
       {
-        hint: 'Drag up: fillet, down: chamfer · [Ctrl] snaps · type a size (minus: chamfer) · release or [Enter]: done · [Esc] puts it back',
+        hint: 'Drag up: fillet, down: chamfer · [Shift] coarse · [Ctrl] precise · type a size (minus: chamfer) · release or [Enter]: done · [Esc] puts it back',
         label: (mm, typed) => `${mm >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(mm).toFixed(2) : `${typed}▏`}`,
         endOnUp: true,
       },
@@ -276,6 +276,7 @@ viewer.onBounds = sections.bounds;
 
 /** The settings of this browser, in the view. */
 function applySettings() {
+  viewer.minStep = settings.minStep;
   viewer.setAO(settings.ao);
   viewer.setBackdrop(settings.background);
 }
@@ -1633,12 +1634,13 @@ function render() {
       (finishSel
         ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · drag it to resize (past 0: the other kind) · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
         : pickedPart?.kind === 'edge'
-          ? 'Drag a picked edge up: fillet, down: chamfer · [Ctrl]-click another edge, double right-click: its loop · [Esc] deselect'
+          ? 'Drag a picked edge up: fillet, down: chamfer · [Alt]-click another edge ([Shift]: more), double right-click: its loop · [Esc] deselect'
           : null),
     autosave,
     notify: fail,
     statusError,
     info,
+    minStep: settings.minStep,
     showMeasure: (axis) => viewer.showMeasure(axis === null ? null : (info?.box ?? null), axis ?? 0),
     solid,
     setSolid(ids, on) {
@@ -2080,9 +2082,10 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'cycle')) viewer.cycle(1);
   else if (pressed(e, 'cycleBack')) viewer.cycle(-1);
   else if (axis >= 0) (e.preventDefault(), moveAlong(axis)); // the key is not typed into the field
-  else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.shiftKey ? 10 : 1);
+  // arrows: 1 mm, Shift 10, Ctrl the minimum step
+  else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.ctrlKey ? settings.minStep : e.shiftKey ? 10 : 1);
   // nudges along the world axis nearest to the arrow's screen direction
-  else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(e.shiftKey ? 10 : 1).toArray());
+  else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(e.ctrlKey ? settings.minStep : e.shiftKey ? 10 : 1).toArray());
   else if (pressed(e, 'selectAll')) selectAll();
   else if (selected.length && pressed(e, 'toggleVisible')) toggleVisible();
   else if (selected.length && pressed(e, 'delete')) remove();

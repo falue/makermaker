@@ -1,18 +1,20 @@
 import { UNITS } from '../doc/expr';
 import type { Unit } from '../doc/types';
 import { backdropCss, SKIES } from '../viewer/sky';
-import { comboText, KEYS, pressed, type Binding } from './keys';
+import { comboText, KEYS, MODS, pressed, type Binding } from './keys';
 
 /** Settings of this browser (not of the document). */
 export interface Settings {
   /** Ambient occlusion in the 3D view. */
   ao: boolean;
+  /** The smallest step values move in when dragged precisely (Ctrl), in mm. */
+  minStep: number;
   /** Background of the 3D view and of new renders: the theme's grey, two colours meeting sharply at the horizon, or a sky preset (`sky`: its index). */
   background: { mode: 'solid' | 'colours' | 'sky'; top: string; bottom: string; sky: number };
 }
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4 } };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4 } };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
@@ -44,11 +46,16 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     [
       'General',
       () => {
+        const minStep = input({ type: 'number', min: '0.0001', step: 'any', value: String(s.minStep), className: 'number' });
+        minStep.onchange = () => +minStep.value > 0 && set({ ...s, minStep: +minStep.value }, false);
         const units = make('select', { onchange: () => (doc.setUnits(units.value as Unit), draw()) }, ...Object.keys(UNITS).map((u) => make('option', { value: u, selected: u === doc.units(), textContent: u }))) as HTMLSelectElement;
         return [
           make('h3', {}, 'Units'),
           make('p', { className: 'hint' }, "Of this document (saved in its file): how lengths show, and what plain numbers you type mean. Values keep the unit they were typed in."),
           make('div', { className: 'row' }, units),
+          make('h3', {}, 'Minimum step'),
+          make('p', { className: 'hint' }, 'The smallest step a drag moves in while Ctrl is held (precise), in mm. Without Ctrl the step follows the zoom.'),
+          make('div', { className: 'row' }, minStep),
         ];
       },
     ],
@@ -94,10 +101,15 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         const rows = (Object.values(KEYS) as Binding[])
           .sort((a, b) => a.order - b.order)
           .map((k) => make('tr', { title: k.hint }, make('td', {}, k.name), make('td', {}, ...k.default.flatMap((c, i) => [...(i ? [' / '] : []), make('kbd', {}, comboText(c))])), make('td', { className: 'hint' }, k.hint)));
+        // the modifiers: what they mean at a click and while moving
+        const mods = MODS.map((m) => make('tr', { title: m.hint }, make('td', {}, `${m.name} (${m.when})`), make('td', {}, make('kbd', {}, m.key)), make('td', { className: 'hint' }, m.hint)));
         return [
           make('h3', {}, 'Hotkeys'),
           make('p', { className: 'hint' }, 'The keys as they are set now (changing them comes later).'),
           make('table', { className: 'hotkeys' }, make('tbody', {}, ...rows)),
+          make('h3', {}, 'Modifiers'),
+          make('p', { className: 'hint' }, 'At a click they change what is picked; while moving, how things move. Without one, a drag moves in steps that follow the zoom.'),
+          make('table', { className: 'hotkeys' }, make('tbody', {}, ...mods)),
         ];
       },
     ],

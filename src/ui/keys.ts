@@ -20,8 +20,8 @@ export interface Binding {
 /**
  * Every keyboard action, in one place: every key the app reacts to must be listed here (the settings dialog shows
  * this list; a keyboard mapper will edit it later). App actions run from the app's key handler; tool keys act while a
- * tool, a move, a resize or a pick runs. Typed values (digits, units, expressions) and the drag modifiers (Ctrl snaps,
- * Alt free, Shift proportional) are not listed here yet.
+ * tool, a move, a resize or a pick runs. Typed values (digits, units, expressions) are not listed; the modifiers'
+ * roles are in `MODS`.
  */
 export const KEYS = {
   save: { name: 'Save', order: 10, default: [{ key: 's', mod: true }], hint: 'Save the design (a new version in the file)' },
@@ -75,9 +75,26 @@ export function pressed(e: KeyboardEvent, action: Action): boolean {
 }
 
 export const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
-/** Ctrl (a Mac: ⌘) adds to or removes from a selection; on a Mac Ctrl picks a face, elsewhere Alt does. */
-export const toggles = (e: MouseEvent) => e.shiftKey || e.metaKey || (!MAC && e.ctrlKey);
-export const picksFace = (e: MouseEvent) => (MAC ? e.ctrlKey && !e.metaKey : e.altKey);
+
+/**
+ * What each modifier means, in one place (the settings list them; a mapper will change them later). At a click it
+ * changes what is picked, while moving how things move.
+ */
+export const MODS = [
+  { key: 'Shift', when: 'click', name: 'Add', hint: 'Adds to the selection or takes away (in lists: a range)' },
+  { key: MAC ? '⌘' : 'Ctrl', when: 'click', name: 'Add one, isolate, go on', hint: 'In lists adds one or takes it away; on an eye shows only that body; with the line tool: the next line from the last end' },
+  { key: 'Alt', when: 'click', name: 'Faces and edges', hint: 'Picks a face or an edge instead of the body (with Shift: more of them)' },
+  { key: 'Shift', when: 'moving', name: 'Constrain', hint: 'Square, keeps proportions, 15° turns, ten times bigger steps' },
+  { key: 'Ctrl', when: 'moving', name: 'Precise', hint: 'Steps of the minimum step (Settings → General)' },
+  { key: 'Alt', when: 'moving', name: 'From the centre', hint: 'Draws and resizes from the centre (with the others too)' },
+] as const;
+
+/** ⌘ on a Mac, else Ctrl: adds one in lists, isolates on an eye, goes on with the line tool. */
+export const mod = (e: MouseEvent) => (MAC ? e.metaKey : e.ctrlKey);
+/** A click that adds to the selection or takes away. */
+export const toggles = (e: MouseEvent) => e.shiftKey || mod(e);
+/** A click that picks a face or an edge. */
+export const picksFace = (e: MouseEvent) => e.altKey;
 const NAMES: Record<string, string> = { escape: 'Esc', enter: '↵', tab: 'Tab', backspace: '⌫', delete: 'Del', arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', ' ': 'Space' };
 
 /** A key combination as shown to people: ⇧⌘Z on a Mac, Ctrl+Shift+Z elsewhere. */

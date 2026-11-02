@@ -9,7 +9,7 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import { comboText, KEYS, pressed } from '../ui/keys';
+import { comboText, KEYS, MAC, mod, pressed } from '../ui/keys';
 
 export type ToolKind = 'rect' | 'circle' | 'ngon' | 'polygon' | 'line' | 'sphere';
 export type { DrawnProfile };
@@ -67,7 +67,8 @@ export interface SketchResult {
 export interface ToolView {
   el: HTMLElement;
   overlay: THREE.Group;
-  snapStep: number;
+  /** The step a drag moves in near `at` (mm), by the zoom and modifiers (Shift ×10 unless `coarse` is false, Ctrl the minimum). */
+  step(at: THREE.Vector3, e?: { shiftKey: boolean; ctrlKey: boolean }, coarse?: boolean): number;
   /** Where shapes drawn on the face of a body hit go (null: nowhere: a curved face no feature made). */
   placeOn(hit: THREE.Intersection): Omit<Target, 'sketch'> | null;
   sketches: ViewSketch[];
@@ -193,7 +194,7 @@ const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle
  * Draws rectangles, circles and polygons into sketches and pulls them into extrusions. A shape goes into the sketch
  * under the pointer, or onto the top face of the body under it (that face's sketch; pulling into the body cuts), or
  * into the selected sketch, or onto the base plane facing the camera. Right after drawing, moving pulls; a click
- * without pulling or Esc keeps it flat and the tool goes on. Ctrl snaps to the grid, the pointer to corners and
+ * without pulling or Esc keeps it flat and the tool goes on. the pointer snaps to the zoom's step (Ctrl: the minimum step), to corners and
  * centres; typed sizes and depths are exact (incase-style typing). In sketch mode (`draw`) shapes go flat into its
  * sketch and the tool goes on; `pull` only pulls existing shapes (E); `plane` picks where a new sketch goes.
  */
@@ -204,7 +205,7 @@ export class SketchTool implements Tool {
   private snapLine: Segment[] | null = null;
   /** What the pointer snapped to ('corner', '1/2', 'crossing' …), shown next to it. */
   private snapWhat: string | null = null;
-  /** Where the last line ended (world; kept across tool restarts): a Ctrl-click draws the next line from there. */
+  /** Where the last line ended (world; kept across tool restarts): a ⌘ (else Ctrl)-click draws the next line from there. */
   private static lineEnd: THREE.Vector3 | null = null;
   /** Pulling: waiting for the click that sets how far ("to object"). */
   private reaching = false;
@@ -216,7 +217,7 @@ export class SketchTool implements Tool {
   private showing: string | null = null;
   private dots: THREE.Vector3[] = [];
   /** The last pointer position snapped, to snap again when the points change. */
-  private lastPoint: [MouseEvent, Target, boolean] | null = null;
+  private lastPoint: [MouseEvent, Target] | null = null;
   /**
    * Guide lines (world, through `at` along `dir`): a straight line or edge hovered for `GUIDE_MS` gets one, snapped to
    * like any line. One per direction (a parallel one replaces it); a click or the tool ending drops them, unless fixed
@@ -281,10 +282,10 @@ export class SketchTool implements Tool {
         this.host.hint('Draw on the top face of an extrusion, on a sketch or on empty space · [Esc] stops');
         return true;
       }
-      const at = this.point(e, target, e.ctrlKey);
+      const at = this.point(e, target);
       if (!at) return true;
       this.view.markFace();
-      if (this.kind === 'line' && SketchTool.lineEnd && (e.ctrlKey || e.metaKey)) {
+      if (this.kind === 'line' && SketchTool.lineEnd && mod(e)) {
         this.phase = { kind: 'polygon', target, pts: [uvOf(target.frame, SketchTool.lineEnd), at], cur: at };
         this.finishLine();
         return this.update(), true;
@@ -296,7 +297,7 @@ export class SketchTool implements Tool {
       this.host.hint(this.kind === 'polygon' ? POLYGON_HINT : this.kind === 'line' ? LINE_HINT : SHAPE_HINT);
     } else if (ph.kind === 'shape') this.shapeDone(); // second click of click-click drawing
     else if (ph.kind === 'polygon') {
-      const at = this.point(e, ph.target, e.ctrlKey);
+      const at = this.point(e, ph.target);
       if (!at) return true;
       const r = this.view.el.getBoundingClientRect();
       const near = (q: UV) => {
@@ -328,11 +329,11 @@ export class SketchTool implements Tool {
       const target = this.target(e);
       this.view.markFace(target?.body && !target.sketch ? this.view.hit(e) : undefined);
       this.host.hint(target ? this.hoverHint(target) : 'Only the top faces of extrusions take sketches for now · [Esc] stops');
-      if (target) this.point(e, target, e.ctrlKey); // shows a snap dot
+      if (target) this.point(e, target); // shows a snap dot
       return this.update();
     }
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
-      const at = this.point(e, ph.target, e.ctrlKey);
+      const at = this.point(e, ph.target);
       if (at) ph.cur = at;
       if (ph.kind === 'shape') {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
@@ -341,7 +342,8 @@ export class SketchTool implements Tool {
     } else {
       if (this.reaching) return; // aiming at what to reach
       pullBy(this.view, e, ph.target.frame.n, this.middle(ph), ph);
-      ph.depth = this.snap(ph.raw, e.ctrlKey);
+      const step = this.view.step(this.middle(ph), e);
+      ph.depth = Math.round(ph.raw / step) * step;
     }
     this.update();
   }
@@ -409,9 +411,9 @@ export class SketchTool implements Tool {
 
   private hoverHint(target?: Target) {
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
-    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? `Click two points${SketchTool.lineEnd ? ' ([Ctrl]-click: on from the last end)' : ''}` : 'Drag (or click twice)';
+    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? `Click two points${SketchTool.lineEnd ? ` ([${MAC ? '⌘' : 'Ctrl'}]-click: on from the last end)` : ''}` : 'Drag (or click twice)';
     if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]} · [R] [C] [P] switch · snaps to corners and centres · [A] / [Shift A] more / fewer snap points on a line · [Ctrl] grid · [Esc] stops drawing shapes`;
-    return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] snaps · right-drag turns the view · [Esc] stops`;
+    return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] precise · right-drag turns the view · [Esc] stops`;
   }
 
   /**
@@ -454,11 +456,6 @@ export class SketchTool implements Tool {
 
   private sketchTarget(s: ViewSketch): Target {
     return { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'its sketch' };
-  }
-
-  private snap(v: number, ctrl: boolean) {
-    const step = ctrl ? this.view.snapStep : 0.1;
-    return Math.round(v / step) * step;
   }
 
   /**
@@ -591,19 +588,19 @@ export class SketchTool implements Tool {
   /**
    * Pointer on the target plane, in plane coordinates: on the nearest snap point within `px` pixels, else on a crossing of lines
    * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges in the plane), else
-   * on the grid (Ctrl) or 0.1 mm. Sets `snapWhat`.
+   * on the step for the zoom (Ctrl: the minimum step). Sets `snapWhat`.
    */
-  private point(e: MouseEvent, t: Target, grid: boolean): UV | null {
-    this.lastPoint = [e, t, grid];
+  private point(e: MouseEvent, t: Target): UV | null {
+    this.lastPoint = [e, t];
     const lines = this.snapLines();
-    const uv = this.snapAt(e, t, grid, lines);
+    const uv = this.snapAt(e, t, lines);
     this.snapSeg ??= this.roundSeg(e, t, lines);
     if (this.showing !== this.snapKey) this.showing = null; // the pointer left the line just changed
     this.dots = this.showing ? this.snapPoints(t, this.snapLines()).filter((q) => q.key === this.showing).map((q) => v3(toWorld(t.frame, ...q.at))) : [];
     return uv;
   }
 
-  private snapAt(e: MouseEvent, t: Target, grid: boolean, lines: SnapLine[], px = 10, linePx = 8): UV | null {
+  private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], px = 10, linePx = 8): UV | null {
     const p = planeHit(this.view.ray(e), t.frame);
     if (!p) return null;
     const r = this.view.el.getBoundingClientRect();
@@ -672,9 +669,9 @@ export class SketchTool implements Tool {
       const seg = off.seg.map((v) => v3(toWorld(t.frame, ...uvOf(t.frame, v)))) as Segment;
       if (seg[0].distanceTo(seg[1]) > 1e-3) this.snapSeg = seg; // not seen end-on
     }
-    if (grid) this.snapWhat = 'grid';
+    const step = this.view.step(p, e, false); // Shift squares shapes here, it does not coarsen
     const [u, v] = uvOf(t.frame, p);
-    return [this.snap(u, grid), this.snap(v, grid)];
+    return [Math.round(u / step) * step, Math.round(v / step) * step];
   }
 
   private typed(text: string | undefined) {
@@ -844,7 +841,7 @@ export class SketchTool implements Tool {
       m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
       this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(guideSeg(g).flatMap((v) => v.toArray())), m).computeLineDistances());
     }
-    const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'Hold Ctrl to start the line from the end of the last one' : null;
+    const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? `Hold ${MAC ? '⌘' : 'Ctrl'} to start the line from the end of the last one` : null;
     // on a point along a line (not anywhere along it)
     const more = this.snapKey && !this.snapWhat?.startsWith('on ') ? `Press ${comboText(KEYS.moreSnaps.default[0])} for more points, ${comboText(KEYS.fewerSnaps.default[0])} for fewer` : null;
     const guide = this.hoveredGuide();
@@ -889,10 +886,10 @@ export class SketchTool implements Tool {
   }
 }
 
-const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] snaps · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
-const LINE_HINT = 'Click the end point · [Ctrl] snaps · [Esc] cancels';
+const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] precise · type a size, [Tab] other side or number of sides · [Enter] or click: done · [Esc] cancels';
+const LINE_HINT = 'Click the end point · [Ctrl] precise · [Esc] cancels';
 const POLYGON_HINT = 'Click corners · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
-const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · [T] to object · click or [Enter]: done';
+const PULL_HINT = 'Move to pull · [Shift] coarse · [Ctrl] precise · type a depth · [T] to object · click or [Enter]: done';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {

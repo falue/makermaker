@@ -3,7 +3,7 @@ import type { V3 } from '../doc/frames';
 import { pullBy, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
 
-const HINT = 'Move to push or pull the face · [Ctrl] snaps · type a distance · [T] to object · click or [Enter]: done · [Esc] puts it back';
+const HINT = 'Move to push or pull the face · [Shift] coarse · [Ctrl] precise · type a distance · [T] to object · click or [Enter]: done · [Esc] puts it back';
 
 /** What a pull shows and how it ends: its hint, its label at the pointer, and whether releasing the button finishes it. */
 export type PullLook = { hint: string; label: (mm: number, typed?: string) => string; endOnUp?: boolean };
@@ -59,7 +59,7 @@ export class FacePullTool implements Tool {
   move(e: PointerEvent) {
     if (this.reaching) return; // aiming at what to reach
     pullBy(this.view, e, this.n, this.at, this.pull);
-    const step = e.ctrlKey ? this.view.snapStep : 0.1;
+    const step = this.view.step(this.at, e);
     this.dist = Math.round(this.pull.raw / step) * step;
     this.onPull(this.value(), 'live');
     this.update();

@@ -57,7 +57,7 @@ export interface ViewerHost {
   dragEdges(body: string, edges: [THREE.Vector3, THREE.Vector3][][]): void;
   /** A double-click on a sketch shape: open its sketch group, down to its sub-group. */
   enterShape(sketch: string, shape: string): void;
-  /** A face or edges picked (Ctrl-click; double-click: an edge loop), with the area (mm²) or length (mm), the edge count and one circle's Ø; null: none any more. */
+  /** Faces or edges picked (Alt-click, Shift more; double right-click: an edge loop), with the area (mm²) or length (mm), the edge count and one circle's Ø; null: none any more. */
   pickedPart(part: PickedPart | null): void;
 }
 
@@ -207,11 +207,12 @@ interface ShapeEdit {
 /**
  * Z-up viewport. Dragging a body moves it along one axis, picked by the drag direction like a weapon wheel (shown at
  * the press point; leaving its dead zone picks the axis, going back through it frees it; typing sets the distance;
- * Alt: free in the base plane facing the camera; Ctrl snaps to `snapStep`). Clicking a cut face picks its body. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
+ * the step follows the zoom: Shift coarse, Ctrl precise). Clicking a cut face picks its body. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
  * to orthographic until the next rotation. Top left: Ortho / Persp and Fit. A sketch tool takes the pointer while active.
  */
 export class Viewer implements ToolView {
-  snapStep = 5; // mm
+  /** The smallest step anything moves in (mm; Settings → General): precise moves (Ctrl) use it. */
+  minStep = 0.01;
   /** End faces of extrusions, where sketches can start. */
   /** Visible sketches (world frames) and the selected one with its selected shapes. */
   sketches: ViewSketch[] = [];
@@ -495,12 +496,12 @@ export class Viewer implements ToolView {
 
   /** The last face clicked on a body (front side), for tools picked after it. */
   lastFace: PickedFace | null = null;
-  /** A face picked with Ctrl-click (on a selected body), lit until its body is no longer selected. */
+  /** Faces picked with Alt-click (one body), lit until it is no longer selected. */
   private pickedFaces: { mesh: THREE.Mesh; faces: number[] } | null = null;
-  /** Picked faces and edges: lit in the accent blue (a Ctrl-hover previews in orange). */
+  /** Picked faces and edges: lit in the accent blue (an Alt-hover previews in orange). */
   private pickedMark: THREE.Mesh | null = null;
   private pickedEdgeMark = new THREE.Group();
-  /** An edge picked with Ctrl-click (world segments), lit until its body is no longer selected. */
+  /** Edges picked with Alt-click (world segments per edge), lit until their body is no longer selected. */
   private pickedEdge: { body: string; edges: [THREE.Vector3, THREE.Vector3][][] } | null = null;
   private edgeMark = new THREE.Group();
   /** The last press per kind (time, client px), for telling double ones. */
@@ -1709,6 +1710,20 @@ export class Viewer implements ToolView {
     this.render();
   }
 
+  /**
+   * The step a drag moves in near `at` (mm): it grows with what the screen shows, as a power law (about 1 mm at a normal
+   * zoom, 0.5 m with 20 m across the view), rounded to 1-2-5; Shift ten times (`coarse`: where Shift is no constraint),
+   * Ctrl the minimum step.
+   */
+  step(at: THREE.Vector3, e?: { shiftKey: boolean; ctrlKey: boolean }, coarse = true) {
+    if (e?.ctrlKey) return this.minStep;
+    const raw = 8.67 * (1 / this.pixelsPerMm(at)) ** 1.26;
+    const p = 10 ** Math.floor(Math.log10(raw));
+    const n = raw / p;
+    const nice = (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
+    return Math.max(this.minStep, nice * (coarse && e?.shiftKey ? 10 : 1));
+  }
+
   /** How far the move preview has moved the selection (world mm; zero without one). */
   moved() {
     const m = this.moving;
@@ -2063,11 +2078,7 @@ export class Viewer implements ToolView {
     const typed = d.typed === undefined ? null : this.host.length(d.typed);
     let delta: THREE.Vector3 | null = new THREE.Vector3();
     let text: string;
-    if (e.altKey) {
-      d.axis = null;
-      delta = ray.intersectPlane(d.plane, new THREE.Vector3())?.sub(d.start) ?? null;
-      text = 'free';
-    } else if (Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) < this.deadPx) {
+    if (Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) < this.deadPx) {
       d.axis = null;
       text = 'pick a direction';
     } else {
@@ -2078,7 +2089,7 @@ export class Viewer implements ToolView {
     }
     choose(this.wheel, d.axis);
     if (delta) {
-      const step = e.ctrlKey ? this.snapStep : 0.1;
+      const step = this.step(d.start, e);
       const lead = d.lead;
       d.by =
         (typed !== null && d.axis !== null) || !delta.lengthSq()
@@ -2096,7 +2107,7 @@ export class Viewer implements ToolView {
     this.moveLabel.style.cssText = `left:${x + 60}px;top:${y + 40}px`;
   }
 
-  /** Resizes (incase-style: Alt from the middle, Shift proportional, Ctrl snaps, typed sizes) or turns (Shift: 15°) the shape. */
+  /** Resizes (incase-style: Alt from the middle, Shift proportional, Ctrl precise, typed sizes) or turns (1°; Shift 15°, Ctrl 0.1°) the shape. */
   private applyEdit(ed: ShapeEdit) {
     const e = ed.last;
     const f = ed.sketch.frame;
@@ -2106,11 +2117,12 @@ export class Viewer implements ToolView {
     const world = new THREE.Vector3(...toWorld(f, ...centre(st)));
     if (ed.handle.kind === 'rotate') {
       const deg = angleAt(st, q) - ed.a0;
-      ed.next = rotated(st, e?.shiftKey ? Math.round(deg / 15) * 15 : Math.round(deg * 10) / 10);
+      const turn = e?.ctrlKey ? 0.1 : e?.shiftKey ? 15 : 1; // degrees
+      ed.next = rotated(st, Math.round(deg / turn) * turn);
       this.label(`${(ed.next.kind === 'circle' || ed.next.kind === 'line' ? 0 : ed.next.rot).toFixed(1)}°`, world);
     } else {
       const typed = ed.typed.map((t) => (t === undefined ? undefined : (this.host.length(t) ?? undefined))) as [number | undefined, number | undefined];
-      ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e?.altKey, shift: !!e?.shiftKey, step: e?.ctrlKey ? this.snapStep : 0.1, typed });
+      ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e?.altKey, shift: !!e?.shiftKey, step: this.step(world, e ?? undefined, false), typed });
       const [w, h] = sizeOf(ed.next);
       const body = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : `${ed.typed[k]}▏`}`;
       this.label(st.kind === 'circle' ? body(ed.axis, 'Ø', w) : `${body(0, 'W', w)}   ${body(1, 'H', h)}`, world);

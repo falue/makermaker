@@ -7,7 +7,7 @@ import { pressed } from '../ui/keys';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click areas to pick them (again to drop) · double-click picks everything inside a shape · [Enter] or [E] pulls the picked areas · [Esc] cancels';
-const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done · [Esc] cancels';
+const PULL_HINT = 'Move to pull · [Shift] coarse · [Ctrl] precise · type a depth · click or [Enter]: done · [Esc] cancels';
 
 /** In a sketch: pick areas (where shapes overlap, each piece is an area), then pull them into one extrusion. */
 export class AreaTool implements Tool {
@@ -51,7 +51,7 @@ export class AreaTool implements Tool {
 
   move(e: PointerEvent) {
     if (this.pull) {
-      const step = e.ctrlKey ? this.view.snapStep : 0.1;
+      const step = this.view.step(this.middle(), e);
       pullBy(this.view, e, this.target.frame.n, this.middle(), this.pull);
       this.pull.depth = Math.round(this.pull.raw / step) * step;
     } else this.hover = this.areaAt(e);
