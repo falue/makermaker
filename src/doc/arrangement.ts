@@ -135,6 +135,43 @@ export function lineFaces(ps: (DrawnProfile & { id: string })[]): { faces: (Face
   return { faces: found, uses: taking.map(({ p }) => p.id) };
 }
 
+/**
+ * Closed shapes in pieces that overlap or touch (pulled, each piece is one body): outlines that meet or cross, or one
+ * shape inside another (a hole in a plate), join theirs.
+ */
+export function pieces(ps: (DrawnProfile & { id: string })[], eps = 1e-6): string[][] {
+  const outlines = ps.map((p) => pathOf(p, 72).pts);
+  const boxes = outlines.map((pts) => boxOf(pts));
+  const meet = (a: UV[], b: UV[]) =>
+    a.some((p, i) => {
+      const q = a[(i + 1) % a.length];
+      return b.some((c, j) => {
+        const d = b[(j + 1) % b.length];
+        const [r, s] = [sub(q, p), sub(d, c)];
+        const den = cross(r, s);
+        if (Math.abs(den) < 1e-12) {
+          // parallel: touching only on one line, where their spans along it overlap
+          if (Math.abs(cross(sub(c, p), r)) > eps * Math.hypot(...r)) return false;
+          const [t0, t1] = [c, d].map((x) => (sub(x, p)[0] * r[0] + sub(x, p)[1] * r[1]) / (r[0] ** 2 + r[1] ** 2 || 1));
+          return Math.max(t0, t1) >= -eps && Math.min(t0, t1) <= 1 + eps;
+        }
+        const [t, u] = [cross(sub(c, p), s) / den, cross(sub(c, p), r) / den];
+        return t >= -eps && t <= 1 + eps && u >= -eps && u <= 1 + eps;
+      });
+    });
+  const root = ps.map((_, i) => i);
+  const find = (i: number): number => (root[i] === i ? i : (root[i] = find(root[i])));
+  for (let i = 0; i < ps.length; i++)
+    for (let j = i + 1; j < ps.length; j++) {
+      const [a, b] = [boxes[i], boxes[j]];
+      const near = a[0] <= b[2] + eps && b[0] <= a[2] + eps && a[1] <= b[3] + eps && b[1] <= a[3] + eps;
+      if (near && (inside(ps[i], ...outlines[j][0]) || inside(ps[j], ...outlines[i][0]) || meet(outlines[i], outlines[j]))) root[find(i)] = find(j);
+    }
+  const groups = new Map<number, string[]>();
+  ps.forEach((p, i) => (groups.get(find(i)) ?? groups.set(find(i), []).get(find(i))!).push(p.id));
+  return [...groups.values()];
+}
+
 /** A point inside the face (not in a hole): the middle of the widest gap along a horizontal line through it. */
 export function innerPoint(f: Face): UV {
   const [x0, y0, x1, y1] = boxOf(f.outer);

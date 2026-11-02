@@ -6,12 +6,13 @@ import { toBuild } from './doc/expand';
 import { BASE, capFrame, cutPlane, extent, frames, moved, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, closedLoop, corners, type Align } from './doc/profiles';
+import { pieces } from './doc/arrangement';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -1704,15 +1705,27 @@ function sketched(r: SketchResult): string {
     }
   }
   if (r.depth || r.back) {
-    // always a new body: joining it to the body it was drawn on is a boolean, done explicitly later
-    const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, areas: r.areas };
+    // always new bodies, one per piece of shapes that do not overlap or touch: joining one to the body it was drawn on is
+    // a boolean, done explicitly later
     const back = r.back ? { back: len(r.back, r.backTyped) } : {};
-    const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), ...back, mode: 'add', through: false };
-    // on a base plane the body shares the sketch's group (so both count from the same origin)
     const sketch = sketches.find((s) => s.id === id)!;
-    const body = newBody(bodies.length, [feature], sketch.plane.kind === 'base' ? sketch.group : null);
-    bodies = [...bodies, body];
-    selected = [body.id];
+    const lookup = paramLookup(doc.params);
+    const shown = sketch.shapes.filter((q) => ids.includes(q.id) && q.kind !== 'line').map((q) => resolve(q, lookup, '', new Map()) as DrawnProfile & { id: string });
+    const parts = pieces(shown);
+    // picked areas: each with the piece of its first shape (areas that lines enclose stay together)
+    const areaParts = new Map<number, Area[]>();
+    for (const a of r.areas ?? []) {
+      const k = a.at || !a.in.length ? -1 : parts.findIndex((p) => p.includes(a.in[0]));
+      (areaParts.get(k) ?? areaParts.set(k, []).get(k)!).push(a);
+    }
+    const made = (r.areas ? [...areaParts.values()].map((areas) => ({ shapes: ids, areas })) : parts.map((shapes) => ({ shapes, areas: undefined }))).map(({ shapes, areas }, k): Body => {
+      const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes, areas };
+      const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), ...back, mode: 'add', through: false };
+      // on a base plane the body shares the sketch's group (so both count from the same origin)
+      return newBody(bodies.length + k, [feature], sketch.plane.kind === 'base' ? sketch.group : null);
+    });
+    bodies = [...bodies, ...made];
+    selected = made.map((b) => b.id);
     shapeSel = [];
   } else [selected, shapeSel] = [[id], ids];
   commit({ ...doc, sketches, bodies });
