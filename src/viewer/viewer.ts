@@ -390,11 +390,11 @@ export class Viewer implements ToolView {
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
 
-    // orbiting turns around the selection's middle, else the model point under the pointer (as Blender does): the view
-    // does not jump there, the camera only turns around it; each step of the controls is turned around that point
+    // orbiting turns around the selection's middle, else the middle of everything shown (as Blender does): the view does
+    // not jump there, the camera only turns around it; each step of the controls is turned around that point
     let orbit: { pivot: THREE.Vector3; target: THREE.Vector3; turn: THREE.Quaternion } | null = null;
     this.controls.addEventListener('start', () => {
-      const pivot = this.selectionMiddle() ?? (this.hover ? this.frontHit(this.hover)?.point : undefined);
+      const pivot = this.middleOf(this.selection, this.activeSketch, this.selectedShapes) ?? this.middleOf([...this.bodies.keys()], null, [], true);
       orbit = pivot ? { pivot, target: this.controls.target.clone(), turn: this.camera.quaternion.clone() } : null;
     });
     this.controls.addEventListener('end', () => (orbit = null));
@@ -830,16 +830,18 @@ export class Viewer implements ToolView {
     return { placement: { kind: 'plane', ...frame }, frame, body: null, name: 'the cut' };
   }
 
-  /** The middle of what is selected (shown bodies, the selected sketch's selected shapes, else all its shapes); null: nothing. */
-  private selectionMiddle() {
+  /**
+   * The middle of shown bodies `ids` and of sketch `sketch` (its `shapes`, else all of them), or with `all` of every
+   * shown sketch too; null: nothing there.
+   */
+  private middleOf(ids: string[], sketch: string | null, shapes: string[], all = false) {
     const box = new THREE.Box3();
-    for (const id of this.selection) if (!this.hidden.has(id)) box.expandByObject(this.bodies.get(id) ?? new THREE.Object3D());
-    const s = this.sketches.find((v) => v.id === this.activeSketch);
-    const shapes = s?.shapes.filter((q) => !this.selectedShapes.length || this.selectedShapes.includes(q.id)) ?? [];
-    for (const q of shapes) {
-      const [x0, y0, x1, y1] = bounds(q);
-      for (const [u, v] of [[x0, y0], [x1, y1]]) box.expandByPoint(new THREE.Vector3(...toWorld(s!.frame, u, v)));
-    }
+    for (const id of ids) if (!this.hidden.has(id) && !(all && this.cutters.has(id))) box.expandByObject(this.bodies.get(id) ?? new THREE.Object3D());
+    for (const s of this.sketches.filter((v) => all || v.id === sketch))
+      for (const q of s.shapes.filter((q) => all || !shapes.length || shapes.includes(q.id))) {
+        const [x0, y0, x1, y1] = bounds(q);
+        for (const [u, v] of [[x0, y0], [x1, y1]]) box.expandByPoint(new THREE.Vector3(...toWorld(s.frame, u, v)));
+      }
     return box.isEmpty() ? null : box.getCenter(new THREE.Vector3());
   }
 
