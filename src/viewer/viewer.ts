@@ -292,7 +292,7 @@ export class Viewer implements ToolView {
   /** One material per body: its colour. */
   private materials = new Map<string, THREE.MeshStandardMaterial>();
   private hidden = new Set<string>();
-  /** Bodies hidden by their looks; `hidden` leaves out selected tool bodies, which show as outlines. */
+  /** Bodies hidden by their looks; `hidden` also hides tool bodies, except selected ones (outlines). */
   private looksHidden = new Set<string>();
   /** Body edges: their colours per point (see `setBody`). */
   private edgeMaterial = new THREE.LineBasicMaterial({ vertexColors: true });
@@ -876,8 +876,10 @@ export class Viewer implements ToolView {
     this.applySection();
   }
 
+  /** Tool bodies of booleans show (as outlines) only while selected; the rest as their looks say. */
   private rehide() {
-    this.hidden = new Set([...this.looksHidden].filter((id) => !(this.cutters.has(id) && this.selection.includes(id))));
+    const shown = (id: string) => this.selection.includes(id);
+    this.hidden = new Set([...this.looksHidden, ...this.cutters].filter((id) => !(this.cutters.has(id) && shown(id))));
   }
 
   /** A body's colour while the colour picker is open (not in the document yet). */

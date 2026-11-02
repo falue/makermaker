@@ -654,7 +654,7 @@ function selectionPanel(ctx: UIContext): Node[] {
     return [
       h('p', { className: 'hint' }, `${n} bodies selected: drag, nudge, duplicate or delete them together; select one to edit it.`),
       h('h3', {}, 'Boolean'),
-      h('p', { className: 'hint' }, 'The first selected body keeps the result; the others become its tool bodies: they move with it and stay editable (cutters show as red outlines).'),
+      h('p', { className: 'hint' }, 'The first selected body keeps the result; the others become its tool bodies: they move with it and stay editable (selected, they show as red outlines).'),
       h('div', { className: 'aligns' }, ...booleanTools(ctx)),
     ];
   const k = ctx.doc.sketches.findIndex((s) => s.id === ctx.selected[0]);
