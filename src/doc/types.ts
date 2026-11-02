@@ -198,6 +198,11 @@ export interface Body {
   visible: boolean;
   position: [Expr, Expr, Expr];
   features: Feature[];
+  /**
+   * A linked copy: the body whose steps it shares (editing them edits all its copies); its own `features` come after
+   * them (a mirror, say). Null: its own design.
+   */
+  link: string | null;
   /** Its place among its group's groups and bodies in the object list (none: after the groups, as listed). */
   order?: number;
 }
@@ -294,7 +299,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 14;
+  schema: 15;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

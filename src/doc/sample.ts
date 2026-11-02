@@ -27,6 +27,7 @@ const solid = (name: string, color: string, at: [number, number, number], profil
   name,
   group,
   rotation: unturned(),
+  link: null,
   color,
   visible: true,
   position: [ex(at[0]), ex(at[1]), ex(at[2])],
@@ -133,6 +134,7 @@ export function sampleDoc(): Doc {
     name: 'Plate',
     group: null,
     rotation: unturned(),
+    link: null,
     color: '#d8c3a0',
     visible: true,
     position: [ex(0), ex(0), ex(0)],
@@ -148,6 +150,7 @@ export function sampleDoc(): Doc {
     name: 'Disc',
     group: null,
     rotation: unturned(),
+    link: null,
     color: '#a9c4d8',
     visible: true,
     position: [ex(110), ex(0), ex(0)],
@@ -165,6 +168,7 @@ export function sampleDoc(): Doc {
     name: 'Ball',
     group: corner.id,
     rotation: unturned(),
+    link: null,
     color: '#d9a98f',
     visible: true,
     position: [ex(-5), ex(55), ex(25)],
@@ -172,7 +176,7 @@ export function sampleDoc(): Doc {
   };
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
-    schema: 14,
+    schema: 15,
     units: 'mm',
     params: { ply: ex('4mm') },
     bodies: [plate, disc, pin, block, ball, nut, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies],

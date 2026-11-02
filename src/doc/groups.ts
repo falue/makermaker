@@ -86,6 +86,23 @@ export function ownersOf(doc: Doc) {
   return out;
 }
 
+/**
+ * `doc` with bodies `gone` about to go: linked copies of them take over the steps (the first one keeps them, the others
+ * link to it).
+ */
+export function unlinkedFrom(doc: Doc, gone: Set<string>): Doc {
+  const heir = new Map<string, string>();
+  const bodies = doc.bodies.map((b) => {
+    if (!b.link || !gone.has(b.link) || gone.has(b.id)) return b;
+    const first = heir.get(b.link);
+    if (first) return { ...b, link: first };
+    heir.set(b.link, b.id);
+    const source = doc.bodies.find((s) => s.id === b.link)!;
+    return { ...b, link: null, features: [...structuredClone(source.features), ...b.features] };
+  });
+  return { ...doc, bodies };
+}
+
 /** Group `id` and all groups inside it. */
 export function within(doc: Doc, id: string): Set<string> {
   const out = new Set([id]);

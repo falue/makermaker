@@ -673,7 +673,11 @@ function left(ctx: UIContext): Node[] {
       op?.type === 'boolean'
         ? h('button', { className: 'icon tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name} · click: free it from the boolean`, onclick: () => ctx.commit(freed(doc, id)) })
         : look;
-    return row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...sketch, ...bools, ...jointMark(id), tool);
+    // linked copies: the link mark (on the copies and their source)
+    const source = doc.bodies.find((b) => b.id === p.link);
+    const follows = doc.bodies.some((b) => b.link === p.id);
+    const linked = source || follows ? [h('span', { className: 'icon linked-mark', innerHTML: icon('link'), title: source ? `Linked copy of ${source.name}: it shares its steps` : 'Its linked copies share its steps' })] : [];
+    return row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...sketch, ...bools, ...jointMark(id), tool);
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
@@ -887,11 +891,13 @@ function selectionPanel(ctx: UIContext): Node[] {
       button('Delete', ctx.remove, 'Delete the body (with its cutters)'),
     ),
     ...freeing,
+    ...linkedNote(ctx, body),
     h('h3', {}, 'Position'),
     h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `${at}.position.${k}`, l))),
     h('h3', {}, 'Rotation'),
     // degrees: shown as typed, never unit-converted
     h('div', { className: 'row' }, ...(['rx', 'ry', 'rz'] as const).map((k) => exprField(ctx, `${at}.rotation.${k}`, `${k[1].toUpperCase()}°`, true))),
+    ...sharedCards(ctx, body),
     ...body.features.map((feature, j) => {
       const card = featureCard(ctx, body, feature, `${at}.features.${j}`, setBody);
       if (failure && (failure.featureId === feature.id || (!failure.featureId && j === 0)))
@@ -905,6 +911,26 @@ function selectionPanel(ctx: UIContext): Node[] {
     ),
     ...jointCards(ctx, body.id),
   ];
+}
+
+/** A linked copy: whose steps it shares (editing them edits all copies), and Unlink. */
+function linkedNote(ctx: UIContext, body: Body): Node[] {
+  const source = ctx.doc.bodies.find((b) => b.id === body.link);
+  const followers = ctx.doc.bodies.filter((b) => b.link === body.id).length;
+  if (followers) return [h('p', { className: 'hint linked' }, `${followers} linked cop${followers === 1 ? 'y follows' : 'ies follow'} its steps: editing them edits those too`)];
+  if (!source) return [];
+  const copies = ctx.doc.bodies.filter((b) => b.link === source.id).length;
+  const unlink = button('Unlink', () => ctx.commit(setIn(ctx.doc, ['bodies', String(ctx.doc.bodies.indexOf(body))], { ...body, link: null, features: [...structuredClone(source.features), ...body.features] })), 'Its own copy of the steps: editing it no longer changes the others');
+  return [h('div', { className: 'row linked' }, h('span', { className: 'hint' }, `Linked copy of ${source.name} (${copies + 1} alike): editing its steps edits all of them`), unlink)];
+}
+
+/** A linked copy's shared steps: its source's cards (edits go to the source, so to all copies). */
+function sharedCards(ctx: UIContext, body: Body): Node[] {
+  const k = ctx.doc.bodies.findIndex((b) => b.id === body.link);
+  if (k < 0) return [];
+  const source = ctx.doc.bodies[k];
+  const setSource = (next: Body) => ctx.commit(setIn(ctx.doc, ['bodies', String(k)], next));
+  return source.features.map((feature, j) => featureCard(ctx, source, feature, `bodies.${k}.features.${j}`, setSource));
 }
 
 /** The joints `id` stays in or moves by: name, range, what moves; Edit opens the panel it was made in. */

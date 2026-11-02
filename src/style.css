@@ -1473,3 +1473,16 @@ input[type='range']:active {
   background: rgba(47, 174, 90, 0.3);
   border-radius: 2px;
 }
+.listed .linked-mark {
+  display: inline-flex;
+  flex: none;
+  width: 22px;
+  justify-content: center;
+  color: var(--accent);
+}
+.listed .linked-mark svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+}

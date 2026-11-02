@@ -13,7 +13,7 @@ import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, whose, within } from './doc/groups';
+import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { Area, Body, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
@@ -438,7 +438,10 @@ function update() {
       viewer.setPlacement(p.id, at, turn);
     }
     const before = exprErrors.size;
-    const resolved = resolve(p.features, lookup, `bodies.${i}.features`, exprErrors);
+    // a linked copy: its source's steps (errors shown at the source), then its own
+    const k = p.link ? doc.bodies.findIndex((b) => b.id === p.link) : -1;
+    const shared = k >= 0 ? resolve(doc.bodies[k].features, lookup, `bodies.${k}.features`, exprErrors) : [];
+    const resolved = [...shared, ...resolve(p.features, lookup, `bodies.${i}.features`, exprErrors)];
     return exprErrors.size === before ? [{ id: p.id, resolved, at: bodyPlace(p.id) }] : [];
   });
   const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
@@ -515,7 +518,9 @@ function update() {
       if (resolvedOf.get(s.body)?.some((f) => f.type === 'mesh')) return 'a mesh body cannot be a tool body yet';
       const tool = fullOf(s.body, [...path, id]);
       if (typeof tool === 'string') return tool;
-      const relative = (bodyPlaces.get(id) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
+      // as the tool sits by the body it belongs to (a linked copy: by its source, so the copy is cut the same)
+      const owner = doc.bodies.find((b) => b.id === id)?.link ?? id;
+      const relative = (bodyPlaces.get(owner) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
       out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative) });
     }
     full.set(id, out);
@@ -1005,7 +1010,7 @@ function toggleVisible() {
  * Esc or leaving cancels all. `all` (M): all three fields at once, X first, starting at `start` (mm; selected, so
  * typing replaces them). Copy: the selection stays (shown whole, not as a ghost) and a copy of it moves.
  */
-function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
+function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: { sources: string[]; copies: string[] }) {
   if (!selected.length) {
     // tool first: a click picks what moves and opens the field; Shift / ⌘ clicks collect several, Enter then
     pending = {
@@ -1163,7 +1168,19 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
   const copy = Object.assign(document.createElement('input'), { type: 'checkbox', onchange: () => (show(), last?.focus()) });
   const copyLabel = Object.assign(document.createElement('label'), { title: 'Leave the selection where it is and move a copy of it' });
   copyLabel.append(copy, 'Copy');
-  box.append(toObject, copyLabel);
+  // linked: copies share their source's steps (editing one edits all); just duplicated ones change at once
+  const linked = Object.assign(document.createElement('input'), {
+    type: 'checkbox',
+    checked: linkedCopies,
+    onchange: () => {
+      linkedCopies = linked.checked;
+      if (made) history.replace(relinked(history.current, made.sources, made.copies, linkedCopies)), update();
+      last?.focus();
+    },
+  });
+  const linkedLabel = Object.assign(document.createElement('label'), { title: 'Copies are linked copies: they share their steps, editing one edits all of them' });
+  linkedLabel.append(linked, 'Linked');
+  box.append(toObject, ...(made ? [] : [copyLabel]), linkedLabel);
   if (all) [2, 1].forEach(open); // Z and Y open behind X
   open(first);
   show();
@@ -1237,6 +1254,22 @@ function moveBy(by: Vector3) {
   commit(next);
 }
 
+/** Copies are made linked (sharing their source's steps): the Linked checkboxes of copy-move, Duplicate, Mirror and Pattern (this session). */
+let linkedCopies = false;
+
+/** Copies `copies` of bodies `sources` (pairwise) made linked copies of them (`on`), or independent with all their steps. */
+function relinked(doc: Doc, sources: string[], copies: string[], on: boolean): Doc {
+  return {
+    ...doc,
+    bodies: doc.bodies.map((b) => {
+      const src = doc.bodies.find((x) => x.id === sources[copies.indexOf(b.id)]);
+      if (!src) return b;
+      const shared = doc.bodies.find((x) => x.id === src.link)?.features ?? [];
+      return on ? { ...b, link: src.link ?? src.id, features: structuredClone(src.link ? src.features : []) } : { ...b, link: null, features: structuredClone([...shared, ...src.features]) };
+    }),
+  };
+}
+
 /** Moves a copy of the selection by `by` (one undo step): shapes in their sketch, else bodies and sketches. */
 function copyMoved(by: Vector3) {
   const before = history.current;
@@ -1251,7 +1284,7 @@ function copyMoved(by: Vector3) {
     shapeSel = copies.map((q) => q.id);
     history.replace(setIn(before, ['sketches', String(k), 'shapes'], [...before.sketches[k].shapes, ...copies]));
   } else {
-    const { bodies, sketches } = copiesOf(moved.bodies.filter((b) => selected.includes(b.id)), moved.sketches.filter((s) => selected.includes(s.id)), ' copy');
+    const { bodies, sketches } = copiesOf(moved.bodies.filter((b) => selected.includes(b.id)), moved.sketches.filter((s) => selected.includes(s.id)), ' copy', linkedCopies);
     selected = [...bodies, ...sketches].map((c) => c.id);
     history.replace({ ...before, bodies: [...before.bodies, ...bodies], sketches: [...before.sketches, ...sketches] });
   }
@@ -1823,7 +1856,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
     // counts and degrees as numbers, the spacings as lengths (mm)
     const v = texts.map((t, i) => (mode === 'grid' && i >= 3 && i < 6 ? (length(t) ?? 0) : Number(t) || 0));
     const copies = placements(v).flatMap((worlds, k) => {
-      const { bodies } = copiesOf(doc0.bodies.filter((b) => sources.includes(b.id)), [], ` ${k + 2}`);
+      const { bodies } = copiesOf(doc0.bodies.filter((b) => sources.includes(b.id)), [], ` ${k + 2}`, linkedCopies);
       return bodies.map((b, n) => ({ ...b, ...placementIn(parentPlace(sources[n]), worlds[n]) }));
     });
     const next = { ...doc0, bodies: [...doc0.bodies, ...copies] };
@@ -1845,10 +1878,11 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
           ...['X', 'Y', 'Z'].map((a) => ({ label: `${a} gap`, value: fmt(5 / u) })),
           { label: 'Turn °', value: '0', raw: true },
         ];
+  const link = checkbox('Linked', 'The copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => ((linkedCopies = on), apply()));
   const extra =
     mode === 'around'
-      ? [switcher, checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply()))]
-      : [switcher, checkbox('Overall', 'The spacing fields are the whole size from first to last, not the gap between copies', false, (on) => {
+      ? [switcher, link, checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply()))]
+      : [switcher, link, checkbox('Overall', 'The spacing fields are the whole size from first to last, not the gap between copies', false, (on) => {
           overall = on;
           panel.inputs.slice(3, 6).forEach((input, k) => {
             const label = input.previousElementSibling as HTMLElement;
@@ -1926,12 +1960,18 @@ function mirrorTool() {
   }
   toolHint = 'Mirror: click the face to mirror across (empty space: the base plane facing you) · [Esc] cancels';
   render();
+  const option = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
+  option.append(checkbox('Linked', 'The mirrored copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => (linkedCopies = on)));
+  document.body.append(option);
+  const r = viewer.el.getBoundingClientRect();
+  keepInside(option, r.left + (r.width - option.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
   viewer.pickFace((face) => {
+    option.remove();
     toolHint = null;
     if (!face) return render();
     const doc = history.current;
     const sources = doc.bodies.filter((b) => bodies.includes(b.id));
-    const { bodies: copies } = copiesOf(sources, [], ' mirrored');
+    const { bodies: copies } = copiesOf(sources, [], ' mirrored', linkedCopies);
     const made = copies.map((c, i) => {
       // the plane in the copy's coordinates: those of the body it was copied from
       const pl = bodyPlace(sources[i].id);
@@ -2877,7 +2917,8 @@ function remove() {
   const groups = new Set(selected.filter((id) => doc.groups.some((g) => g.id === id)).flatMap((id) => [...within(doc, id)]));
   const gone = new Set([...selected, ...contents(doc, selected)]);
   for (const id of gone) for (const [tool, o] of owner) if (o === id) gone.add(tool);
-  const bodies = doc.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => f.type !== 'boolean' || !gone.has(f.body)) }));
+  const kept = unlinkedFrom(doc, gone); // linked copies of what goes take over its steps
+  const bodies = kept.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => f.type !== 'boolean' || !gone.has(f.body)) }));
   commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)) });
 }
 
@@ -3137,7 +3178,7 @@ function toggleConstruction() {
 
 /** The `count`-th body at the origin (of `group`), with a colour from a small palette. */
 function newBody(count: number, features: Feature[], group: string | null = null, palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f']): Body {
-  return { id: newId(), name: `Body ${count + 1}`, group, rotation: unturned(), color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features };
+  return { id: newId(), name: `Body ${count + 1}`, group, rotation: unturned(), color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features, link: null };
 }
 
 /** A new, empty sketch at a picked target (the `count`-th sketch). */
@@ -3427,14 +3468,20 @@ async function toggleAutosave() {
  */
 function duplicate() {
   const doc = history.current;
-  placeCopies(copiesOf(doc.bodies.filter((p) => selected.includes(p.id)), doc.sketches.filter((s) => selected.includes(s.id)), ' copy'), [5, 5, 0]);
+  const sources = doc.bodies.filter((p) => selected.includes(p.id));
+  const copies = copiesOf(sources, doc.sketches.filter((s) => selected.includes(s.id)), ' copy', linkedCopies);
+  placeCopies(copies, [5, 5, 0], { sources: sources.map((b) => b.id), copies: copies.bodies.map((b) => b.id) });
 }
 
 /**
  * Copies of bodies and sketches with new ids throughout, named with `suffix`; a copied body extruded from a copied
- * sketch is linked to that copy (its shapes and areas too).
+ * sketch is linked to that copy (its shapes and areas too). `linked`: the bodies are linked copies (sharing their
+ * source's steps, keeping only their own); else a linked body's copy gets all its steps.
  */
-function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string) {
+function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string, linked = false) {
+  const doc = history.current;
+  const shared = (b: Body) => doc.bodies.find((s) => s.id === b.link)?.features ?? [];
+  bodies = bodies.map((b) => (linked ? { ...b, link: b.link ?? b.id, features: b.link ? b.features : [] } : { ...b, link: null, features: [...shared(b), ...b.features] }));
   const ids = new Map<string, string>(); // old id → new, for bodies, their features, sketches, their shapes and sub-groups
   const fresh = (id: string) => ids.get(id) ?? ids.set(id, newId()).get(id)!;
   const renamed = (id: string) => ids.get(id) ?? id;
@@ -3467,11 +3514,11 @@ function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string) {
 }
 
 /** Adds copies (see `copiesOf`), selects them and opens the move fields at `start` (mm), to type where they go. */
-function placeCopies({ bodies, sketches }: ReturnType<typeof copiesOf>, start: Vec3) {
+function placeCopies({ bodies, sketches }: ReturnType<typeof copiesOf>, start: Vec3, made?: { sources: string[]; copies: string[] }) {
   const doc = history.current;
   selected = [...bodies, ...sketches].map((c) => c.id);
   commit({ ...doc, bodies: [...doc.bodies, ...bodies], sketches: [...doc.sketches, ...sketches] });
-  if (selected.length) moveAlong(0, true, start);
+  if (selected.length) moveAlong(0, true, start, made);
 }
 
 /** Sketch mode's open sub-group: the view fades the rest and shows the way down (when it changed). */
@@ -3702,7 +3749,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 14, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 15, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
