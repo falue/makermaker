@@ -140,6 +140,12 @@ export interface RenderJob {
 export type ShapeField = 'x' | 'y' | 'w' | 'h' | 'd' | 'rot';
 
 /** A list click as in file lists: Shift a range, ⌘ / Ctrl toggles. Ctrl-click on macOS (a context menu click) toggles too. */
+/** A boolean's tool body freed: the booleans using it go, and it shows as a normal body again. */
+const freed = (doc: Doc, tool: string): Doc => ({
+  ...doc,
+  bodies: doc.bodies.map((b) => (b.id === tool ? { ...b, visible: true } : { ...b, features: b.features.filter((f) => f.type !== 'boolean' || f.body !== tool) })),
+});
+
 /** The last eye clicked (its list and row) and what it switched to: a Shift-click on another eye applies that to the rows between. */
 let lastEye: { list: 'objects' | 'sketches' | 'solid'; id: string; on: boolean } | null = null;
 
@@ -504,7 +510,7 @@ function left(ctx: UIContext): Node[] {
     // a boolean's tool body: the op, and whose
     const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id));
     const op = user?.features.find((f) => f.type === 'boolean' && f.body === id);
-    const tool = op?.type === 'boolean' ? [h('span', { className: 'tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name}` })] : [];
+    const tool = op?.type === 'boolean' ? [h('span', { className: 'tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name} · select it to free it from the boolean` })] : [];
     return row(id, depth, false, ...fold(r), listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name']), ...tool), sketch, look);
   });
   // sketches: their own list, each with the body it belongs to
@@ -653,6 +659,11 @@ function selectionPanel(ctx: UIContext): Node[] {
   const at = `bodies.${i}`;
   const setBody = (next: Body) => ctx.commit(setIn(ctx.doc, ['bodies', String(i)], next));
   const failure = ctx.kernelErrors.get(body.id);
+  // a boolean's tool body: whose, and a way out
+  const user = ctx.doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === body.id));
+  const freeing = user
+    ? [h('div', { className: 'row' }, h('span', { className: 'hint' }, `A tool body of ${user.name}`), button('Free from boolean', () => ctx.commit(freed(ctx.doc, body.id)), 'Remove the booleans that use it: it becomes a normal body again'))]
+    : [];
 
   return [
     h(
@@ -670,6 +681,7 @@ function selectionPanel(ctx: UIContext): Node[] {
       }),
       button('Delete', ctx.remove, 'Delete the body (with its cutters)'),
     ),
+    ...freeing,
     h('h3', {}, 'Position'),
     h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `${at}.position.${k}`, l))),
     h('h3', {}, 'Rotation'),
@@ -901,8 +913,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const other = ctx.doc.bodies.find((b) => b.id === feature.body);
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
       const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error' }, 'its tool body was deleted');
-      // without the boolean the tool body is a body of its own again: shown
-      const drop = button('×', () => ctx.commit({ ...ctx.doc, bodies: ctx.doc.bodies.map((b) => (b.id === body.id ? { ...b, features: b.features.filter((s) => s !== feature) } : b.id === feature.body ? { ...b, visible: true } : b)) }), 'Remove: the tool body becomes a body of its own');
+      const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), 'Remove: the tool body becomes a body of its own');
       return h('section', {}, h('h4', {}, op, drop), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'with'), tool));
     }
     case 'mesh': {
