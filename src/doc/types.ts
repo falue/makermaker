@@ -100,7 +100,8 @@ export type StepFeature = { id: string; type: 'step'; source: string; data: stri
 
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
-  | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; mode: 'add' | 'cut'; through: boolean }
+  /** `back`: how far it also reaches behind its sketch plane (none: 0). */
+  | { id: string; type: 'extrude'; source: ExtrudeSource; depth: Expr; back?: Expr; mode: 'add' | 'cut'; through: boolean }
   | SphereFeature
   | BooleanFeature
   | FinishFeature
@@ -118,6 +119,7 @@ export type ExtrudeIn = {
   profiles: Profile[];
   areas?: Area[];
   depth: Expr;
+  back?: Expr;
   mode: 'add' | 'cut';
   through: boolean;
 };

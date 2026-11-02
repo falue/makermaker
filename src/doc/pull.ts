@@ -1,5 +1,5 @@
 import type { BuildFeature } from '../kernel/build';
-import { frames, toPlane, toWorld, unplaced, type Frame, type V3 } from './frames';
+import { extent, frames, toPlane, toWorld, unplaced, type Frame, type V3 } from './frames';
 import { centre, corners, inside, type DrawnProfile } from './profiles';
 import type { Resolved } from './resolve';
 import type { ExtrudeIn } from './types';
@@ -11,7 +11,7 @@ type UV = [number, number];
  * shape (`edge`: index of a straight side between corners `edge` and `edge + 1`; -1: a circle). `rate`: how far
  * the depth or the edge moves per mm the face moves outwards.
  */
-export type PulledFace = { kind: 'cap'; feature: string; rate: number } | { kind: 'side'; feature: string; shape: string; edge: number; rate: number };
+export type PulledFace = { kind: 'cap'; feature: string; rate: number; back?: boolean } | { kind: 'side'; feature: string; shape: string; edge: number; rate: number };
 
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -35,12 +35,16 @@ function extrudeFace(s: Resolved<ExtrudeIn>, f: Frame, p: V3, out: V3, eps: numb
   const h = dot(sub(p, f.o), f.n);
   const along = dot(out, f.n);
   const [u, v] = toPlane(f, p);
+  const [from, to] = extent(s.depth, s.back);
   if (Math.abs(along) > 0.999) {
-    if (s.through || Math.abs(h - s.depth) > eps) return null; // the start face is no end face
-    return s.profiles.some((q) => inside(q, u, v)) ? { kind: 'cap', feature: s.id, rate: along } : null;
+    if (s.through || !s.profiles.some((q) => inside(q, u, v))) return null;
+    if (Math.abs(h - s.depth) < eps) return { kind: 'cap', feature: s.id, rate: along };
+    // the face behind the plane (when it reaches back): moving it out makes `back` longer
+    const behind = -(Math.sign(s.depth) || 1);
+    return s.back && Math.abs(h - behind * s.back) < eps ? { kind: 'cap', feature: s.id, rate: behind * along, back: true } : null;
   }
   if (Math.abs(along) > 0.02) return null;
-  if (!s.through && (h < Math.min(0, s.depth) - eps || h > Math.max(0, s.depth) + eps)) return null;
+  if (!s.through && (h < from - eps || h > to + eps)) return null;
   const len = Math.hypot(dot(out, f.x), dot(out, f.y));
   const n: UV = [dot(out, f.x) / len, dot(out, f.y) / len];
   for (const q of s.profiles) {

@@ -1333,10 +1333,11 @@ function sketched(r: SketchResult): string {
       ids = [polygon.id];
     }
   }
-  if (r.depth) {
+  if (r.depth || r.back) {
     // always a new body: joining it to the body it was drawn on is a boolean, done explicitly later
     const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, areas: r.areas };
-    const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), mode: 'add', through: false };
+    const back = r.back ? { back: len(r.back, r.backTyped) } : {};
+    const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), ...back, mode: 'add', through: false };
     // on a base plane the body shares the sketch's group (so both count from the same origin)
     const sketch = sketches.find((s) => s.id === id)!;
     const body = newBody(bodies.length, [feature], sketch.plane.kind === 'base' ? sketch.group : null);
@@ -1391,7 +1392,7 @@ const toolHost: ToolHost = {
     const id = sketched(result);
     if (was === 'draw') return;
     stopTool();
-    if (was === 'direct' && !result.depth) return enterSketch(id, kind);
+    if (was === 'direct' && !result.depth && !result.back) return enterSketch(id, kind);
     if (sketching) exitSketch(); // an extrusion finishes the sketch
     if (was === 'direct' && kind) startTool(kind);
     else pickFaceToPull();
@@ -1527,8 +1528,11 @@ function pullFace(face: PickedFace) {
   const featurePath = ['bodies', String(bi), 'features', String(fi)];
   let apply: (mm: number) => Doc;
   if (hit.kind === 'cap') {
-    const depth = resolve(feature.depth, lookup, '', new Map()) as number;
-    apply = (mm) => setIn(before, [...featurePath, 'depth'], plus(feature.depth, depth, mm * hit.rate));
+    // the end face changes the depth, the face behind the plane how far it reaches back
+    const key = hit.back ? 'back' : 'depth';
+    const value = feature[key] ?? len(0);
+    const mm0 = resolve(value, lookup, '', new Map()) as number;
+    apply = (mm) => setIn(before, [...featurePath, key], plus(value, mm0, mm * hit.rate));
   } else {
     const src = feature.source;
     const k = src.kind === 'sketch' ? before.sketches.findIndex((s) => s.id === src.sketch) : -1;

@@ -1,5 +1,5 @@
 import { draw, drawCircle, drawRoundedRectangle, importSTEP, makeSphere, Plane, type Drawing, type Edge, type Shape3D } from 'replicad';
-import { add, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
+import { add, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { centre, corners, nesting } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, EdgeRule, Profile } from '../doc/types';
@@ -317,12 +317,12 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   if (!f) throw new Error('sketch plane lost: the face it was on is gone');
   if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
   if (!s.profiles.length) throw new Error('no profile to extrude');
-  if (!s.through && s.depth === 0) throw new Error('depth must not be 0');
+  if (!s.through && s.depth === 0 && !s.back) throw new Error('depth must not be 0');
   const outline = s.areas ? areaDrawing(s.profiles, s.areas) : combine(s.profiles);
   // span along the normal; through: beyond the body on both sides
   const bounds = shape?.boundingBox;
   const far = bounds ? Math.hypot(bounds.width, bounds.height, bounds.depth) + Math.hypot(...f.o) + 1 : 0;
-  const [from, to] = s.through ? [-far, far] : [Math.min(0, s.depth), Math.max(0, s.depth)];
+  const [from, to] = s.through ? [-far, far] : extent(s.depth, s.back);
   const tool = outline.sketchOnPlane(new Plane(add(f.o, scale(f.n, from)), f.x, f.n)).extrude(to - from) as Shape3D;
   for (const p of s.profiles) addCircles(p, f, circles);
   if (!shape) return tool;

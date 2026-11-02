@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BASE, toWorld, type Frame, type V3 } from '../doc/frames';
+import { BASE, extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import { centre, corners, inside, nesting, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, ShapeGroup, SketchPlacement } from '../doc/types';
@@ -61,6 +61,9 @@ export interface SketchResult {
   sphere?: { center: V3; d: number; typed?: string };
   depth: number;
   depthTyped?: string;
+  /** How far it also reaches behind the plane (mm), as typed. */
+  back?: number;
+  backTyped?: string;
   mode: 'add' | 'cut';
 }
 
@@ -131,6 +134,35 @@ export interface PullStart {
 }
 
 /**
+ * Pulling new shapes or areas: as pulled (`depth`, on the step), the typed depth and back (behind the plane), the one
+ * typed into (`side` 1: the back), Alt held (the back as far as the depth).
+ */
+export interface Pulling extends PullStart {
+  depth: number;
+  typed: string | undefined;
+  typedBack?: string;
+  side?: number;
+  alt?: boolean;
+}
+
+/** A pull's depth and how far it reaches back (mm): typed, else as pulled; Alt: back as far as the depth (both ways from the plane). */
+export function pulled(p: Pulling, length: (text: string) => number | null) {
+  const typed = (t: string | undefined) => (t === undefined ? null : length(t));
+  const depth = typed(p.typed) ?? p.depth;
+  return { depth, back: typed(p.typedBack) ?? (p.alt ? Math.abs(depth) : 0) };
+}
+
+/** Typing while pulling: into the depth or (Tab) the back; Backspace erases. Returns whether the key was used. */
+export function pullKey(e: KeyboardEvent, p: Pulling) {
+  const k = p.side ? 'typedBack' : 'typed';
+  if (pressed(e, 'otherSide')) p.side = p.side ? 0 : 1;
+  else if (pressed(e, 'erase')) p[k] = p[k]?.slice(0, -1) || undefined;
+  else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) p[k] = (p[k] ?? '') + e.key;
+  else return false;
+  return true;
+}
+
+/**
  * Adds the pointer's movement to a pull: along the normal's direction on screen (any way: up, down, sideways), or,
  * looking along the normal, moving up pulls towards the viewer. Movement works with the pointer locked, so a pull
  * has no end at the screen edge.
@@ -176,7 +208,7 @@ type Phase =
    * coordinates) its angle counts from: the previous line's (going straight on is 0°), else the plane's x axis, or a line picked with B.
    */
   | { kind: 'polygon'; target: Target; pts: UV[]; cur: UV; typed: (string | undefined)[]; axis: number; base: number; chained?: boolean }
-  | { kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[]; raw: number; depth: number; typed: string | undefined };
+  | ({ kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[] } & Pulling);
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 /**
@@ -368,6 +400,7 @@ export class SketchTool implements Tool {
       }
     } else {
       if (this.reaching) return this.host.cursorTip(this.view.aimAt(e)); // aiming at what to reach
+      ph.alt = e.altKey;
       pullBy(this.view, e, ph.target.frame.n, this.middle(ph), ph);
       const step = this.view.step(this.middle(ph), e);
       ph.depth = Math.round(ph.raw / step) * step;
@@ -465,10 +498,8 @@ export class SketchTool implements Tool {
         this.reaching = true;
         this.view.unlockPointer();
         this.host.hint('Click a corner, edge or face: the extrusion reaches it · [Esc] cancels');
-      } else if (typing) ph.typed = (ph.typed ?? '') + e.key;
-      else if (pressed(e, 'erase')) ph.typed = ph.typed?.slice(0, -1) || undefined;
-      else if (pressed(e, 'confirm')) this.commit();
-      else return false;
+      } else if (pressed(e, 'confirm')) this.commit();
+      else if (!pullKey(e, ph)) return false;
     } else return false;
     this.update();
     return true;
@@ -909,17 +940,19 @@ export class SketchTool implements Tool {
   private commit(flat = false) {
     const ph = this.phase;
     if (ph.kind !== 'pull') return;
-    const depth = flat ? 0 : (this.typed(ph.typed) ?? ph.depth);
+    const { depth, back } = flat ? { depth: 0, back: 0 } : pulled(ph, (t) => this.host.length(t));
     this.phase = { kind: 'hover' };
     this.view.unlockPointer();
     if (this.kind) this.host.hint(this.hoverHint()); // before done: the host may replace this tool
-    if (!ph.drawn && !depth) return this.host.done(null);
+    if (!ph.drawn && !depth && !back) return this.host.done(null);
     this.host.done({
       target: ph.target,
       drawn: ph.drawn,
       shapes: ph.ids,
       depth,
       depthTyped: flat || this.typed(ph.typed) === undefined ? undefined : ph.typed,
+      back,
+      backTyped: flat || this.typed(ph.typedBack) === undefined ? undefined : ph.typedBack,
       mode: 'add',
     });
   }
@@ -1014,10 +1047,11 @@ export class SketchTool implements Tool {
     if (ph.kind === 'polygon' && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
-      const depth = this.typed(ph.typed) ?? ph.depth;
+      const { depth, back } = pulled(ph, (t) => this.host.length(t));
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
-      if (depth) this.solid(ph.shapes, f, depth);
-      label('Depth', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), true);
+      if (depth || back) this.solid(ph.shapes, f, depth, back);
+      label('Depth', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side);
+      if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side);
     }
     const els = labels.map(([text, , active]) => Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text }));
     this.labels.replaceChildren(...els);
@@ -1069,7 +1103,7 @@ export class SketchTool implements Tool {
   }
 
   /** Translucent extrusion of the shapes; shapes inside an odd number of others are holes. */
-  private solid(ps: DrawnProfile[], f: Frame, depth: number) {
+  private solid(ps: DrawnProfile[], f: Frame, depth: number, back: number) {
     const level = nesting(ps);
     const shapes = ps.flatMap((p, i) => {
       if (level[i] % 2) return [];
@@ -1077,13 +1111,14 @@ export class SketchTool implements Tool {
       outer.holes = ps.filter((q, j) => level[j] === level[i] + 1 && inside(p, ...centre(q))).map(shape2d);
       return [outer];
     });
-    const geo = new THREE.ExtrudeGeometry(shapes, { depth: Math.abs(depth), bevelEnabled: false, curveSegments: 32 });
+    const [from, to] = extent(depth, back);
+    const geo = new THREE.ExtrudeGeometry(shapes, { depth: to - from, bevelEnabled: false, curveSegments: 32 });
     const mesh = new THREE.Mesh(
       geo,
       new THREE.MeshStandardMaterial({ color: 0x3b6fd8, transparent: true, opacity: 0.45, depthWrite: false }),
     );
     mesh.matrixAutoUpdate = false;
-    mesh.matrix.makeBasis(v3(f.x), v3(f.y), v3(f.n)).setPosition(v3(f.o).addScaledVector(v3(f.n), Math.min(0, depth)));
+    mesh.matrix.makeBasis(v3(f.x), v3(f.y), v3(f.n)).setPosition(v3(f.o).addScaledVector(v3(f.n), from));
     this.view.overlay.add(mesh);
   }
 }
@@ -1097,7 +1132,7 @@ const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
 const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
 const POLYGON_HINT = 'Click corners · type a length, [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
-const PULL_HINT = 'Move to pull · [Shift] coarse · [Ctrl] precise · type a depth · [T] to object · click or [Enter]: done';
+const PULL_HINT = 'Move to pull · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · type a depth, [Tab] how far back · [T] to object · click or [Enter]: done';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {

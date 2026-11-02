@@ -53,6 +53,12 @@ export function frames(features: Resolved<BuildIn>[]): Map<string, Frame> {
   return out;
 }
 
+/** The span an extrusion takes along its normal: from its sketch plane to `depth`, and `back` mm behind the plane. */
+export function extent(depth: number, back = 0): [number, number] {
+  const behind = -(Math.sign(depth) || 1) * back;
+  return [Math.min(0, depth, behind), Math.max(0, depth, behind)];
+}
+
 /** End face of an extrude feature: its frame moved along the normal by its depth. */
 export const capFrame = (f: Frame, depth: number): Frame => ({ ...f, o: add(f.o, scale(f.n, depth)) });
 

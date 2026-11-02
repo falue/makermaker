@@ -83,6 +83,16 @@ describe('buildBody', () => {
     }
   });
 
+  it('reaches behind its sketch plane by `back`', () => {
+    const both = built([{ ...base(100, 4), back: 6 } as BuildFeature]);
+    const [[, , bottom], [, , top]] = both.box.bounds;
+    expect([bottom, top].map((v) => +v.toFixed(3))).toEqual([-6, 4]);
+    both.done();
+    const down = built([{ ...base(100, -4), back: 6 } as BuildFeature]); // pulled down: back reaches up
+    expect(down.box.bounds.map((b) => +b[2].toFixed(3))).toEqual([-4, 6]);
+    down.done();
+  });
+
   it('cuts a blind pocket into the top face', () => {
     const pocket: BuildFeature = {
       id: 'pocket',

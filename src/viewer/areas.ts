@@ -1,21 +1,21 @@
 import * as THREE from 'three';
-import { toWorld, type V3 } from '../doc/frames';
+import { extent, toWorld, type V3 } from '../doc/frames';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { planeHit, pullBy, uvOf, type PullStart, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { planeHit, pullBy, pulled, pullKey, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click areas to pick them (again to drop) · double-click picks everything inside a shape · [Enter] or [E] pulls the picked areas · [Esc] cancels';
-const PULL_HINT = 'Move to pull · [Shift] coarse · [Ctrl] precise · type a depth · click or [Enter]: done · [Esc] cancels';
+const PULL_HINT = 'Move to pull · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · type a depth, [Tab] how far back · click or [Enter]: done · [Esc] cancels';
 
 /** In a sketch: pick areas (where shapes overlap, each piece is an area), then pull them into one extrusion. */
 export class AreaTool implements Tool {
   readonly kind = null;
   private picked = new Set<number>();
   private hover: number | null = null;
-  private pull: (PullStart & { depth: number; typed: string | undefined }) | null = null;
+  private pull: Pulling | null = null;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -61,6 +61,7 @@ export class AreaTool implements Tool {
       const step = this.view.step(this.middle(), e);
       pullBy(this.view, e, this.target.frame.n, this.middle(), this.pull);
       this.pull.depth = Math.round(this.pull.raw / step) * step;
+      this.pull.alt = e.altKey;
     } else this.hover = this.areaAt(e);
     this.update();
   }
@@ -91,9 +92,7 @@ export class AreaTool implements Tool {
     if (p) {
       if (pressed(e, 'cancel')) return this.view.unlockPointer(), this.host.done(null), true;
       else if (pressed(e, 'confirm')) return this.commit(), true;
-      else if (pressed(e, 'erase')) p.typed = p.typed?.slice(0, -1) || undefined;
-      else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) p.typed = (p.typed ?? '') + e.key;
-      else return false;
+      else if (!pullKey(e, p)) return false;
       this.host.hint(PULL_HINT);
     } else if (pressed(e, 'cancel')) return this.host.done(null), true;
     else if ((pressed(e, 'confirm') || pressed(e, 'pullPicked')) && this.picked.size) this.startPull();
@@ -110,14 +109,14 @@ export class AreaTool implements Tool {
     this.host.hint(PULL_HINT);
   }
 
-  private depth() {
-    const p = this.pull!;
-    return (p.typed === undefined ? null : this.host.length(p.typed)) ?? p.depth;
+  private depths() {
+    return pulled(this.pull!, (t) => this.host.length(t));
   }
 
   private commit() {
-    const depth = this.depth();
-    if (!depth) return this.host.hint('Pull up or down, or type a depth · ' + PULL_HINT);
+    const { depth, back } = this.depths();
+    if (!depth && !back) return this.host.hint('Pull up or down, or type a depth · ' + PULL_HINT);
+    const typed = (t: string | undefined) => (t !== undefined && this.host.length(t) !== null ? t : undefined);
     this.view.unlockPointer();
     const picked = [...this.picked].map((i) => this.areas[i]);
     this.host.done({
@@ -125,7 +124,9 @@ export class AreaTool implements Tool {
       shapes: [...new Set(picked.flatMap((a) => [...a.in, ...a.out]))], // outside shapes cut the areas, so they are needed too
       areas: picked.map((a) => ({ in: a.in, out: a.out })),
       depth,
-      depthTyped: this.pull!.typed !== undefined && this.host.length(this.pull!.typed) !== null ? this.pull!.typed : undefined,
+      depthTyped: typed(this.pull!.typed),
+      back,
+      backTyped: typed(this.pull!.typedBack),
       mode: 'add',
     });
   }
@@ -179,10 +180,10 @@ export class AreaTool implements Tool {
   }
 
   /**
-   * The picked areas pulled by `depth`, translucent: their triangles at the bottom and the top, and walls along the
-   * outline (triangle edges that only one triangle has).
+   * The picked areas pulled from `from` to `to` along the normal, translucent: their triangles at both ends, and walls
+   * along the outline (triangle edges that only one triangle has).
    */
-  private prism(all: Float32Array[], depth: number) {
+  private prism(all: Float32Array[], [from, to]: [number, number]) {
     const f = this.target.frame;
     const at = (x: number, y: number, z: number) => v3(toWorld(f, x, y)).addScaledVector(v3(f.n), z).toArray();
     const pts: number[] = [];
@@ -190,7 +191,7 @@ export class AreaTool implements Tool {
     for (const t of all)
       for (let k = 0; k < t.length; k += 6) {
         const tri = [0, 2, 4].map((o) => [t[k + o], t[k + o + 1]] as const);
-        for (const z of [0, depth]) for (const [x, y] of tri) pts.push(...at(x, y, z));
+        for (const z of [from, to]) for (const [x, y] of tri) pts.push(...at(x, y, z));
         tri.forEach(([x0, y0], i) => {
           const [x1, y1] = tri[(i + 1) % 3];
           const key = [x0, y0, x1, y1].map((v) => v.toFixed(4));
@@ -199,7 +200,7 @@ export class AreaTool implements Tool {
           else edges.set(key.join(), [x0, y0, x1, y1]);
         });
       }
-    for (const [x0, y0, x1, y1] of edges.values()) pts.push(...at(x0, y0, 0), ...at(x1, y1, 0), ...at(x1, y1, depth), ...at(x0, y0, 0), ...at(x1, y1, depth), ...at(x0, y0, depth));
+    for (const [x0, y0, x1, y1] of edges.values()) pts.push(...at(x0, y0, from), ...at(x1, y1, from), ...at(x1, y1, to), ...at(x0, y0, from), ...at(x1, y1, to), ...at(x0, y0, to));
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     geo.computeVertexNormals();
@@ -209,21 +210,25 @@ export class AreaTool implements Tool {
   /** All areas faint, the hovered one lit, the picked ones orange; while pulling, the picked ones also at the depth. */
   private update() {
     this.clear();
-    const depth = this.pull ? this.depth() : 0;
+    const { depth, back } = this.pull ? this.depths() : { depth: 0, back: 0 };
     this.areas.forEach((a, i) => {
       if (this.picked.has(i)) this.fill(a, 0xff8c1a, 0.45);
       else this.fill(a, 0x3b6fd8, i === this.hover && !this.pull ? 0.35 : 0.08);
     });
-    if (depth) this.prism([...this.picked].map((i) => this.areas[i].tris), depth);
+    if (depth || back) this.prism([...this.picked].map((i) => this.areas[i].tris), extent(depth, back));
     this.host.cursorTip(this.picked.size && !this.pull ? 'Hit Enter to start extruding' : null);
     this.labels.replaceChildren();
-    if (this.pull) {
-      const at = this.middle().addScaledVector(v3(this.target.frame.n), depth);
-      const [x, y] = this.view.toScreen(at);
-      const p = this.pull;
-      const el = Object.assign(document.createElement('div'), { className: 'size-label active', textContent: `Depth ${p.typed === undefined ? depth.toFixed(2) : `${p.typed}▏`}` });
-      this.labels.append(el);
-      keepInside(el, x, y);
+    const p = this.pull;
+    if (p) {
+      // the depth at the end, how far back behind the plane (when it reaches back or is typed into)
+      const n = v3(this.target.frame.n);
+      const shown: [string, string | undefined, number, number, boolean][] = [['Depth', p.typed, depth, depth, !p.side]];
+      if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
+      for (const [name, typed, mm, along, active] of shown) {
+        const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: `${name} ${typed === undefined ? mm.toFixed(2) : `${typed}▏`}` });
+        this.labels.append(el);
+        keepInside(el, ...this.view.toScreen(this.middle().addScaledVector(n, along)));
+      }
     }
     this.view.render();
   }

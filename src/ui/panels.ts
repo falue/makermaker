@@ -896,8 +896,11 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const mode = select(feature.mode, { add: 'Add', cut: 'Cut' }, (m) => setFeature({ ...feature, mode: m, through: m === 'cut' && feature.through }));
       const through = h('input', { type: 'checkbox', checked: feature.through });
       through.onchange = () => setFeature({ ...feature, through: through.checked });
+      // how far it reaches behind its sketch plane (left out: 0)
+      const back = exprField(ctx, `${at}.back`, 'Back', false, { value: feature.back ?? { e: '0', u: ctx.doc.units }, set: (x, live) => ctx.setValue([...at.split('.'), 'back'], x, live), error: ctx.exprErrors.get(`${at}.back`) });
+      back.title = 'How far it also reaches behind its sketch plane (Alt while pulling: as far as the depth)';
       const reach = [
-        ...(feature.through ? [] : [f('depth', 'Depth')]),
+        ...(feature.through ? [] : [f('depth', 'Depth'), back]),
         ...(feature.mode === 'cut' ? [h('label', { className: 'check' }, through, 'Through')] : []),
       ];
       const src = feature.source;
