@@ -99,14 +99,15 @@ export function meshBody(shape: Shape3D, finishing?: Finishing): BodyMesh {
   const opts = { tolerance: 0.02, angularTolerance: 0.1 };
   const m = shape.mesh(opts);
   const e = shape.meshEdges(opts);
-  // an edge the finishes made lies on no edge of the shape before them
-  const before = finishing?.base?.meshEdges(opts).lines;
+  // an edge the finishes made lies on no edge of the shape before them (no unbaked finish: none, skip the costly check)
+  const before = finishing?.edges.length ? finishing.base?.meshEdges(opts).lines : undefined;
   const point = (xyz: ArrayLike<number>, i: number): V3 => [xyz[i * 3], xyz[i * 3 + 1], xyz[i * 3 + 2]];
   const finishEdges = new Uint8Array(e.edgeGroups.map((g) => +(!!before && toLine(point(e.lines, g.start + (g.count >> 1)), before, true) > 0.05)));
   // a finish face lies wholly within its size of the edge it replaced
   const lines = finishing?.edges.map((f) => f.pts.flat()) ?? [];
   const finishFaces = new Int32Array(
     m.faceGroups.map((g) => {
+      if (!lines.length) return -1;
       const corners = Array.from(m.triangles.slice(g.start, g.start + g.count), (v) => point(m.vertices, v));
       let best = -1;
       let worst = Infinity;
