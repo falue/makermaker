@@ -1118,3 +1118,6 @@ button.primary.wide {
   color: var(--muted);
   white-space: pre;
 }
+.completion[hidden] {
+  display: none; /* display: flex above would show it */
+}
