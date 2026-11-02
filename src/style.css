@@ -1067,6 +1067,8 @@ button.primary.wide {
 .item .fold svg {
   width: 10px;
   height: 10px;
+  fill: none; /* outside button.icon an svg path is filled black: stroke it in the text colour, as the sketch icon */
+  stroke: currentColor;
 }
 .listed .fold.open svg {
   transform: rotate(90deg);
