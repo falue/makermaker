@@ -77,6 +77,8 @@ export interface ToolView {
   minAngle: number;
   /** Where shapes drawn on the face of a body hit go (null: nowhere: a curved face no feature made). */
   placeOn(hit: THREE.Intersection): Omit<Target, 'sketch'> | null;
+  /** The section's cut face under the pointer (seen through the cut): its plane to draw on; null: none. */
+  cutPlane(e: MouseEvent): Omit<Target, 'sketch'> | null;
   sketches: ViewSketch[];
   /** The selected sketch, drawn into when the pointer is on no other target. */
   activeSketch: string | null;
@@ -538,8 +540,8 @@ export class SketchTool implements Tool {
     }
     if (onSketch) return this.sketchTarget(onSketch);
     if (hit) {
-      if (hit.face!.normal.dot(ray.direction) > 0) return null; // a back face seen through a section cut
-      const placed = this.view.placeOn(hit);
+      // a back face seen through a section cut: the cut face in front of it takes the shapes
+      const placed = hit.face!.normal.dot(ray.direction) > 0 ? this.view.cutPlane(e) : this.view.placeOn(hit);
       if (!placed) return null;
       // a sketch already there takes the shapes
       const same = (s: ViewSketch) =>

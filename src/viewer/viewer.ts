@@ -301,6 +301,9 @@ export class Viewer implements ToolView {
   private inverted: Record<Axis, boolean> = { x: false, y: false, z: false };
   /** The shown region while sectioned: boxes of [min, max] per axis (mm); empty when not sectioned. */
   private boxes: Span[][] = [];
+  /** Per kept region of the section, its clipping planes; the outlines they cut out of the bodies (`cutEdges`, cached). */
+  private cutPlanes: THREE.Plane[][] = [];
+  private cuts: { lines: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut: true }[]; corners: THREE.Vector3[] } | null = null;
   private sectionView = new THREE.Group();
   private hatch = hatchTexture();
 
@@ -801,6 +804,30 @@ export class Viewer implements ToolView {
       this.sketchMark.traverse((o) => (o.renderOrder = 1e6));
     }
     this.render();
+  }
+
+  /**
+   * The section's cut face the pointer sees (looking into a body through the cut): the nearest section plane the ray
+   * crosses inside the kept region, as a fixed plane facing the camera (x as level as possible); null: none.
+   */
+  cutPlane(e: MouseEvent): Omit<Target, 'sketch'> | null {
+    const ray = this.ray(e);
+    let best: { plane: THREE.Plane; d: number } | null = null;
+    for (const planes of this.cutPlanes)
+      for (const plane of planes) {
+        const p = ray.intersectPlane(plane, new THREE.Vector3());
+        if (!p || planes.some((o) => o !== plane && o.distanceToPoint(p) < -1e-6)) continue;
+        const d = p.distanceTo(ray.origin);
+        if (!best || d < best.d) best = { plane, d };
+      }
+    if (!best) return null;
+    const n = best.plane.normal.clone().negate(); // out of the kept side, towards the camera
+    const x = new THREE.Vector3(0, 0, 1).cross(n);
+    if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+    x.normalize();
+    const v3 = (v: THREE.Vector3) => v.toArray() as [number, number, number];
+    const frame = { o: v3(best.plane.projectPoint(new THREE.Vector3(), new THREE.Vector3())), x: v3(x), y: v3(n.clone().cross(x)), n: v3(n) };
+    return { placement: { kind: 'plane', ...frame }, frame, body: null, name: 'the cut' };
   }
 
   /** The middle of what is selected (shown bodies, the selected sketch's selected shapes, else all its shapes); null: nothing. */
@@ -1634,9 +1661,33 @@ export class Viewer implements ToolView {
     return this.bodyEdges().map((e) => e.segs);
   }
 
-  /** The edges of the shown bodies (world segments), with their body. */
+  /**
+   * Where the section cuts the shown bodies (world): each cut face's outline as loops of segments, with its body, and
+   * its sharp corners; computed when first asked after the section or the bodies changed.
+   */
+  private cutEdges(sharp = 0.5 /* rad */) {
+    if (this.cuts) return this.cuts;
+    const lines: NonNullable<Viewer['cuts']>['lines'] = [];
+    for (const planes of this.cutPlanes)
+      for (const plane of planes)
+        for (const [id, g] of this.bodies) {
+          const solid = g.children.find((c) => c instanceof THREE.Mesh) as THREE.Mesh | undefined;
+          if (!solid || this.hidden.has(id) || this.cutters.has(id)) continue;
+          g.updateMatrix();
+          for (const segs of planeCut(solid.geometry, g.matrix, plane, planes.filter((p) => p !== plane))) lines.push({ body: id, segs, cut: true });
+        }
+    const corners = lines.flatMap(({ segs }) =>
+      segs.flatMap(([a, b], i) => {
+        const next = segs[(i + 1) % segs.length];
+        return next[0].distanceTo(b) < 1e-4 && b.clone().sub(a).angleTo(next[1].clone().sub(next[0])) > sharp ? [b] : [];
+      }),
+    );
+    return (this.cuts = { lines, corners });
+  }
+
+  /** The edges of the shown bodies (world segments), with their body; cut outlines of the section too (`cut`). */
   private bodyEdges() {
-    const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][] }[] = [];
+    const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true }[] = [...this.cutEdges().lines];
     for (const [id, g] of this.bodies)
       for (const c of this.hidden.has(id) ? [] : g.children) {
         const groups = c.userData.edgeGroups as Uint32Array | undefined;
@@ -1658,7 +1709,7 @@ export class Viewer implements ToolView {
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
     const ray = this.ray(e);
     const front = this.intersect(this.raycaster(e))[0]?.distance ?? Infinity;
-    let best: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; d: number } | null = null;
+    let best: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true; d: number } | null = null;
     for (const edge of this.bodyEdges())
       for (const [a, b] of edge.segs) {
         const [ax, ay] = this.toScreen(a);
@@ -1670,7 +1721,7 @@ export class Viewer implements ToolView {
         if (a.clone().lerp(b, k).distanceTo(ray.origin) > front + 0.5) continue; // behind a face
         best = { ...edge, d };
       }
-    return best && { body: best.body, segs: best.segs };
+    return best && { body: best.body, segs: best.segs, cut: best.cut };
   }
 
   private measureMark = new THREE.Group();
@@ -1769,7 +1820,7 @@ export class Viewer implements ToolView {
         const xyz = c.userData.corners as Float32Array | undefined;
         for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).applyMatrix4(g.matrix));
       }
-    return [...out, ...this.balls.map((b) => b.center)];
+    return [...out, ...this.balls.map((b) => b.center), ...this.cutEdges().corners];
   }
 
   spheres() {
@@ -1983,6 +2034,7 @@ export class Viewer implements ToolView {
       if (o.userData.cap) o.geometry.dispose();
     });
     this.sectionView.clear();
+    [this.cuts, this.cutPlanes] = [null, []];
     const axes = ['x', 'y', 'z'] as const;
     const active = this.custom.length > 0 || axes.some((a) => this.inverted[a] || this.sections[a].some(Number.isFinite));
     if (rebound) this.rebound();
@@ -2006,6 +2058,7 @@ export class Viewer implements ToolView {
         ];
       });
       planes.push(...this.custom.map((c) => new THREE.Plane(c.normal.clone(), c.constant - eps)));
+      this.cutPlanes.push(planes);
       for (const plane of planes) {
         order++;
         for (const [id, g] of this.bodies) {
@@ -2201,8 +2254,8 @@ export class Viewer implements ToolView {
       return this.pickFaces(hit!.object as THREE.Mesh, had.includes(k) ? had.filter((x) => x !== k) : [...had, k]);
     }
     // pressing a picked edge drags a fillet (up) or chamfer (down) onto the picked edges
-    const near = this.pickedEdge && !toggles(e) ? this.edgeAt(e) : null;
-    if (near && this.pickedEdge!.edges.some((segs) => segs[0][0].distanceTo(near.segs[0][0]) < 1e-6)) {
+    const near = this.pickedEdge && !toggles(e) ? this.edgeAt(e) : null; // a section's cut outline only measures: no finish from it
+    if (near && !near.cut && this.pickedEdge!.edges.some((segs) => segs[0][0].distanceTo(near.segs[0][0]) < 1e-6)) {
       const { body, edges } = this.pickedEdge!;
       this.dropPicked(); // they turn into the finish
       this.host.dragEdges(body, edges);
@@ -2580,4 +2633,59 @@ export class Viewer implements ToolView {
     };
     requestAnimationFrame(animate);
   }
+}
+
+/**
+ * Where `plane` cuts a mesh (`matrix`: to the world), kept where all `others` keep it (clipping planes keep their
+ * positive side): its segments joined end to end into loops (open where the others clip them).
+ */
+function planeCut(geo: THREE.BufferGeometry, matrix: THREE.Matrix4, plane: THREE.Plane, others: THREE.Plane[]) {
+  const pos = geo.attributes.position;
+  const index = geo.index;
+  const at = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, index ? index.getX(i) : i).applyMatrix4(matrix);
+  const segs: [THREE.Vector3, THREE.Vector3][] = [];
+  for (let t = 0; t + 2 < (index ? index.count : pos.count); t += 3) {
+    const p = [at(t), at(t + 1), at(t + 2)];
+    const d = p.map((q) => plane.distanceToPoint(q) || 1e-9); // a corner on the plane counts as just above it
+    const hits = [0, 1, 2].flatMap((k) => {
+      const j = (k + 1) % 3;
+      return d[k] * d[j] < 0 ? [p[k].clone().lerp(p[j], d[k] / (d[k] - d[j]))] : [];
+    });
+    if (hits.length !== 2) continue;
+    let [a, b] = hits;
+    for (const o of others) {
+      const [da, db] = [o.distanceToPoint(a), o.distanceToPoint(b)];
+      if (da < 0 && db < 0) [a, b] = [a, a];
+      else if (da < 0) a = a.clone().lerp(b, da / (da - db));
+      else if (db < 0) b = b.clone().lerp(a, db / (db - da));
+    }
+    if (a.distanceTo(b) > 1e-6) segs.push([a, b]);
+  }
+  // joined at shared ends (0.1 µm), grown both ways from each segment not taken yet
+  const key = (v: THREE.Vector3) => v.toArray().map((x) => Math.round(x * 1e4)).join();
+  const ends = new Map<string, number[]>();
+  segs.forEach((s, i) => s.forEach((v) => (ends.get(key(v)) ?? ends.set(key(v), []).get(key(v))!).push(i)));
+  const used = new Set<number>();
+  const loops: [THREE.Vector3, THREE.Vector3][][] = [];
+  segs.forEach((first, i) => {
+    if (used.has(i)) return;
+    used.add(i);
+    const loop = [first];
+    const grow = (forward: boolean) => {
+      for (let end = forward ? loop.at(-1)![1] : loop[0][0]; ; ) {
+        const j = ends.get(key(end))?.find((k) => !used.has(k));
+        if (j === undefined) return;
+        used.add(j);
+        const [a, b] = segs[j];
+        const fromEnd = key(a) === key(end);
+        if (forward) loop.push(fromEnd ? [a, b] : [b, a]);
+        else loop.unshift(fromEnd ? [b, a] : [a, b]);
+        end = forward ? loop.at(-1)![1] : loop[0][0];
+      }
+    };
+    grow(true);
+    grow(false);
+    loops.push(loop);
+  });
+  return loops;
 }
