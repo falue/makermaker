@@ -11,7 +11,7 @@ import type { Backdrop, BasePlane, CameraState } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { area, centre, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
+import { area, bounds, centre, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
 import { lineFaceAt, type Face } from '../doc/arrangement';
 import { anchorAt, angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
@@ -387,7 +387,24 @@ export class Viewer implements ToolView {
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
 
+    // orbiting turns around the selection's middle, else the model point under the pointer (as Blender does): the view
+    // does not jump there, the camera only turns around it; each step of the controls is turned around that point
+    let orbit: { pivot: THREE.Vector3; target: THREE.Vector3; turn: THREE.Quaternion } | null = null;
+    this.controls.addEventListener('start', () => {
+      const pivot = this.selectionMiddle() ?? (this.hover ? this.frontHit(this.hover)?.point : undefined);
+      orbit = pivot ? { pivot, target: this.controls.target.clone(), turn: this.camera.quaternion.clone() } : null;
+    });
+    this.controls.addEventListener('end', () => (orbit = null));
     this.controls.addEventListener('change', () => {
+      if (orbit) {
+        // the controls turned by `r` around their target (and may have panned): the target turns around the pivot instead
+        const r = this.camera.quaternion.clone().multiply(orbit.turn.clone().invert());
+        const target = orbit.target.clone().sub(orbit.pivot).applyQuaternion(r).add(orbit.pivot).add(this.controls.target.clone().sub(orbit.target));
+        const offset = this.camera.position.clone().sub(this.controls.target);
+        this.controls.target.copy(target);
+        this.camera.position.copy(target).add(offset);
+        orbit = { ...orbit, target: target.clone(), turn: this.camera.quaternion.clone() };
+      }
       this.render();
       this.tool?.refresh(); // labels and markers follow the camera
     });
@@ -784,6 +801,19 @@ export class Viewer implements ToolView {
       this.sketchMark.traverse((o) => (o.renderOrder = 1e6));
     }
     this.render();
+  }
+
+  /** The middle of what is selected (shown bodies, the selected sketch's selected shapes, else all its shapes); null: nothing. */
+  private selectionMiddle() {
+    const box = new THREE.Box3();
+    for (const id of this.selection) if (!this.hidden.has(id)) box.expandByObject(this.bodies.get(id) ?? new THREE.Object3D());
+    const s = this.sketches.find((v) => v.id === this.activeSketch);
+    const shapes = s?.shapes.filter((q) => !this.selectedShapes.length || this.selectedShapes.includes(q.id)) ?? [];
+    for (const q of shapes) {
+      const [x0, y0, x1, y1] = bounds(q);
+      for (const [u, v] of [[x0, y0], [x1, y1]]) box.expandByPoint(new THREE.Vector3(...toWorld(s!.frame, u, v)));
+    }
+    return box.isEmpty() ? null : box.getCenter(new THREE.Vector3());
   }
 
   /** Looks straight along `n`; `at`: that point moves to the middle of the view. */
