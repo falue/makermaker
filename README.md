@@ -1,5 +1,8 @@
 # MAKERMAKER
 
+> WIP!
+> Compületely AI vibe coded.
+
 CAD in the browser for people who build things: props, fitted parts, boxes and brackets, cut on a laser or printed in 3D. Draw a shape, pull it up, round its edges, cut holes into it, and send it to the machine.
 
 It runs on your computer, also offline, and keeps your designs in ordinary files you save wherever you like. No account, no cloud.
@@ -13,7 +16,9 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 - **Move precisely**: drag along an axis, or press X, Y or Z and type a distance; the part shows where it goes before you confirm.
 - **Look inside**: section views along X, Y, Z and any face, on the fly.
 - **Groups**: nest, fold and turn groups of parts with their own origin.
-- **Import**: STEP files as real solids, STL and OBJ as meshes.
+- **Import** with the import button or by dropping a file:
+  - **STEP** (`.step`, `.stp`) becomes a real solid: round and chamfer its edges, cut or join it with other parts, sketch on its faces, export it. It has no history to edit, and its faces cannot be pushed or pulled yet.
+  - **STL** and **OBJ** stay meshes: move, group, colour, section and render them; no cutting, joining or export yet. Tiny meshes (no unit in the file) are scaled up, the scale stays editable.
 - **Export**: STL for the 3D printer, SVG outlines for the laser.
 - **Render**: snapshots and nicer path-traced renders of saved views, queued, downloaded automatically, and rendered again on demand when the model changed.
 
@@ -27,7 +32,11 @@ MAKERMAKER is young: some parts are proofs of concept, see [STATUS.md](STATUS.md
 
 ## Why not Fusion 360?
 
-- No subscription, no account, no cloud: your designs are files on your disk, and it works offline.
+- No subscription, no account, no cloud: Your designs are files on your disk, and it works offline.
 - The view cube does not freak out.
-- Not so much clicking: tools stay on until Esc, work tool first or object first, values are typed in place without dialogs, and autosave writes the file a moment after each change.
+- Less clicking: tools stay on until ESC, works tool first or object first, values are typed in place without dialogs, and autosave writes the file a moment after each change.
+- consistent user interfaces
 - A render pipeline that actually works: queued renders of saved views, automatic download, a history of results per view, and one click to render a view again with the model as it is now.
+- Actual keyboard controls
+- Hotkey editing: soon!
+- Smart and automatic exports for laser cutters, 3d printers
