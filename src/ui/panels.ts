@@ -63,6 +63,7 @@ export interface UIContext {
   /** Cut a body in two (see `cutTool` in main). */
   cutTool(): void;
   revolveTool(): void;
+  rotateTool(): void;
   loftTool(): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
@@ -404,6 +405,7 @@ function toolbar(ctx: UIContext): Node[] {
       ...(flyout ? [h('div', { className: 'flyout' }, ...booleanTools(ctx, () => (flyout = false)))] : []),
     ),
     tool('move', 'Move (M): type distances along X, Y and Z (Tab: the next); the selection, or what is clicked next', ctx.moveTool, on('move')),
+    tool('rotate', 'Rotate (W): turn the selection (or what is clicked next) around an axis through a pivot; the pointer, typed degrees, X / Y / Z, Set axis or Pivot', ctx.rotateTool),
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
     tool('cut', 'Cut: a body (selected, or clicked next) in two along a face\'s plane (turn and move it) or a sketch line or shape; keep both or delete one side', ctx.cutTool, on('cut')),

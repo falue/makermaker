@@ -16,6 +16,7 @@ const ICONS = {
   circle: '<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>',
   polygon: '<path d="M4 18l3-12 9-2 4 9-7 7z"/>',
   home: '<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5M10 20v-6h4v6"/>',
+  rotate: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/><circle cx="12" cy="12" r="1.5"/>',
   revolve: '<path d="M12 2v20" stroke-dasharray="2 1.6"/><path d="M12 6h4v12h-4"/><path d="M8 7.5a7 2.5 0 1 0 8.5 0"/><path d="m16.5 7.5-.2-2.3 2 1"/>',
   loft: '<path d="M4 20h16l-3-5H7z"/><ellipse cx="12" cy="5" rx="4" ry="1.6"/><path d="M7 15 8 5M17 15l-1-10"/>',
   cut: '<path d="M5 9.5V4h14v5.5M5 14.5V20h14v-5.5"/><path d="M3 12h18" stroke-dasharray="2 1.6"/>',

@@ -262,7 +262,8 @@ export class SketchTool implements Tool {
   private reaching = false;
   private aimed: string | null = null;
   /** Lines and polygon sides snap to this angle step while Shift is held (A finer, Shift A coarser; kept across restarts). */
-  private static angleStep = 45;
+  /** The angle step Shift turns in (A / Shift A: finer / coarser, see `ANGLE_STEPS`). */
+  static angleStep = 45;
   /** Shift held while drawing a line or polygon; the angle rays show then, and until `raysUntil` after a step change. */
   private shiftHeld = false;
   private raysUntil = 0;
@@ -1149,7 +1150,7 @@ export const TO_OBJECT = 'T: to object (the pull reaches what you click)';
 /** Radius (px) of the arc showing what a side's angle is measured from. */
 const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
-const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
+export const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
 const POLYGON_HINT = 'Click corners · type a length, [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
 const PULL_HINT = 'Move to pull · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · type a depth, [Tab] how far back · [T] to object · click or [Enter]: done';
 
