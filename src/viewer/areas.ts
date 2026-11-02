@@ -23,10 +23,13 @@ export class AreaTool implements Tool {
     private target: Target,
     private areas: AreaMesh[],
     all = false,
+    first?: MouseEvent,
   ) {
     view.el.append(this.labels);
     host.hint(PICK_HINT);
     if (all) this.areas.forEach((_, i) => this.picked.add(i));
+    const i = first ? this.areaAt(first) : null; // the click that chose the sketch picks its area
+    if (i !== null) this.picked.add(i);
     this.update();
   }
 

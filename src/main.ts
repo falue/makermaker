@@ -1516,25 +1516,27 @@ function pullFace(face: PickedFace) {
 
 /** The extrude tool waiting for a face of an extrusion to push or pull (Esc stops it). */
 function pickFaceToPull() {
-  toolHint = 'Click a face of an extrusion to push or pull it, or a sketch in the list to pull all its shapes · [Esc] stops';
+  toolHint = 'Click a face of an extrusion to push or pull it, an area of a sketch to pick it (then more), or a sketch in the list to pull all its shapes · [Esc] stops';
   extrudePick = true;
   render();
   viewer.pickFace((face) => {
     toolHint = null;
     extrudePick = false;
+    // a sketch's area clicked: its areas to pick, that one picked already (as the sketch first, then E)
+    if (face?.sketch) return enterSketch(face.sketch.id), void extrudeAreas(false, face.sketch.at);
     if (face) pullFace(face);
     else render();
   });
 }
 
-/** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already. */
-async function extrudeAreas(all = false) {
+/** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already, `first`: a click whose area is. */
+async function extrudeAreas(all = false, first?: MouseEvent) {
   const s = viewer.sketches.find((v) => v.id === sketching);
   if (!s) return;
   stopTool();
   const areas = await kernel.areas(s.shapes.filter((q) => !q.construction && q.kind !== 'line'));
   if (!areas.length) return fail('Nothing to extrude yet: draw a shape first');
-  viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas, all);
+  viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas, all, first);
   toolMode = 'pull';
   render();
 }
