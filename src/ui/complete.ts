@@ -1,7 +1,7 @@
 /**
  * Parameter names completed in value fields (inputs with `data-complete`): the rest of the first name that starts with
- * the word before the caret shows in grey after it, Tab writes it out. Not after a digit (`50m`: a unit). The field's
- * value holds only what was typed.
+ * the word before the caret shows in grey after it, Tab writes it out with a space. Not after a digit (`50m`: a unit).
+ * The field's value holds only what was typed.
  */
 export function installCompletion(names: () => string[]) {
   const ghost = Object.assign(document.createElement('div'), { className: 'completion', hidden: true });
@@ -46,7 +46,7 @@ export function installCompletion(names: () => string[]) {
       if (e.key !== 'Tab' || e.shiftKey || !rest || !el || e.target !== el) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      el.setRangeText(rest, el.value.length, el.value.length, 'end');
+      el.setRangeText(`${rest} `, el.value.length, el.value.length, 'end'); // a space: ready for what follows
       el.dispatchEvent(new Event('input', { bubbles: true }));
     },
     { capture: true },
