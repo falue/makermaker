@@ -1542,7 +1542,7 @@ function pullFace(face: PickedFace) {
 
 /** The extrude tool waiting for a face of an extrusion to push or pull (Esc stops it). */
 function pickFaceToPull() {
-  toolHint = 'Click a face of an extrusion to push or pull it, an area of a sketch to pick it (then more), or a sketch in the list to pull all its shapes · [Esc] stops';
+  toolHint = 'Click a face of an extrusion to push or pull it, an area of a sketch to pull it (Shift-click: pick it and more), or a sketch in the list to pull all its shapes · [Esc] stops';
   extrudePick = true;
   render();
   viewer.pickFace((face) => {

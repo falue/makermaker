@@ -29,8 +29,10 @@ export class AreaTool implements Tool {
     view.el.append(this.labels);
     host.hint(PICK_HINT);
     if (all) this.areas.forEach((_, i) => this.picked.add(i));
-    const i = first ? this.areaAt(first) : null; // the click that chose the sketch picks its area
+    // the click that chose the sketch: its area pulls at once (Shift: picked, to add more)
+    const i = first ? this.areaAt(first) : null;
     if (i !== null) this.picked.add(i);
+    if (i !== null && !first!.shiftKey) this.startPull();
     this.update();
   }
 
@@ -93,14 +95,18 @@ export class AreaTool implements Tool {
       else return false;
       this.host.hint(PULL_HINT);
     } else if (pressed(e, 'cancel')) return this.host.done(null), true;
-    else if ((pressed(e, 'confirm') || pressed(e, 'pullPicked')) && this.picked.size) {
-      this.pull = { raw: 0, depth: 0, typed: undefined };
-      this.view.unflatten(v3(this.target.frame.n));
-      this.view.lockPointer();
-      this.host.hint(PULL_HINT);
-    } else return false;
+    else if ((pressed(e, 'confirm') || pressed(e, 'pullPicked')) && this.picked.size) this.startPull();
+    else return false;
     this.update();
     return true;
+  }
+
+  /** Pulling the picked areas: the pointer is locked, moving sets the depth. */
+  private startPull() {
+    this.pull = { raw: 0, depth: 0, typed: undefined };
+    this.view.unflatten(v3(this.target.frame.n));
+    this.view.lockPointer();
+    this.host.hint(PULL_HINT);
   }
 
   private depth() {
