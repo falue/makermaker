@@ -1121,3 +1121,37 @@ button.primary.wide {
 .completion[hidden] {
   display: none; /* display: flex above would show it */
 }
+
+/* a STEP file being read: no percentage known, the bar runs */
+.reading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.reading .bar {
+  position: relative;
+  width: 80px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+}
+.reading .bar::after {
+  content: '';
+  position: absolute;
+  width: 40%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: reading 1.2s ease-in-out infinite;
+}
+@keyframes reading {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
+}

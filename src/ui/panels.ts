@@ -18,6 +18,8 @@ export interface UIContext {
   title: string;
   dirty: boolean;
   status: string;
+  /** STEP files the kernel reads now. */
+  reading: string[];
   /** Selected shapes of the selected sketch. */
   shapes: string[];
   /** The active tool, as named in the toolbar (a shape kind, 'extrude', 'sketch', 'boolean', ...). */
@@ -306,6 +308,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
+    ...(ctx.reading.length ? [h('span', { className: 'reading', title: 'The kernel reads the file: big files take a while' }, `Reading ${ctx.reading.join(', ')}`, h('span', { className: 'bar' }))] : []),
     h('span', { className: 'status' }, ctx.status),
     tool('print', 'Export for 3D print: one STL per selected body (else all shown ones), as placed in the world; several come zipped', ctx.exportPrint),
     tool('laser', 'Export for the laser: one SVG per selected body (else all shown ones), the outline of its biggest flat face at 1:1, without fillets and chamfers; several come zipped', ctx.exportLaser),

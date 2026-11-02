@@ -103,6 +103,9 @@ let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; sa
   saved: history.current,
 };
 let status = '';
+/** Bodies whose STEP files the kernel reads now (shown with a progress bar), and the STEP features read already. */
+const reading = new Map<string, { name: string; steps: string[] }>();
+const readSteps = new Set<string>();
 let toolHint: string | null = null;
 /** The selected part of a fillet / chamfer (Del leaves that edge out; the whole finish: deletes it). */
 let finishSel: FinishPick | null = null;
@@ -161,7 +164,9 @@ function applySettings() {
 applySettings();
 
 const kernel = new Kernel((r) => {
-  if (!history.current.bodies.some((p) => p.id === r.id)) return; // deleted while it was built
+  for (const id of reading.get(r.id)?.steps ?? []) readSteps.add(id);
+  reading.delete(r.id);
+  if (!history.current.bodies.some((p) => p.id === r.id)) return render(); // deleted while it was built
   if ('mesh' in r) {
     kernelErrors.delete(r.id);
     viewer.setBody(r.id, r.mesh);
@@ -354,6 +359,12 @@ function update() {
   if (sketching && !drawn) exitSketch();
   else viewer.setSketchGrid(drawn?.frame ?? null);
   viewer.retain(ids);
+  // STEP files not read yet: a progress bar until their body comes back
+  const stepsOf = (fs: BuildFeature[]): Extract<BuildFeature, { type: 'step' }>[] => fs.flatMap((f) => (f.type === 'step' ? [f] : f.type === 'boolean' ? stepsOf(f.features) : []));
+  for (const b of builds) {
+    const fresh = stepsOf(b.features).filter((s) => !readSteps.has(s.id));
+    if (fresh.length) reading.set(b.id, { name: fresh.map((s) => s.source).join(', '), steps: fresh.map((s) => s.id) });
+  }
   kernel.build(builds);
   scheduleAutosave();
   render();
@@ -1254,6 +1265,7 @@ function render() {
     title: file.name,
     dirty: doc !== file.saved,
     status,
+    reading: [...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => r.name),
     shapes: shapeSel,
     active: pending?.tool ?? (extrudePick || (toolMode === 'pull' && !viewer.activeTool) ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
     hint: toolHint ?? (finishSel ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish` : null),
@@ -1532,7 +1544,6 @@ function importStep(name: string, data: string) {
   const body = { ...newBody(doc.bodies.length, [step]), name: name.replace(/\.[^.]*$/, '') };
   [selected, shapeSel] = [[body.id], []];
   commit({ ...doc, bodies: [...doc.bodies, body] });
-  notify(`Reading ${name}: big files take a while`);
 }
 
 const IMPORTS = ['.step', '.stp', '.stl', '.obj'];
