@@ -75,8 +75,8 @@ export interface PickedFace {
   body?: string;
   /** A quiet pick: the corner, edge point or face point clicked (none: empty space). */
   snap?: THREE.Vector3;
-  /** A closed shape of a visible sketch clicked in front of any face: that sketch, and the click. */
-  sketch?: { id: string; at: MouseEvent };
+  /** A closed shape of a visible sketch clicked in front of any face: that sketch, the click, and the shape if its outline was clicked. */
+  sketch?: { id: string; at: MouseEvent; shape?: string };
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -570,7 +570,7 @@ export class Viewer implements ToolView {
 
   /** Picks areas of a sketch and pulls them (E in sketch mode). */
   /** `all`: everything picked already (a sketch chosen from the list). */
-  startAreas(host: ToolHost, target: Target, areas: AreaMesh[], all = false, first?: MouseEvent) {
+  startAreas(host: ToolHost, target: Target, areas: AreaMesh[], all = false, first?: { at: MouseEvent; shape?: string }) {
     this.stopTool();
     this.tool = new AreaTool(this, host, target, areas, all, first);
     this.toolButtons(true);
@@ -1719,26 +1719,14 @@ export class Viewer implements ToolView {
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
     if (this.quietPick) return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined });
-    const id = this.sketchAreaAt(e, hit?.distance);
-    const sketch = id ? { sketch: { id, at: e } } : {};
+    // a closed sketch shape in front: inside it, or on its outline
+    const s = this.shapeAt(this.ray(e), hit?.distance);
+    const q = s && this.sketches.find((k) => k.id === s.sketch)?.shapes.find((x) => x.id === s.shape);
+    const sketch = s && q && !q.construction && q.kind !== 'line' ? { sketch: { id: s.sketch, at: e, shape: s.edge < Infinity ? s.shape : undefined } } : {};
     if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, ...sketch });
     const look = this.camera.getWorldDirection(new THREE.Vector3());
     const k = this.facingAxis();
     this.endFacePick({ point: new THREE.Vector3(), normal: unit(k).multiplyScalar(Math.sign(look.getComponent(k)) || 1), ...sketch });
-  }
-
-  /** The nearest visible sketch with a closed shape under the pointer, nearer than `before` (mm along the ray). */
-  private sketchAreaAt(e: MouseEvent, before = Infinity) {
-    const ray = this.ray(e);
-    let best: { id: string; d: number } | null = null;
-    for (const s of this.sketches) {
-      const p = planeHit(ray, s.frame);
-      const d = p ? p.distanceTo(ray.origin) : Infinity;
-      if (d > before + 1e-3 || (best && d >= best.d)) continue;
-      const [u, v] = uvOf(s.frame, p!);
-      if (s.shapes.some((q) => !q.construction && q.kind !== 'line' && inside(q, u, v))) best = { id: s.id, d };
-    }
-    return best?.id ?? null;
   }
 
   /**

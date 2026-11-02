@@ -24,15 +24,16 @@ export class AreaTool implements Tool {
     private target: Target,
     private areas: AreaMesh[],
     all = false,
-    first?: MouseEvent,
+    first?: { at: MouseEvent; shape?: string },
   ) {
     view.el.append(this.labels);
     host.hint(PICK_HINT);
     if (all) this.areas.forEach((_, i) => this.picked.add(i));
-    // the click that chose the sketch: its area pulls at once (Shift: picked, to add more)
-    const i = first ? this.areaAt(first) : null;
+    // the click that chose the sketch: its area (on a shape's outline: all inside the shape) pulls at once (Shift: picked, to add more)
+    const i = first && !first.shape ? this.areaAt(first.at) : null;
     if (i !== null) this.picked.add(i);
-    if (i !== null && !first!.shiftKey) this.startPull();
+    if (first?.shape) this.areas.forEach((a, k) => a.in.includes(first.shape!) && this.picked.add(k));
+    if (first && this.picked.size && !first.at.shiftKey) this.startPull();
     this.update();
   }
 

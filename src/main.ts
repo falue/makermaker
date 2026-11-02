@@ -1549,14 +1549,14 @@ function pickFaceToPull() {
     toolHint = null;
     extrudePick = false;
     // a sketch's area clicked: its areas to pick, that one picked already (as the sketch first, then E)
-    if (face?.sketch) return enterSketch(face.sketch.id), void extrudeAreas(false, face.sketch.at);
+    if (face?.sketch) return enterSketch(face.sketch.id), void extrudeAreas(false, face.sketch);
     if (face?.body) pullFace(face);
     else render(); // empty space: the tool just ends
   });
 }
 
-/** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already, `first`: a click whose area is. */
-async function extrudeAreas(all = false, first?: MouseEvent) {
+/** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already, `first`: a click whose area (or shape) is. */
+async function extrudeAreas(all = false, first?: { at: MouseEvent; shape?: string }) {
   const s = viewer.sketches.find((v) => v.id === sketching);
   if (!s) return;
   stopTool();
