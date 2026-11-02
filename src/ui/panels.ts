@@ -778,8 +778,6 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
     p.kind === 'base'
       ? [select(p.axis, { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' }, (axis) => set({ plane: { ...p, axis } })), exprField(ctx, `${at}.plane.offset`, 'Offset')]
       : [h('span', { className: 'hint' }, p.kind === 'plane' ? 'On a fixed plane (where a face was)' : `On a face of ${doc.bodies.find((q) => q.id === p.body)?.name ?? 'a deleted body'}`)];
-  const show = h('input', { type: 'checkbox', checked: s.visible });
-  show.onchange = () => set({ visible: show.checked });
   const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon', line: 'Line' };
   // in sketch mode with shapes selected, only those show
   const only = ctx.sketching === s.id && ctx.shapes.length > 0;
@@ -827,7 +825,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
     h(
       'div',
       { className: 'row' },
-      h('label', { className: 'check' }, show, 'Show'),
+      // shown or hidden: its eye in the list
       ...(ctx.sketching === s.id ? [] : [h('button', { onclick: () => ctx.editSketch(s.id), title: 'Draw more shapes into this sketch' }, 'Draw')]),
       tool('look', 'Look straight at the sketch', () => ctx.lookAt(s.id)),
       tool('extrude', 'Extrude (E): the selected shapes, or all', ctx.extrude),
@@ -872,7 +870,7 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   const link = tool('link', ctx.linkSize(p.id) ? 'Width and height change together: click to unlink' : 'Link width and height: they change together', () => ctx.toggleLinkSize(p.id), ctx.linkSize(p.id));
   const [w, hh] = p.kind === 'rect' ? [stored('w'), stored('h')] : [mm(m.w), mm(m.h)];
   if (p.kind === 'line') return [row(...pos), row(tf('w', 'W', w), link, tf('h', 'H', hh))]; // no corners to round, no turn of its own
-  const rot = tf('rot', '°', stored('rot'), true); // degrees: shown as typed, never unit-converted
+  const rot = tf('rot', 'Turn °', stored('rot'), true); // degrees: shown as typed, never unit-converted
   if (p.kind === 'ngon') return [row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true))];
   return [row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), pf('r', 'R'))];
 }
@@ -947,7 +945,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
       const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error' }, 'its tool body was deleted');
       const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), 'Remove: the tool body becomes a body of its own');
-      return h('section', {}, h('h4', {}, op, drop), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'with'), tool));
+      return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, 'with'), tool, drop));
     }
     case 'mesh': {
       const triangles = Math.floor((feature.triangles.length * 3) / 4 / 12); // base64 → bytes → 3 uint32 per triangle

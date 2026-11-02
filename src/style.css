@@ -258,7 +258,9 @@ input.invalid {
 .row > * {
   flex: 1;
 }
-.row > button,
+.row > button {
+  flex: none; /* as wide as its text: "+ Fillet" on one line */
+}
 .row > .ref-grid {
   flex: 0;
 }
@@ -1225,6 +1227,9 @@ button.icon.tool-op {
   margin-top: 16px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
+}
+#right .info h3 {
+  margin-top: 0;
 }
 #right .info dl {
   display: grid;
