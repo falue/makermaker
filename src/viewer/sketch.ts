@@ -324,17 +324,24 @@ export class SketchTool implements Tool {
   }
 
   /**
-   * Where the pointer draws: a visible sketch whose shape lies under it, the top face of the body under it, the
-   * selected sketch, a sketch on the base plane facing the camera, or that plane (null: another face of a body).
+   * Where the pointer draws: the visible sketch with a shape under it or an outline within `px` pixels (the nearest),
+   * the top face of the body under it, the selected sketch, or a sketch on a base plane, or that plane: the ground
+   * unless seen almost edge-on (below `groundDeg`), then the base plane facing the camera (null: another face of a body).
    */
-  private target(e: MouseEvent): Target | null {
+  private target(e: MouseEvent, px = 10, groundDeg = 20): Target | null {
     if (this.mode?.kind === 'draw') return this.mode.target;
     const ray = this.view.ray(e);
     const hit = this.view.hit(e);
-    const onSketch = this.view.sketches.find((s) => {
+    const r = this.view.el.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
+    let onSketch: ViewSketch | null = null;
+    let nearest = px;
+    for (const s of this.view.sketches) {
       const p = planeHit(ray, s.frame);
-      return p && (!hit || p.distanceTo(ray.origin) <= hit.distance + 1e-3) && s.shapes.some((q) => inside(q, ...uvOf(s.frame, p)));
-    });
+      if (!p || (hit && p.distanceTo(ray.origin) > hit.distance + 1e-3)) continue;
+      const d = s.shapes.some((q) => inside(q, ...uvOf(s.frame, p))) ? 0 : Math.min(px, ...s.shapes.flatMap((q) => outlineSegs(q, s.frame).map(([a, b]) => this.screenDist(mx, my, a, b).d)));
+      if (d < nearest) [onSketch, nearest] = [s, d];
+    }
     if (onSketch) return this.sketchTarget(onSketch);
     if (hit) {
       if (hit.face!.normal.dot(ray.direction) > 0) return null; // a back face seen through a section cut
@@ -348,7 +355,7 @@ export class SketchTool implements Tool {
       const existing = this.view.sketches.find(same);
       return existing ? this.sketchTarget(existing) : { sketch: null, ...placed };
     }
-    const axis = this.view.facing();
+    const axis = Math.abs(ray.direction.clone().normalize().z) > Math.sin((groundDeg * Math.PI) / 180) ? 'xy' : this.view.facing();
     const active = this.view.sketches.find((s) => s.id === this.view.activeSketch);
     const base = active ?? this.view.sketches.find((s) => s.placement.kind === 'base' && s.placement.axis === axis && s.placement.offset === 0);
     return base ? this.sketchTarget(base) : { sketch: null, placement: { kind: 'base', axis, offset: 0 }, frame: BASE[axis], body: null, name: AXIS_NAME[axis] };
@@ -399,13 +406,17 @@ export class SketchTool implements Tool {
 
   /** Lines to snap to, each as segments (world): outlines of every visible sketch's shapes (with the shape), and body edges. */
   private snapLines(): SnapLine[] {
-    const outlines = this.view.sketches.flatMap((sketch) =>
-      sketch.shapes.map((p) => {
-        const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(sketch.frame, q.x, q.y)));
-        return { segs: (p.kind === 'line' ? pts.slice(0, -1) : pts).map((a, i): Segment => [a, pts[(i + 1) % pts.length]]), what: 'on line', shape: { p, sketch } }; // a line stays open
-      }),
-    );
+    const outlines = this.view.sketches.flatMap((sketch) => sketch.shapes.map((p) => ({ segs: outlineSegs(p, sketch.frame), what: 'on line', shape: { p, sketch } })));
     return [...outlines, ...this.view.edges().map((segs) => ({ segs, what: 'on edge' }))];
+  }
+
+  /** Pixel distance from the pointer (`mx`, `my`, in the view) to a segment on screen, and where along it (0..1) it is nearest. */
+  private screenDist(mx: number, my: number, a: THREE.Vector3, b: THREE.Vector3) {
+    const [ax, ay] = this.view.toScreen(a);
+    const [bx, by] = this.view.toScreen(b);
+    const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+    const k = len2 ? Math.max(0, Math.min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)) : 0;
+    return { d: Math.hypot(mx - ax - k * (bx - ax), my - ay - k * (by - ay)), k };
   }
 
   /** The crossing of two of the lines near the pointer closest to it within `px` (plane coordinates, with both lines' indices), if any. */
@@ -469,11 +480,7 @@ export class SketchTool implements Tool {
     for (const [line, { segs, what }] of lines.entries())
       for (const [a, b] of segs) {
         if (!inPlane(t.frame, a) || !inPlane(t.frame, b)) continue;
-        const [ax, ay] = this.view.toScreen(a);
-        const [bx, by] = this.view.toScreen(b);
-        const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
-        const k = len2 ? Math.max(0, Math.min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)) : 0;
-        const d = Math.hypot(mx - ax - k * (bx - ax), my - ay - k * (by - ay));
+        const { d, k } = this.screenDist(mx, my, a, b);
         if (d >= linePx) continue;
         close.push({ line, a: uvOf(t.frame, a), b: uvOf(t.frame, b) });
         if (!best || d < best.d) best = { at: a.clone().lerp(b, k), line: segs, what, d };
@@ -696,6 +703,12 @@ const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] sna
 const LINE_HINT = 'Click the end point · [Ctrl] snaps · [Esc] cancels';
 const POLYGON_HINT = 'Click corners · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
 const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done';
+
+/** A shape's outline as segments (world) on the frame's plane; a line stays open. */
+function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {
+  const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)));
+  return (p.kind === 'line' ? pts.slice(0, -1) : pts).map((a, i): Segment => [a, pts[(i + 1) % pts.length]]);
+}
 
 /** Whether a point (world) lies in the frame's plane. */
 const inPlane = (f: Frame, v: THREE.Vector3, tol = 1e-3) => Math.abs(v.clone().sub(v3(f.o)).dot(v3(f.n))) < tol;
