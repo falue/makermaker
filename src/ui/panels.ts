@@ -69,6 +69,7 @@ export interface UIContext {
   drawOn(id: string): void;
   offsetTool(): void;
   mirrorTool(): void;
+  patternTool(): void;
   threadTool(): void;
   rotateTool(): void;
   /** Aligns the selected objects (bodies, groups as one, whole sketches) by their boxes; see `alignObjects` in main. */
@@ -475,6 +476,7 @@ function editbar(ctx: UIContext): Node[] {
     ),
     tool('cut', "Cut: a body (selected, or clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
     tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
+    tool('pattern', 'Pattern: copies of the selected bodies in a grid (counts, gap or overall size, a turn per copy) or around an axis (count, angle)', ctx.patternTool),
     tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
     tool('thread', 'Thread: click the round edge at the end of a hole or a shaft: a real metric thread (coarse pitch) cut into it, pitch and length typed', ctx.threadTool),
     h('hr'),

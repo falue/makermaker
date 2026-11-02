@@ -1664,7 +1664,7 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
  * (`reach`, in mm, or degrees when `raw`) goes in where the cursor is, to calculate on with it. `change` gets the texts
  * as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
  */
-function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number; raw?: boolean }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string) {
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number; raw?: boolean }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
   const u = history.current.units;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
@@ -1713,7 +1713,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     e.preventDefault();
     end(pressed(e, 'confirm'));
   };
-  box.append(...cells, ...(fields.some((f) => f.reach) ? [toObjectButton(aim, 'Click a point: its value goes into the field')] : []), Object.assign(document.createElement('button'), { textContent: '✓', title: 'Keep it (Enter); Esc drops it', onclick: () => end(true) }));
+  box.append(...extra, ...cells, ...(fields.some((f) => f.reach) ? [toObjectButton(aim, 'Click a point: its value goes into the field')] : []), Object.assign(document.createElement('button'), { textContent: '✓', title: 'Keep it (Enter); Esc drops it', onclick: () => end(true) }));
   document.body.append(box);
   const r = viewer.el.getBoundingClientRect();
   keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
@@ -1721,6 +1721,144 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
   render();
   setTimeout(() => (inputs[0].focus(), inputs[0].select()));
   addEventListener('keydown', keys, { capture: true });
+  return { end, inputs };
+}
+
+/** A world placement as the position and Rotation X° / Y° / Z° of something whose position counts from `parent`. */
+function placementIn(parent: Matrix4, world: Matrix4) {
+  const [at, q] = [new Vector3(), new Quaternion()];
+  parent.clone().invert().multiply(world).decompose(at, q, new Vector3());
+  const e = new Euler().setFromQuaternion(q, 'ZYX');
+  const deg = (r: number) => ex(fmt((r * 180) / Math.PI));
+  return { position: at.toArray().map((v) => len(v)) as [Expr, Expr, Expr], rotation: { rx: deg(e.x), ry: deg(e.y), rz: deg(e.z) } };
+}
+
+/** A checkbox with its words, for the panels. */
+function checkbox(label: string, title: string, on: boolean, change: (on: boolean) => void) {
+  const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: on, onchange: () => change(box.checked) });
+  const el = Object.assign(document.createElement('label'), { className: 'check', title });
+  el.append(box, label);
+  return el;
+}
+
+/**
+ * Pattern: copies of the selected bodies (or those clicked next, Enter), live, one undo step. Around: an axis clicked
+ * first (as Rotate's: an edge, line, circle or point), Count (with the original) over Angle ° (360: evenly all the way
+ * round), the copies turned with it or only moved. Grid: X / Y / Z counts, their spacing as the gap between copies or
+ * the overall size (first to last), and a turn per copy (each further copy turns that much more around its middle).
+ */
+function patternTool(mode: 'around' | 'grid' = 'grid') {
+  const sources = selected.filter((id) => history.current.bodies.some((b) => b.id === id));
+  if (!sources.length) {
+    const picked: string[] = [];
+    pending = {
+      tool: 'shell',
+      pick(id) {
+        picked.splice(0, picked.length, ...(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]));
+        selected = [...picked];
+        showSelection();
+      },
+      apply() {
+        cancelPending();
+        if (picked.length) patternTool(mode);
+        else render();
+      },
+    };
+    toolHint = 'Pattern: click the bodies to repeat (again: not), then [Enter] · [Esc] cancels';
+    return render();
+  }
+  if (mode === 'around') {
+    toolHint = 'Pattern around: click the axis, an edge or line, a circle (its centre) or a point (Z through it) · [Esc] cancels';
+    render();
+    return viewer.pickAxis(
+      (a) => {
+        tips.cursorTip(null);
+        viewer.showAxis(null);
+        toolHint = null;
+        if (a) patternPanel(sources, 'around', a);
+        else render();
+      },
+      (a) => (tips.cursorTip(a ? `${a.what}\nClick: copies go round it` : null), viewer.showAxis(a, a?.at, 60)),
+    );
+  }
+  patternPanel(sources, 'grid');
+}
+
+function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxis) {
+  const doc0 = history.current;
+  const u = UNITS[doc0.units];
+  const start = new Map(sources.map((id) => [id, bodyPlaces.get(id)!.clone()]));
+  const box = sources.reduce((b, id) => b.union(viewer.measure(id)?.box ?? new Box3()), new Box3());
+  const [size, middle] = [box.getSize(new Vector3()), box.getCenter(new Vector3())];
+  let [turnCopies, overall] = [true, false];
+  let texts: string[] = [];
+  /** The copies' world placements for these values: per copy (the original left out) and source. */
+  const placements = (v: number[]): Matrix4[][] => {
+    const out: Matrix4[][] = [];
+    if (mode === 'around' && axis) {
+      const [count, angle] = [Math.max(1, Math.round(v[0])), v[1]];
+      const step = Math.abs(angle) >= 360 ? angle / count : angle / Math.max(1, count - 1);
+      for (let k = 1; k < count; k++) {
+        const turn = new Matrix4().makeTranslation(axis.at).multiply(new Matrix4().makeRotationAxis(axis.dir, (k * step * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(axis.at.clone().negate()));
+        // not turned: only moved where their middle goes
+        const moved = turnCopies ? turn : new Matrix4().makeTranslation(middle.clone().applyMatrix4(turn).sub(middle));
+        out.push(sources.map((id) => moved.clone().multiply(start.get(id)!)));
+      }
+      return out;
+    }
+    const counts = v.slice(0, 3).map((n) => Math.max(1, Math.round(n)));
+    const steps = [0, 1, 2].map((k) => (overall ? (v[3 + k] - size.getComponent(k)) / Math.max(1, counts[k] - 1) : size.getComponent(k) + v[3 + k]));
+    let index = 0;
+    for (let z = 0; z < counts[2]; z++)
+      for (let y = 0; y < counts[1]; y++)
+        for (let x = 0; x < counts[0]; x++) {
+          if (!index++) continue;
+          const spin = new Matrix4().makeTranslation(middle).multiply(new Matrix4().makeRotationZ((((index - 1) * v[6]) * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(middle.clone().negate()));
+          const move = new Matrix4().makeTranslation(x * steps[0], y * steps[1], z * steps[2]).multiply(spin);
+          out.push(sources.map((id) => move.clone().multiply(start.get(id)!)));
+        }
+    return out;
+  };
+  const apply = () => {
+    // counts and degrees as numbers, the spacings as lengths (mm)
+    const v = texts.map((t, i) => (mode === 'grid' && i >= 3 && i < 6 ? (length(t) ?? 0) : Number(t) || 0));
+    const copies = placements(v).flatMap((worlds, k) => {
+      const { bodies } = copiesOf(doc0.bodies.filter((b) => sources.includes(b.id)), [], ` ${k + 2}`);
+      return bodies.map((b, n) => ({ ...b, ...placementIn(parentPlace(sources[n]), worlds[n]) }));
+    });
+    const next = { ...doc0, bodies: [...doc0.bodies, ...copies] };
+    if (history.current === doc0) history.push(next);
+    else history.replace(next);
+    update();
+  };
+  const change = (t: string[]) => ((texts = t), apply());
+  const switcher = Object.assign(document.createElement('span'), { className: 'segmented' });
+  (['grid', 'around'] as const).forEach((k) => {
+    const b = Object.assign(document.createElement('button'), { textContent: k === 'grid' ? 'Grid' : 'Around', className: k === mode ? 'on' : '', onclick: () => k !== mode && (panel.end(false), patternTool(k)) });
+    switcher.append(b);
+  });
+  const fields =
+    mode === 'around'
+      ? [{ label: 'Count', value: '6', raw: true }, { label: 'Angle °', value: '360', raw: true }]
+      : [
+          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} ×`, value: k ? '1' : '3', raw: true })),
+          ...['X', 'Y', 'Z'].map((a) => ({ label: `${a} gap`, value: fmt(5 / u) })),
+          { label: 'Turn °', value: '0', raw: true },
+        ];
+  const extra =
+    mode === 'around'
+      ? [switcher, checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply()))]
+      : [switcher, checkbox('Overall', 'The spacing fields are the whole size from first to last, not the gap between copies', false, (on) => {
+          overall = on;
+          panel.inputs.slice(3, 6).forEach((input, k) => {
+            const label = input.previousElementSibling as HTMLElement;
+            label.textContent = `${'XYZ'[k]} ${on ? 'overall' : 'gap'}`;
+          });
+          apply();
+        })];
+  const panel = valuePanel(fields, change, (ok) => (ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many (with the original) over how many degrees · [Enter] keeps them · [Esc] leaves nothing' : 'Pattern grid: counts along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] keeps them · [Esc] leaves nothing', extra);
+  texts = fields.map((f) => f.value);
+  apply();
 }
 
 /**
@@ -2052,7 +2190,6 @@ function rotateTool() {
   const start = new Map(ids.map((id) => [id, (bodyPlaces.get(id) ?? groupPlace(id)).clone()]));
   const parents = new Map(ids.map((id) => [id, parentPlace(id)]));
   const shapes = sketch && frame ? viewer.sketches.find((v) => v.id === sketch)!.shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id)) : [];
-  const deg = (r: number) => +fmt((r * 180) / Math.PI);
   /** The document turned `angle` degrees. */
   const turned = (angle: number): Doc => {
     const at = pivot ?? middle;
@@ -2069,12 +2206,7 @@ function rotateTool() {
     const turn = new Matrix4().makeTranslation(at).multiply(new Matrix4().makeRotationAxis(dir, (angle * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(at.clone().negate()));
     let next = doc0;
     for (const id of ids) {
-      const local = parents.get(id)!.clone().invert().multiply(turn).multiply(start.get(id)!);
-      const [at, q] = [new Vector3(), new Quaternion()];
-      local.decompose(at, q, new Vector3());
-      const e = new Euler().setFromQuaternion(q, 'ZYX');
-      const rotation = { rx: ex(deg(e.x)), ry: ex(deg(e.y)), rz: ex(deg(e.z)) };
-      const position = at.toArray().map((v) => len(v)) as [Expr, Expr, Expr];
+      const { position, rotation } = placementIn(parents.get(id)!, turn.clone().multiply(start.get(id)!));
       const i = next.bodies.findIndex((b) => b.id === id);
       if (i >= 0) next = setIn(setIn(next, ['bodies', String(i), 'rotation'], rotation), ['bodies', String(i), 'position'], position);
       const g = next.groups.findIndex((x) => x.id === id);
@@ -3465,6 +3597,7 @@ function render() {
     },
     offsetTool,
     mirrorTool,
+    patternTool: () => patternTool(),
     threadTool,
     rotateTool,
     alignObjects,
