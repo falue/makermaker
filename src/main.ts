@@ -961,7 +961,21 @@ function moveAlong(first: number, all = false) {
     const b = by();
     const m = b && sketchMove(b);
     viewer.previewMove(b ?? new Vector3(), m?.updates ?? [], m?.across ?? null);
+    // the gizmo at the selection's middle, moved along; a spoke dragged writes its axis' field
+    if (middle)
+      viewer.showGizmo({
+        at: middle.clone().add(b ?? new Vector3()),
+        axis: last ? fields.indexOf(last) : first,
+        value: (k) => (fields[k]?.value.trim() ? (length(fields[k]!.value) ?? 0) : 0),
+        set: (k, mm) => {
+          open(k);
+          fields[k]!.value = fmt(mm / UNITS[history.current.units]);
+          show();
+        },
+      });
   };
+  const spans = [0, 1, 2].map(extentAlong);
+  const middle = spans.every(Boolean) ? new Vector3(...spans.map((s) => (s![0] + s![1]) / 2)) : null;
   let closed = false; // removing the box fires focusout: close once
   let last: HTMLInputElement | null = null; // the field typed in last
   let target = false; // waiting for a click: "To object"
@@ -973,6 +987,7 @@ function moveAlong(first: number, all = false) {
     tips.cursorTip(null);
     viewer.cancelFacePick();
     viewer.previewMove(null);
+    viewer.showGizmo(null);
   };
   // the view keeps turning meanwhile: a click in it does not select (it only picks for "To object"), the field gets focus back
   const refocus = () => setTimeout(() => !closed && !box.contains(document.activeElement) && last?.focus());
