@@ -156,8 +156,19 @@ type Phase =
   | { kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[]; raw: number; depth: number; typed: string | undefined };
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
-/** A point the pointer snaps to (plane coordinates), what it is, and the outline it belongs to; a body corner keeps where it is (world). */
-type SnapPoint = { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3 };
+/**
+ * A point the pointer snaps to (plane coordinates), what it is, and the outline it belongs to; a body corner keeps where
+ * it is (world); a point along a line the line's key and the lengths on both sides of it (mm).
+ */
+type SnapPoint = { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3; key?: string; parts?: [number, number] };
+/** A straight line's key, by its ends (world, either way round). */
+const sideKey = (a: THREE.Vector3, b: THREE.Vector3) => [a, b].map((v) => v.toArray().map((x) => x.toFixed(3)).join(',')).sort().join('|');
+/** `i/n` in lowest terms. */
+function fraction(i: number, n: number) {
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  const g = gcd(i, n);
+  return `${i / g}/${n / g}`;
+}
 /** A line the pointer snaps to (world segments); sketch outlines keep their shape and sketch. */
 type SnapLine = { segs: Segment[]; what: string; shape?: { p: ViewSketch['shapes'][number]; sketch: ViewSketch } };
 const AXIS_NAME: Record<BasePlane, string> = { xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
@@ -180,6 +191,15 @@ export class SketchTool implements Tool {
   private snapWhat: string | null = null;
   /** Where the last line ended (world; kept across tool restarts): a Ctrl-click draws the next line from there. */
   private static lineEnd: THREE.Vector3 | null = null;
+  /** Snap points along a line (by its key, see `sideKey`): evenly spaced inside a side, or around a circle. Kept across tool restarts. */
+  private static divisions = new Map<string, number>();
+  /** The line the pointer snapped to or along (its key), for A / Shift A. */
+  private snapKey: string | null = null;
+  /** The line whose snap points were just changed: all its points show while the pointer stays on it. */
+  private showing: string | null = null;
+  private dots: THREE.Vector3[] = [];
+  /** The last pointer position snapped, to snap again when the points change. */
+  private lastPoint: [MouseEvent, Target, boolean] | null = null;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -252,7 +272,7 @@ export class SketchTool implements Tool {
 
   move(e: PointerEvent) {
     const ph = this.phase;
-    this.snapWhat = null;
+    this.snapWhat = this.snapKey = null;
     if (ph.kind === 'hover') {
       if (!this.kind && this.mode?.kind !== 'plane') return;
       const target = this.target(e);
@@ -294,7 +314,15 @@ export class SketchTool implements Tool {
   key(e: KeyboardEvent): boolean {
     const ph = this.phase;
     const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull');
-    if (pressed(e, 'cancel')) {
+    const more = pressed(e, 'moreSnaps');
+    if ((more || pressed(e, 'fewerSnaps')) && this.snapKey && this.lastPoint && ph.kind !== 'pull' && !(ph.kind === 'shape' && ph.typed[ph.axis] !== undefined)) {
+      const k = this.snapKey;
+      const circle = k.startsWith('circle:');
+      SketchTool.divisions.set(k, Math.max(circle ? 2 : 1, (SketchTool.divisions.get(k) ?? (circle ? 4 : 1)) + (more ? 1 : -1)));
+      this.showing = k;
+      const at = this.point(...this.lastPoint);
+      if (at && (ph.kind === 'shape' || ph.kind === 'polygon')) ph.cur = at;
+    } else if (pressed(e, 'cancel')) {
       if (ph.kind === 'hover') return this.host.done(null), true;
       if (ph.kind === 'pull') return this.commit(true), this.update(), true; // a drawn shape stays flat
       if (ph.kind === 'polygon' && ph.pts.length >= 2) return this.finishLine(), this.update(), true; // an open polygon
@@ -323,7 +351,7 @@ export class SketchTool implements Tool {
   private hoverHint(target?: Target) {
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
     const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? `Click two points${SketchTool.lineEnd ? ' ([Ctrl]-click: on from the last end)' : ''}` : 'Drag (or click twice)';
-    if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]} · [R] [C] [P] switch · snaps to corners and centres · [Ctrl] grid · [Esc] stops drawing shapes`;
+    if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]} · [R] [C] [P] switch · snaps to corners and centres · [A] / [Shift A] more / fewer snap points on a line · [Ctrl] grid · [Esc] stops drawing shapes`;
     return `${how} to draw ${NAMES[this.kind!]}${target ? ` on ${target.name}` : ''} · [Ctrl] snaps · right-drag turns the view · [Esc] stops`;
   }
 
@@ -376,35 +404,45 @@ export class SketchTool implements Tool {
 
   /**
    * Where the pointer snaps, in the target's plane coordinates, each with what it is and the outline it belongs to (lit
-   * while snapped): the plane origin; centres, corners (line ends), side middles and circle quadrants of the shapes of
-   * every visible sketch; the middles of straight body edges; body corners and sphere centres (their edges are looked
-   * up when snapped). Only points in the plane drawn on: one off it would snap to its projection, away from what it is.
+   * while snapped): the plane origin; centres, corners (line ends), points along sides (the middle, or as many as set
+   * with A) and around circles (quadrants, or as set) of the shapes of every visible sketch; the same along straight
+   * body edges; body corners and sphere centres (their edges are looked up when snapped). Only points in the plane drawn
+   * on: one off it would snap to its projection, away from what it is.
    */
   private snapPoints(t: Target, lines: SnapLine[]): SnapPoint[] {
     const pts: SnapPoint[] = [{ at: [0, 0], what: 'origin' }];
-    const add = (v: THREE.Vector3, what: string, line?: Segment[], corner?: THREE.Vector3) => inPlane(t.frame, v) && pts.push({ at: uvOf(t.frame, v), what, line, corner });
+    const add = (v: THREE.Vector3, o: Omit<SnapPoint, 'at'>) => inPlane(t.frame, v) && pts.push({ at: uvOf(t.frame, v), ...o });
+    // evenly spaced points inside a side, each with the lengths on both sides of it
+    const divide = ([a, b]: Segment) => {
+      const key = sideKey(a, b);
+      const m = SketchTool.divisions.get(key) ?? 1;
+      const len = a.distanceTo(b);
+      for (let i = 1; i <= m; i++) add(a.clone().lerp(b, i / (m + 1)), { what: fraction(i, m + 1), line: [[a, b]], key, parts: [(len * i) / (m + 1), len - (len * i) / (m + 1)] });
+    };
     for (const { segs, shape } of lines) {
       if (!shape) {
-        if (segs.length === 1) add(segs[0][0].clone().lerp(segs[0][1], 0.5), '1/2', segs);
+        if (segs.length === 1) divide(segs[0]);
         continue;
       }
       const { p, sketch } = shape;
       const cs = corners(p);
       const sides = p.kind === 'line' ? cs.slice(1).map((b, i) => [cs[i], b]) : cs.map((a, i) => [a, cs[(i + 1) % cs.length]]);
       const world = ([a, b]: UV[]): Segment => [v3(toWorld(sketch.frame, ...a)), v3(toWorld(sketch.frame, ...b))];
-      // centres and quadrants light the whole shape, a side's middle that side, a corner the two sides meeting there
-      const own: [UV, string, Segment[]][] = [
-        ...(p.kind === 'line' ? [] : [[centre(p), 'centre', segs] as [UV, string, Segment[]]]),
-        ...cs.map((q, i): [UV, string, Segment[]] => [q, p.kind === 'line' ? 'end' : 'corner', [p.kind === 'line' ? sides[i - 1] : sides.at(i - 1), sides[i]].filter((x) => x).map((x) => world(x!))]),
-        ...sides.map((x): [UV, string, Segment[]] => [[(x[0][0] + x[1][0]) / 2, (x[0][1] + x[1][1]) / 2], '1/2', [world(x)]]),
-      ];
-      if (p.kind === 'circle') for (const [cx, cy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) own.push([[p.x + (cx * p.d) / 2, p.y + (cy * p.d) / 2], 'quadrant', segs]);
-      for (const [q, what, line] of own) {
-        if (sketch.id === t.sketch) pts.push({ at: q, what, line });
-        else add(v3(toWorld(sketch.frame, ...q)), what, line);
+      const at = (q: UV) => v3(toWorld(sketch.frame, ...q));
+      // centres and circle points light the whole shape, a point along a side that side, a corner the two sides meeting there
+      if (p.kind !== 'line') add(at(centre(p)), { what: 'centre', line: segs });
+      cs.forEach((q, i) => add(at(q), { what: p.kind === 'line' ? 'end' : 'corner', line: [p.kind === 'line' ? sides[i - 1] : sides.at(i - 1), sides[i]].filter((x) => x).map((x) => world(x!)) }));
+      sides.forEach((x) => divide(world(x)));
+      if (p.kind === 'circle') {
+        const key = `circle:${p.id}`;
+        const m = SketchTool.divisions.get(key) ?? 4;
+        for (let i = 0; i < m; i++) {
+          const a = (2 * Math.PI * i) / m;
+          add(at([p.x + (Math.cos(a) * p.d) / 2, p.y + (Math.sin(a) * p.d) / 2]), { what: m === 4 ? 'quadrant' : `${+((360 * i) / m).toFixed(1)}°`, line: segs, key });
+        }
       }
     }
-    for (const c of this.view.corners()) add(c, 'corner', undefined, c);
+    for (const c of this.view.corners()) add(c, { what: 'corner', corner: c });
     return pts;
   }
 
@@ -451,7 +489,15 @@ export class SketchTool implements Tool {
    * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges in the plane), else
    * on the grid (Ctrl) or 0.1 mm. Sets `snapWhat`.
    */
-  private point(e: MouseEvent, t: Target, grid: boolean, px = 10, linePx = 8): UV | null {
+  private point(e: MouseEvent, t: Target, grid: boolean): UV | null {
+    this.lastPoint = [e, t, grid];
+    const uv = this.snapAt(e, t, grid);
+    if (this.showing !== this.snapKey) this.showing = null; // the pointer left the line just changed
+    this.dots = this.showing ? this.snapPoints(t, this.snapLines()).filter((q) => q.key === this.showing).map((q) => v3(toWorld(t.frame, ...q.at))) : [];
+    return uv;
+  }
+
+  private snapAt(e: MouseEvent, t: Target, grid: boolean, px = 10, linePx = 8): UV | null {
     const p = planeHit(this.view.ray(e), t.frame);
     if (!p) return null;
     const r = this.view.el.getBoundingClientRect();
@@ -467,11 +513,8 @@ export class SketchTool implements Tool {
     this.snapLine = null;
     this.snapped = near ? v3(toWorld(t.frame, ...near.at)) : null;
     this.snapWhat = near?.what ?? null;
-    if (near?.what === '1/2') {
-      const [a, b] = near.line![0]; // a middle lights its own side: each half is half of it
-      const half = this.host.lengthText(a.distanceTo(b) / 2);
-      this.snapWhat = `1/2 (${half} | ${half})`;
-    }
+    this.snapKey = near?.key ?? null;
+    if (near?.parts) this.snapWhat = `${near.what} (${near.parts.map((mm) => this.host.lengthText(mm)).join(' | ')})`;
     if (near) {
       this.snapLine = near.line ?? null;
       const c = near.corner;
@@ -483,16 +526,18 @@ export class SketchTool implements Tool {
       }
       return near.at;
     }
-    let best: { at: THREE.Vector3; line: Segment[]; what: string; d: number } | null = null;
+    let best: { at: THREE.Vector3; line: Segment[]; what: string; key?: string; d: number } | null = null;
     const close: { line: number; a: UV; b: UV }[] = [];
     // along lines and at their crossings only in the plane drawn on: a line off it would snap to its projection, away from the pointer
-    for (const [line, { segs, what }] of lines.entries())
+    for (const [line, { segs, what, shape }] of lines.entries())
       for (const [a, b] of segs) {
         if (!inPlane(t.frame, a) || !inPlane(t.frame, b)) continue;
         const { d, k } = this.screenDist(mx, my, a, b);
         if (d >= linePx) continue;
         close.push({ line, a: uvOf(t.frame, a), b: uvOf(t.frame, b) });
-        if (!best || d < best.d) best = { at: a.clone().lerp(b, k), line: segs, what, d };
+        // the line for A / Shift A: a circle, a straight side, or a straight body edge
+        const key = shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : shape || segs.length === 1 ? sideKey(a, b) : undefined;
+        if (!best || d < best.d) best = { at: a.clone().lerp(b, k), line: segs, what, key, d };
       }
     const cross = this.crossing(close, t, mx, my, px);
     if (cross) {
@@ -506,6 +551,7 @@ export class SketchTool implements Tool {
       this.snapped = v3(toWorld(t.frame, ...uv));
       this.snapLine = best.line;
       this.snapWhat = best.what;
+      this.snapKey = best.key ?? null;
       return uv;
     }
     if (grid) this.snapWhat = 'grid';
@@ -667,6 +713,7 @@ export class SketchTool implements Tool {
       }
       this.view.overlay.add(marks([this.snapped], 0xff8c1a, this.snapWhat?.startsWith('on ') ? 8 : 12));
     }
+    if (this.dots.length && ph.kind !== 'pull') this.view.overlay.add(marks(this.dots, 0xff8c1a, 7));
     const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'hold Ctrl to start the line from the end of the last one' : null;
     this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, chain].filter(Boolean).join(' · ') || null);
     if (ph.kind === 'pull') {

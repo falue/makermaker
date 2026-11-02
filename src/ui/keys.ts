@@ -53,6 +53,8 @@ export const KEYS = {
   cancel: { name: 'Cancel', order: 71, default: [{ key: 'escape' }], hint: 'While a tool, move or pick runs: stop it and put things back' },
   otherSide: { name: 'Other side', order: 72, default: [{ key: 'tab' }], hint: 'Typing a size: switch between width and height (or the number of sides)' },
   erase: { name: 'Erase', order: 73, default: [{ key: 'backspace' }], hint: "Remove the last typed character (or a polygon's last corner)" },
+  moreSnaps: { name: 'More snap points', order: 75, default: [{ key: 'a', shift: false }], hint: 'Drawing, pointer on a line: one more evenly spaced snap point along it (a circle: around it)' },
+  fewerSnaps: { name: 'Fewer snap points', order: 76, default: [{ key: 'a', shift: true }], hint: 'Drawing, pointer on a line: one snap point fewer along it' },
   pullPicked: { name: 'Pull picked areas', order: 74, default: [{ key: 'e' }], hint: 'Picking areas: pull the picked ones (as Confirm does)' },
 } satisfies Record<string, Binding>;
 
