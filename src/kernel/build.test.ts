@@ -119,6 +119,14 @@ describe('buildBody', () => {
     const moved = built([base(100), { id: 's', type: 'split', cutter: { kind: 'frame', frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, profile: straight, offset: 5 }, side: 1 } as BuildFeature]);
     expect(moved.box.bounds[1][0]).toBeCloseTo(-5, 3);
     moved.done();
+    // a ball of Ø 20 grown by 5 at the plate's middle: inside it a disc Ø 30, outside the plate with a hole
+    const ball = (side: 1 | -1) => ({ id: 's', type: 'split', cutter: { kind: 'sphere', c: [0, 0, 0], d: 20, offset: 5 }, side }) as BuildFeature;
+    const inner = built([base(100), ball(1)]);
+    expect(inner.box.width).toBeCloseTo(30, 1);
+    inner.done();
+    const outer = built([base(100), ball(-1)]);
+    expect(outer.box.width).toBeCloseTo(100, 3);
+    outer.done();
   });
 
   it('cuts a blind pocket into the top face', () => {

@@ -374,9 +374,13 @@ function split(shape: Shape3D | null, s: Of<'split'>): Shape3D {
   }
 }
 
-/** The solid on the cutter's kept side (+1), `far` mm beyond everything: past a plane, left of a line, inside a shape. */
+/** The solid on the cutter's kept side (+1), `far` mm beyond everything: past a plane, left of a line, inside a shape or ball. */
 function cutterSide(c: Of<'split'>['cutter'], far: number): Shape3D {
   if (c.kind === 'shape') throw new Error('its cutting shape is not found');
+  if (c.kind === 'sphere') {
+    if (c.d / 2 + c.offset <= 0) throw new Error('the ball has no size');
+    return makeSphere(c.d / 2 + c.offset).translate(...c.c);
+  }
   if (c.kind === 'plane') {
     const f = cutPlane(c);
     return drawRectangle(2 * far, 2 * far).sketchOnPlane(new Plane(f.o, f.x, f.n)).extrude(far) as Shape3D;

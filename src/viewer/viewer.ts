@@ -989,11 +989,15 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The cut tool's cutting surfaces (quads, 4 world corners each; null: gone): red, half see-through, with their outlines. */
-  showCut(quads: THREE.Vector3[][] | null) {
+  /** The cut tool's cutting surfaces (quads, 4 world corners each, with their outlines; or a ball; null: gone): red, half see-through. */
+  showCut(quads: THREE.Vector3[][] | { at: THREE.Vector3; r: number } | null) {
     for (const o of this.cutMark.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
     this.cutMark.clear();
-    if (quads) {
+    if (quads && !Array.isArray(quads)) {
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(quads.r, 48, 24), new THREE.MeshBasicMaterial({ color: 0xe5484d, transparent: true, opacity: 0.25, depthWrite: false }));
+      ball.position.copy(quads.at);
+      this.cutMark.add(ball);
+    } else if (quads) {
       const tris = quads.flatMap(([p, q, r, s]) => [p, q, r, p, r, s]);
       const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints(tris), new THREE.MeshBasicMaterial({ color: 0xe5484d, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }));
       const rims = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(quads.flatMap((q) => q.flatMap((v, i) => [v, q[(i + 1) % 4]]))), new THREE.LineBasicMaterial({ color: 0xe5484d }));
