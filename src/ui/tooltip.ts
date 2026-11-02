@@ -1,11 +1,13 @@
-import { icon } from './icons';
+
+/** A measurement line (`L 65.00`, `W 30`, `61°`, `Ø 12`): it stays at the pointer. */
+const MEASURE = /^(?:[LWHRXYZØ∠]\s*-?[\d.]|-?[\d.]+\s*(?:°|mm|cm|m|in|ft)?$)/;
 
 /**
  * Hover help (from incase): any element with a title or data-tip shows a styled tooltip after `delay` ms; hidden
  * while a button is held. Titles move into data-tip on first hover, so the browser's own tooltip never shows.
  * `cursorTip` shows a note that follows the pointer at once (e.g. what a key does now).
  */
-export function installTooltips(delay = 500, within?: () => DOMRect) {
+export function installTooltips(delay = 500, within?: () => DOMRect, note: (text: string | null) => void = () => {}) {
   const tip = Object.assign(document.createElement('div'), { className: 'tooltip', hidden: true });
   const follow = Object.assign(document.createElement('div'), { className: 'tooltip follow', hidden: true });
   document.body.append(tip, follow);
@@ -64,17 +66,13 @@ export function installTooltips(delay = 500, within?: () => DOMRect) {
   return {
     /** A note next to the pointer that follows it (null: hides it). */
     cursorTip(text: string | null) {
-      // a line about To object starts with its icon, as the To object buttons do
-      follow.replaceChildren(
-        ...(text ?? '').split('\n').map((line) => {
-          const row = document.createElement('div');
-          if (/to object/i.test(line)) row.innerHTML = icon('target');
-          row.append(line);
-          return row;
-        }),
-      );
-      follow.hidden = !text;
-      if (text) place(follow);
+      // at the pointer only measurements (what can be typed); what to do and what the pointer is on go to `note`
+      const lines = (text ?? '').split('\n').filter(Boolean);
+      const measures = lines.filter((line) => MEASURE.test(line.trim()));
+      note(lines.filter((line) => !measures.includes(line)).join(' · ') || null);
+      follow.replaceChildren(...measures.map((line) => Object.assign(document.createElement('div'), { textContent: line })));
+      follow.hidden = !measures.length;
+      if (measures.length) place(follow);
     },
     /** Where the pointer's note is (viewport px), if shown. */
     cursorTipRect: () => (follow.hidden ? null : follow.getBoundingClientRect()),

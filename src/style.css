@@ -1567,3 +1567,20 @@ input + .set-axis {
   border-bottom-left-radius: 0;
   margin-left: -7px;
 }
+
+/* the tool's note (what to do, what the pointer is on): green, where errors show */
+#topbar .status.note {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #2e9e4f;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60vw;
+}
+#topbar .status.note kbd {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.15);
+}

@@ -34,7 +34,13 @@ import { anchorAt, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo 
 import { Viewer, type FinishPick, type PickedFace, type PickedPart, type TurnAxis, type Vec3 } from './viewer/viewer';
 
 // over the 3D view, the pointer's note stays inside it
-const tips = installTooltips(500, () => document.getElementById('viewport')!.getBoundingClientRect());
+const tips = installTooltips(500, () => document.getElementById('viewport')!.getBoundingClientRect(), (text) => {
+  if (text === pointerNote) return;
+  pointerNote = text;
+  showNote();
+});
+/** What the pointer is on and what a click does now (from the pointer's note), shown with the tool's note in the top bar. */
+let pointerNote: string | null = null;
 // a calculation's result: turns in degrees, sides and scales bare, else lengths in the document's units
 installCompletion(
   () => Object.keys(history.current.params),
@@ -1039,14 +1045,10 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
     return render();
   }
   const fields: (HTMLInputElement | null)[] = [null, null, null];
-  const box = Object.assign(document.createElement('div'), { className: 'axis-move' });
-  const at = viewer.pointer() ?? { x: innerWidth / 2, y: innerHeight / 2 };
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   document.body.append(box);
-  // hanging from the pointer, inside the 3D view (again whenever the fields grow)
-  const inView = new ResizeObserver(() => {
-    const r = viewer.el.getBoundingClientRect();
-    keepInside(box, at.x + 14, at.y + 14, false, [r.left, r.top, r.right, r.bottom]);
-  });
+  // at the top of the view as the other panels (again whenever the fields grow)
+  const inView = new ResizeObserver(() => atTop(box));
   inView.observe(box);
   /** The move so far (null: a value is not a distance); empty axes stay. */
   const by = () => {
@@ -1154,7 +1156,10 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
     // Tab (a completion took it already): the next axis' field (Shift: the previous), added if needed; leaving would cancel
     if (e.key === 'Tab') return e.preventDefault(), open((fields.indexOf(input) + (e.shiftKey ? 2 : 1)) % 3);
     if (pressed(e, 'cancel')) return close();
-    if (!pressed(e, 'confirm')) return;
+    if (pressed(e, 'confirm')) confirm();
+  };
+  /** Enter or ✓: moves (or copies) by all the fields. */
+  const confirm = () => {
     const b = by();
     if (!b) return show();
     close();
@@ -1187,8 +1192,8 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   });
   const linkedLabel = Object.assign(document.createElement('label'), { title: 'Copies are linked copies: they share their steps, editing one edits all of them' });
   linkedLabel.append(linked, 'Linked');
-  box.append(toObject, ...(made ? [] : [copyLabel]), linkedLabel);
-  if (all) [2, 1].forEach(open); // Z and Y open behind X
+  box.append(toObject, ...(made ? [] : [copyLabel]), linkedLabel, panelButton('✓', 'Move it (Enter); Esc leaves it', () => confirm()));
+  if (all) [2, 1, 0].forEach(open); // all three, then the cursor goes to `first`
   open(first);
   show();
 }
@@ -1390,7 +1395,6 @@ let cutting: { chunk: string } | null = null;
 function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   document.body.append(box);
-  const r = viewer.el.getBoundingClientRect();
   const u = history.current.units;
   const lookup = paramLookup(history.current.params);
   const values = { offset: '0', turn: '0' };
@@ -1610,10 +1614,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     panelButton('✓', 'Cut (Enter); Esc leaves the body as it was', () => finish(true)),
   );
   choose('A');
-  // centred at the top of the view, below its switches; below the view cube where it would reach it
-  const w = box.offsetWidth;
-  const left = r.left + (r.width - w) / 2;
-  keepInside(box, left, r.top + (left + w > r.right - 110 ? 150 : 44), false, [r.left, r.top, r.right, r.bottom]);
+  atTop(box);
   // the offset, from 0: typing replaces it (after the click that picked the face has ended)
   setTimeout(() => (fields[0].focus(), fields[0].select()));
   addEventListener('keydown', keys, { capture: true });
@@ -1691,8 +1692,7 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
   const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
   box.append(label, input, panelButton('✓', 'Keep it (Enter); Esc leaves nothing', () => finish(true)));
   document.body.append(box);
-  const r = viewer.el.getBoundingClientRect();
-  keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+  atTop(box);
   toolHint = 'Type or scrub the angle · [Enter] keeps it · [Esc] leaves nothing';
   render();
   setTimeout(() => (input.focus(), input.select()));
@@ -1756,8 +1756,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
   };
   box.append(...extra, ...cells, panelButton('✓', 'Keep it (Enter); Esc drops it', () => end(true)));
   document.body.append(box);
-  const r = viewer.el.getBoundingClientRect();
-  keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+  atTop(box);
   toolHint = hint;
   render();
   setTimeout(() => (inputs[0].focus(), inputs[0].select()));
@@ -1772,6 +1771,14 @@ function placementIn(parent: Matrix4, world: Matrix4) {
   const e = new Euler().setFromQuaternion(q, 'ZYX');
   const deg = (r: number) => ex(fmt((r * 180) / Math.PI));
   return { position: at.toArray().map((v) => len(v)) as [Expr, Expr, Expr], rotation: { rx: deg(e.x), ry: deg(e.y), rz: deg(e.z) } };
+}
+
+/** A panel (cut, rotate, joint, values, move) centred at the top of the view, below its switches; below the view cube where it would reach it. */
+function atTop(box: HTMLElement) {
+  const r = viewer.el.getBoundingClientRect();
+  const w = box.offsetWidth;
+  const left = r.left + (r.width - w) / 2;
+  keepInside(box, left, r.top + (left + w > r.right - 110 ? 150 : 44), false, [r.left, r.top, r.right, r.bottom]);
 }
 
 /** A panel button; ✓ (keep it) is filled green. */
@@ -1976,8 +1983,7 @@ function mirrorTool() {
   const option = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   option.append(checkbox('Linked', 'The mirrored copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => (linkedCopies = on)));
   document.body.append(option);
-  const r = viewer.el.getBoundingClientRect();
-  keepInside(option, r.left + (r.width - option.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+  atTop(option);
   viewer.pickFace((face) => {
     option.remove();
     toolHint = null;
@@ -2443,10 +2449,7 @@ function rotateTool() {
     button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
   );
   document.body.append(box);
-  const r = viewer.el.getBoundingClientRect();
-  const w = box.offsetWidth;
-  const left = r.left + (r.width - w) / 2;
-  keepInside(box, left, r.top + (left + w > r.right - 110 ? 150 : 44), false, [r.left, r.top, r.right, r.bottom]);
+  atTop(box);
   addEventListener('keydown', keys, { capture: true });
   viewer.el.addEventListener('pointermove', move);
   setAxis();
@@ -2744,10 +2747,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
   );
   choose(now().kind);
   document.body.append(box);
-  const r = viewer.el.getBoundingClientRect();
-  const w = box.offsetWidth;
-  const left = r.left + (r.width - w) / 2;
-  keepInside(box, left, r.top + (left + w > r.right - 110 ? 150 : 44), false, [r.left, r.top, r.right, r.bottom]);
+  atTop(box);
   viewer.showAxis(jointAxis(now()), jointAxis(now()).at, 60);
   toolHint = `${now().name}: hinge or slider, its limits (T: to a point), speed, direction · [Enter] keeps it · [Esc] ${fresh ? 'removes the joint' : 'drops the changes'}`;
   render();
@@ -3610,8 +3610,8 @@ function render() {
     busy: [...[...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => `Reading ${r.name}`), ...busy],
     shapes: shapeSel,
     active: pending?.tool ?? (extrudePick || (toolMode === 'pull' && !viewer.activeTool) ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
+    // the tool's own notes show in the top bar (see showNote); the footer has the hints for what is selected
     hint:
-      toolHint ??
       (finishSel
         ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · drag it to resize (past 0: the other kind) · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
         : pickedPart?.kind === 'edge'
@@ -3816,6 +3816,7 @@ function render() {
   };
   renderUI(ctx);
   renderJoints();
+  showNote();
 }
 
 /**
@@ -4041,6 +4042,19 @@ function notify(message: string, error = false) {
   status = message;
   statusError = error;
   render();
+  // an error shows a while, then the tool's note again
+  if (error) setTimeout(() => status === message && statusError && ((statusError = false), (status = ''), render()), 5000);
+}
+
+/** The top bar's note: an error (red), else what the tool needs and the pointer is on (green), else the last message. */
+function showNote() {
+  const el = document.querySelector<HTMLElement>('#topbar .status');
+  if (!el) return;
+  const note = [toolHint, pointerNote].filter(Boolean).join(' · ');
+  const [text, kind] = statusError && status ? [status, 'error'] : note ? [note, 'note'] : [status, ''];
+  el.className = `status${kind ? ` ${kind}` : ''}`;
+  el.title = text; // cut short when long: all of it on hover
+  el.innerHTML = axisHtml(text).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
 }
 
 const fail = (message: string) => notify(message, true);
@@ -4130,7 +4144,7 @@ addEventListener('keydown', (e) => {
   else if (sketching && pressed(e, 'deselect')) sketchPath.length ? ((sketchPath = sketchPath.slice(0, -1)), (shapeSel = []), showSelection()) : exitSketch(); // up one sub-group, else out
   else if (pressed(e, 'cycle')) viewer.cycle(1);
   else if (pressed(e, 'cycleBack')) viewer.cycle(-1);
-  else if (axis >= 0) (e.preventDefault(), moveAlong(axis)); // the key is not typed into the field
+  else if (axis >= 0) (e.preventDefault(), moveAlong(axis, true)); // all three fields, the cursor in this one (the key is not typed into it)
   else if (pressed(e, 'move')) (e.preventDefault(), moveAlong(0, true));
   // arrows: 1 mm, Shift 10, Ctrl the minimum step
   else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.ctrlKey ? settings.minStep : e.shiftKey ? 10 : 1);
