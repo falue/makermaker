@@ -889,6 +889,7 @@ function moveAlong(first: number) {
       const name = 'XYZ'[k];
       const input = Object.assign(document.createElement('input'), { spellcheck: false, placeholder: `0 ${history.current.units}` });
       input.dataset.complete = '';
+      input.dataset.grow = '90'; // px at least; wider for long text and its result
       input.oninput = show;
       input.onkeydown = (e) => keys(e, input);
       const next = fields.slice(k + 1).find(Boolean);
