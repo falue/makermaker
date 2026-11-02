@@ -1421,6 +1421,7 @@ export class Viewer implements ToolView {
     r.setRenderTarget(mask);
     r.setClearColor(0x000000, 0);
     r.clear();
+    r.autoClear = false; // all solids into one mask: one silhouette around them together
     for (const s of solids) {
       const own = s.material as THREE.Material;
       flat.clippingPlanes = own.clippingPlanes; // a cut copy stays cut
