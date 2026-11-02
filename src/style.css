@@ -1200,3 +1200,23 @@ button.primary.wide {
   stroke: currentColor;
   stroke-width: 1.6;
 }
+
+/* measurements of the selection, at the bottom of the right column */
+#right .info {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+#right .info dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+}
+#right .info dt {
+  color: var(--muted);
+}
+#right .info dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}

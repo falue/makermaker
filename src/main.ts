@@ -1,11 +1,11 @@
 import { zipSync } from 'fflate';
-import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
+import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
 import { BASE, capFrame, frames, placed as inWorld, placeFrame, scale, unplaced, type Frame, type Place } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, bounds, type Align } from './doc/profiles';
+import { alignment, area, bounds, corners, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
@@ -107,6 +107,8 @@ let statusError = false;
 /** Bodies whose STEP files the kernel reads now (shown with a progress bar), and the STEP features read already. */
 const reading = new Map<string, { name: string; steps: string[] }>();
 const readSteps = new Set<string>();
+/** A face or edge picked with Ctrl-click, with its area (mm²) or length (mm). */
+let pickedPart: { kind: 'face' | 'edge'; body: string; size: number } | null = null;
 /** Other work going on, shown with the same bar (e.g. "Snapshot"). */
 const busy = new Set<string>();
 let toolHint: string | null = null;
@@ -150,6 +152,10 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     render();
   },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
+  pickedPart(part) {
+    pickedPart = part;
+    render();
+  },
 });
 
 const sections = sectionControls(
@@ -633,6 +639,44 @@ function selectAll() {
     [selected, shapeSel] = [doc.bodies.filter((b) => b.visible && !owner.has(b.id)).map((b) => b.id), []];
   }
   showSelection();
+}
+
+/**
+ * The info panel's rows for what is selected: a picked edge (length) or face (area); sketch shapes (size, Ø, area, a
+ * line's length); bodies (box size; one body: position and turn; volume and surface area from their triangles).
+ */
+function infoOf(): { title: string; rows: [string, string][] } | null {
+  const doc = history.current;
+  const u = doc.units;
+  const num = (mm: number, power = 1) => `${fmt(+(mm / UNITS[u] ** power).toFixed(3))} ${u}${power === 2 ? '²' : power === 3 ? '³' : ''}`;
+  if (pickedPart) return pickedPart.kind === 'edge' ? { title: 'Edge', rows: [['Length', num(pickedPart.size)]] } : { title: 'Face', rows: [['Area', num(pickedPart.size, 2)]] };
+  const lookup = paramLookup(doc.params);
+  const s = doc.sketches.find((x) => x.id === activeSketch());
+  if (s) {
+    const shapes = resolve(s, lookup, '', new Map()).shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id));
+    if (shapes.length !== 1) return { title: shapeSel.length ? `${shapes.length} shapes` : s.name, rows: [['Shapes', String(shapes.length)]] }; // (areas would count holes too)
+    const q = shapes[0];
+    const [w, h] = sizeOf(q);
+    const pts = corners(q);
+    const rows: [string, string][] = q.kind === 'circle' ? [['Ø', num(q.d)]] : [['Size', `${num(w)} × ${num(h)}`]];
+    rows.push(q.kind === 'line' ? ['Length', num(pts.slice(1).reduce((n, [x, y], i) => n + Math.hypot(x - pts[i][0], y - pts[i][1]), 0))] : ['Area', num(area(q), 2)]);
+    return { title: q.kind[0].toUpperCase() + q.kind.slice(1), rows };
+  }
+  const ids = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
+  const m = ids.flatMap((id) => viewer.measure(id) ?? []);
+  if (!m.length) return null;
+  const box = m.reduce((b, x) => b.union(x.box), new Box3());
+  const size = box.getSize(new Vector3());
+  const rows: [string, string][] = [['Size', `${num(size.x)} × ${num(size.y)} × ${num(size.z)}`]];
+  const b = ids.length === 1 && doc.bodies.find((x) => x.id === ids[0]);
+  if (b) {
+    const at = positions.get(b.id);
+    const turn = resolve(b.rotation, lookup, '', new Map());
+    if (at) rows.push(['Position', at.map((v) => num(v)).join(', ')]);
+    rows.push(['Rotation', `${fmt(turn.rx)}°, ${fmt(turn.ry)}°, ${fmt(turn.rz)}°`]);
+  }
+  rows.push(['Volume', num(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', num(m.reduce((n, x) => n + x.area, 0), 2)]);
+  return { title: b ? b.name : `${ids.length} bodies`, rows };
 }
 
 /** V: the selected bodies, sketches and groups switch between hidden and shown (one step). */
@@ -1295,6 +1339,7 @@ function render() {
     autosave,
     notify: fail,
     statusError,
+    info: infoOf(),
     paramValue(name) {
       try {
         const q = lookup(name);

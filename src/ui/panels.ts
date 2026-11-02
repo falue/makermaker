@@ -30,6 +30,8 @@ export interface UIContext {
   /** A refusal in the top bar, in red. */
   notify(message: string): void;
   statusError: boolean;
+  /** Measurements of the selection, for the info panel (null: nothing to measure). */
+  info: { title: string; rows: [string, string][] } | null;
   paramValue(name: string): string;
   commit(doc: Doc): void;
   /** `live`: replaces the current undo step (scrubbing). */
@@ -521,7 +523,8 @@ function right(ctx: UIContext): Node[] {
   const status = busy.length
     ? [h('button', { className: 'render-status', onclick: ctx.renders.toggle, title: 'Show the renders' }, `Rendering${busy.length > 1 ? ` (${busy.length} queued)` : ''}: ${Math.floor((now?.done ?? 0) * 100)} %`)]
     : [];
-  return [...status, ...selectionPanel(ctx)];
+  const info = ctx.info ? [h('section', { className: 'info' }, h('h3', {}, `Info · ${ctx.info.title}`), h('dl', {}, ...ctx.info.rows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])))] : [];
+  return [...status, ...selectionPanel(ctx), ...info];
 }
 
 /**
@@ -687,8 +690,8 @@ function hint(selected: number, shapes: number) {
   if (selected > 1)
     return 'Drag to move them all (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Shift] / [⌘]-click adds or removes · [arrows] nudge ([Shift] ×10) · [V] hide · [Del] delete · [⌘D] duplicate · [Esc] deselect';
   if (selected)
-    return 'Drag to move (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Ctrl]-click a face: [E] pulls it, [S] sketches on it · [Shift] / [⌘]-click selects more · [arrows] nudge · [V] hide · [Del] delete · [⌘D] duplicate';
-  return 'Drag a body to move it · [Ctrl]-click a face picks it · [Tab] next body under the pointer · [F] fit · drag to orbit, right-drag, scroll sideways or [Shift] wheel to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
+    return 'Drag to move (the direction picks X, Y or Z; [Alt] free, [Ctrl] snaps) · [X] [Y] [Z] move by a typed distance · [Ctrl]-click a face (or edge): [E] pulls it, [S] sketches on it · [Shift] / [⌘]-click selects more · [arrows] nudge · [V] hide · [Del] delete · [⌘D] duplicate';
+  return 'Drag a body to move it · [Ctrl]-click a face or edge picks it · [Tab] next body under the pointer · [F] fit · drag to orbit, right-drag, scroll sideways or [Shift] wheel to pan, wheel to zoom · drag a field label to scrub ([Shift] fine) · [⌘Z] undo';
 }
 
 /** A sketch: its plane, visibility, and shapes (click a label to select it, ⌘ / Ctrl toggles, Shift a range). */

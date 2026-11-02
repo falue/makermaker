@@ -50,6 +50,8 @@ export interface ViewerHost {
   pickFinish(sel: FinishPick | null): void;
   /** A length in mm, as shown to the user. */
   format(mm: number): string;
+  /** A face or edge picked with Ctrl-click, with its area (mm²) or length (mm); null: none any more. */
+  pickedPart(part: { kind: 'face' | 'edge'; body: string; size: number } | null): void;
 }
 
 /** A part of a finish on a body: the one replacing the edge through `mid` (null: the whole finish). */
@@ -69,6 +71,24 @@ const round = (v: number, step: number) => Math.round(v / step) * step;
 const unit = (k: number) => new THREE.Vector3().setComponent(k, 1);
 
 /** The B-rep face (index) of a body mesh hit. */
+/** The area (mm²) of the B-rep face `hit` lies on, from its triangles. */
+function faceArea(hit: THREE.Intersection) {
+  const mesh = hit.object as THREE.Mesh;
+  const index = mesh.geometry.index!;
+  const pos = mesh.geometry.attributes.position;
+  const groups = mesh.userData.faces as Uint32Array;
+  const k = faceOf(hit) * 2;
+  const [a, b, c] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  let area = 0;
+  for (let i = groups[k]; i < groups[k] + groups[k + 1]; i += 3) {
+    a.fromBufferAttribute(pos, index.getX(i));
+    b.fromBufferAttribute(pos, index.getX(i + 1)).sub(a);
+    c.fromBufferAttribute(pos, index.getX(i + 2)).sub(a);
+    area += b.cross(c).length() / 2;
+  }
+  return area;
+}
+
 function faceOf(hit: THREE.Intersection) {
   const groups = hit.object.userData.faces as Uint32Array;
   const at = hit.faceIndex! * 3;
@@ -281,7 +301,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -317,7 +337,12 @@ export class Viewer implements ToolView {
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
       if (this.facePick) return this.markFace(this.frontHit(e));
-      if (!this.tool && !this.drag && !e.buttons) this.markFace(picksFace(e) ? this.frontHit(e) : (this.pickedFace ?? undefined)); // Ctrl shows the face it would pick
+      if (!this.tool && !this.drag && !e.buttons) {
+        // Ctrl shows the edge (near one) or face it would pick
+        const edge = picksFace(e) ? this.edgeAt(e) : this.pickedEdge;
+        this.markEdge(edge?.segs);
+        this.markFace(edge ? undefined : picksFace(e) ? this.frontHit(e) : (this.pickedFace ?? undefined));
+      }
       this.tool?.move(e);
       if (!this.toolPress) this.move(e); // a drag that belongs to a tool is no orbit
     });
@@ -405,6 +430,9 @@ export class Viewer implements ToolView {
   lastFace: PickedFace | null = null;
   /** A face picked with Ctrl-click (on a selected body), lit until its body is no longer selected. */
   private pickedFace: THREE.Intersection | null = null;
+  /** An edge picked with Ctrl-click (world segments), lit until its body is no longer selected. */
+  private pickedEdge: { body: string; segs: [THREE.Vector3, THREE.Vector3][] } | null = null;
+  private edgeMark = new THREE.Group();
   private lastHit: THREE.Intersection | null = null;
 
   placeOn(hit: THREE.Intersection) {
@@ -717,6 +745,12 @@ export class Viewer implements ToolView {
     if (this.pickedFace && !ids.includes(this.pickedFace.object.userData.bodyId)) {
       this.pickedFace = null;
       if (!this.tool && !this.facePick) this.markFace();
+      this.host.pickedPart(null);
+    }
+    if (this.pickedEdge && !ids.includes(this.pickedEdge.body)) {
+      this.pickedEdge = null;
+      this.markEdge();
+      this.host.pickedPart(null);
     }
     for (const id of this.bodies.keys()) this.dress(id);
     this.applySection();
@@ -886,7 +920,7 @@ export class Viewer implements ToolView {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
     const cutters = [...this.cutters].flatMap((id) => this.bodies.get(id) ?? []);
-    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
+    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, this.edgeMark, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
     const selection = this.selection;
     helpers.forEach((o) => (o.visible = false));
     this.select([]);
@@ -1199,7 +1233,12 @@ export class Viewer implements ToolView {
 
   /** Body edges in the world, each as its segments. */
   edges() {
-    const out: [THREE.Vector3, THREE.Vector3][][] = [];
+    return this.bodyEdges().map((e) => e.segs);
+  }
+
+  /** The edges of the shown bodies (world segments), with their body. */
+  private bodyEdges() {
+    const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][] }[] = [];
     for (const [id, g] of this.bodies)
       for (const c of this.hidden.has(id) ? [] : g.children) {
         const groups = c.userData.edgeGroups as Uint32Array | undefined;
@@ -1209,10 +1248,39 @@ export class Viewer implements ToolView {
         for (let k = 0; k < groups.length; k += 2) {
           const segs: [THREE.Vector3, THREE.Vector3][] = [];
           for (let i = groups[k]; i + 1 < groups[k] + groups[k + 1]; i += 2) segs.push([at(i), at(i + 1)]);
-          out.push(segs);
+          out.push({ body: id, segs });
         }
       }
     return out;
+  }
+
+  /** The body edge within `px` of the pointer that no face in front hides (null: none). */
+  private edgeAt(e: MouseEvent, px = 6) {
+    const r = this.el.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
+    const ray = this.ray(e);
+    const front = this.intersect(this.raycaster(e))[0]?.distance ?? Infinity;
+    let best: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; d: number } | null = null;
+    for (const edge of this.bodyEdges())
+      for (const [a, b] of edge.segs) {
+        const [ax, ay] = this.toScreen(a);
+        const [bx, by] = this.toScreen(b);
+        const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+        const k = len2 ? Math.max(0, Math.min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)) : 0;
+        const d = Math.hypot(mx - ax - k * (bx - ax), my - ay - k * (by - ay));
+        if (d >= px || (best && d >= best.d)) continue;
+        if (a.clone().lerp(b, k).distanceTo(ray.origin) > front + 0.5) continue; // behind a face
+        best = { ...edge, d };
+      }
+    return best && { body: best.body, segs: best.segs };
+  }
+
+  /** Lights `segs` (world) as the picked or hovered edge; none: clears it. */
+  private markEdge(segs?: [THREE.Vector3, THREE.Vector3][]) {
+    for (const o of this.edgeMark.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
+    this.edgeMark.clear();
+    if (segs) this.edgeMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(segs.flat().flatMap((v) => v.toArray())), new LineMaterial({ color: 0xff8c1a, linewidth: 4, depthTest: false })), { renderOrder: 1e6 }));
+    this.render();
   }
 
   corners() {
@@ -1227,6 +1295,35 @@ export class Viewer implements ToolView {
 
   spheres() {
     return this.balls;
+  }
+
+  private measured = new Map<string, { key: string; box: THREE.Box3; volume: number; area: number }>();
+
+  /** A body's box in the world, volume (mm³) and surface area (mm²) from its triangles (null: not built yet); kept until its mesh or place changes. */
+  measure(id: string) {
+    const g = this.bodies.get(id);
+    const solid = g?.children[0] as THREE.Mesh | undefined;
+    const index = solid?.geometry.index;
+    if (!g || !solid || !index) return null;
+    const key = `${solid.geometry.id} ${g.matrix.elements.join()}`;
+    const known = this.measured.get(id);
+    if (known?.key === key) return known;
+    const pos = solid.geometry.attributes.position;
+    const box = new THREE.Box3();
+    const p = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) box.expandByPoint(p.fromBufferAttribute(pos, i).applyMatrix4(g.matrix));
+    const [a, b, c] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    let [volume, area] = [0, 0];
+    for (let i = 0; i < index.count; i += 3) {
+      a.fromBufferAttribute(pos, index.getX(i));
+      b.fromBufferAttribute(pos, index.getX(i + 1));
+      c.fromBufferAttribute(pos, index.getX(i + 2));
+      volume += a.dot(b.clone().cross(c)) / 6; // signed tetrahedra from the origin
+      area += b.sub(a).cross(c.sub(a)).length() / 2;
+    }
+    const out = { key, box, volume: Math.abs(volume), area };
+    this.measured.set(id, out);
+    return out;
   }
 
   /** Where the pointer is over the view (client pixels), if it is. */
@@ -1569,14 +1666,20 @@ export class Viewer implements ToolView {
       if (!member) this.host.pickShape(shape.sketch, shape.shape, false);
       return this.startShapeMove(ray.ray, shape.sketch, member && this.selectedShapes.length > 1 ? shape.shape : null, e);
     }
+    if (picksFace(e)) {
+      // an edge near the pointer, else the face: its body selected and the part lit (a face: E pulls it, S sketches on it)
+      const edge = this.edgeAt(e);
+      if (!edge && !hit) return;
+      this.host.select(edge?.body ?? hit!.object.userData.bodyId, false);
+      this.pickedEdge = edge;
+      this.pickedFace = !edge && this.lastHit === hit ? hit : null;
+      this.markEdge(edge?.segs);
+      this.markFace(this.pickedFace ?? undefined);
+      const f = this.pickedFace;
+      return this.host.pickedPart(edge ? { kind: 'edge', body: edge.body, size: edge.segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0) } : f ? { kind: 'face', body: f.object.userData.bodyId, size: faceArea(f) } : null);
+    }
     if (!hit) return;
     const id = hit.object.userData.bodyId as string;
-    if (picksFace(e)) {
-      // its body selected, the face lit: E pulls it, S sketches on it
-      this.host.select(id, false);
-      this.pickedFace = this.lastHit === hit ? hit : null;
-      return this.markFace(this.pickedFace ?? undefined);
-    }
     if (toggles(e)) return this.host.select(id, true);
     const member = this.selection.includes(id);
     if (!member) this.host.select(id, false);

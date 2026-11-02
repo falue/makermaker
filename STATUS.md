@@ -30,7 +30,8 @@ Chromium-based browsers only.
 - Direct tools: R rectangle, C circle (cylinder), N regular polygon (diameter, Tab: number of sides; the first corner points at the pointer), P polygon (Esc leaves it open), L line (a single line, two clicks; Ctrl-click: the next line from where the last one ended; lines are never extruded), O sphere (drag from its centre on a face or the ground). Shapes keep their meaning (a hexagon stays a regular polygon with 6 sides). Drawing tools and Extrude stay on after each shape or pull until Esc; one-shot actions (look at face and the like) end by themselves.
 - Bodies have a colour (picker in the body panel, swatch in the list; new bodies get one from a palette) and an eye to show / hide them like sketches; hidden bodies are still built but not drawn, picked or snapped to. Selected bodies glow.
 - Snapping while drawing: corners and line ends, centres, the middles of sides and straight edges, circle quadrants, crossings of sketch lines, circles and body edges, then along lines and edges (Ctrl: the grid); only geometry in the plane drawn on. A sketch takes the pointer when it is over one of its shapes or near an outline; empty space draws on the ground unless it is seen almost edge-on. A note next to the pointer says what it snaps to (along a side with the lengths on both sides); the shape, line or edges it belongs to light up. With the pointer on a line, A adds an evenly spaced snap point along it (around a circle: one more than the 4 quadrants), Shift A removes one; while changing, all its points show.
-- Faces: hold Ctrl (elsewhere than a Mac: Alt) to light the face under the pointer; Ctrl-click selects its body and keeps the face lit, so E pulls it and S sketches on it. On a Mac ⌘ adds to or removes from the selection.
+- Faces and edges: hold Ctrl (elsewhere than a Mac: Alt) to light the edge near the pointer (within 6 px, not behind a face) or else the face under it; Ctrl-click selects its body and keeps that part lit (a face: E pulls it, S sketches on it).
+- Info panel (bottom of the right column): a picked edge's length or face's area; one sketch shape's size or Ø and area (a line: its length), several shapes: their count; bodies: box size, one body's position and turn, volume and surface area (from the shown triangles, so curved parts are a hair off). On a Mac ⌘ adds to or removes from the selection.
 - X / Y / Z: a field at the pointer takes a distance (expressions and units, `-100` too); X / Y / Z in it add that axis' field (always in X Y Z order) or go back to it, each keeping its value (typed instead in the middle of a name, or where a parameter starting with that letter could begin: Tab completes it); while typing, the selection shows moved and a translucent copy stays where it was; Enter moves by all of them the selection that far along that axis (bodies; shapes within their sketch plane, the selected ones or all of the selected sketch), Esc cancels.
 - Tab / Shift Tab: select the next / previous body under the pointer (while typing a size Tab switches the side).
 - Parameter names complete in every value field: the rest of a matching name shows in grey after the cursor, Tab writes it out with a space.
@@ -102,6 +103,91 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Python scripting**: an in-browser editor (Monaco + Pyodide) with the command API as a Python module (`cad.box(...)`, `cad.move(...)`, `cad.bevel(...)`, the selection), Run, console, errors, autocomplete, offline caching.
 - **Desktop wrapper** (Tauri / Electron) with native file access.
 - **Image as plane** (stretch goal; the one Fusion feature worth copying): insert a PNG, WebP, JPG, GIF or SVG on a picked plane; calibrate its size by clicking two points on it and typing their real distance, the image scales to match. Bonus: an AI model (chatGPT or similar - not gemini as its nota ble to create SVGS, only pixel based) turns a photo or scan of a technical drawing into an SVG that is placed instead, with a preview before it is used.
+> prompt fort iamge to svg conversions:
+```text
+Create a **simple, scale-accurate 2D SVG** from the attached reference image for import into CAD / 3D software.
+
+Use **only the attached image**. Do **not** search online, use datasheets, or add dimensions from external knowledge.
+
+The goal is **mechanical reference geometry**, not visual reproduction.
+
+Requirements:
+
+- Use any dimensions explicitly shown in the image as the primary scale reference.
+- Infer all other dimensions proportionally from the image.
+- Keep everything in **metric millimetres**.
+- Make the SVG physically scaled so that CAD software imports it at the intended real-world size.
+- Use simple black outlines on a white background.
+- No shading, textures, perspective, decorative detail, dimension arrows, or photographic detail.
+- Use as **few SVG objects as practical**.
+
+Prioritize these features:
+
+- overall outer dimensions
+- outline/profile of the main object
+- corner radii
+- mounting holes
+- screw-hole locations
+- pin/header locations
+- repeated hole or pin spacing
+- connectors, switches, sockets, and other parts protruding beyond the main body
+- other mechanically important features
+
+For repeated pins, pads, holes, or headers:
+- detect whether they appear to use a regular raster/pitch
+- infer that pitch from the drawing where possible
+- preserve the correct number and approximate locations
+- if a standard-looking pitch can be inferred directly from the image, note the estimated pitch, for example `~2.54 mm`
+
+For mounting holes:
+- include their estimated diameter and centre positions
+- note the corresponding **metric screw size**
+- if the screw size is explicitly stated in the original drawing, reproduce it normally, e.g. `M3`
+- if it is only inferred from the image, mark it clearly as approximate, e.g. `~M3`, `~M2.5`, etc.
+- never present an inferred screw size as exact
+
+For connectors or components that stick out beyond the main outline:
+- make them separate SVG objects
+- simplify each one to a rectangle, rounded rectangle, circle, or similarly basic shape
+- do not draw internal connector details unless mechanically necessary
+
+For pins and labels:
+- label only the most important pins/functions if they are clearly readable or inferable from the supplied image itself
+- do not invent pin functions
+- keep labels in a separate SVG group so they can easily be removed before CAD import
+
+Accuracy rules:
+
+- Clearly distinguish between:
+  - dimensions explicitly shown in the image
+  - dimensions estimated proportionally
+  - dimensions inferred from repeated geometry/pitch
+- Do not silently use outside knowledge.
+- If something is uncertain, make a reasonable proportional estimate rather than omitting it.
+- Prefer mechanically useful approximate geometry over visual detail.
+
+SVG construction:
+
+- output a **real SVG file directly**, not a raster image
+- use millimetres for width/height where possible
+- use a matching `viewBox`
+- give important objects sensible IDs such as:
+  - `main-outline`
+  - `mounting-holes`
+  - `header`
+  - `usb-port`
+  - `power-port`
+- group optional text labels separately
+- keep the SVG clean and easy to edit
+
+Also provide a short note listing:
+- the dimensions taken directly from the image
+- the most important estimated dimensions
+- estimated raster/pitch values
+- estimated mounting screw sizes, using `~M3` style notation wherever they were not explicitly specified
+
+The final result should look like a **minimal mechanical CAD tracing**, not like the original photograph or product illustration.
+```
 
 ### Design notes
 
