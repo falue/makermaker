@@ -332,7 +332,9 @@ section .bake.on {
 }
 .segmented button:last-child {
   border-radius: 0 4px 4px 0;
-  margin-left: -1px;
+}
+.segmented button + button {
+  margin-left: -1px; /* neighbours share their border */
 }
 .segmented button.on {
   color: var(--accent-text);
@@ -1290,4 +1292,8 @@ button.icon.tool-op {
 }
 .overlay.crumbs .sep {
   color: var(--muted);
+}
+/* the cut's fields: short numbers, so the panel fits the view */
+.cut-panel input {
+  width: 56px;
 }
