@@ -367,13 +367,14 @@ export class SketchTool implements Tool {
    * Where the pointer snaps, in the target's plane coordinates, each with what it is and the outline it belongs to (lit
    * while snapped): the plane origin; centres, corners (line ends), side middles and circle quadrants of the shapes of
    * every visible sketch; the middles of straight body edges; body corners and sphere centres (their edges are looked
-   * up when snapped). From other planes: projected onto this one.
+   * up when snapped). Only points in the plane drawn on: one off it would snap to its projection, away from what it is.
    */
   private snapPoints(t: Target, lines: SnapLine[]): { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3 }[] {
     const pts: { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3 }[] = [{ at: [0, 0], what: 'origin' }];
+    const add = (v: THREE.Vector3, what: string, line?: Segment[], corner?: THREE.Vector3) => inPlane(t.frame, v) && pts.push({ at: uvOf(t.frame, v), what, line, corner });
     for (const { segs, shape } of lines) {
       if (!shape) {
-        if (segs.length === 1) pts.push({ at: uvOf(t.frame, segs[0][0].clone().lerp(segs[0][1], 0.5)), what: '1/2', line: segs });
+        if (segs.length === 1) add(segs[0][0].clone().lerp(segs[0][1], 0.5), '1/2', segs);
         continue;
       }
       const { p, sketch } = shape;
@@ -387,9 +388,12 @@ export class SketchTool implements Tool {
         ...sides.map((x): [UV, string, Segment[]] => [[(x[0][0] + x[1][0]) / 2, (x[0][1] + x[1][1]) / 2], '1/2', [world(x)]]),
       ];
       if (p.kind === 'circle') for (const [cx, cy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) own.push([[p.x + (cx * p.d) / 2, p.y + (cy * p.d) / 2], 'quadrant', segs]);
-      for (const [q, what, line] of own) pts.push({ at: sketch.id === t.sketch ? q : uvOf(t.frame, v3(toWorld(sketch.frame, ...q))), what, line });
+      for (const [q, what, line] of own) {
+        if (sketch.id === t.sketch) pts.push({ at: q, what, line });
+        else add(v3(toWorld(sketch.frame, ...q)), what, line);
+      }
     }
-    for (const c of this.view.corners()) pts.push({ at: uvOf(t.frame, c), what: 'corner', corner: c });
+    for (const c of this.view.corners()) add(c, 'corner', undefined, c);
     return pts;
   }
 
@@ -429,7 +433,7 @@ export class SketchTool implements Tool {
 
   /**
    * Pointer on the target plane, in plane coordinates: on the nearest snap point within `px` pixels, else on a crossing of lines
-   * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges; only those in the plane), else
+   * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges in the plane), else
    * on the grid (Ctrl) or 0.1 mm. Sets `snapWhat`.
    */
   private point(e: MouseEvent, t: Target, grid: boolean, px = 10, linePx = 8): UV | null {
@@ -462,12 +466,9 @@ export class SketchTool implements Tool {
     let best: { at: THREE.Vector3; line: Segment[]; what: string; d: number } | null = null;
     const close: { line: number; a: UV; b: UV }[] = [];
     // along lines and at their crossings only in the plane drawn on: a line off it would snap to its projection, away from the pointer
-    const n = v3(t.frame.n);
-    const o = v3(t.frame.o);
-    const inPlane = (v: THREE.Vector3) => Math.abs(v.clone().sub(o).dot(n)) < 1e-3;
     for (const [line, { segs, what }] of lines.entries())
       for (const [a, b] of segs) {
-        if (!inPlane(a) || !inPlane(b)) continue;
+        if (!inPlane(t.frame, a) || !inPlane(t.frame, b)) continue;
         const [ax, ay] = this.view.toScreen(a);
         const [bx, by] = this.view.toScreen(b);
         const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
@@ -695,6 +696,9 @@ const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] sna
 const LINE_HINT = 'Click the end point · [Ctrl] snaps · [Esc] cancels';
 const POLYGON_HINT = 'Click corners · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
 const PULL_HINT = 'Move to pull · [Ctrl] snaps · type a depth · click or [Enter]: done';
+
+/** Whether a point (world) lies in the frame's plane. */
+const inPlane = (f: Frame, v: THREE.Vector3, tol = 1e-3) => Math.abs(v.clone().sub(v3(f.o)).dot(v3(f.n))) < tol;
 
 /** Where the ray meets the frame's plane (null: parallel or behind). */
 export function planeHit(ray: THREE.Ray, f: Frame) {
