@@ -51,6 +51,8 @@ export interface ViewerHost {
   pickFinish(sel: FinishPick | null): void;
   /** A length in mm, as shown to the user. */
   format(mm: number): string;
+  /** A press on a picked finish's face (at `at`, world): drag its size. */
+  dragFinish(body: string, feature: string, at: THREE.Vector3): void;
   /** A press on picked edges (world segments per edge): drag a fillet or chamfer onto them. */
   dragEdges(body: string, edges: [THREE.Vector3, THREE.Vector3][][]): void;
   /** A double-click on a sketch shape: open its sketch group, down to its sub-group. */
@@ -1879,6 +1881,12 @@ export class Viewer implements ToolView {
     if (!member) this.host.select(id, false);
     if (!this.selection.includes(id)) return; // the click went to a tool (deleted it, say)
     const f = this.finishAt(hit);
+    // pressing a picked finish's face again drags its size (below 0: the other kind)
+    if (f && this.finishSel?.body === id && this.finishSel.feature === f.feature) {
+      this.host.dragFinish(id, f.feature, hit.point.clone());
+      this.toolPress = !!this.tool; // the drag tool gets the release
+      return;
+    }
     this.host.pickFinish(f && { body: id, ...f });
     const start = hit.point.clone();
     const group = this.withOwned(this.selection).map((g) => ({ id: g, from: this.group(g).position.clone() }));

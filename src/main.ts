@@ -169,6 +169,50 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     render();
   },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
+  dragFinish(body, feature, at) {
+    const before = history.current;
+    const i = before.bodies.findIndex((b) => b.id === body);
+    const j = before.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
+    const f = before.bodies[i]?.features[j];
+    if (f?.type !== 'finish') return;
+    // fillets count up from 0, chamfers down: dragging past 0 turns one into the other
+    const mm = evalLength(f.size, paramLookup(before.params));
+    const start = f.mode === 'fillet' ? mm : -mm;
+    const apply = (d: number) => {
+      const v = start + d;
+      const mode = v >= 0 ? 'fillet' : 'chamfer';
+      const size = mode === f.mode ? plus(f.size, mm, Math.max(Math.abs(v), 0.1) - mm) : len(Math.max(Math.abs(v), 0.1)); // same kind: the expression stays
+      return setIn(before, ['bodies', String(i), 'features', String(j)], { ...f, mode, size });
+    };
+    let pushed = false;
+    viewer.startFacePull(
+      toolHost,
+      viewer.screenDir(0, 1).toArray(),
+      at,
+      (d, phase) => {
+        if (phase === 'cancel') {
+          if (pushed) history.undo();
+          stopTool();
+          return update();
+        }
+        if (pushed || Math.abs(d) >= 0.1) {
+          if (pushed) history.replace(apply(d));
+          else history.push(apply(d));
+          pushed = true;
+          update();
+        }
+        if (phase === 'done') stopTool(), render();
+      },
+      {
+        hint: 'Drag up: bigger, down: smaller (past 0 a fillet turns into a chamfer and back) · [Ctrl] snaps · type a change · release or [Enter]: done · [Esc] puts it back',
+        label: (d, typed) => {
+          const v = start + d;
+          return `${v >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(v).toFixed(2) : `${typed}▏`}`;
+        },
+        endOnUp: true,
+      },
+    );
+  },
   dragEdges(body, edges) {
     const before = history.current;
     const i = before.bodies.findIndex((b) => b.id === body);
@@ -1497,7 +1541,7 @@ function render() {
     hint:
       toolHint ??
       (finishSel
-        ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
+        ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · drag it to resize (past 0: the other kind) · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
         : pickedPart?.kind === 'edge'
           ? 'Drag a picked edge up: fillet, down: chamfer · [Ctrl]-click another edge, double-click: its loop · [Esc] deselect'
           : null),
