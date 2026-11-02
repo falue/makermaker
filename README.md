@@ -85,7 +85,15 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Drawings**: paper sheets with scaled views, dimensions, sections, PDF export.
 - **Quad view**: four editable views at once.
 - **incase**: the sibling project ../incase should be included here.
+- **Render camera**: change the field of view for renders, set it as real-life camera focal length in mm, and a default field of view in the settings.
+- **Threads**: holes and cylinders defined as threads with real thread geometry, metric and inch (UNC / UNF); special geometry that is always modelled, built so that e.g. the top edge of a threaded hole or cylinder can still be chamfered.
+- **Mesh to CAD model**: a button that turns a mesh into a CAD model, like [this video](https://youtu.be/meBi616y1mg) shows ([ScanRuler](https://github.com/CNCKitchen/ScanRuler) by CNC Kitchen).
 - **Central CAD command API**: every modeling action (create, edit, select bodies, sketches, features, materials, transforms, booleans, bevels, holes, ...) through one TypeScript API used by the GUI and scripting, independent of the UI and kernel where possible.
 - **LLM control**: an API through which an LLM can control everything.
 - **Python scripting**: an in-browser editor (Monaco + Pyodide) with the command API as a Python module (`cad.box(...)`, `cad.move(...)`, `cad.bevel(...)`, the selection), Run, console, errors, autocomplete, offline caching.
 - **Desktop wrapper** (Tauri / Electron) with native file access.
+
+### Design notes
+
+- Shift does the opposite of a tool where that makes sense.
+- Editing 2D and 3D objects uses the same tools wherever possible (booleans work on both, for example). There is no special sketch mode: sketches can be drawn at any time. Still to work out: how sketch objects are grouped together into a sketch.
