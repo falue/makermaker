@@ -259,10 +259,10 @@ export class Viewer implements ToolView {
   private wheel = axisWheel();
   private wheelPx = 70; // spoke length on screen
   /**
-   * The move fields' gizmo: the axis wheel at `at` (world), `axis` strong; a spoke dragged sets that axis' value
-   * (`value` at the grab plus the pull, on the zoom's step: Shift ×10, Ctrl the minimum). `grab`: the drag running.
+   * The move fields' gizmo: the axis wheel at `at` (world), `axis` strong. A press on it starts the same move as
+   * grabbing a body (dead zone, axis by direction, steps), which sets the axes' values (`value` at the press plus the move).
    */
-  private gizmo: { at: THREE.Vector3; axis: number | null; value(axis: number): number; set(axis: number, mm: number): void; grab?: { axis: number; at: THREE.Vector3; t0: number; from: number } } | null = null;
+  private gizmo: { at: THREE.Vector3; axis: number | null; value(axis: number): number; set(axis: number, mm: number): void } | null = null;
   private deadPx = 24; // dead zone radius: no axis until the pointer leaves it
   private moveLabel = Object.assign(document.createElement('div'), { className: 'size-label active', hidden: true });
   private facePick: ((face: PickedFace | null) => void) | null = null;
@@ -393,15 +393,7 @@ export class Viewer implements ToolView {
           const loop = this.edgeLoop(e);
           if (loop) return this.host.select(loop.body, false), this.pickEdges(loop);
         }
-        // a spoke of the move fields' gizmo: dragged, it sets that axis
-        const spoke = e.button === 0 && this.gizmo && !this.tool ? this.gizmoAxisAt(e) : null;
-        if (spoke !== null) {
-          const g = this.gizmo!;
-          g.grab = { axis: spoke, at: g.at.clone(), t0: along(this.ray(e), g.at, unit(spoke)), from: g.value(spoke) };
-          this.controls.enabled = false;
-          canvas.setPointerCapture(e.pointerId);
-          return e.stopPropagation();
-        }
+        if (e.button === 0 && this.gizmo && !this.tool && this.onGizmo(e)) return this.dragGizmo(e), e.stopPropagation();
         if (e.button === 0 && (this.facePick || this.tool?.clicks?.())) {
           // picking: a drag turns the view (the orbit controls get this press), a click picks on release
           this.clickAt = { x: e.clientX, y: e.clientY };
@@ -422,12 +414,7 @@ export class Viewer implements ToolView {
     addEventListener('keyup', (e) => (e.key === 'Control' || e.key === 'Alt') && unpreview());
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
-      const grab = this.gizmo?.grab;
-      if (grab) {
-        const step = this.step(grab.at, e);
-        return this.gizmo!.set(grab.axis, Math.round((grab.from + along(this.ray(e), grab.at, unit(grab.axis)) - grab.t0) / step) * step);
-      }
-      if (this.facePick) return this.quietPick ? undefined : this.markFace(this.frontHit(e));
+      if (this.facePick && !this.drag) return this.quietPick ? undefined : this.markFace(this.frontHit(e)); // a gizmo drag moves on
       if (!this.tool && !this.drag && !e.buttons) {
         // Ctrl previews (orange) the edge near the pointer, else the face it would pick; picked parts keep their own (blue) marks
         const edge = picksFace(e) ? this.edgeAt(e) : null;
@@ -438,7 +425,6 @@ export class Viewer implements ToolView {
       if (!this.toolPress) this.move(e); // a drag that belongs to a tool is no orbit
     });
     canvas.addEventListener('pointerup', (e) => {
-      if (this.gizmo?.grab) return (this.gizmo.grab = undefined), (this.controls.enabled = true);
       if (this.clickAt) return this.clicked(e);
       if (!this.toolPress) return this.up(e);
       this.toolPress = false;
@@ -1402,50 +1388,51 @@ export class Viewer implements ToolView {
     this.render();
   };
 
-  /**
-   * While a move runs: at its press point, spokes `wheelPx` long on screen, the dead zone ring facing the camera; else
-   * while the move fields are open: at the selection's middle, all spokes, no ring.
-   */
+  /** The axis wheel: while a move runs at its press point (spokes it may take), else at the move fields' gizmo; spokes `wheelPx` long on screen, the dead zone ring facing the camera. */
   private placeWheel() {
     const d = this.drag?.moved ? this.drag : null;
-    const g = this.gizmo;
-    this.wheel.visible = !!(d || g);
-    const at = d?.start ?? g?.at;
+    const at = d?.start ?? this.gizmo?.at;
+    this.wheel.visible = !!at;
     if (!at) return;
     this.wheel.position.copy(at);
     this.wheel.scale.setScalar(this.wheelPx / this.pixelsPerMm(at));
     const ring = this.wheel.getObjectByName('dead')!;
-    ring.visible = !!d;
     ring.quaternion.copy(this.camera.quaternion);
     ring.scale.setScalar(this.deadPx / this.wheelPx);
     for (const spoke of this.wheel.children) if (spoke.userData.axis !== undefined) spoke.visible = !d || d.axes.includes(spoke.userData.axis);
-    if (!d) choose(this.wheel, g!.grab?.axis ?? g!.axis);
+    if (!d) choose(this.wheel, this.gizmo!.axis);
   }
 
-  /** The move fields' gizmo (null: gone): see `gizmo`; a drag running keeps going. */
-  showGizmo(g: Omit<NonNullable<typeof this.gizmo>, 'grab'> | null) {
-    this.gizmo = g && { ...g, grab: this.gizmo?.grab };
-    if (!g) this.controls.enabled = true;
+  /** The move fields' gizmo (null: gone), see `gizmo`. */
+  showGizmo(g: typeof this.gizmo) {
+    this.gizmo = g;
     this.render();
   }
 
-  /** The gizmo spoke within `px` of the pointer (on screen), the nearest. */
-  private gizmoAxisAt(e: MouseEvent, px = 8) {
-    const g = this.gizmo!;
+  /** Whether the pointer is on the gizmo (within its spokes' reach on screen). */
+  private onGizmo(e: MouseEvent) {
+    const [x, y] = this.toScreen(this.gizmo!.at);
     const r = this.el.getBoundingClientRect();
-    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
-    const reach = 0.95 * (this.wheelPx / this.pixelsPerMm(g.at));
-    let best: number | null = null;
-    let nearest = px;
-    for (const k of [0, 1, 2]) {
-      const [ax, ay] = this.toScreen(g.at.clone().addScaledVector(unit(k), -reach));
-      const [bx, by] = this.toScreen(g.at.clone().addScaledVector(unit(k), reach));
-      const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
-      const t = len2 ? Math.max(0, Math.min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)) : 0;
-      const d = Math.hypot(mx - ax - t * (bx - ax), my - ay - t * (by - ay));
-      if (len2 > 100 && d < nearest) [best, nearest] = [k, d]; // a spoke pointing at the camera is too short to grab
-    }
-    return best;
+    return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < this.wheelPx;
+  }
+
+  /** A press on the gizmo: the move a body grab starts, from its middle; the move sets the axes' values (released unmoved: as before). */
+  private dragGizmo(e: PointerEvent) {
+    const g = this.gizmo!;
+    const from = [0, 1, 2].map((k) => g.value(k));
+    const set = (by: THREE.Vector3) => from.forEach((v, k) => g.set(k, v + by.getComponent(k)));
+    this.downAt = { x: e.clientX, y: e.clientY };
+    this.downOnPart = true; // no click on empty space
+    this.startDrag(e, this.ray(e), g.at.clone(), {
+      axes: [0, 1, 2],
+      lead: new THREE.Vector3(), // the distance lands on the step
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(unit(this.facingAxis()), g.at),
+      only: null,
+      apply: set,
+      end: (by) => {
+        if (!by) set(new THREE.Vector3());
+      },
+    });
   }
 
   /** The axis whose spoke points most along the drag on screen; spokes pointing at the camera (short on screen) are skipped. */

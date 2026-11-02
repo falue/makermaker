@@ -968,8 +968,10 @@ function moveAlong(first: number, all = false) {
         axis: last ? fields.indexOf(last) : first,
         value: (k) => (fields[k]?.value.trim() ? (length(fields[k]!.value) ?? 0) : 0),
         set: (k, mm) => {
-          open(k);
-          fields[k]!.value = fmt(mm / UNITS[history.current.units]);
+          const text = fmt(mm / UNITS[history.current.units]);
+          if (fields[k] ? fields[k]!.value === text || (!mm && !fields[k]!.value.trim()) : !mm) return; // unchanged, or an axis not used
+          if (!fields[k]) open(k);
+          fields[k]!.value = text;
           show();
         },
       });
