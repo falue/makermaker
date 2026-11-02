@@ -46,6 +46,15 @@ function edgeTests(): Body[] {
   ];
 }
 
+/** A test piece for booleans: a block with a ball cut into its corner and a cylinder cut through it (shown under it in the list). */
+function cutTest(): Body[] {
+  const ball: Body = { ...solid('Cut ball', '#d9a98f', [115, -110, 25], [], 0), features: [{ id: newId(), type: 'sphere', x: ex(0), y: ex(0), z: ex(0), d: ex(24) }] };
+  const pipe = solid('Cut cylinder', '#a8c0dc', [90, -90, -5], [circle(0, 0, 12)], 35);
+  const block = solid('Cut block', '#e0c9a0', [90, -90, 0], [rect(50, 40)], 25);
+  const cut = (tool: Body) => ({ id: newId(), type: 'boolean' as const, op: 'subtract' as const, body: tool.id });
+  return [{ ...block, features: [...block.features, cut(ball), cut(pipe)] }, ball, pipe];
+}
+
 /**
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
@@ -109,7 +118,7 @@ export function sampleDoc(): Doc {
     schema: 11,
     units: 'mm',
     params: { ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests()],
+    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests(), ...cutTest()],
     sketches: [
       outline,
       {

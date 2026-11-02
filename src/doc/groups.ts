@@ -28,6 +28,14 @@ export function whose(doc: Doc, sketch: string): string {
 /** The object list in order (sketches have their own list): per level its groups, each followed by its contents unless folded, then its bodies. */
 export function tree(doc: Doc, folded: Set<string>): Row[] {
   const out: Row[] = [];
+  const owner = ownersOf(doc);
+  // a body, then (unless folded) the tool bodies of its booleans under it, like a group's contents
+  const body = (id: string, depth: number) => {
+    const tools = doc.bodies.filter((t) => owner.get(t.id) === id && !out.some((r) => r.id === t.id));
+    const open = tools.length ? !folded.has(id) : undefined;
+    out.push({ id, kind: 'body', depth, open });
+    if (open) for (const t of tools) body(t.id, depth + 1);
+  };
   const walk = (parent: string | null, depth: number) => {
     for (const g of doc.groups)
       if (parentOf(doc, g.parent) === parent) {
@@ -35,9 +43,16 @@ export function tree(doc: Doc, folded: Set<string>): Row[] {
         out.push({ id: g.id, kind: 'group', depth, open });
         if (open) walk(g.id, depth + 1);
       }
-    for (const b of doc.bodies) if (parentOf(doc, b.group) === parent) out.push({ id: b.id, kind: 'body', depth });
+    for (const b of doc.bodies) if (parentOf(doc, b.group) === parent && !owner.has(b.id)) body(b.id, depth);
   };
   walk(null, 0);
+  return out;
+}
+
+/** The body each boolean tool body belongs to (the first whose boolean uses it). */
+export function ownersOf(doc: Doc) {
+  const out = new Map<string, string>();
+  for (const b of doc.bodies) for (const f of b.features) if (f.type === 'boolean' && !out.has(f.body)) out.set(f.body, b.id);
   return out;
 }
 

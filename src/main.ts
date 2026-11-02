@@ -9,7 +9,7 @@ import { alignment, area, bounds, corners, type Align } from './doc/profiles';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { contents, ownerOf, tree, whose, within } from './doc/groups';
+import { contents, ownerOf, ownersOf, tree, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { Body, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
@@ -494,13 +494,6 @@ function update() {
 function commit(next: Doc) {
   history.push(follow(history.current, next));
   update();
-}
-
-/** Owner per tool body: the (first) body whose boolean uses it. */
-function ownersOf(doc: Doc) {
-  const out = new Map<string, string>();
-  for (const b of doc.bodies) for (const f of b.features) if (f.type === 'boolean' && !out.has(f.body)) out.set(f.body, b.id);
-  return out;
 }
 
 /** Tool bodies stick to their owner: an owner moved from `before` to `next` takes those that did not move themselves along. */
