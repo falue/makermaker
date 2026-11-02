@@ -698,17 +698,21 @@ function nudgeShapes(dir: Vector3, step: number) {
 /** Copies the selected shapes `offset` mm right and down in their sketch, keeping their expressions, and selects the copies. */
 function duplicateShapes(offset = 10) {
   const sel = selectedShapes();
-  if (!sel) return;
-  const copies = sel.shapes.map((q): Profile => {
-    const src = sel.source.shapes.find((x) => x.id === q.id)!;
-    const m = shifted(q, offset, -offset);
+  if (sel) addShapes(sel.id, sel.source.shapes.filter((q) => shapeSel.includes(q.id)), offset);
+}
+
+/** Copies of shapes `sources` added to sketch `sketch`, moved `offset` mm right and down (expressions kept), and selected. */
+function addShapes(sketch: string, sources: Profile[], offset: number) {
+  const doc = history.current;
+  const lookup = paramLookup(doc.params);
+  const copies = sources.map((src): Profile => {
+    const m = shifted(resolve(src, lookup, '', new Map()), offset, -offset);
     const copy = { ...structuredClone(src), id: newId() };
     if ((copy.kind === 'polygon' || copy.kind === 'line') && (m.kind === 'polygon' || m.kind === 'line')) return { ...copy, pts: m.pts.map(([x, y]) => [+fmt(x), +fmt(y)]) };
-    return m.kind === 'polygon' || m.kind === 'line' || copy.kind === 'polygon' || copy.kind === 'line' ? copy : { ...copy, x: len(m.x), y: len(m.y) };
+    return m.kind === 'polygon' || m.kind === 'line' || copy.kind === 'polygon' || copy.kind === 'line' ? copy : offset ? { ...copy, x: len(m.x), y: len(m.y) } : copy;
   });
-  const doc = history.current;
-  shapeSel = copies.map((c) => c.id);
-  commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sel.id ? { ...s, shapes: [...s.shapes, ...copies] } : s)) });
+  [selected, shapeSel] = [[sketch], copies.map((c) => c.id)];
+  commit({ ...doc, sketches: doc.sketches.map((s) => (s.id === sketch ? { ...s, shapes: [...s.shapes, ...copies] } : s)) });
 }
 
 /**
@@ -1160,18 +1164,33 @@ function moveBy(by: Vector3) {
   commit(next);
 }
 
-/** What ⌘C remembered (objects, and shapes of the one selected sketch), for ⌘V. */
-let copied: { ids: string[]; shapes: string[] } | null = null;
+/**
+ * What ⌘C or ⌘X took (as they were then: ⌘X deletes them): the selected bodies and sketches, or the selected shapes of
+ * the selected sketch; `cut`: pasted back as they were (names, places), else as Duplicate copies.
+ */
+let copied: { bodies: Body[]; sketches: Sketch[]; shapes: { sketch: string; profiles: Profile[] } | null; cut: boolean } | null = null;
 
-/** ⌘V: copies of what ⌘C remembered, as Duplicate makes them (what is gone meanwhile is left out; nothing: pick what to copy). */
-function paste() {
+/** ⌘C / ⌘X: takes the selection (⌘X deletes it). */
+function copy(cut: boolean) {
+  if (!selected.length) return;
   const doc = history.current;
-  const ids = copied?.ids.filter((id) => [...doc.bodies, ...doc.sketches].some((o) => o.id === id)) ?? [];
-  if (!ids.length) return pickFor('duplicate', duplicate);
-  const shapes = doc.sketches.find((s) => ids.length === 1 && s.id === ids[0])?.shapes.filter((q) => copied!.shapes.includes(q.id)).map((q) => q.id) ?? [];
-  [selected, shapeSel] = [ids, shapes];
-  if (shapes.length) duplicateShapes();
-  else duplicate();
+  const sketch = activeSketch();
+  const shapes = sketch && shapeSel.length ? { sketch, profiles: structuredClone(doc.sketches.find((x) => x.id === sketch)!.shapes.filter((q) => shapeSel.includes(q.id))) } : null;
+  const take = <T extends { id: string }>(list: T[]) => (shapes ? [] : structuredClone(list.filter((o) => selected.includes(o.id))));
+  copied = { bodies: take(doc.bodies), sketches: take(doc.sketches), shapes, cut };
+  if (cut) remove();
+}
+
+/** ⌘V: copies of what ⌘C or ⌘X took, as Duplicate makes them (after ⌘X: as they were, in place); nothing taken: pick what to copy. */
+function paste() {
+  if (!copied) return pickFor('duplicate', duplicate);
+  const doc = history.current;
+  const { shapes, cut } = copied;
+  if (shapes) {
+    if (!doc.sketches.some((x) => x.id === shapes.sketch)) return fail('The sketch the shapes came from is gone');
+    return addShapes(shapes.sketch, shapes.profiles, cut ? 0 : 10);
+  }
+  placeCopies(copiesOf(copied.bodies, copied.sketches, cut ? '' : ' copy'), cut ? [0, 0, 0] : [5, 5, 0]);
 }
 
 /** Tool first: the next clicked body gets `act`. */
@@ -1735,25 +1754,44 @@ async function toggleAutosave() {
  */
 function duplicate() {
   const doc = history.current;
-  const copies = doc.bodies
-    .filter((p) => selected.includes(p.id))
-    .map((p): Body => ({ ...structuredClone(p), id: newId(), name: `${p.name} copy`, features: p.features.map((s) => ({ ...structuredClone(s), id: newId() })) }));
-  // sketches: copied in place, with new ids for their shapes and sub-groups
-  const sketches = doc.sketches
-    .filter((s) => selected.includes(s.id))
-    .map((s): Sketch => {
-      const sub = new Map(s.groups.map((g) => [g.id, newId()]));
-      return {
-        ...structuredClone(s),
-        id: newId(),
-        name: `${s.name} copy`,
-        groups: s.groups.map((g) => ({ ...g, id: sub.get(g.id)!, parent: g.parent && sub.get(g.parent)! })),
-        shapes: s.shapes.map((q) => ({ ...structuredClone(q), id: newId(), group: q.group && sub.get(q.group) })),
-      };
-    });
-  selected = [...copies, ...sketches].map((c) => c.id);
-  commit({ ...doc, bodies: [...doc.bodies, ...copies], sketches: [...doc.sketches, ...sketches] });
-  if (selected.length) moveAlong(0, true, [5, 5, 0]);
+  placeCopies(copiesOf(doc.bodies.filter((p) => selected.includes(p.id)), doc.sketches.filter((s) => selected.includes(s.id)), ' copy'), [5, 5, 0]);
+}
+
+/**
+ * Copies of bodies and sketches with new ids throughout, named with `suffix`; a copied body extruded from a copied
+ * sketch is linked to that copy (its shapes and areas too).
+ */
+function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string) {
+  const ids = new Map<string, string>(); // old id → new, for sketches, their shapes and sub-groups
+  const fresh = (id: string) => ids.get(id) ?? ids.set(id, newId()).get(id)!;
+  const renamed = (id: string) => ids.get(id) ?? id;
+  const sketchCopies = sketches.map((s): Sketch => ({
+    ...structuredClone(s),
+    id: fresh(s.id),
+    name: `${s.name}${suffix}`,
+    groups: s.groups.map((g) => ({ ...g, id: fresh(g.id), parent: g.parent && fresh(g.parent) })),
+    shapes: s.shapes.map((q) => ({ ...structuredClone(q), id: fresh(q.id), group: q.group && fresh(q.group) })),
+  }));
+  const bodyCopies = bodies.map((p): Body => ({
+    ...structuredClone(p),
+    id: newId(),
+    name: `${p.name}${suffix}`,
+    features: p.features.map((f) => {
+      const c = { ...structuredClone(f), id: newId() };
+      if (c.type !== 'extrude' || c.source.kind !== 'sketch') return c;
+      const src = c.source;
+      return { ...c, source: { ...src, sketch: renamed(src.sketch), shapes: src.shapes.map(renamed), areas: src.areas?.map((a) => ({ ...a, in: a.in.map(renamed), out: a.out.map(renamed) })) } };
+    }),
+  }));
+  return { bodies: bodyCopies, sketches: sketchCopies };
+}
+
+/** Adds copies (see `copiesOf`), selects them and opens the move fields at `start` (mm), to type where they go. */
+function placeCopies({ bodies, sketches }: ReturnType<typeof copiesOf>, start: Vec3) {
+  const doc = history.current;
+  selected = [...bodies, ...sketches].map((c) => c.id);
+  commit({ ...doc, bodies: [...doc.bodies, ...bodies], sketches: [...doc.sketches, ...sketches] });
+  if (selected.length) moveAlong(0, true, start);
 }
 
 /** Sketch mode's open sub-group: the view fades the rest and shows the way down (when it changed). */
@@ -2264,7 +2302,8 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'delete')) remove();
   else if (selected.length && pressed(e, 'deselect')) select(null);
   else if (pressed(e, 'duplicate')) shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate);
-  else if (pressed(e, 'copy')) copied = selected.length ? { ids: [...selected], shapes: [...shapeSel] } : null;
+  else if (pressed(e, 'copy')) copy(false);
+  else if (pressed(e, 'cut')) copy(true);
   else if (pressed(e, 'paste')) paste();
   else if (pressed(e, 'ungroup')) sketching && shapeSel.length ? groupShapes(true) : ungroup();
   else if (pressed(e, 'group')) sketching && shapeSel.length ? groupShapes() : groupTool();
