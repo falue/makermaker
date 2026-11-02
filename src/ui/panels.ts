@@ -539,7 +539,7 @@ function left(ctx: UIContext): Node[] {
       : h('span', { className: 'fold-space' });
     return h('div', { className: `listed${dimmed(sk.id)}` }, item, body, eye('sketches', sk.id, sk.visible));
   });
-  const head = h('div', { className: 'tree-head' }, h('h3', {}, 'Objects'));
+  const head = h('div', { className: 'tree-head' }, h('h3', {}, h('span', { className: 'kind', innerHTML: icon('body') }), 'Objects'));
   head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));
   head.ondragleave = () => head.classList.remove('drop');
   head.ondrop = (e) => (e.preventDefault(), ctx.moveInto(JSON.parse(e.dataTransfer!.getData('text/plain')), null));

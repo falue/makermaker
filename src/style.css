@@ -853,7 +853,8 @@ input.color {
   outline-offset: -2px;
 }
 
-.item .kind svg {
+.item .kind svg,
+h3 .kind svg {
   width: 13px;
   height: 13px;
   vertical-align: -2px;

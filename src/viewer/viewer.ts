@@ -634,7 +634,7 @@ export class Viewer implements ToolView {
         const color = s.id === this.activeSketch && this.selectedShapes.includes(p.id) ? 0xff8c1a : s.color;
         const q = this.overrides.get(p.id) ?? p;
         const faint = !!this.focus && (s.id !== this.focus.sketch || !inGroup(s, p, this.focus.group)); // outside the open (sub-)group
-        if (this.moving && q !== p) this.sketchView.add(outline(p, s.frame, 0x8a8f98, lift)); // where it was
+        if (this.moving && (q !== p || by)) this.sketchView.add(outline(p, s.frame, 0x8a8f98, lift)); // where it was
         this.sketchView.add(outline(q, frame, color, lift, 1.5, 2, faint ? 0.25 : 1));
         if (q.kind === 'circle') this.sketchView.add(marks([new THREE.Vector3(...toWorld(frame, q.x, q.y))], color, 6)); // its centre, clickable
       }
@@ -1688,27 +1688,17 @@ export class Viewer implements ToolView {
    */
   previewMove(by: THREE.Vector3 | null, shapes: { id: string; profile: DrawnProfile }[] = [], across: { sketch: string; by: THREE.Vector3; bodies: string[] } | null = null, opacity = 0.25) {
     if (!this.moving && by) {
-      const from = new Map(this.withOwned(this.selection).map((id) => [id, this.group(id).position.clone()]));
       const looks = [new THREE.MeshBasicMaterial({ color: 0x8a8f98, transparent: true, opacity, depthWrite: false }), new THREE.LineBasicMaterial({ color: 0x8a8f98, transparent: true, opacity: 2 * opacity })];
-      const ghosts = new THREE.Group();
-      for (const id of from.keys()) {
-        const copy = this.group(id).clone(); // shares the geometry
-        copy.traverse((o) => {
-          if (o instanceof LineSegments2 || o instanceof THREE.Points) o.visible = false;
-          else if (o instanceof THREE.LineSegments) o.material = looks[1];
-          else if (o instanceof THREE.Mesh) o.material = looks[0];
-        });
-        ghosts.add(copy);
-      }
-      this.scene.add(ghosts);
-      this.moving = { from, carried: new Map(), ghosts, looks };
+      this.moving = { from: new Map(), carried: new Map(), ghosts: new THREE.Group(), looks };
+      this.scene.add(this.moving.ghosts);
+      for (const id of this.withOwned(this.selection)) this.ghostAt(id, this.moving.from);
     }
     const m = this.moving;
     if (!m) return;
     for (const [id, at] of m.from) this.group(id).position.copy(at).add(by ?? new THREE.Vector3());
-    // a sketch moved across its plane: the bodies extruded from it (with their tool bodies) go along, without ghosts
+    // a sketch moved across its plane: the bodies extruded from it (with their tool bodies) go along, a ghost stays
     const along = this.withOwned(across?.bodies ?? []);
-    for (const id of along) if (!m.carried.has(id)) m.carried.set(id, this.group(id).position.clone());
+    for (const id of along) if (!m.carried.has(id)) this.ghostAt(id, m.carried);
     for (const [id, at] of m.carried) this.group(id).position.copy(at).add(along.includes(id) ? across!.by : new THREE.Vector3());
     this.shifted = across && { sketch: across.sketch, by: across.by };
     this.overrides = new Map(shapes.map((q) => [q.id, q.profile]));
@@ -1720,6 +1710,19 @@ export class Viewer implements ToolView {
     this.renderSketches();
     this.applySection(false);
     this.render();
+  }
+
+  /** Keeps where a body is (in `at`) for the move preview, and a grey see-through copy there. */
+  private ghostAt(id: string, at: Map<string, THREE.Vector3>) {
+    const m = this.moving!;
+    at.set(id, this.group(id).position.clone());
+    const copy = this.group(id).clone(); // shares the geometry
+    copy.traverse((o) => {
+      if (o instanceof LineSegments2 || o instanceof THREE.Points) o.visible = false;
+      else if (o instanceof THREE.LineSegments) o.material = m.looks[1];
+      else if (o instanceof THREE.Mesh) o.material = m.looks[0];
+    });
+    m.ghosts.add(copy);
   }
 
   /**

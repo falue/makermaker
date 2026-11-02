@@ -1070,8 +1070,8 @@ function extentAlong(axis: number): [number, number] | null {
 /**
  * The selected sketch moved by `by` (world, mm): its shapes within its plane (the selected ones, else all; all when
  * it moves across too), and across it (`d` along its normal `n`): a base-plane or free-plane sketch with the bodies
- * extruded from it, one on a face with the body carrying it (`across`: what the preview moves; null: none or it
- * cannot). Null: no sketch selected, or hidden.
+ * extruded from it, one on a face with the body carrying it, or off the face onto a free plane if no body has it
+ * (`across`: what the preview moves; null: none or it cannot). Null: no sketch selected, or hidden.
  */
 function sketchMove(by: Vector3) {
   const doc = history.current;
@@ -1086,19 +1086,20 @@ function sketchMove(by: Vector3) {
   const carrier = carrierOf(doc, s.id);
   const onFace = s.plane.kind === 'cap' || s.plane.kind === 'side';
   const users = doc.bodies.filter((b) => b.features.some((x) => x.type === 'extrude' && x.source.kind === 'sketch' && x.source.sketch === s.id)).map((b) => b.id);
-  const bodies = onFace ? (carrier ? [carrier] : null) : users;
-  return { sketch: s, n, d, carrier, updates: shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })), across: d && bodies ? { sketch: s.id, by: n.clone().multiplyScalar(d), bodies } : null };
+  // on a face with no body of its own it leaves the face; extruded by the body it lies on, it stays
+  const bodies = onFace ? (carrier ? [carrier] : users.length ? null : []) : users;
+  return { sketch: s, frame: f, n, d, carrier, users, updates: shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })), across: d && bodies ? { sketch: s.id, by: n.clone().multiplyScalar(d), bodies } : null };
 }
 
 /**
  * Moves the selection by `by` (world, mm): bodies, or a sketch (see `sketchMove`): across its plane the whole sketch
- * goes, selected shapes or not. A sketch on a face without a body of its own stays on it.
+ * goes, selected shapes or not.
  */
 function moveBy(by: Vector3) {
   if (!activeSketch()) return nudge(by.toArray());
   const m = sketchMove(by);
   if (!m) return fail('The sketch is hidden: show it to move it');
-  const { sketch, n, d, carrier } = m;
+  const { sketch, frame, n, d, carrier, users } = m;
   const doc = history.current;
   let next = m.updates.length ? withShapes(doc, sketch.id, m.updates) : doc;
   if (d) {
@@ -1107,7 +1108,8 @@ function moveBy(by: Vector3) {
     if (p.kind === 'base') next = setIn(next, ['sketches', String(k), 'plane', 'offset'], plus(p.offset, resolve(p.offset, paramLookup(doc.params), '', new Map()), d));
     else if (carrier && positions.has(carrier)) next = withPlaces(next, [{ id: carrier, position: new Vector3(...positions.get(carrier)!).addScaledVector(n, d).toArray() }]);
     else if (p.kind === 'plane') next = setIn(next, ['sketches', String(k), 'plane', 'o'], new Vector3(...p.o).addScaledVector(n, d).toArray());
-    else return fail('A sketch on a face stays on it: pull a body from it, then they move together');
+    else if (!users.length) next = setIn(next, ['sketches', String(k), 'plane'], { kind: 'plane', ...frame, o: new Vector3(...frame.o).addScaledVector(n, d).toArray() });
+    else return fail('A sketch extruded by the body it lies on stays on its face');
     shapeSel = []; // the whole sketch went
   }
   commit(next);
