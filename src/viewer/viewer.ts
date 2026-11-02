@@ -374,6 +374,11 @@ export class Viewer implements ToolView {
       'pointerdown',
       (e) => {
         if (e.target !== canvas) return;
+        // a double right-click near an edge: its loop (a right-drag still turns the view)
+        if (e.button === 2 && !this.tool && !this.focus && this.twice('right', e)) {
+          const loop = this.edgeLoop(e);
+          if (loop) return this.host.select(loop.body, false), this.pickEdges(loop);
+        }
         if (e.button === 0 && (this.facePick || this.tool?.clicks?.())) {
           // picking: a drag turns the view (the orbit controls get this press), a click picks on release
           this.clickAt = { x: e.clientX, y: e.clientY };
@@ -490,8 +495,17 @@ export class Viewer implements ToolView {
   /** An edge picked with Ctrl-click (world segments), lit until its body is no longer selected. */
   private pickedEdge: { body: string; edges: [THREE.Vector3, THREE.Vector3][][] } | null = null;
   private edgeMark = new THREE.Group();
-  /** The last Ctrl press (time, client px), for telling a double one. */
-  private lastPick: { t: number; x: number; y: number } | null = null;
+  /** The last press per kind (time, client px), for telling double ones. */
+  private presses = new Map<string, { t: number; x: number; y: number }>();
+
+  /** Whether this press is the second of a double one of `kind` (within `ms` and 5 px): counted here, as a Mac sends no dblclick for Ctrl- or right-clicks. */
+  private twice(kind: string, e: MouseEvent, ms = 500) {
+    const [now, last] = [performance.now(), this.presses.get(kind)];
+    const again = !!last && now - last.t < ms && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 5;
+    if (again) this.presses.delete(kind);
+    else this.presses.set(kind, { t: now, x: e.clientX, y: e.clientY });
+    return again;
+  }
   /** The open sketch group and sub-group (sketch mode): bodies see-through (except `solid` ones), other shapes faint. */
   private focus: { sketch: string; group: string | null; solid: Set<string> } | null = null;
   private faded = new Map<string, THREE.MeshStandardMaterial>();
@@ -1893,11 +1907,8 @@ export class Viewer implements ToolView {
       return this.startShapeMove(ray.ray, shape.sketch, member && this.selectedShapes.length > 1 ? shape.shape : null, e);
     }
     if (picksFace(e)) {
-      // a second press soon after near the first: the edge loop (counted here: on a Mac a Ctrl-click sends no dblclick)
-      const now = performance.now();
-      const again = !!this.lastPick && now - this.lastPick.t < 400 && Math.hypot(e.clientX - this.lastPick.x, e.clientY - this.lastPick.y) < 5;
-      this.lastPick = again ? null : { t: now, x: e.clientX, y: e.clientY };
-      const loop = again ? this.edgeLoop(e) : null;
+      // a double press: the edge loop
+      const loop = this.twice('pick', e) ? this.edgeLoop(e) : null;
       if (loop) return this.host.select(loop.body, false), this.pickEdges(loop);
       // an edge near the pointer, else the face: its body selected and the part lit (a face: E pulls it, S sketches on it)
       const edge = this.edgeAt(e);
