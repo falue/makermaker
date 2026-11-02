@@ -85,8 +85,10 @@ export interface ToolView {
   hit(e: MouseEvent): THREE.Intersection | undefined;
   /** What a click points at (world): a corner, an edge point or a face point; null: empty space. */
   pointAt(e: MouseEvent): THREE.Vector3 | null;
-  /** Marks what a click at the pointer reaches (as `pointAt` finds it) and returns what it is; null: clears. */
-  aimAt(e: MouseEvent | null): string | null;
+  /** Marks what a click at the pointer reaches (as `pointAt` finds it) and returns it; null: clears. */
+  aimAt(e: MouseEvent | null): { at: THREE.Vector3; what: string } | null;
+  /** The same where the pointer is now. */
+  aimHere(): { at: THREE.Vector3; what: string } | null;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   toScreen(p: THREE.Vector3): [number, number];
@@ -254,8 +256,9 @@ export class SketchTool implements Tool {
   private static lineEnd: THREE.Vector3 | null = null;
   /** The direction the last line ended in (world): a line on from its end measures its angle from it. */
   private static lineDir: THREE.Vector3 | null = null;
-  /** Pulling: waiting for the click that sets how far ("to object"). */
+  /** Pulling: waiting for the click that sets how far ("to object"); what the pointer would reach meanwhile. */
   private reaching = false;
+  private aimed: string | null = null;
   /** Lines and polygon sides snap to this angle step while Shift is held (A finer, Shift A coarser; kept across restarts). */
   private static angleStep = 45;
   /** Shift held while drawing a line or polygon; the angle rays show then, and until `raysUntil` after a step change. */
@@ -369,6 +372,7 @@ export class SketchTool implements Tool {
       const p = this.view.pointAt(e);
       if (!p) return true;
       this.reaching = false;
+      this.aimed = null;
       this.view.aimAt(null);
       ph.depth = p.sub(v3(ph.target.frame.o)).dot(v3(ph.target.frame.n));
       ph.typed = undefined;
@@ -399,7 +403,7 @@ export class SketchTool implements Tool {
         Object.assign(ph, { alt: e.altKey, shift: e.shiftKey });
       }
     } else {
-      if (this.reaching) return this.host.cursorTip(this.view.aimAt(e)); // aiming at what to reach
+      if (this.reaching) return this.aim(this.view.aimAt(e)); // aiming at what to reach
       ph.alt = e.altKey;
       pullBy(this.view, e, ph.target.frame.n, this.middle(ph), ph);
       const step = this.view.step(this.middle(ph), e);
@@ -498,6 +502,7 @@ export class SketchTool implements Tool {
         this.reaching = true;
         this.view.unlockPointer();
         this.host.hint('Click a corner, edge or face: the extrusion reaches it · [Esc] cancels');
+        return this.aim(this.view.aimHere()), true;
       } else if (pressed(e, 'confirm')) this.commit();
       else if (!pullKey(e, ph)) return false;
     } else return false;
@@ -802,6 +807,14 @@ export class SketchTool implements Tool {
     return [x0 + len * Math.cos(a), y0 + len * Math.sin(a)];
   }
 
+  /** Aiming "to object" while pulling: the depth follows what the pointer would reach, the pointer's note says what. */
+  private aim(s: { at: THREE.Vector3; what: string } | null) {
+    const ph = this.phase;
+    if (ph.kind === 'pull' && s) Object.assign(ph, { depth: s.at.clone().sub(v3(ph.target.frame.o)).dot(v3(ph.target.frame.n)), typed: undefined });
+    this.aimed = s?.what ?? null;
+    this.update();
+  }
+
   /** ⌘ (else Ctrl) after a line: the next one starts at its end, shown, snapped and typed into like the first. */
   private chain(e: MouseEvent, t: Target) {
     const d = SketchTool.lineDir;
@@ -1043,7 +1056,9 @@ export class SketchTool implements Tool {
     const fix = guide ? `Press ${comboText(KEYS.fixGuide.default[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
     const base = ph.kind === 'polygon' && this.hoveredLine(ph.target.frame) !== null ? `Press ${comboText(KEYS.baseline.default[0])} to measure the angle from this line` : null;
     const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(KEYS.moreSnaps.default[0])} finer, ${comboText(KEYS.fewerSnaps.default[0])} coarser` : null;
-    this.host.cursorTip(ph.kind === 'pull' ? null : [sideLength, this.snapWhat, more, fix, base, angles, chain].filter(Boolean).join('\n') || null); // one per line
+    // pulling: what T does, or while aiming what the pointer reaches
+    const pulling = ph.kind === 'pull' && (this.reaching ? [this.aimed, 'Click: the pull reaches it'].filter(Boolean).join('\n') : ph.typed === undefined ? TO_OBJECT : null);
+    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, this.snapWhat, more, fix, base, angles, chain].filter(Boolean).join('\n') || null); // one per line
     if (ph.kind === 'polygon' && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
@@ -1127,6 +1142,8 @@ const SHAPE_HINT = '[Alt] from the centre · [Shift] square / 15° · [Ctrl] pre
 const LINE_HINT = 'Click the end point · type a length, [Tab] the angle, [Enter] · turns in 1° steps, [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · [Esc] cancels';
 /** An angle (radians) in degrees, the short way: -180 to 180. */
 const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;
+/** The pointer's note while pulling (before typing a depth). */
+export const TO_OBJECT = 'T: to object (the pull reaches what you click)';
 /** Radius (px) of the arc showing what a side's angle is measured from. */
 const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */

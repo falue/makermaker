@@ -70,6 +70,9 @@ export type PickedPart = { kind: 'face' | 'edge'; body: string; size: number; co
 export type FinishPick = { body: string; feature: string; mid: Vec3 | null };
 
 /** A face picked for a section: a point on it and the normal pointing away from the camera; `body`: whose face (none: a base plane). */
+/** What a click reaches ("to object"): where, and what it is ('corner', 'centre', '1/2', 'on edge', 'on face'). */
+export type Aim = { at: THREE.Vector3; what: string };
+
 /** A sketch shape under the pointer for Extrude (`onLine`: on its outline), or a face its lines enclose there. */
 type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number]; onLine: boolean } | { sketch: ViewSketch; face: Face };
 
@@ -424,7 +427,7 @@ export class Viewer implements ToolView {
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
       if (this.facePick && !this.drag) {
-        if (this.quietPick) return void this.aiming?.(this.aimAt(e)); // a gizmo drag moves on
+        if (this.quietPick) return void (this.aiming && this.aiming(this.aimAt(e))); // a gizmo drag moves on
         const hit = this.frontHit(e);
         const s = this.sketchShapeAt(e, hit);
         this.markSketch(s);
@@ -823,7 +826,7 @@ export class Viewer implements ToolView {
    * What a click points at (world) and what it is: a body corner or sphere centre within `px`, else on the edge
    * within 6 px its middle (within `px` of it) or the nearest point, else the face point; null: empty space.
    */
-  private snapAt(e: MouseEvent, px = 10): { at: THREE.Vector3; what: string } | null {
+  private snapAt(e: MouseEvent, px = 10): Aim | null {
     const r = this.el.getBoundingClientRect();
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
     const near = (p: THREE.Vector3) => {
@@ -855,16 +858,21 @@ export class Viewer implements ToolView {
   }
 
   /** Waiting for "to object" (the move fields): told what a click at the pointer would reach (see `aimAt`). */
-  aiming: ((what: string | null) => void) | null = null;
+  aiming: ((s: Aim | null) => void) | null = null;
 
-  /** Marks what a click at the pointer reaches ("to object") and returns what it is ('corner', '1/2' …); null: clears. */
-  aimAt(e: MouseEvent | null) {
+  /** Marks what a click at the pointer reaches ("to object") and returns it (where, and what: 'corner', '1/2' …); null: clears. */
+  aimAt(e: MouseEvent | null): Aim | null {
     for (const o of this.aimMark.children) ((o as THREE.Points).geometry.dispose(), ((o as THREE.Points).material as THREE.Material).dispose());
     this.aimMark.clear();
     const s = e && this.snapAt(e);
     if (s) this.aimMark.add(Object.assign(marks([s.at], 0xff8c1a, s.what.startsWith('on ') ? 8 : 12), { renderOrder: 1e6 }));
     this.render();
-    return s?.what ?? null;
+    return s;
+  }
+
+  /** `aimAt` where the pointer is now (right after "to object" starts, before it moves). */
+  aimHere() {
+    return this.aimAt(this.hover);
   }
 
   setCustomSections(planes: { point: Vec3; normal: Vec3 }[]) {

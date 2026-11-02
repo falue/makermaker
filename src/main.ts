@@ -1013,20 +1013,25 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
       watch();
     }, true);
   watch();
-  /** "To object": the selection moves along the field's axis until its nearest side reaches the clicked point. */
+  /** "To object": the selection moves along the field's axis until its nearest side reaches `p` (none: the value from before aiming). */
+  let before = '';
+  const reachTo = (p?: Vector3) => {
+    const k = Math.max(0, fields.indexOf(last));
+    const span = extentAlong(k);
+    if (!fields[k]) return;
+    const t = p?.getComponent(k);
+    const side = t === undefined || !span ? null : t >= span[1] ? span[1] : t <= span[0] ? span[0] : Math.abs(t - span[0]) < Math.abs(t - span[1]) ? span[0] : span[1];
+    fields[k]!.value = t === undefined || side === null ? before : fmt((t - side) / UNITS[history.current.units]);
+    show();
+  };
+  /** The click: that point, and aiming ends. */
   const reach = (p?: Vector3) => {
     target = false;
     viewer.aiming = null;
     viewer.aimAt(null);
     box.classList.remove('targeting');
     tips.cursorTip(null);
-    const k = Math.max(0, fields.indexOf(last));
-    const span = extentAlong(k);
-    if (!p || !span || !fields[k]) return;
-    const t = p.getComponent(k);
-    const side = t >= span[1] ? span[1] : t <= span[0] ? span[0] : Math.abs(t - span[0]) < Math.abs(t - span[1]) ? span[0] : span[1];
-    fields[k]!.value = fmt((t - side) / UNITS[history.current.units]);
-    show();
+    reachTo(p);
   };
   const open = (k: number) => {
     if (!fields[k]) {
@@ -1055,6 +1060,8 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
     // a name could start here and one starts with the letter: typed, Tab completes it
     const name = !/[\w.]$/.test(before) && Object.keys(history.current.params).some((p) => p.startsWith(e.key));
     if (k >= 0 && (!word || word in UNITS) && !name) return e.preventDefault(), open(k);
+    // T (as X / Y / Z): the To object button
+    if (pressed(e, 'toObject') && (!word || word in UNITS) && !name) return e.preventDefault(), toObject.click();
     // Tab (a completion took it already): the next axis' field (Shift: the previous), added if needed; leaving would cancel
     if (e.key === 'Tab') return e.preventDefault(), open((fields.indexOf(input) + (e.shiftKey ? 2 : 1)) % 3);
     if (pressed(e, 'cancel')) return close();
@@ -1071,11 +1078,12 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0]) {
     title: 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it',
     onclick: () => {
       target = true;
-      // what a click reaches first in the pointer's note
-      viewer.aiming = (what) => tips.cursorTip([what, 'Click a corner, edge or face to move to'].filter(Boolean).join('\n'));
+      before = last?.value ?? '';
+      // the selection shows moved to what a click reaches, the pointer's note says what it is
+      viewer.aiming = (s) => (tips.cursorTip([s?.what, 'Click a corner, edge or face to move to'].filter(Boolean).join('\n')), reachTo(s?.at));
       box.classList.add('targeting');
-      tips.cursorTip('Click a corner, edge or face to move to');
       last?.focus();
+      viewer.aiming(viewer.aimHere());
     },
   });
   box.append(toObject);

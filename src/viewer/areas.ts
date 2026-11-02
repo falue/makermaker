@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { extent, toWorld, type V3 } from '../doc/frames';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { planeHit, pullBy, pulled, pullKey, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { planeHit, pullBy, pulled, pullKey, TO_OBJECT, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -16,8 +16,9 @@ export class AreaTool implements Tool {
   private picked = new Set<number>();
   private hover: number | null = null;
   private pull: Pulling | null = null;
-  /** Pulling: waiting for the click that sets how far ("to object"). */
+  /** Pulling: waiting for the click that sets how far ("to object"); what the pointer would reach meanwhile. */
   private reaching = false;
+  private aimed: string | null = null;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -55,6 +56,7 @@ export class AreaTool implements Tool {
       const p = this.view.pointAt(e);
       if (!p) return true;
       this.reaching = false;
+      this.aimed = null;
       this.view.aimAt(null);
       Object.assign(this.pull, { depth: p.sub(v3(this.target.frame.o)).dot(v3(this.target.frame.n)), typed: undefined });
       this.commit();
@@ -68,7 +70,7 @@ export class AreaTool implements Tool {
   }
 
   move(e: PointerEvent) {
-    if (this.reaching) return this.host.cursorTip(this.view.aimAt(e)); // aiming at what to reach
+    if (this.reaching) return this.aim(this.view.aimAt(e)); // aiming at what to reach
     if (this.pull) {
       const step = this.view.step(this.middle(), e);
       pullBy(this.view, e, this.target.frame.n, this.middle(), this.pull);
@@ -108,7 +110,8 @@ export class AreaTool implements Tool {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
-        return this.host.hint('Click a corner, edge or face: the extrusion reaches it · [Esc] cancels'), true;
+        this.host.hint('Click a corner, edge or face: the extrusion reaches it · [Esc] cancels');
+        return this.aim(this.view.aimHere()), true;
       } else if (!pullKey(e, p)) return false;
       this.host.hint(PULL_HINT);
     } else if (pressed(e, 'cancel')) return this.host.done(null), true;
@@ -116,6 +119,13 @@ export class AreaTool implements Tool {
     else return false;
     this.update();
     return true;
+  }
+
+  /** Aiming "to object": the depth follows what the pointer would reach, the pointer's note says what. */
+  private aim(s: { at: THREE.Vector3; what: string } | null) {
+    if (s) Object.assign(this.pull!, { depth: s.at.clone().sub(v3(this.target.frame.o)).dot(v3(this.target.frame.n)), typed: undefined });
+    this.aimed = s?.what ?? null;
+    this.update();
   }
 
   /** Pulling the picked areas: the pointer is locked, moving sets the depth. */
@@ -233,7 +243,10 @@ export class AreaTool implements Tool {
       else this.fill(a, 0x3b6fd8, i === this.hover && !this.pull ? 0.35 : 0.08);
     });
     if (depth || back) this.prism([...this.picked].map((i) => this.areas[i].tris), extent(depth, back));
-    this.host.cursorTip(this.picked.size && !this.pull ? 'Hit Enter to start extruding' : null);
+    const p0 = this.pull;
+    // pulling: what T does, or while aiming what the pointer reaches
+    const pulling = p0 && (this.reaching ? [this.aimed, 'Click: the pull reaches it'].filter(Boolean).join('\n') : p0.typed === undefined ? TO_OBJECT : null);
+    this.host.cursorTip(p0 ? pulling || null : this.picked.size ? 'Hit Enter to start extruding' : null);
     this.labels.replaceChildren();
     const p = this.pull;
     if (p) {
