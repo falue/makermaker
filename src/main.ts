@@ -1236,7 +1236,7 @@ let cutting: { chunk: string } | null = null;
 /**
  * The cut being set up, shown as it will be: the body (chunk A: the side the cutter faces, into the body from a face,
  * a line's left, a shape's inside) and its copy (chunk B, the other side, its own colour, not listed yet) cut, the
- * one to be deleted see-through, the cutting surface red and half see-through, a bit larger than the body. A panel at
+ * one to be deleted see-through red, the cutting surface red and half see-through, a bit larger than the body. A panel at
  * the top middle of the view has the offset from the plane, face or line (from 0, the cursor in it; T or To object:
  * click a point it goes through), a plane's turn around its axis (dashed; Set axis: click an edge, line or circle),
  * each field scrubbed by dragging its label sideways, and what stays (Delete B first). ✓ or Enter keeps it (one undo
@@ -1270,7 +1270,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   [selected, shapeSel] = [[body], []];
   const hint = 'Type or scrub the offset (T: to object)' + (cutter.kind === 'plane' ? ' and the turn (Set axis: what it turns around)' : '') + ', pick what stays · [Enter] cuts · [Esc] leaves the body as it was';
   toolHint = hint;
-  /** Both chunks cut by the cutter as typed, the one to be deleted see-through; the cutting surface shown. */
+  /** Both chunks cut by the cutter as typed, the one to be deleted see-through red; the cutting surface shown. */
   const show = () => {
     const c = current();
     if (c) {
@@ -1284,7 +1284,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
       history.replace({ ...doc, bodies });
       update();
     }
-    viewer.setSeeThrough(keep === 'A' ? [chunkB.id] : keep === 'B' ? [body] : []);
+    viewer.setDropped(keep === 'A' ? [chunkB.id] : keep === 'B' ? [body] : []);
     surface(c);
   };
   /** A plane's axis in the world: the one set, else its own x through its point. */
@@ -1426,7 +1426,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     removeEventListener('keydown', keys, { capture: true });
     viewer.showCut(null);
     viewer.showAxis(null);
-    viewer.setSeeThrough([]);
+    viewer.setDropped([]);
     [toolHint, cutting] = [null, null];
     if (!ok || !current()) return undo();
     const drop = keep === 'A' ? chunkB.id : keep === 'B' ? body : null;

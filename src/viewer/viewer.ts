@@ -1143,8 +1143,9 @@ export class Viewer implements ToolView {
     const [solid, lines] = this.bodies.get(id)?.children ?? [];
     if (!solid) return;
     const cutter = this.cutters.has(id);
-    const faded = !cutter && ((!!this.focus && !this.focus.solid.has(id)) || this.seeThrough.has(id));
-    (solid as THREE.Mesh).material = cutter ? this.ghost : faded ? this.fadedOf(id) : this.materialOf(id);
+    const dropped = !cutter && this.dropped.has(id);
+    const faded = dropped || (!cutter && !!this.focus && !this.focus.solid.has(id));
+    (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : this.materialOf(id);
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
     // a see-through body's depth, drawn before the see-through colours (sections and picking skip it)
     const g = this.bodies.get(id)!;
@@ -1158,11 +1159,12 @@ export class Viewer implements ToolView {
     lines.renderOrder = cutter ? 1e5 : 0;
   }
 
-  private seeThrough = new Set<string>();
+  private dropped = new Set<string>();
+  private droppedFill = new THREE.MeshStandardMaterial({ color: 0xe5484d, roughness: 0.7, transparent: true, opacity: 0.35, depthWrite: false });
 
-  /** Bodies `ids` see-through (as behind an open sketch group), the others as they are. */
-  setSeeThrough(ids: string[]) {
-    this.seeThrough = new Set(ids);
+  /** Bodies `ids` see-through in the cut's red (to be deleted), the others as they are. */
+  setDropped(ids: string[]) {
+    this.dropped = new Set(ids);
     for (const id of this.bodies.keys()) this.dress(id);
     this.render();
   }
