@@ -621,6 +621,13 @@ function nudge(by: Vec3) {
   }));
 }
 
+/** V: the selected bodies, sketches and groups switch between hidden and shown (one step). */
+function toggleVisible() {
+  const doc = history.current;
+  const flip = <T extends { id: string; visible: boolean }>(list: T[]) => list.map((o) => (selected.includes(o.id) ? { ...o, visible: !o.visible } : o));
+  commit({ ...doc, bodies: flip(doc.bodies), sketches: flip(doc.sketches), groups: flip(doc.groups) });
+}
+
 /**
  * X / Y / Z: a field at the pointer takes a distance (expressions, units) along that axis; X / Y / Z in it add or go
  * to that axis' field (always in X Y Z order), unless in the middle of a name, or where a name could start and a
@@ -1668,6 +1675,7 @@ addEventListener('keydown', (e) => {
   else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.shiftKey ? 10 : 1);
   // nudges along the world axis nearest to the arrow's screen direction
   else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(e.shiftKey ? 10 : 1).toArray());
+  else if (selected.length && pressed(e, 'toggleVisible')) toggleVisible();
   else if (selected.length && pressed(e, 'delete')) remove();
   else if (selected.length && pressed(e, 'deselect')) select(null);
   else if (shapeSel.length && pressed(e, 'duplicate')) duplicateShapes();

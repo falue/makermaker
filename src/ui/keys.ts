@@ -45,6 +45,7 @@ export const KEYS = {
   duplicate: { name: 'Duplicate', order: 52, default: [{ key: 'd', mod: true }], hint: 'Duplicate the selection (or the selected shapes)' },
   delete: { name: 'Delete', order: 53, default: [{ key: 'delete' }, { key: 'backspace' }], hint: 'Delete the selection, or the selected part of a fillet' },
   deselect: { name: 'Deselect', order: 54, default: [{ key: 'escape' }], hint: 'Clear the selection; in sketch mode leave the sketch' },
+  toggleVisible: { name: 'Hide / show', order: 54.5, default: [{ key: 'v' }], hint: 'Hide the selected bodies, sketches and groups, or show them again' },
   moveX: { name: 'Move along X', order: 55, default: [{ key: 'x' }], hint: 'A field at the pointer: type a distance along X (X / Y / Z in it switch the axis), Enter moves the selection by all of them' },
   moveY: { name: 'Move along Y', order: 56, default: [{ key: 'y' }], hint: 'A field at the pointer: type a distance along Y (X / Y / Z in it switch the axis), Enter moves the selection by all of them' },
   moveZ: { name: 'Move along Z', order: 57, default: [{ key: 'z' }], hint: 'A field at the pointer: type a distance along Z (X / Y / Z in it switch the axis), Enter moves the selection by all of them' },
