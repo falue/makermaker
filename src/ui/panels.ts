@@ -423,12 +423,13 @@ function left(ctx: UIContext): Node[] {
   const fold = ({ id, open }: Row) =>
     open === undefined ? [] : [h('button', { className: `icon fold${open ? ' open' : ''}`, innerHTML: icon('chevron'), title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(id) })];
   /**
-   * A row's name: a plain click selects the row and edits the name in place (Enter or leaving the field saves it, Esc
-   * keeps it); `at`: where the name is stored.
+   * A row's name: a plain click on the name of the only selected row edits it in place (Enter or leaving the field
+   * saves it, Esc keeps it); `at`: where the name is stored.
    */
   const nameOf = (id: string, name: string, at: string[]) => {
+    const only = ctx.selected.length === 1 && ctx.selected[0] === id;
     if (renaming !== id)
-      return h('span', { className: 'name', textContent: name, onclick: (e) => !(e.shiftKey || e.metaKey || e.ctrlKey) && (renaming = id) });
+      return h('span', { className: 'name', textContent: name, onclick: (e) => only && !(e.shiftKey || e.metaKey || e.ctrlKey) && (renaming = id) });
     const el = input(`list.${id}`, name, (text) => ((renaming = null), ctx.commit(setIn(doc, at, text))));
     el.className = 'rename';
     el.addEventListener('blur', () => !rendering && renaming === id && ((renaming = null), renderUI(ctx)));
