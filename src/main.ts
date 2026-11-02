@@ -79,6 +79,36 @@ const parentPlace = (id: string) => (bodyPlaces.get(id) ?? groupPlace(id)).clone
 /** Joints left still in the last update, and why. */
 let jointProblems: string[] = [];
 
+/**
+ * What To object measures for the value at `path` (mm, at a clicked world point): a body's position or a group's origin
+ * along its axis (its origin there), a section's offset (it goes through the point), a sketch's or own shapes' base
+ * plane offset (the plane goes through it); null: nothing.
+ */
+function measureAt([k, i, ...rest]: string[]): ((p: Vector3) => number) | null {
+  const doc = history.current;
+  const at = rest.join('.');
+  const axis = +(rest.at(-1) ?? 0);
+  const local = (frame: Matrix4) => (p: Vector3) => p.clone().applyMatrix4(frame.clone().invert());
+  if (k === 'bodies' && at.match(/^position\.\d$/)) return (p) => local(parentPlace(doc.bodies[+i].id))(p).getComponent(axis);
+  if (k === 'groups' && at.match(/^origin\.position\.\d$/)) return (p) => local(parentPlace(doc.groups[+i].id))(p).getComponent(axis);
+  if (k === 'sections' && at === 'offset') {
+    const s = doc.sections[+i];
+    const n = new Vector3(...s.normal).normalize();
+    return (p) => p.clone().sub(new Vector3(...s.origin)).dot(n);
+  }
+  const s = k === 'sketches' && at === 'plane.offset' ? doc.sketches[+i] : undefined;
+  if (s?.plane.kind === 'base') {
+    const n = new Vector3(...BASE[s.plane.axis].n);
+    return (p) => local(groupPlace(s.group))(p).dot(n);
+  }
+  const f = k === 'bodies' && at.match(/^features\.\d+\.source\.plane\.offset$/) ? doc.bodies[+i].features[+rest[1]] : undefined;
+  if (f?.type === 'extrude' && f.source.kind === 'own' && f.source.plane.kind === 'base') {
+    const n = new Vector3(...BASE[f.source.plane.axis].n);
+    return (p) => local(bodyPlaces.get(doc.bodies[+i].id) ?? new Matrix4())(p).dot(n);
+  }
+  return null;
+}
+
 /** Where a joint is now: degrees (hinge) or mm (slider); 0 while its value is no number. */
 function jointValue(j: Joint, lookup: Lookup) {
   try {
@@ -3004,6 +3034,19 @@ function render() {
     rotateTool,
     jointTool,
     editJoint: (id) => jointPanel(id, false),
+    reach(path, insert) {
+      const measure = measureAt(path);
+      if (!measure) return false;
+      viewer.aiming = (a) => tips.cursorTip([a?.what, 'To object: click, its value goes into the field'].filter(Boolean).join('\n'));
+      viewer.aiming(viewer.aimHere());
+      viewer.pickFace((face) => {
+        viewer.aiming = null;
+        viewer.aimAt(null);
+        tips.cursorTip(null);
+        if (face?.snap) insert(fmt(measure(face.snap) / UNITS[history.current.units]));
+      }, true);
+      return true;
+    },
     jointRange: rangeText,
     showJoint(id) {
       const j = history.current.joints.find((x) => x.id === id);

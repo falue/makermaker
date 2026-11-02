@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { extent, toWorld, type V3 } from '../doc/frames';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { planeHit, pullBy, pulled, pullKey, TO_OBJECT, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, planeHit, pullName, pullBy, pulled, pullKey, reachInto, TO_OBJECT, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -52,14 +52,14 @@ export class AreaTool implements Tool {
   down(e: PointerEvent) {
     if (e.button !== 0) return false;
     if (this.pull && this.reaching) {
-      // "to object": the depth to the clicked point, along the plane's normal
+      // "to object": the clicked point's distance goes into the typed depth (or back)
       const p = this.view.pointAt(e);
       if (!p) return true;
       this.reaching = false;
       this.aimed = null;
       this.view.aimAt(null);
-      Object.assign(this.pull, { depth: p.sub(v3(this.target.frame.o)).dot(v3(this.target.frame.n)), typed: undefined });
-      this.commit();
+      reachInto(this.pull, p, this.target.frame, this.host);
+      this.update();
     } else if (this.pull) this.commit();
     else {
       const i = this.areaAt(e);
@@ -106,11 +106,11 @@ export class AreaTool implements Tool {
     if (p) {
       if (pressed(e, 'cancel')) return this.view.unlockPointer(), this.host.done(null), true;
       else if (pressed(e, 'confirm')) return this.commit(), true;
-      else if (p.typed === undefined && pressed(e, 'toObject')) {
+      else if (pressed(e, 'toObject')) {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
-        this.host.hint('Click a corner, edge or face: the extrusion reaches it · [Esc] cancels');
+        this.host.hint('To object: click a corner, edge or face, its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       } else if (!pullKey(e, p)) return false;
       this.host.hint(PULL_HINT);
@@ -123,7 +123,7 @@ export class AreaTool implements Tool {
 
   /** Aiming "to object": the depth follows what the pointer would reach, the pointer's note says what. */
   private aim(s: { at: THREE.Vector3; what: string } | null) {
-    if (s) Object.assign(this.pull!, { depth: s.at.clone().sub(v3(this.target.frame.o)).dot(v3(this.target.frame.n)), typed: undefined });
+    if (s) aimInto(this.pull!, s.at, this.target.frame);
     this.aimed = s?.what ?? null;
     this.update();
   }
@@ -245,14 +245,14 @@ export class AreaTool implements Tool {
     if (depth || back) this.prism([...this.picked].map((i) => this.areas[i].tris), extent(depth, back));
     const p0 = this.pull;
     // pulling: what T does, or while aiming what the pointer reaches
-    const pulling = p0 && (this.reaching ? [this.aimed, 'Click: the pull reaches it'].filter(Boolean).join('\n') : p0.typed === undefined ? TO_OBJECT : null);
+    const pulling = p0 && (this.reaching ? [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n') : TO_OBJECT);
     this.host.cursorTip(p0 ? pulling || null : this.picked.size ? 'Hit Enter to start extruding' : null);
     this.labels.replaceChildren();
     const p = this.pull;
     if (p) {
       // the depth at the end, how far back behind the plane (when it reaches back or is typed into)
       const n = v3(this.target.frame.n);
-      const shown: [string, string | undefined, number, number, boolean][] = [['Depth', p.typed, depth, depth, !p.side]];
+      const shown: [string, string | undefined, number, number, boolean][] = [[pullName(this.target.frame.n), p.typed, depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
         const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: `${name} ${typed === undefined ? mm.toFixed(2) : `${typed}▏`}` });

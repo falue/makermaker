@@ -50,12 +50,15 @@ export class FacePullTool implements Tool {
   down(e: PointerEvent) {
     if (e.button !== 0) return false;
     if (this.reaching) {
-      // "to object": the distance to the clicked point, along `n`
+      // "to object": the distance to the clicked point, along `n`, goes into the typed size (type on to calculate with it)
       const p = this.view.pointAt(e);
       if (!p) return true;
       this.reaching = false;
       this.view.aimAt(null);
-      [this.dist, this.typed] = [p.sub(this.at).dot(new THREE.Vector3(...this.n)), undefined];
+      this.typed = (this.typed ?? '') + this.host.lengthText(p.sub(this.at).dot(new THREE.Vector3(...this.n)));
+      this.onPull(this.value(), 'live');
+      this.update();
+      return true;
     }
     this.finish('done');
     return true;
@@ -82,11 +85,11 @@ export class FacePullTool implements Tool {
 
   key(e: KeyboardEvent) {
     const [cancel, confirm] = [pressed(e, 'cancel'), pressed(e, 'confirm')];
-    if (this.look === FACE && this.typed === undefined && pressed(e, 'toObject')) {
+    if (this.look === FACE && pressed(e, 'toObject')) {
       // the next click picks how far: the pointer shows again for it
       this.reaching = true;
       this.view.unlockPointer();
-      this.host.hint('Click a corner, edge or face: the pull reaches it · [Esc] cancels');
+      this.host.hint('To object: click a corner, edge or face, its distance goes into the size (type on to calculate with it) · [Esc] cancels');
       return this.aim(this.view.aimHere()), true;
     }
     if (cancel) this.finish('cancel');
@@ -103,7 +106,7 @@ export class FacePullTool implements Tool {
 
   /** Aiming "to object": the pull follows what the pointer would reach, the pointer's note says what. */
   private aim(s: { at: THREE.Vector3; what: string } | null) {
-    if (s) [this.dist, this.typed] = [s.at.clone().sub(this.at).dot(new THREE.Vector3(...this.n)), undefined];
+    if (s && this.typed === undefined) this.dist = s.at.clone().sub(this.at).dot(new THREE.Vector3(...this.n));
     this.aimed = s?.what ?? null;
     this.onPull(this.value(), 'live');
     this.update();
@@ -127,7 +130,7 @@ export class FacePullTool implements Tool {
     this.labels.replaceChildren(el);
     keepInside(el, x, y);
     // a face pull: what T does, or while aiming what the pointer reaches
-    if (this.look === FACE) this.host.cursorTip(this.reaching ? [this.aimed, 'Click: the pull reaches it'].filter(Boolean).join('\n') : this.typed === undefined ? TO_OBJECT : null);
+    if (this.look === FACE) this.host.cursorTip(this.reaching ? [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n') : TO_OBJECT);
     this.view.render();
   }
 }

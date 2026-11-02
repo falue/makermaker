@@ -67,6 +67,11 @@ export interface UIContext {
   jointTool(): void;
   /** Lights a joint's moving objects (null: the selection again). */
   showJoint(joint: string | null): void;
+  /**
+   * To object for the value at `path`: the next click's value (in the display unit) is handed to `insert`, to go into
+   * the field where the cursor is; false: that value has none.
+   */
+  reach(path: string[], insert: (text: string) => void): boolean;
   /** A joint's edit panel (the one it was made in). */
   editJoint(joint: string): void;
   /** A joint's range in words: `0–110°`, `0–35 mm`. */
@@ -278,6 +283,16 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
   const el = input(path, shown, (e) => set({ e, u }, false), own ? own.error : ctx.exprErrors.get(path));
   el.dataset.complete = ''; // parameter names
   if (!el.title && !isPlain(x.e) && x.u !== u) el.title = `plain numbers in ${x.u}`;
+  // T (To object): the clicked point's value goes in where the cursor is, to calculate on with it; Enter keeps it
+  el.addEventListener('keydown', (e) => {
+    if (!wantsT(e, el, ctx.doc.params)) return;
+    const reaching = ctx.reach(keys, (text) => {
+      const field = document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`) ?? el;
+      field.focus();
+      field.setRangeText(text, field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, 'end');
+    });
+    if (reaching) e.preventDefault();
+  });
   const name = h('span', { innerHTML: axisHtml(label) });
   scrub(name, el, () => shown, u, ctx.minStep, (e, live) => set({ e, u }, live), () => {
     // the field may be rebuilt meanwhile: the one there now
@@ -345,6 +360,15 @@ function select<T extends string>(value: T, options: Record<T, string>, onChange
   const el = h('select', { onchange: () => onChange(el.value as T) });
   for (const [v, label] of Object.entries(options) as [T, string][]) el.append(h('option', { value: v, selected: v === value }, label));
   return el;
+}
+
+/** Whether T pressed in `input` means To object: not in the middle of a name, nor where a parameter starting with t could begin. */
+export function wantsT(e: KeyboardEvent, input: HTMLInputElement, params: Record<string, unknown>) {
+  if (!pressed(e, 'toObject')) return false;
+  const before = input.value.slice(0, input.selectionStart ?? 0);
+  const word = before.match(/[A-Za-z_]\w*$/)?.[0];
+  const name = !/[\w.]$/.test(before) && Object.keys(params).some((p) => p.startsWith(e.key));
+  return (!word || word in UNITS) && !name;
 }
 
 /** The To object button, the same everywhere: its icon and words (T does the same where it is offered). */

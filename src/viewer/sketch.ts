@@ -149,6 +149,24 @@ export interface Pulling extends PullStart {
   alt?: boolean;
 }
 
+/**
+ * To object in a pull: the distance from the plane to `at` along its normal (for Back: behind it) goes into what is
+ * being typed (depth or back), to calculate on with it; Enter keeps it.
+ */
+export function reachInto(p: Pulling, at: THREE.Vector3, frame: { o: V3; n: V3 }, host: ToolHost) {
+  const d = at.clone().sub(v3(frame.o)).dot(v3(frame.n));
+  const k = p.side ? 'typedBack' : 'typed';
+  p[k] = (p[k] ?? '') + host.lengthText(p.side ? -d : d);
+}
+
+/** A pull's size label: the world axis it goes along (X, Y or Z), else Depth (a slanted face). */
+export const pullName = (n: V3) => ['X', 'Y', 'Z'].find((_, k) => Math.abs(n[k]) > 0.999) ?? 'Depth';
+
+/** While aiming To object: the pull shows reaching `at` (only while nothing is typed for the depth). */
+export function aimInto(p: Pulling, at: THREE.Vector3, frame: { o: V3; n: V3 }) {
+  if (!p.side && p.typed === undefined) p.depth = at.clone().sub(v3(frame.o)).dot(v3(frame.n));
+}
+
 /** A pull's depth and how far it reaches back (mm): typed, else as pulled; Alt: back as far as the depth (both ways from the plane). */
 export function pulled(p: Pulling, length: (text: string) => number | null) {
   const typed = (t: string | undefined) => (t === undefined ? null : length(t));
@@ -371,15 +389,13 @@ export class SketchTool implements Tool {
       this.corner(ph, at, Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8);
       if (this.phase.kind === 'hover' && this.kind === 'line' && mod(e)) this.chain(e, ph.target); // ⌘ still held: on from this end
     } else if (ph.kind === 'pull' && this.reaching) {
-      // "to object": the depth to the clicked point, along the plane's normal
+      // "to object": the clicked point's distance goes into the typed depth (or back)
       const p = this.view.pointAt(e);
       if (!p) return true;
       this.reaching = false;
       this.aimed = null;
       this.view.aimAt(null);
-      ph.depth = p.sub(v3(ph.target.frame.o)).dot(v3(ph.target.frame.n));
-      ph.typed = undefined;
-      this.commit();
+      reachInto(ph, p, ph.target.frame, this.host);
     } else if (ph.kind === 'pull') this.commit();
     this.update();
     return true;
@@ -500,11 +516,11 @@ export class SketchTool implements Tool {
       else return false;
       if (this.phase === ph && this.lastPoint) ph.cur = this.sideEnd(this.lastPoint[0], ph) ?? ph.cur; // typed values apply at once
     } else if (ph.kind === 'pull') {
-      if (ph.typed === undefined && pressed(e, 'toObject')) {
+      if (pressed(e, 'toObject')) {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
-        this.host.hint('Click a corner, edge or face: the extrusion reaches it · [Esc] cancels');
+        this.host.hint('To object: click a corner, edge or face, its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       } else if (pressed(e, 'confirm')) this.commit();
       else if (!pullKey(e, ph)) return false;
@@ -813,7 +829,7 @@ export class SketchTool implements Tool {
   /** Aiming "to object" while pulling: the depth follows what the pointer would reach, the pointer's note says what. */
   private aim(s: { at: THREE.Vector3; what: string } | null) {
     const ph = this.phase;
-    if (ph.kind === 'pull' && s) Object.assign(ph, { depth: s.at.clone().sub(v3(ph.target.frame.o)).dot(v3(ph.target.frame.n)), typed: undefined });
+    if (ph.kind === 'pull' && s) aimInto(ph, s.at, ph.target.frame);
     this.aimed = s?.what ?? null;
     this.update();
   }
@@ -1060,7 +1076,7 @@ export class SketchTool implements Tool {
     const base = ph.kind === 'polygon' && this.hoveredLine(ph.target.frame) !== null ? `Press ${comboText(KEYS.baseline.default[0])} to measure the angle from this line` : null;
     const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(KEYS.moreSnaps.default[0])} finer, ${comboText(KEYS.fewerSnaps.default[0])} coarser` : null;
     // pulling: what T does, or while aiming what the pointer reaches
-    const pulling = ph.kind === 'pull' && (this.reaching ? [this.aimed, 'Click: the pull reaches it'].filter(Boolean).join('\n') : ph.typed === undefined ? TO_OBJECT : null);
+    const pulling = ph.kind === 'pull' && (this.reaching ? [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n') : TO_OBJECT);
     this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, this.snapWhat, more, fix, base, angles, chain].filter(Boolean).join('\n') || null); // one per line
     if (ph.kind === 'polygon' && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'pull') {
@@ -1068,7 +1084,7 @@ export class SketchTool implements Tool {
       const { depth, back } = pulled(ph, (t) => this.host.length(t));
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
       if (depth || back) this.solid(ph.shapes, f, depth, back);
-      label('Depth', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side);
+      label(pullName(f.n), ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side);
       if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side);
     }
     const els = labels.map(([text, , active]) => Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text }));
@@ -1146,7 +1162,7 @@ const LINE_HINT = 'Click the end point · type a length, [Tab] the angle, [Enter
 /** An angle (radians) in degrees, the short way: -180 to 180. */
 const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;
 /** The pointer's note while pulling (before typing a depth). */
-export const TO_OBJECT = 'To object (T): the pull reaches what you click';
+export const TO_OBJECT = 'To object (T): a click puts its distance into the size (calculate on with it)';
 /** Radius (px) of the arc showing what a side's angle is measured from. */
 const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
