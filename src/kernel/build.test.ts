@@ -107,13 +107,18 @@ describe('buildBody', () => {
     turned.done();
     // a zig-zag line across the plate (y from -30 to 30), along y: its left is -x
     const zig = { id: 'z', kind: 'line' as const, pts: [[0, -40], [5, -10], [-5, 10], [0, 40]] as [number, number][] };
-    const line = (side: 1 | -1) => ({ id: 's', type: 'split', cutter: { kind: 'frame', frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, profile: zig }, side }) as BuildFeature;
+    const line = (side: 1 | -1) => ({ id: 's', type: 'split', cutter: { kind: 'frame', frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, profile: zig, offset: 0 }, side }) as BuildFeature;
     const west = built([base(100), line(1)]);
     const [[x0], [x1]] = west.box.bounds;
     expect(x0).toBeCloseTo(-50, 3);
     expect(x1).toBeGreaterThan(0);
     expect(x1).toBeLessThan(5.01);
     west.done();
+    // a straight line along y moved 5 mm to its left (-x): the west part ends there
+    const straight = { id: 'y', kind: 'line' as const, pts: [[0, -40], [0, 40]] as [number, number][] };
+    const moved = built([base(100), { id: 's', type: 'split', cutter: { kind: 'frame', frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, profile: straight, offset: 5 }, side: 1 } as BuildFeature]);
+    expect(moved.box.bounds[1][0]).toBeCloseTo(-5, 3);
+    moved.done();
   });
 
   it('cuts a blind pocket into the top face', () => {

@@ -382,7 +382,7 @@ function cutterSide(c: Of<'split'>['cutter'], far: number): Shape3D {
     return drawRectangle(2 * far, 2 * far).sketchOnPlane(new Plane(f.o, f.x, f.n)).extrude(far) as Shape3D;
   }
   const { frame: f, profile: p } = c;
-  return (p.kind === 'line' ? leftOf(p.pts, far) : drawing(p)).sketchOnPlane(new Plane(add(f.o, scale(f.n, -far)), f.x, f.n)).extrude(2 * far) as Shape3D;
+  return (p.kind === 'line' ? leftOf(beside(p.pts, c.offset), far) : drawing(p)).sketchOnPlane(new Plane(add(f.o, scale(f.n, -far)), f.x, f.n)).extrude(2 * far) as Shape3D;
 }
 
 /** A cut plane's frame: turned `tilt` degrees around its x, then its y, moved `offset` along its normal. */
@@ -399,6 +399,21 @@ export function cutPlane(c: { o: V3; x: V3; n: V3; tilt: [number, number]; offse
   const y = cross(n, x);
   [x, n] = [turn(x, y, c.tilt[1]), turn(n, y, c.tilt[1])];
   return { o: add(c.o, scale(n, c.offset)), x, y: cross(n, x), n };
+}
+
+/** An open line moved `d` mm to its left, its corners mitred (as a parallel line at that distance). */
+function beside(pts: [number, number][], d: number): [number, number][] {
+  if (!d) return pts;
+  const left = (a: [number, number], b: [number, number]): [number, number] => {
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [(a[1] - b[1]) / l, (b[0] - a[0]) / l];
+  };
+  return pts.map((p, i) => {
+    const [n0, n1] = [left(pts[Math.max(0, i - 1)], pts[Math.max(1, i)]), left(pts[Math.min(i, pts.length - 2)], pts[Math.min(i + 1, pts.length - 1)])];
+    const m = [n0[0] + n1[0], n0[1] + n1[1]];
+    const k = d / Math.max(0.2, (m[0] * n1[0] + m[1] * n1[1]) / (Math.hypot(...m) || 1)) / (Math.hypot(...m) || 1);
+    return [p[0] + m[0] * k, p[1] + m[1] * k];
+  });
 }
 
 /** The region left of an open line (plane coordinates), its ends drawn on `far` mm and closed far to the left. */

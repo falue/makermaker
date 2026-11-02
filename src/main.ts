@@ -17,7 +17,7 @@ import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, type Measure, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { renderUI, scrub, type Measure, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, type Action } from './ui/keys';
@@ -1226,14 +1226,14 @@ function startCut(body: string, face: PickedFace) {
   const i = doc.bodies.findIndex((b) => b.id === body);
   const pl = bodyPlace(body);
   let cutter: SplitFeature['cutter'];
-  if (face.sketch?.shape) cutter = { kind: 'shape', sketch: face.sketch.id, shape: face.sketch.shape };
+  if (face.sketch?.shape) cutter = { kind: 'shape', sketch: face.sketch.id, shape: face.sketch.shape, offset: len(0) };
   else {
-    const mid = viewer.measure(body)?.box.getCenter(new Vector3()) ?? face.point;
+    // on the face clicked (its normal into the body: A keeps what lies behind it), or the plane facing you
     const n = face.normal.clone().normalize();
     const x = new Vector3(0, 0, 1).cross(n);
     if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
     x.normalize();
-    cutter = { kind: 'plane', o: unplaced(pl, mid.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), tilt: [ex(0), ex(0)], offset: len(0) };
+    cutter = { kind: 'plane', o: unplaced(pl, face.point.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), tilt: [ex(0), ex(0)], offset: len(0) };
   }
   const split = (side: 1 | -1): Feature => ({ id: newId(), type: 'split', cutter: structuredClone(cutter), side });
   const a = { ...doc.bodies[i], features: [...doc.bodies[i].features, split(1)] };
@@ -1245,11 +1245,10 @@ function startCut(body: string, face: PickedFace) {
   cutPanel(a.id, b.id, cutter.kind === 'plane');
 }
 
-type PlaneCutter = Extract<SplitFeature['cutter'], { kind: 'plane' }>;
-
 /**
- * The open cut's panel at the bottom of the view: a plane's turn (X° / Y° around its own axes) and offset, both
- * chunks kept or A or B deleted (hidden meanwhile); ✓ or Enter keeps it, Esc undoes the whole cut.
+ * The open cut's panel at the top left of the view: the offset from the plane, face or line (the cursor in it, from 0), a
+ * plane's turn (X° / Y° around its own axes; each field scrubbed by dragging its label sideways, live), both chunks
+ * kept or A or B deleted (hidden meanwhile); ✓ or Enter keeps it, Esc undoes the whole cut.
  */
 function cutPanel(a: string, b: string, plane: boolean) {
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
@@ -1257,26 +1256,31 @@ function cutPanel(a: string, b: string, plane: boolean) {
   const r = viewer.el.getBoundingClientRect();
   /** Both chunks' cut (their last feature) changed by `edit`, in the cut's undo step; `drop`: the chunk hidden, to be deleted. */
   let drop: string | null = null;
-  const change = (edit: (c: PlaneCutter) => void) => {
+  const change = (edit: (c: SplitFeature['cutter']) => void) => {
     const doc = history.current;
     const bodies = doc.bodies.map((x) => {
       if (x.id !== a && x.id !== b) return x;
       const cut = structuredClone(x.features.at(-1)!);
-      if (cut.type === 'split' && cut.cutter.kind === 'plane') edit(cut.cutter);
+      if (cut.type === 'split') edit(cut.cutter);
       return { ...x, features: [...x.features.slice(0, -1), cut], visible: x.id !== drop };
     });
     history.replace({ ...doc, bodies });
     update();
   };
-  const field = (label: string, value: string, set: (c: PlaneCutter, e: Expr) => void, unit: Unit) => {
-    const input = Object.assign(document.createElement('input'), { value, spellcheck: false });
+  const fields: HTMLInputElement[] = [];
+  const field = (label: string, set: (c: SplitFeature['cutter'], e: Expr) => void, unit: Unit) => {
+    const input = Object.assign(document.createElement('input'), { value: '0', spellcheck: false });
     input.dataset.complete = '';
-    input.oninput = () => {
+    const apply = () => {
       const e = { e: input.value || '0', u: unit };
       input.classList.toggle('invalid', length(e.e) === null);
       if (length(e.e) !== null) change((c) => set(c, e));
     };
-    return [Object.assign(document.createElement('span'), { textContent: label }), input];
+    input.oninput = apply;
+    const name = Object.assign(document.createElement('span'), { textContent: label });
+    scrub(name, input, () => input.value, unit, settings.minStep, (text) => ((input.value = text), apply()), () => (input.focus(), input.select()));
+    fields.push(input);
+    return [name, input];
   };
   const keep = (choice: string | null) => {
     drop = choice;
@@ -1308,19 +1312,22 @@ function cutPanel(a: string, b: string, plane: boolean) {
   const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
   const u = history.current.units;
   box.append(
+    ...field('Offset', (c, e) => (c.offset = e), u),
     ...(plane
       ? [
-          ...field('Turn X°', '0', (c, e) => (c.tilt[0] = { ...e, u: 'mm' }), 'mm'), // degrees: plain numbers, never unit-converted
-          ...field('Turn Y°', '0', (c, e) => (c.tilt[1] = { ...e, u: 'mm' }), 'mm'),
-          ...field('Offset', '0', (c, e) => (c.offset = e), u),
+          // degrees: plain numbers, never unit-converted
+          ...field('Turn X°', (c, e) => c.kind === 'plane' && (c.tilt[0] = { ...e, u: 'mm' }), 'mm'),
+          ...field('Turn Y°', (c, e) => c.kind === 'plane' && (c.tilt[1] = { ...e, u: 'mm' }), 'mm'),
         ]
       : []),
     ...buttons,
     Object.assign(document.createElement('button'), { textContent: '✓', title: 'Done (Enter); Esc undoes the cut', onclick: () => finish(true) }),
   );
   keep(null);
-  // at the bottom middle of the view: not over the body being cut
-  keepInside(box, r.left + (r.width - box.offsetWidth) / 2, r.bottom - box.offsetHeight - 16, false, [r.left, r.top, r.right, r.bottom]);
+  // at the top left of the view, below its switches: not over the body being cut, the view cube or the section sliders
+  keepInside(box, r.left + 8, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+  fields[0].focus(); // the offset, from 0: typing replaces it
+  fields[0].select();
   addEventListener('keydown', keys, { capture: true });
 }
 

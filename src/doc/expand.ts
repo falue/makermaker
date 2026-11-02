@@ -24,7 +24,7 @@ export function toBuild(
     if (!sketch || !profile) return 'its cutting shape was deleted';
     const frame = cutterFrame(sketch);
     if (!frame) return null;
-    return { ...feature, cutter: { kind: 'frame', frame, profile } };
+    return { ...feature, cutter: { kind: 'frame', frame, profile, offset: c.offset } };
   }
   if (feature.type !== 'extrude') return feature;
   const { source, ...rest } = feature;

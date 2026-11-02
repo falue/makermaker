@@ -266,55 +266,66 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
   el.dataset.complete = ''; // parameter names
   if (!el.title && !isPlain(x.e) && x.u !== u) el.title = `plain numbers in ${x.u}`;
   const name = h('span', { innerHTML: axisHtml(label) });
-  // a number with an optional unit (`12`, `4mm`) keeps its unit while scrubbed
-  const num = /^\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*([a-z]*)\s*$/i.exec(shown);
-  const unit = (num?.[2] || u) as Unit;
-  if (num && unit in UNITS) {
-    const step = { mm: 0.5, cm: 0.05, m: 0.0005, in: 0.02, ft: 0.002 }[unit]; // per px, as in incase
-    /** Scrubs once the pointer moved more than `threshold` px sideways; a press without that is a `click`. */
-    const press = (e: PointerEvent, threshold: number, click: () => void) => {
-      e.preventDefault();
-      const base = parseFloat(num[1]);
-      let travel: number | null = null; // px moved since scrubbing began
-      let last = shown;
-      // on window: the panels are rebuilt while scrubbing
-      const move = (m: PointerEvent) => {
-        if (travel === null) {
-          if (Math.abs(m.clientX - e.clientX) <= threshold) return;
-          travel = 0;
-          document.body.classList.add('scrubbing');
-          // the pointer hides and the screen edge no longer stops it (on body: the field is rebuilt meanwhile)
-          Promise.resolve(document.body.requestPointerLock()).catch(() => {});
-        } else travel += m.movementX;
-        // per px: Shift ten times more, Ctrl the minimum step (Settings → General)
-        const per = m.ctrlKey ? ctx.minStep / UNITS[unit] : m.shiftKey ? step * 10 : step;
-        const text = fmt(base + Math.round(travel) * per) + num[2];
-        if (text === last) return;
-        set({ e: text, u }, last !== shown);
-        last = text;
-      };
-      const end = () => {
-        removeEventListener('pointermove', move);
-        document.body.classList.remove('scrubbing');
-        if (document.pointerLockElement === document.body) document.exitPointerLock();
-        if (travel === null) click();
-      };
-      addEventListener('pointermove', move);
-      addEventListener('pointerup', end, { once: true });
-    };
-    name.className = 'scrub';
-    name.onpointerdown = (e) => press(e, 0, () => {});
-    // in the field: drag scrubs, a click edits (once focused, the field takes text selection as usual)
-    el.classList.add('scrub');
-    el.onpointerdown = (e) =>
-      document.activeElement !== el &&
-      press(e, 3, () => {
-        const field = document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
-        field?.focus();
-        field?.select();
-      });
-  }
+  scrub(name, el, () => shown, u, ctx.minStep, (e, live) => set({ e, u }, live), () => {
+    // the field may be rebuilt meanwhile: the one there now
+    const field = document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
+    field?.focus();
+    field?.select();
+  });
   return h('label', { className: 'field' }, name, el);
+}
+
+/**
+ * Scrubbing (as in incase): dragging `label`, or the `field` while it is not focused, sideways changes its number (a
+ * plain one, or with a unit, `text()` at the press; else nothing) by a step per px for its unit (Shift ×10, Ctrl
+ * `minStep` mm), handing each new text to `set` (`live` after the first); a press on the field without dragging calls
+ * `click` (to edit it). The pointer hides and is not stopped by the screen edge meanwhile.
+ */
+export function scrub(label: HTMLElement, field: HTMLInputElement, text: () => string, u: Unit, minStep: number, set: (text: string, live: boolean) => void, click: () => void) {
+  // a number with an optional unit (`12`, `4mm`) keeps its unit while scrubbed; an expression is not scrubbed
+  const number = (shown: string) => {
+    const num = /^\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*([a-z]*)\s*$/i.exec(shown);
+    return num && (!num[2] || num[2] in UNITS) ? num : null;
+  };
+  const press = (e: PointerEvent, threshold: number, onClick: () => void) => {
+    const shown = text();
+    const num = number(shown);
+    if (!num) return; // the field takes the press as usual
+    const unit = (num[2] || u) as Unit;
+    e.preventDefault();
+    const step = { mm: 0.5, cm: 0.05, m: 0.0005, in: 0.02, ft: 0.002 }[unit]; // per px, as in incase
+    const base = parseFloat(num[1]);
+    let travel: number | null = null; // px moved since scrubbing began
+    let last = shown;
+    // on window: the panels are rebuilt while scrubbing
+    const move = (m: PointerEvent) => {
+      if (travel === null) {
+        if (Math.abs(m.clientX - e.clientX) <= threshold) return;
+        travel = 0;
+        document.body.classList.add('scrubbing');
+        // the pointer hides and the screen edge no longer stops it (on body: the field is rebuilt meanwhile)
+        Promise.resolve(document.body.requestPointerLock()).catch(() => {});
+      } else travel += m.movementX;
+      // per px: Shift ten times more, Ctrl the minimum step (Settings → General)
+      const per = m.ctrlKey ? minStep / UNITS[unit] : m.shiftKey ? step * 10 : step;
+      const next = fmt(base + Math.round(travel) * per) + num[2];
+      if (next === last) return;
+      set(next, last !== shown);
+      last = next;
+    };
+    const end = () => {
+      removeEventListener('pointermove', move);
+      document.body.classList.remove('scrubbing');
+      if (document.pointerLockElement === document.body) document.exitPointerLock();
+      if (travel === null) onClick();
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', end, { once: true });
+  };
+  if (number(text())) label.classList.add('scrub'), field.classList.add('scrub');
+  label.onpointerdown = (e) => press(e, 0, () => {});
+  // in the field: drag scrubs, a click edits (once focused, the field takes text selection as usual)
+  field.onpointerdown = (e) => document.activeElement !== field && press(e, 3, click);
 }
 
 function select<T extends string>(value: T, options: Record<T, string>, onChange: (v: T) => void) {
@@ -975,7 +986,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const what =
         c.kind === 'plane'
           ? h('div', { className: 'row' }, exprField(ctx, `${at}.cutter.tilt.0`, 'Turn X°', true), exprField(ctx, `${at}.cutter.tilt.1`, 'Turn Y°', true), f('cutter.offset', 'Offset'))
-          : h('p', { className: 'hint' }, shape ? `Along ${sketch!.name}: ${shape.kind}` : 'Its cutting shape was deleted');
+          : h('div', { className: 'row' }, h('span', { className: 'hint' }, shape ? `Along ${sketch!.name}: ${shape.kind}` : 'Its cutting shape was deleted'), ...(shape?.kind === 'line' ? [f('cutter.offset', 'Offset')] : []));
       return h('section', {}, h('h4', {}, side, remove), what);
     }
     case 'sphere':
