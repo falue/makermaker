@@ -622,7 +622,8 @@ export class SketchTool implements Tool {
       }
       this.view.overlay.add(marks([this.snapped], 0xff8c1a, this.snapLine ? 8 : 12));
     }
-    this.host.cursorTip(ph.kind === 'pull' ? null : this.snapWhat);
+    const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'hold Ctrl to start the line from the end of the last one' : null;
+    this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, chain].filter(Boolean).join(' · ') || null);
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
       const depth = this.typed(ph.typed) ?? ph.depth;
