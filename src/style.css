@@ -1092,6 +1092,15 @@ button.primary.wide {
 .settings .hotkeys .hint {
   font-size: 12px;
 }
+/* a chapter's heading row in the hotkey list */
+.settings .hotkeys .chapter th {
+  padding: 14px 0 4px;
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
 .settings kbd {
   font: inherit;
   font-size: 12px;

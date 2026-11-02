@@ -1,7 +1,7 @@
 import { UNITS } from '../doc/expr';
 import type { Unit } from '../doc/types';
 import { backdropCss, SKIES } from '../viewer/sky';
-import { comboText, KEYS, MODS, pressed, type Binding } from './keys';
+import { CHAPTERS, comboText, KEYS, MODS, pressed, type Binding } from './keys';
 
 /** Settings of this browser (not of the document). */
 export interface Settings {
@@ -105,10 +105,12 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     [
       'Hotkeys',
       () => {
-        // read from the key table: every key the app reacts to is listed there
-        const rows = (Object.values(KEYS) as Binding[])
-          .sort((a, b) => a.order - b.order)
-          .map((k) => make('tr', { title: k.hint }, make('td', {}, k.name), make('td', {}, ...k.default.flatMap((c, i) => [...(i ? [' / '] : []), make('kbd', {}, comboText(c))])), make('td', { className: 'hint' }, k.hint)));
+        // read from the key table: every key the app reacts to is listed there, by chapter
+        const keys = (Object.values(KEYS) as Binding[]).sort((a, b) => a.order - b.order);
+        const rows = CHAPTERS.flatMap((chapter) => [
+          make('tr', { className: 'chapter' }, make('th', { colSpan: 3 }, chapter)),
+          ...keys.filter((k) => k.chapter === chapter).map((k) => make('tr', { title: k.hint }, make('td', {}, k.name), make('td', {}, ...k.default.flatMap((c, i) => [...(i ? [' / '] : []), make('kbd', {}, comboText(c))])), make('td', { className: 'hint' }, k.hint))),
+        ]);
         // the modifiers: what they mean at a click and while moving
         const mods = MODS.map((m) => make('tr', { title: m.hint }, make('td', {}, `${m.name} (${m.when})`), make('td', {}, make('kbd', {}, m.key)), make('td', { className: 'hint' }, m.hint)));
         return [
