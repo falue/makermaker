@@ -1279,7 +1279,9 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
         if (x.id !== body && x.id !== chunkB.id) return x;
         const cut = structuredClone(x.features.at(-1)!);
         if (cut.type === 'split') cut.cutter = structuredClone(c);
-        return { ...x, features: [...x.features.slice(0, -1), cut] };
+        // B alone stays: it is the body as it was named and coloured
+        const look = x.id === chunkB.id ? (keep === 'B' ? { name: doc0.bodies[i].name, color: doc0.bodies[i].color } : { name: chunkB.name, color: chunkB.color }) : {};
+        return { ...x, ...look, features: [...x.features.slice(0, -1), cut] };
       });
       history.replace({ ...doc, bodies });
       update();
