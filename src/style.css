@@ -754,6 +754,7 @@ input.rename {
 }
 .tooltip.follow {
   border-color: var(--accent);
+  white-space: pre-line;
 }
 
 .swatch {

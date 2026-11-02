@@ -7,7 +7,7 @@ import { marks } from './marks';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import { pressed } from '../ui/keys';
+import { comboText, KEYS, pressed } from '../ui/keys';
 
 export type ToolKind = 'rect' | 'circle' | 'ngon' | 'polygon' | 'line' | 'sphere';
 export type { DrawnProfile };
@@ -714,8 +714,9 @@ export class SketchTool implements Tool {
       this.view.overlay.add(marks([this.snapped], 0xff8c1a, this.snapWhat?.startsWith('on ') ? 8 : 12));
     }
     if (this.dots.length && ph.kind !== 'pull') this.view.overlay.add(marks(this.dots, 0xff8c1a, 7));
-    const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'hold Ctrl to start the line from the end of the last one' : null;
-    this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, chain].filter(Boolean).join(' · ') || null);
+    const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? 'Hold Ctrl to start the line from the end of the last one' : null;
+    const more = this.snapKey ? `Press ${comboText(KEYS.moreSnaps.default[0])} for more points, ${comboText(KEYS.fewerSnaps.default[0])} for fewer` : null;
+    this.host.cursorTip(ph.kind === 'pull' ? null : [this.snapWhat, more, chain].filter(Boolean).join('\n') || null); // one per line
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
       const depth = this.typed(ph.typed) ?? ph.depth;
