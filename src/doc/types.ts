@@ -307,7 +307,8 @@ export interface RenderShot {
  * `turn` degrees around its `axis` (null: its own x through `o`); moved `offset` along its normal last (see
  * `workFrame`). `mode` is how it was made: on a face, along an edge (its `axis`; then a point or a turn), or through
  * three points. Shown green: a rectangle around `hull` (world points: the face's corners, the edge's ends) and its
- * points, a margin on each side; sketches go on it and follow it.
+ * points, a margin on each side; `rect` once its sides were dragged (its own coordinates: u0, v0, u1, v1), grown only
+ * to keep its points on it. Sketches go on it and follow it.
  */
 export interface WorkPlane {
   id: string;
@@ -322,6 +323,7 @@ export interface WorkPlane {
   points: [Expr, Expr, Expr][];
   mode: 'face' | 'edge' | 'points';
   hull: [number, number, number][];
+  rect: [number, number, number, number] | null;
   visible: boolean;
 }
 
@@ -345,7 +347,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 23;
+  schema: 24;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

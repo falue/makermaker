@@ -248,6 +248,77 @@ export class Viewer implements ToolView {
   workPlanes: { id: string; name: string; frame: Frame; rect: [number, number, number, number] }[] = [];
   private workMark = new THREE.Group();
   private alignMark = new THREE.Group();
+  /** The work plane being edited (see `editPlane`), and a side of its rectangle being dragged (0 u0, 1 v0, 2 u1, 3 v1). */
+  private planeEdit: { id: string; resize: (rect: [number, number, number, number], done: boolean) => void } | null = null;
+  private planeDrag: { side: number; rect: [number, number, number, number] } | null = null;
+  private editMark = new THREE.Group();
+
+  /**
+   * Editing work plane `id`: `lines` and `points` (world) it was made from marked orange; dragging a side of its
+   * rectangle hands the new rectangle (its own coordinates) to `resize` (`done`: let go); null: editing ends.
+   */
+  editPlane(edit: { id: string; lines: [THREE.Vector3, THREE.Vector3][]; points: THREE.Vector3[]; resize: (rect: [number, number, number, number], done: boolean) => void } | null) {
+    this.planeEdit = edit && { id: edit.id, resize: edit.resize };
+    this.editMark.traverse((o) => o !== this.editMark && ((o as THREE.Mesh).geometry?.dispose(), ((o as THREE.Mesh).material as THREE.Material)?.dispose()));
+    this.editMark.clear();
+    this.gripMark = null;
+    if (!this.editMark.parent) this.scene.add(this.editMark);
+    if (edit?.lines.length) this.editMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(edit.lines.flat().flatMap((v) => v.toArray())), new LineMaterial({ color: 0xff8c1a, linewidth: 2, depthTest: false })), { renderOrder: 1e6 }));
+    if (edit?.points.length) this.editMark.add(Object.assign(marks(edit.points, 0xff8c1a, 9), { renderOrder: 1e6 }));
+    this.render();
+  }
+
+  /** The grips of the edited plane: its sides' middles (world; side 0 u0, 1 v0, 2 u1, 3 v1). */
+  private grips() {
+    const w = this.planeEdit && this.workPlanes.find((p) => p.id === this.planeEdit!.id);
+    if (!w) return [];
+    const [u0, v0, u1, v1] = w.rect;
+    const [um, vm] = [(u0 + u1) / 2, (v0 + v1) / 2];
+    return [[u0, vm], [um, v0], [u1, vm], [um, v1]].map(([u, v]) => new THREE.Vector3(...toWorld(w.frame, u, v)));
+  }
+
+  /** The side whose grip lies within `px` of the pointer (-1: none); while a pick runs, a snap point or edge there goes first. */
+  private planeSide(e: MouseEvent, px = 9) {
+    const grips = this.grips();
+    if (!grips.length || (this.facePick && (this.snapAt(e)?.what ?? 'on face') !== 'on face')) return -1;
+    const r = this.el.getBoundingClientRect();
+    const d = grips.map((g) => {
+      const [x, y] = this.toScreen(g);
+      return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y);
+    });
+    const k = d.indexOf(Math.min(...d));
+    return d[k] < px ? k : -1;
+  }
+
+  private gripMark: THREE.Object3D | null = null;
+
+  /** The edited plane's grips drawn as green squares, redrawn when they move. */
+  private drawGrips() {
+    const grips = this.grips();
+    const key = grips.map((g) => g.toArray().join()).join(' ');
+    if (this.gripMark?.userData.key === key) return;
+    if (this.gripMark) {
+      const m = this.gripMark as THREE.Points;
+      this.editMark.remove(m);
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    this.gripMark = grips.length ? Object.assign(marks(grips, 0x2fae5a, 11), { renderOrder: 1e6 }) : null;
+    if (this.gripMark) (this.gripMark.userData.key = key), this.editMark.add(this.gripMark);
+  }
+
+  /** A dragged side follows the pointer on the plane (at least 1 mm from its opposite side). */
+  private dragSide(e: MouseEvent) {
+    const w = this.workPlanes.find((p) => p.id === this.planeEdit?.id);
+    const p = w && planeHit(this.ray(e), w.frame);
+    if (!w || !p || !this.planeDrag) return;
+    const [u, v] = uvOf(w.frame, p);
+    const r = this.planeDrag.rect;
+    const side = this.planeDrag.side;
+    r[side] = side === 0 ? Math.min(u, r[2] - 1) : side === 2 ? Math.max(u, r[0] + 1) : side === 1 ? Math.min(v, r[3] - 1) : Math.max(v, r[1] + 1);
+    this.planeEdit!.resize([...r], false);
+  }
+
 
   /** The planes an alignment lines objects up on (square to axis `k` at `at`), over `box` and a margin each side: orange, half see-through (none: gone). */
   showAlignPlanes(planes: { k: number; at: number }[], box = new THREE.Box3(), margin = 5) {
@@ -332,8 +403,8 @@ export class Viewer implements ToolView {
   private faceMark: THREE.Mesh | null = null;
   /** Picking a face for Extrude: closed sketch shapes count too, and what a click on one pulls is lit here. */
   private pickOutlines = false;
-  /** A quiet pick takes edges and faces too (Alt: previewed, then picked; see `PickedFace.part`). */
-  private pickParts = false;
+  /** A quiet pick's parts: 'alt': Alt previews and picks an edge or face (see `PickedFace.part`); 'lit': the face or edge a click lands on lit instead of its point (a point along an edge, its middle say, counts as the edge: see `alongEdge`). */
+  private pickParts: 'alt' | 'lit' | null = null;
   private sketchMark = new THREE.Group();
   /** A sketch hovered in the list: its shapes lit. */
   private sketchHover = new THREE.Group();
@@ -478,6 +549,13 @@ export class Viewer implements ToolView {
       'pointerdown',
       (e) => {
         if (e.target !== canvas) return;
+        // a side of the edited work plane: dragged
+        const side = e.button === 0 ? this.planeSide(e) : -1;
+        if (side >= 0) {
+          this.planeDrag = { side, rect: [...this.workPlanes.find((p) => p.id === this.planeEdit!.id)!.rect] };
+          canvas.setPointerCapture(e.pointerId);
+          return e.stopPropagation();
+        }
         // a double right-click near an edge: its tangent chain (a right-drag still turns the view)
         if (e.button === 2 && !this.tool && !this.focus && this.twice('right', e)) {
           const loop = this.edgeLoop(e);
@@ -504,8 +582,19 @@ export class Viewer implements ToolView {
     addEventListener('keyup', (e) => (e.key === 'Control' || e.key === 'Alt') && unpreview());
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
+      if (this.planeDrag) return this.dragSide(e);
+      if (this.planeEdit) canvas.style.cursor = this.planeSide(e) >= 0 ? 'grab' : '';
       if (this.facePick && !this.drag) {
-        if (this.quietPick && this.pickParts && picksFace(e)) {
+        if (this.quietPick && this.pickParts === 'lit') {
+          // a face or edge lit whole; a snap point as usual
+          const a = this.aimAt(e);
+          const edge = a && alongEdge(a.what) ? this.edgeAt(e) : null;
+          if (edge || a?.what === 'on face') this.aimAt(null);
+          this.markEdge(edge?.segs);
+          this.markFace(a?.what === 'on face' ? this.frontHit(e) : undefined);
+          return void this.aiming?.(a);
+        }
+        if (this.quietPick && this.pickParts === 'alt' && picksFace(e)) {
           // Alt: the edge, else the face a click would take
           const edge = this.edgeAt(e);
           this.aiming?.(this.aimAt(null));
@@ -529,6 +618,7 @@ export class Viewer implements ToolView {
       if (!this.toolPress) this.move(e); // a drag that belongs to a tool is no orbit
     });
     canvas.addEventListener('pointerup', (e) => {
+      if (this.planeDrag) return this.planeEdit?.resize([...this.planeDrag.rect], true), (this.planeDrag = null);
       if (this.clickAt) return this.clicked(e);
       if (!this.toolPress) return this.up(e);
       this.toolPress = false;
@@ -1018,8 +1108,8 @@ export class Viewer implements ToolView {
   }
 
   /** The next click on a body picks a face (null: Esc). */
-  /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too; `parts`: quiet, Alt picks an edge or face. */
-  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines = false, parts = false) {
+  /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too; `parts`: see `pickParts`. */
+  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines = false, parts: Viewer['pickParts'] = null) {
     this.facePick = done;
     this.quietPick = quiet;
     this.pickOutlines = outlines;
@@ -1801,6 +1891,7 @@ export class Viewer implements ToolView {
       this.drawSky();
       this.scaleDashes();
       this.drawCrossings();
+      this.drawGrips();
       this.pointTo(this.arrowAt());
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
@@ -2516,7 +2607,7 @@ export class Viewer implements ToolView {
   /** A face under the pointer, else the base plane facing the camera through the origin; the normal points away from the camera. */
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
-    if (this.quietPick && this.pickParts && picksFace(e)) {
+    if (this.quietPick && this.pickParts === 'alt' && picksFace(e)) {
       const edge = this.edgeAt(e);
       this.markEdge();
       if (edge) return this.endFacePick({ point: edge.segs[0][0].clone(), normal: new THREE.Vector3(), part: { edge: edge.segs }, adds: e.shiftKey });
@@ -2641,6 +2732,7 @@ export class Viewer implements ToolView {
     this.facePick = null;
     this.markSketch(null);
     this.markFace();
+    if (this.pickParts) this.markEdge();
     if (!this.tool) this.renderer.domElement.classList.remove('drawing');
     done?.(face);
   }
@@ -3282,6 +3374,9 @@ export class Viewer implements ToolView {
     requestAnimationFrame(animate);
   }
 }
+
+/** Whether a snap is a point along an edge (anywhere on it, or a fraction of it: '1/2' …), not one of its own points (a corner, a centre). */
+export const alongEdge = (what: string) => what === 'on edge' || /^\d+\/\d+$/.test(what);
 
 type Tri = { p: THREE.Vector3[]; n: THREE.Vector3; c: number; box: THREE.Box3 };
 
