@@ -10,7 +10,7 @@ import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml } from './axes';
 import { icon, tool, type IconName } from './icons';
-import { MAC, mod, pressed } from './keys';
+import { MAC, mod, pressed, role, toggles } from './keys';
 
 export interface UIContext {
   doc: Doc;
@@ -228,7 +228,7 @@ function listItem(id: string, className: string, pick: (how: Pick) => void, ...c
   if (renaming === id) return h('div', { className }, ...children);
   const el = h('button', {
     className,
-    onclick: (e) => pick(e.shiftKey ? 'range' : e.metaKey || e.ctrlKey),
+    onclick: (e) => pick(role(e, 'add') ? 'range' : role(e, 'addOne')),
     oncontextmenu: (e) => (e.preventDefault(), pick(true)),
   }, ...children);
   el.dataset.id = id; // the view lights it (see `onHover` in main)
@@ -385,8 +385,8 @@ export function scrub(label: HTMLElement, field: HTMLInputElement, text: () => s
         Promise.resolve(document.body.requestPointerLock()).catch(() => {});
       } else travel += m.movementX;
       // per px: Shift ten times more, Ctrl the minimum step (Settings → General)
-      const per = m.ctrlKey ? minStep / UNITS[unit] : m.shiftKey ? step * 10 : step;
-      const next = whole ? String(Math.round(base + Math.trunc(travel / wholePx) * (m.shiftKey ? 10 : 1))) : fmt(base + Math.round(travel) * per) + num[2];
+      const per = role(m, 'precise') ? minStep / UNITS[unit] : role(m, 'constrain') ? step * 10 : step;
+      const next = whole ? String(Math.round(base + Math.trunc(travel / wholePx) * (role(m, 'constrain') ? 10 : 1))) : fmt(base + Math.round(travel) * per) + num[2];
       if (next === last) return;
       set(next, last !== shown);
       last = next;
@@ -635,7 +635,7 @@ function left(ctx: UIContext): Node[] {
   /** An eye switched to `on`; with Shift, every row from the last eye clicked in its list to this one goes the way that one went. */
   const eyeClick = (list: 'objects' | 'sketches' | 'solid', id: string, on: boolean, e: MouseEvent, apply: (ids: string[], on: boolean) => void) => {
     const rows = order[list === 'sketches' ? 'sketches' : 'objects'];
-    if (e.shiftKey && lastEye?.list === list && rows.includes(lastEye.id)) {
+    if (role(e, 'add') && lastEye?.list === list && rows.includes(lastEye.id)) {
       const [a, b] = [rows.indexOf(lastEye.id), rows.indexOf(id)].sort((x, y) => x - y);
       return apply(rows.slice(a, b + 1), lastEye.on);
     }
@@ -698,7 +698,7 @@ function left(ctx: UIContext): Node[] {
   const nameOf = (id: string, name: string, at: string[]) => {
     const only = ctx.selected.length === 1 && ctx.selected[0] === id;
     if (renaming !== id)
-      return h('span', { className: 'name', textContent: name, onclick: (e) => only && !(e.shiftKey || e.metaKey || e.ctrlKey) && (renaming = id) });
+      return h('span', { className: 'name', textContent: name, onclick: (e) => only && !toggles(e) && (renaming = id) });
     const el = input(`list.${id}`, name, (text) => ((renaming = null), ctx.commit(setIn(doc, at, text))));
     el.className = 'rename';
     el.addEventListener('blur', () => !rendering && renaming === id && ((renaming = null), renderUI(ctx)));

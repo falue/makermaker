@@ -1,7 +1,7 @@
 import { UNITS } from '../doc/expr';
 import type { Unit } from '../doc/types';
 import { backdropCss, SKIES } from '../viewer/sky';
-import { CHAPTERS, comboText, KEYS, MODS, pressed, type Binding } from './keys';
+import { CHAPTERS, comboOf, comboText, KEYS, keysOf, MAC, MODIFIER_NAMES, MODS, pressed, resetKeys, roleKey, sameCombo, setKeys, setRole, type Action, type Binding, type Combo, type Modifier, type Role } from './keys';
 
 /** Settings of this browser (not of the document). */
 export interface Settings {
@@ -108,21 +108,73 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     [
       'Hotkeys',
       () => {
-        // read from the key table: every key the app reacts to is listed there, by chapter
-        const keys = (Object.values(KEYS) as Binding[]).sort((a, b) => a.order - b.order);
+        // every key the app reacts to (the key table), by chapter: a click on a key records a new one, × drops it, + adds one
+        const keys = (Object.entries(KEYS) as [Action, Binding][]).sort((a, b) => a[1].order - b[1].order);
+        const clash = (action: Action, c: Combo) =>
+          keys.filter(([other, k]) => other !== action && (k.chapter === KEYS[action].chapter || k.chapter !== 'While a tool runs') && keysOf(other).some((o) => sameCombo(o, c))).map(([, k]) => k.name);
+        /** A field that takes the next key press (with its modifiers) as `action`'s key number `n` (past the end: a new one); Esc alone stops. */
+        const recorder = (action: Action, n: number, shown: string) => {
+          const field = input({ value: shown, readOnly: true, className: 'key-rec', placeholder: 'Press keys …', title: 'Click, then press the keys (Esc: keep it as it was)' });
+          field.onfocus = () => ((field.value = ''), field.classList.add('on'));
+          field.onblur = () => ((field.value = shown), field.classList.remove('on'));
+          field.onkeydown = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.key === 'Escape' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) return field.blur();
+            const c = comboOf(e);
+            if (!c) return; // a modifier alone: the key still to come
+            const list = [...keysOf(action)];
+            list[n] = c;
+            setKeys(action, list);
+            draw();
+          };
+          return field;
+        };
         const rows = CHAPTERS.flatMap((chapter) => [
-          make('tr', { className: 'chapter' }, make('th', { colSpan: 3 }, chapter)),
-          ...keys.filter((k) => k.chapter === chapter).map((k) => make('tr', { title: k.hint }, make('td', {}, k.name), make('td', {}, ...k.default.flatMap((c, i) => [...(i ? [' / '] : []), make('kbd', {}, comboText(c))])), make('td', { className: 'hint' }, k.hint))),
+          make('tr', { className: 'chapter' }, make('th', { colSpan: 2 }, chapter)),
+          ...keys
+            .filter(([, k]) => k.chapter === chapter)
+            .map(([action, k]) => {
+              const combos = keysOf(action);
+              const warn = combos.flatMap((c) => clash(action, c));
+              return make(
+                'tr',
+                { title: k.hint },
+                make('td', {}, k.name, ...(keysOf(action) !== k.default ? [make('span', { className: 'changed', title: 'Changed from its default' }, ' •')] : []), make('div', { className: 'hint' }, k.hint)),
+                make(
+                  'td',
+                  {},
+                  make(
+                    'div',
+                    { className: 'keys' },
+                    ...combos.map((c, i) => make('span', { className: 'key' }, recorder(action, i, comboText(c)), make('button', { className: 'drop', textContent: '×', title: 'Drop this key', onclick: () => (setKeys(action, combos.filter((_, j) => j !== i)), draw()) }))),
+                    recorder(action, combos.length, '+'),
+                  ),
+                  ...(warn.length ? [make('div', { className: 'warn' }, `Also: ${[...new Set(warn)].join(', ')}`)] : []),
+                ),
+              );
+            }),
         ]);
-        // the modifiers: what they mean at a click and while moving
-        const mods = MODS.map((m) => make('tr', { title: m.hint }, make('td', {}, `${m.name} (${m.when})`), make('td', {}, make('kbd', {}, m.key)), make('td', { className: 'hint' }, m.hint)));
+        // the modifiers: what they mean at a click and while moving, each switched to another
+        const roles = Object.entries(MODS) as [Role, (typeof MODS)[Role]][];
+        const modRows = roles.map(([r, m]) => {
+          const now = roleKey(r);
+          const warn = [
+            ...roles.filter(([o, n]) => o !== r && n.when === m.when && roleKey(o) === now).map(([, n]) => `also ${n.name}`),
+            ...(MAC && now === 'ctrl' && m.when === 'click' ? ['Ctrl-click is a right click on a Mac'] : []),
+            ...(now === 'meta' && !MAC ? ['the Windows key opens the start menu'] : []),
+          ];
+          const choice = make('span', { className: 'segmented' }, ...(Object.keys(MODIFIER_NAMES) as Modifier[]).map((k) => make('button', { className: k === now ? 'on' : '', textContent: MODIFIER_NAMES[k], onclick: () => (setRole(r, k), draw()) })));
+          return make('tr', { title: m.hint }, make('td', {}, `${m.name} (${m.when})`, make('div', { className: 'hint' }, m.hint)), make('td', {}, choice, ...(warn.length ? [make('div', { className: 'warn' }, `Careful: ${warn.join('; ')}`)] : [])));
+        });
         return [
           make('h3', {}, 'Hotkeys'),
-          make('p', { className: 'hint' }, 'The keys as they are set now (changing them comes later).'),
+          make('p', { className: 'hint' }, 'Click a key and press the new one (with its modifiers); + adds one more, × drops one. Keys also used elsewhere are marked. They are kept in this browser.'),
+          make('div', { className: 'row' }, make('button', { textContent: 'Reset to defaults', title: 'Every key and modifier back as it came', onclick: () => (resetKeys(), draw()) })),
           make('table', { className: 'hotkeys' }, make('tbody', {}, ...rows)),
           make('h3', {}, 'Modifiers'),
-          make('p', { className: 'hint' }, 'At a click they change what is picked; while moving, how things move. Without one, a drag moves in steps that follow the zoom.'),
-          make('table', { className: 'hotkeys' }, make('tbody', {}, ...mods)),
+          make('p', { className: 'hint' }, 'At a click they change what is picked; while moving, how things move. Without one, a drag moves in steps that follow the zoom. Changing them can clash with the system or each other: the app warns, but lets you.'),
+          make('table', { className: 'hotkeys' }, make('tbody', {}, ...modRows)),
         ];
       },
     ],

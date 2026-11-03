@@ -81,34 +81,106 @@ export const KEYS = {
 
 export type Action = keyof typeof KEYS;
 
-/** Whether `e` is one of `action`'s keys. */
-export function pressed(e: KeyboardEvent, action: Action): boolean {
-  return (KEYS[action].default as Combo[]).some(
-    (c) => e.key.toLowerCase() === c.key && !!c.mod === (e.metaKey || e.ctrlKey) && !!c.alt === e.altKey && (c.shift === undefined || c.shift === e.shiftKey),
-  );
-}
-
 export const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 
-/**
- * What each modifier means, in one place (the settings list them; a mapper will change them later). At a click it
- * changes what is picked, while moving how things move.
- */
-export const MODS = [
-  { key: 'Shift', when: 'click', name: 'Add', hint: 'Adds to the selection or takes away (in lists: a range)' },
-  { key: MAC ? '⌘' : 'Ctrl', when: 'click', name: 'Add one, isolate, go on', hint: 'In lists adds one or takes it away; on an eye shows only that body; with the line tool: the next line from the last end' },
-  { key: 'Alt', when: 'click', name: 'Faces and edges', hint: 'Picks a face or an edge instead of the body (with Shift: more of them)' },
-  { key: 'Shift', when: 'moving', name: 'Constrain', hint: 'Square, keeps proportions, 15° turns, ten times bigger steps' },
-  { key: 'Ctrl', when: 'moving', name: 'Precise', hint: 'Steps of the minimum step (Settings → General)' },
-  { key: 'Alt', when: 'moving', name: 'From the centre', hint: 'Draws and resizes from the centre (with the others too)' },
-] as const;
+/** The keys set in Settings → Hotkeys, by action, and the modifier for each role (left out: the defaults); kept in this browser. */
+const STORE = 'makermaker.keys';
+type Custom = { keys: Partial<Record<Action, Combo[]>>; roles: Partial<Record<Role, Modifier>> };
+let custom: Custom = { keys: {}, roles: {} };
+try {
+  custom = { ...custom, ...JSON.parse(localStorage.getItem(STORE) ?? '{}') };
+} catch {
+  // none kept
+}
+const keep = () => {
+  try {
+    localStorage.setItem(STORE, JSON.stringify(custom));
+  } catch {
+    // not kept this time
+  }
+};
 
-/** ⌘ on a Mac, else Ctrl: adds one in lists, isolates on an eye, goes on with the line tool. */
-export const mod = (e: MouseEvent) => (MAC ? e.metaKey : e.ctrlKey);
+/** `action`'s keys now: as set in Settings, else its defaults. */
+export const keysOf = (action: Action): Combo[] => custom.keys[action] ?? KEYS[action].default;
+
+/** Sets `action`'s keys (null: back to its defaults). */
+export function setKeys(action: Action, combos: Combo[] | null) {
+  if (combos) custom.keys[action] = combos;
+  else delete custom.keys[action];
+  keep();
+}
+
+/** Every key and modifier role back to its default. */
+export function resetKeys() {
+  custom = { keys: {}, roles: {} };
+  keep();
+}
+
+/** The key a key event means: as typed (so a layout's own letters count), but its physical letter or digit while Alt types a special character (⌥A: å on a Mac). */
+export function keyOf(e: KeyboardEvent) {
+  const typed = e.key.toLowerCase();
+  if (!e.altKey || /^[a-z0-9]$/.test(typed)) return typed;
+  return e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : e.code.startsWith('Digit') ? e.code.slice(5) : typed;
+}
+
+/** Whether `e` is one of `action`'s keys. */
+export function pressed(e: KeyboardEvent, action: Action): boolean {
+  return keysOf(action).some((c) => keyOf(e) === c.key && !!c.mod === (e.metaKey || e.ctrlKey) && !!c.alt === e.altKey && (c.shift === undefined || c.shift === e.shiftKey));
+}
+
+/** A combination from a key event (null: a modifier alone, still being held). */
+export function comboOf(e: KeyboardEvent): Combo | null {
+  if (['shift', 'control', 'alt', 'meta'].includes(e.key.toLowerCase())) return null;
+  return { key: keyOf(e), ...(e.metaKey || e.ctrlKey ? { mod: true } : {}), ...(e.altKey ? { alt: true } : {}), shift: e.shiftKey };
+}
+
+/** Whether two combinations can be the same key press. */
+export const sameCombo = (a: Combo, b: Combo) => a.key === b.key && !!a.mod === !!b.mod && !!a.alt === !!b.alt && (a.shift === undefined || b.shift === undefined || a.shift === b.shift);
+
+/** A modifier key. */
+export type Modifier = 'shift' | 'ctrl' | 'alt' | 'meta';
+export const MODIFIER_NAMES: Record<Modifier, string> = { shift: 'Shift', ctrl: 'Ctrl', alt: MAC ? '⌥ Alt' : 'Alt', meta: MAC ? '⌘' : 'Win' };
+
+/**
+ * What each modifier means, in one place (Settings → Hotkeys changes them). At a click it changes what is picked,
+ * while moving how things move.
+ */
+export const MODS = {
+  add: { key: 'shift', when: 'click', name: 'Add', hint: 'Adds to the selection or takes away (in lists: a range)' },
+  addOne: { key: MAC ? 'meta' : 'ctrl', when: 'click', name: 'Add one, isolate, go on', hint: 'In lists adds one or takes it away; on an eye shows only that body; with the line tool: the next line from the last end' },
+  parts: { key: 'alt', when: 'click', name: 'Faces and edges', hint: 'Picks a face or an edge instead of the body (with Shift: more of them)' },
+  constrain: { key: 'shift', when: 'moving', name: 'Constrain', hint: 'Square, keeps proportions, 15° turns, ten times bigger steps' },
+  precise: { key: 'ctrl', when: 'moving', name: 'Precise', hint: 'Steps of the minimum step (Settings → General)' },
+  centre: { key: 'alt', when: 'moving', name: 'From the centre', hint: 'Draws and resizes from the centre (with the others too)' },
+} satisfies Record<string, { key: Modifier; when: 'click' | 'moving'; name: string; hint: string }>;
+
+export type Role = keyof typeof MODS;
+
+/** The modifier `role` uses now: as set in Settings, else its default. */
+export const roleKey = (r: Role): Modifier => custom.roles[r] ?? MODS[r].key;
+
+/** Sets the modifier for `role`. */
+export function setRole(r: Role, m: Modifier) {
+  if (m === MODS[r].key) delete custom.roles[r];
+  else custom.roles[r] = m;
+  keep();
+}
+
+/** What a mouse or key event tells of the modifiers held. */
+export type ModEvent = { shiftKey: boolean; ctrlKey: boolean; altKey: boolean; metaKey: boolean };
+
+/** Whether `role`'s modifier is held in `e`. */
+export const role = (e: ModEvent, r: Role) => e[`${roleKey(r)}Key`];
+
+/** The KeyboardEvent key of `role`'s modifier ('Shift', 'Control' …), to follow it being pressed and let go. */
+export const roleKeyName = (r: Role) => ({ shift: 'Shift', ctrl: 'Control', alt: 'Alt', meta: 'Meta' })[roleKey(r)];
+
+/** Adds one in lists, isolates on an eye, goes on with the line tool. */
+export const mod = (e: MouseEvent) => role(e, 'addOne');
 /** A click that adds to the selection or takes away. */
-export const toggles = (e: MouseEvent) => e.shiftKey || mod(e);
+export const toggles = (e: MouseEvent) => role(e, 'add') || mod(e);
 /** A click that picks a face or an edge. */
-export const picksFace = (e: MouseEvent) => e.altKey;
+export const picksFace = (e: MouseEvent) => role(e, 'parts');
 const NAMES: Record<string, string> = { escape: 'Esc', enter: '↵', tab: 'Tab', backspace: '⌫', delete: 'Del', arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', ' ': 'Space' };
 
 /** A key combination as shown to people: ⇧⌘Z on a Mac, Ctrl+Shift+Z elsewhere. */

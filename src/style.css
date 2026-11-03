@@ -1229,6 +1229,37 @@ button.primary.wide {
   max-height: 60vh;
   overflow: auto;
 }
+.settings .hotkeys .keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.settings .hotkeys .key {
+  display: inline-flex;
+  align-items: center;
+}
+.settings .key-rec {
+  width: 7em;
+  text-align: center;
+  font-family: var(--mono, monospace);
+  cursor: pointer;
+  caret-color: transparent;
+}
+.settings .key-rec.on {
+  border-color: #ff8c1a;
+}
+.settings .hotkeys .drop {
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+.settings .hotkeys .warn {
+  color: var(--error);
+}
+.settings .hotkeys .changed {
+  color: var(--accent);
+}
 .settings .hotkeys {
   border-collapse: collapse;
   width: 100%;
@@ -1239,10 +1270,10 @@ button.primary.wide {
   vertical-align: top;
 }
 .settings .hotkeys td:first-child {
-  white-space: nowrap;
+  width: 55%;
 }
-.settings .hotkeys td:nth-child(2) {
-  white-space: nowrap;
+.settings .hotkeys td .hint {
+  margin-top: 2px;
 }
 .settings .hotkeys .hint {
   font-size: 12px;

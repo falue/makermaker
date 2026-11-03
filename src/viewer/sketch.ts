@@ -9,7 +9,7 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import { comboText, KEYS, MAC, mod, pressed } from '../ui/keys';
+import { comboText, keysOf, MAC, mod, pressed, role, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 import { icon } from '../ui/icons';
 
@@ -75,7 +75,7 @@ export interface ToolView {
   workPlanes: { id: string; name: string; frame: Frame; rect: [number, number, number, number] }[];
   overlay: THREE.Group;
   /** The step a drag moves in near `at` (mm), by the zoom and modifiers (Shift ×10 unless `coarse` is false, Ctrl the minimum). */
-  step(at: THREE.Vector3, e?: { shiftKey: boolean; ctrlKey: boolean }, coarse?: boolean): number;
+  step(at: THREE.Vector3, e?: ModEvent, coarse?: boolean): number;
   /** The angle step (degrees) a drawn line turns in with Ctrl. */
   minAngle: number;
   /** Where shapes drawn on the face of a body hit go (null: nowhere: a curved face no feature made). */
@@ -402,7 +402,7 @@ export class SketchTool implements Tool {
       this.phase =
         this.kind === 'polygon' || this.kind === 'line'
           ? { kind: 'polygon', target, pts: [at], cur: at, typed: [], axis: 0, base: 0 }
-          : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, shift: e.shiftKey, pts: [], lines: line ? [line] : [] };
+          : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, shift: role(e, 'constrain'), pts: [], lines: line ? [line] : [] };
       this.host.hint(this.kind === 'polygon' ? POLYGON_HINT : this.kind === 'line' ? LINE_HINT : SHAPE_HINT);
     } else if (ph.kind === 'shape') this.advance(); // a further click of click-click drawing
     else if (ph.kind === 'polygon') {
@@ -441,14 +441,14 @@ export class SketchTool implements Tool {
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const at = ph.kind === 'polygon' ? this.sideEnd(e, ph) : this.point(e, ph.target);
       if (at) ph.cur = at;
-      this.shiftHeld = e.shiftKey;
+      this.shiftHeld = role(e, 'constrain');
       if (ph.kind === 'shape') {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
-        ph.shift = e.shiftKey;
+        ph.shift = role(e, 'constrain');
       }
     } else {
       if (this.reaching) return this.aim(this.view.aimAt(e)); // aiming at what to reach
-      ph.alt = e.altKey;
+      ph.alt = role(e, 'centre');
       pullBy(this.view, e, ph.target.frame.n, this.middle(ph), ph);
       const step = this.view.step(this.middle(ph), e);
       ph.depth = Math.round(ph.raw / step) * step;
@@ -890,7 +890,7 @@ export class SketchTool implements Tool {
     const raw = deg(Math.atan2(dv, du) - ph.base);
     const by = (step: number) => Math.round(raw / step) * step;
     const typedDeg = ph.typed[1] === undefined ? null : this.host.number(ph.typed[1]);
-    const a = ph.base + ((typedDeg ?? (e.shiftKey ? by(SketchTool.angleStep) : this.snapped ? raw : by(e.ctrlKey ? this.view.minAngle : 1))) * Math.PI) / 180;
+    const a = ph.base + ((typedDeg ?? (role(e, 'constrain') ? by(SketchTool.angleStep) : this.snapped ? raw : by(role(e, 'precise') ? this.view.minAngle : 1))) * Math.PI) / 180;
     const along = du * Math.cos(a) + dv * Math.sin(a);
     const step = this.view.step(v3(toWorld(ph.target.frame, ...at)), e, false);
     const len = this.typed(ph.typed[0]) ?? (this.snapped ? along : Math.round(along / step) * step);
@@ -1187,11 +1187,11 @@ export class SketchTool implements Tool {
     }
     const chain = this.kind === 'line' && ph.kind === 'hover' && SketchTool.lineEnd ? `Hold ${MAC ? '⌘' : 'Ctrl'} to start the line from the end of the last one` : null;
     // on a point along a line (not anywhere along it)
-    const more = this.snapKey && !this.snapWhat?.startsWith('on ') ? `Press ${comboText(KEYS.moreSnaps.default[0])} for more points, ${comboText(KEYS.fewerSnaps.default[0])} for fewer` : null;
+    const more = this.snapKey && !this.snapWhat?.startsWith('on ') ? `Press ${comboText(keysOf('moreSnaps')[0])} for more points, ${comboText(keysOf('fewerSnaps')[0])} for fewer` : null;
     const guide = this.hoveredGuide();
-    const fix = guide ? `Press ${comboText(KEYS.fixGuide.default[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
-    const base = ph.kind === 'polygon' && this.hoveredLine(ph.target.frame) !== null ? `Press ${comboText(KEYS.baseline.default[0])} to measure the angle from this line` : null;
-    const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(KEYS.moreSnaps.default[0])} finer, ${comboText(KEYS.fewerSnaps.default[0])} coarser` : null;
+    const fix = guide ? `Press ${comboText(keysOf('fixGuide')[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
+    const base = ph.kind === 'polygon' && this.hoveredLine(ph.target.frame) !== null ? `Press ${comboText(keysOf('baseline')[0])} to measure the angle from this line` : null;
+    const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(keysOf('moreSnaps')[0])} finer, ${comboText(keysOf('fewerSnaps')[0])} coarser` : null;
     // pulling: while aiming what the pointer reaches (what T does is in the size label)
     const pulling = ph.kind === 'pull' && this.reaching && [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n');
     // at the pointer what it measures and is on; other keys with the tool's hint

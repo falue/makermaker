@@ -23,7 +23,7 @@ import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
 import type { Settings } from '../ui/settings';
 import { divideMore, linePoints, outline, planeHit, shape2d, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
-import { picksFace, pressed, toggles } from '../ui/keys';
+import { picksFace, pressed, role, toggles, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -2670,8 +2670,8 @@ export class Viewer implements ToolView {
     if (this.quietPick && this.pickParts === 'alt' && picksFace(e)) {
       const edge = this.edgeAt(e);
       this.markEdge();
-      if (edge) return this.endFacePick({ point: edge.segs[0][0].clone(), normal: new THREE.Vector3(), part: { edge: edge.segs }, adds: e.shiftKey });
-      return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), ...(hit ? { part: { face: this.faceItem(hit) }, adds: e.shiftKey } : {}) });
+      if (edge) return this.endFacePick({ point: edge.segs[0][0].clone(), normal: new THREE.Vector3(), part: { edge: edge.segs }, adds: role(e, 'add') });
+      return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), ...(hit ? { part: { face: this.faceItem(hit) }, adds: role(e, 'add') } : {}) });
     }
     if (this.quietPick) {
       const edge = this.edgeAt(e);
@@ -2766,13 +2766,13 @@ export class Viewer implements ToolView {
    * zoom, 0.5 m with 20 m across the view), rounded to 1-2-5; Shift ten times (`coarse`: where Shift is no constraint),
    * Ctrl the minimum step.
    */
-  step(at: THREE.Vector3, e?: { shiftKey: boolean; ctrlKey: boolean }, coarse = true) {
-    if (e?.ctrlKey) return this.minStep;
+  step(at: THREE.Vector3, e?: ModEvent, coarse = true) {
+    if (e && role(e, 'precise')) return this.minStep;
     const raw = 8.67 * (1 / this.pixelsPerMm(at)) ** 1.26;
     const p = 10 ** Math.floor(Math.log10(raw));
     const n = raw / p;
     const nice = (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
-    return Math.max(this.minStep, nice * (coarse && e?.shiftKey ? 10 : 1));
+    return Math.max(this.minStep, nice * (coarse && e && role(e, 'constrain') ? 10 : 1));
   }
 
   /** How far the move preview has moved the selection (world mm; zero without one). */
@@ -3030,7 +3030,7 @@ export class Viewer implements ToolView {
       // Shift adds it to (or takes it from) the parts picked: edges on that body, faces on any body (all selected)
       // on a fillet's or chamfer's face (before its edges): that part of the finish selected, as a plain click does (Del
       // leaves its edge out); pressed again, its size drags
-      const finish = !e.shiftKey && hit && this.finishAt(hit);
+      const finish = !role(e, 'add') && hit && this.finishAt(hit);
       if (finish) {
         const id = hit!.object.userData.bodyId as string;
         if (this.finishSel?.body === id && this.finishSel.feature === finish.feature) return this.host.dragFinish(id, finish.feature, hit!.point.clone()), void (this.toolPress = !!this.tool);
@@ -3041,15 +3041,15 @@ export class Viewer implements ToolView {
       const body = edge?.body ?? (hit!.object.userData.bodyId as string);
       // what is picked already (selecting below starts over)
       const [edges, faces] = [this.pickedEdge?.body === body ? this.pickedEdge.edges : [], this.pickedFaces];
-      if (edge || !e.shiftKey || !faces.length) this.host.select(body, false);
+      if (edge || !role(e, 'add') || !faces.length) this.host.select(body, false);
       else if (!this.selection.includes(body)) this.host.select(body, true);
       if (edge) {
-        const had = e.shiftKey ? edges : [];
+        const had = role(e, 'add') ? edges : [];
         const same = (segs: [THREE.Vector3, THREE.Vector3][]) => segs.length === edge.segs.length && segs[0][0].distanceTo(edge.segs[0][0]) < 1e-6;
         return this.pickEdges({ body, edges: had.some(same) ? had.filter((x) => !same(x)) : [...had, edge.segs] });
       }
       const [mesh, k] = [hit!.object as THREE.Mesh, faceOf(hit!)];
-      const had = e.shiftKey ? faces : [];
+      const had = role(e, 'add') ? faces : [];
       const on = had.find((p) => p.mesh === mesh);
       if (!on) return this.pickFaces([...had, { mesh, faces: [k] }]);
       return this.pickFaces(had.map((p) => (p === on ? { mesh, faces: on.faces.includes(k) ? on.faces.filter((x) => x !== k) : [...on.faces, k] } : p)));
@@ -3137,7 +3137,7 @@ export class Viewer implements ToolView {
     const d = this.drag;
     if (!d) {
       // a left drag without modifiers rotates: that leaves the side view the cube set up
-      if (e.buttons === 1 && !e.shiftKey && !e.ctrlKey && !e.metaKey && this.dragged(e)) this.leaveSideView();
+      if (e.buttons === 1 && !toggles(e) && this.dragged(e)) this.leaveSideView();
       return;
     }
     if (!d.moved && !this.dragged(e)) return;
@@ -3197,12 +3197,12 @@ export class Viewer implements ToolView {
     const world = new THREE.Vector3(...toWorld(f, ...centre(st)));
     if (ed.handle.kind === 'rotate') {
       const deg = angleAt(st, q) - ed.a0;
-      const turn = e?.ctrlKey ? 0.1 : e?.shiftKey ? 15 : 1; // degrees
+      const turn = e && role(e, 'precise') ? 0.1 : e && role(e, 'constrain') ? 15 : 1; // degrees
       ed.next = rotated(st, Math.round(deg / turn) * turn);
       this.label(`${(ed.next.kind === 'circle' || ed.next.kind === 'line' ? 0 : ed.next.rot).toFixed(1)}°`, world);
     } else {
       const typed = ed.typed.map((t) => (t === undefined ? undefined : (this.host.length(t) ?? undefined))) as [number | undefined, number | undefined];
-      ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e?.altKey, shift: !!e?.shiftKey, step: this.step(world, e ?? undefined, false), typed });
+      ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e && role(e, 'centre'), shift: !!e && role(e, 'constrain'), step: this.step(world, e ?? undefined, false), typed });
       const [w, h] = sizeOf(ed.next);
       const body = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : `${ed.typed[k]}▏`}`;
       this.label(st.kind === 'circle' ? body(ed.axis, 'Ø', w) : `${body(0, 'W', w)}   ${body(1, 'H', h)}`, world);
@@ -3269,7 +3269,7 @@ export class Viewer implements ToolView {
     this.drag = null;
     this.controls.enabled = true;
     if (d?.only) return this.sketches.some((s) => s.shapes.some((q) => q.id === d.only)) ? this.host.pickShape(this.activeSketch!, d.only, false) : this.host.select(d.only, false);
-    if (!d && !this.downOnPart && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !this.dragged(e)) this.host.select(null, false);
+    if (!d && !this.downOnPart && e.button === 0 && !toggles(e) && !this.dragged(e)) this.host.select(null, false);
   }
 
   private dragged(e: PointerEvent, px = 4) {

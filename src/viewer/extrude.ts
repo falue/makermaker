@@ -4,7 +4,7 @@ import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
 import { aimInto, planeHit, pullName, pullBy, pulled, pullKey, reachInto, sizeLabel, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
-import { pressed } from '../ui/keys';
+import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
@@ -132,7 +132,7 @@ export class ExtrudeTool implements Tool {
       const hit = this.hitAt(e);
       // empty space: with nothing picked the tool ends
       if (!hit) return this.count() || this.x.done(null), true;
-      const first = !this.count() && !(e.shiftKey || e.ctrlKey || e.metaKey);
+      const first = !this.count() && !toggles(e);
       if (first && 'face' in hit && hit.face.finish) return this.x.resize(hit.face), true;
       this.toggle(hit);
       if (first && this.count()) this.startPull();
@@ -148,7 +148,7 @@ export class ExtrudeTool implements Tool {
       pullBy(this.view, e, frame.n, at, this.pull);
       const step = this.view.step(at, e);
       this.pull.depth = Math.round(this.pull.raw / step) * step;
-      this.pull.alt = e.altKey;
+      this.pull.alt = role(e, 'centre');
       return this.changed();
     }
     this.hover = this.hitAt(e);

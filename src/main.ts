@@ -27,7 +27,7 @@ import { Kernel } from './kernel/client';
 import { renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
-import { MAC, pressed, type Action } from './ui/keys';
+import { MAC, pressed, role, roleKeyName, type Action } from './ui/keys';
 import { installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
 import { keepInside } from './ui/inside';
@@ -3072,7 +3072,7 @@ function rotateTool() {
   let ended = false;
   // the angle steps show as rays while Shift is held, and a while after A / Shift A
   let [shift, raysUntil] = [false, 0];
-  const shiftKey = (e: KeyboardEvent) => e.key === 'Shift' && ((shift = e.type === 'keydown'), marks());
+  const shiftKey = (e: KeyboardEvent) => e.key === roleKeyName('constrain') && ((shift = e.type === 'keydown'), marks());
   const apply = (a: number) => {
     angle = a;
     input.value = fmt(a);
@@ -3220,7 +3220,7 @@ function rotateTool() {
     }
     const sign = dir.dot(viewer.screenDir(1, 0).cross(viewer.screenDir(0, 1))) >= 0 ? 1 : -1;
     const raw = ((((now - from.screen) * 180) / Math.PI) * sign + 540) % 360 - 180;
-    const step = e.shiftKey ? SketchTool.angleStep : e.ctrlKey ? settings.minAngle : 1;
+    const step = role(e, 'constrain') ? SketchTool.angleStep : role(e, 'precise') ? settings.minAngle : 1;
     const a = Math.round(raw / step) * step;
     if (a !== angle) apply(a);
     else marks();
@@ -5165,9 +5165,9 @@ addEventListener('keydown', (e) => {
   else if (axis >= 0) (e.preventDefault(), moveAlong(axis, true)); // all three fields, the cursor in this one (the key is not typed into it)
   else if (pressed(e, 'move')) (e.preventDefault(), moveAlong(0, true));
   // arrows: 1 mm, Shift 10, Ctrl the minimum step
-  else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), e.ctrlKey ? settings.minStep : e.shiftKey ? 10 : 1);
+  else if (shapeSel.length && arrow) nudgeShapes(viewer.screenDir(...arrow), role(e, 'precise') ? settings.minStep : role(e, 'constrain') ? 10 : 1);
   // nudges along the world axis nearest to the arrow's screen direction
-  else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(e.ctrlKey ? settings.minStep : e.shiftKey ? 10 : 1).toArray());
+  else if (selected.length && arrow) nudge(viewer.screenAxis(...arrow).multiplyScalar(role(e, 'precise') ? settings.minStep : role(e, 'constrain') ? 10 : 1).toArray());
   else if (pressed(e, 'selectAll')) selectAll();
   // nothing selected: the next click picks what it acts on
   else if (pressed(e, 'toggleVisible')) selected.length ? toggleVisible() : pickFor('hide', toggleVisible);
