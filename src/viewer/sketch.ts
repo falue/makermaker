@@ -492,7 +492,7 @@ export class SketchTool implements Tool {
     if (ph.kind !== 'shape') SketchTool.modes.set(this.kind!, next.id);
     else if (next.lines) (SketchTool.modes.set(this.kind!, next.id), (this.phase = { kind: 'hover' }));
     else Object.assign(ph, { mode: next.id, pts: [], lines: [] });
-    showMode(this.view.el, next);
+    showMode(this.view.el, this.kind!, next);
     this.host.hint(this.phase.kind === 'shape' ? SHAPE_HINT : this.hoverHint());
   }
 
@@ -1275,35 +1275,33 @@ export class SketchTool implements Tool {
 
 const SHAPE_HINT = 'Drag to size, or type it · [Tab] other side or number of sides · [Alt] another drawing mode for this shape · [Shift] square / 15° · [Ctrl] precise · [Enter] or click: done · [Esc] cancels';
 
-/** A drawing mode: its name and pictogram, how many clicks it takes, whether it starts on lines, the hint after the first click. */
-type Mode = { id: string; name: string; pic: string; clicks: number; lines?: true; next?: string };
-const dot = (x: number, y: number) => `<circle cx="${x}" cy="${y}" r="1.7" fill="currentColor" stroke="none"/>`;
-const HEX = '<path d="M12 4l6.9 4v8L12 20l-6.9-4V8z"/>';
+/** A drawing mode: its name, how many clicks it takes, whether it starts on lines, the hint after the first click; its pictogram is icon `<shape>-<id>`. */
+type Mode = { id: string; name: string; clicks: number; lines?: true; next?: string };
 /** The drawing modes of the shapes that have several (Alt cycles them, Shift Alt back). */
 const MODES: Partial<Record<ToolKind, Mode[]>> = {
   rect: [
-    { id: 'corners', name: 'Rectangle: two corners', clicks: 2, pic: `<rect x="4" y="6" width="16" height="12"/>${dot(4, 6)}${dot(20, 18)}` },
-    { id: 'centre', name: 'Rectangle: from the centre', clicks: 2, pic: `<rect x="4" y="6" width="16" height="12"/>${dot(12, 12)}${dot(20, 18)}` },
-    { id: 'turned', name: 'Rectangle: turned (a side, then its width)', clicks: 3, pic: `<path d="M3 14l8-8 8 8-8 8z"/>${dot(3, 14)}${dot(11, 6)}${dot(15, 18)}`, next: 'Turned rectangle: click the side\'s other end, then the width · [Esc] cancels' },
-    { id: 'turnedCentre', name: 'Rectangle: turned, from the centre (a direction, then its size)', clicks: 3, pic: `<path d="M3 14l8-8 8 8-8 8z"/><path d="M11 14l4-4"/>${dot(11, 14)}${dot(15, 10)}${dot(15, 18)}`, next: 'Turned rectangle from its centre: click a point it points to, then its size · [Esc] cancels' },
+    { id: 'corners', name: 'Rectangle: two corners', clicks: 2 },
+    { id: 'centre', name: 'Rectangle: from the centre', clicks: 2 },
+    { id: 'turned', name: 'Rectangle: turned (a side, then its width)', clicks: 3, next: 'Turned rectangle: click the side\'s other end, then the width · [Esc] cancels' },
+    { id: 'turnedCentre', name: 'Rectangle: turned, from the centre (a direction, then its size)', clicks: 3, next: 'Turned rectangle from its centre: click a point it points to, then its size · [Esc] cancels' },
   ],
   circle: [
-    { id: 'centre', name: 'Circle: centre and radius', clicks: 2, pic: `<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>${dot(12, 12)}${dot(20, 12)}` },
-    { id: 'diameter', name: 'Circle: two points across', clicks: 2, pic: `<circle cx="12" cy="12" r="8"/><path d="M4 12h16"/>${dot(4, 12)}${dot(20, 12)}` },
-    { id: 'three', name: 'Circle: through three points', clicks: 3, pic: `<circle cx="12" cy="12" r="8"/>${dot(4, 12)}${dot(17.7, 6.3)}${dot(14, 19.7)}`, next: 'Circle through three points: click the second, then the third · [Esc] cancels' },
-    { id: 'tangent', name: 'Circle: tangent to two lines', clicks: 3, lines: true, pic: `<path d="M3 20h18M3 20L13 3"/><circle cx="11.5" cy="14" r="5.5"/>`, next: 'Tangent circle: click the second line, then where it lies (its size) · [Esc] cancels' },
+    { id: 'centre', name: 'Circle: centre and radius', clicks: 2 },
+    { id: 'diameter', name: 'Circle: two points across', clicks: 2 },
+    { id: 'three', name: 'Circle: through three points', clicks: 3, next: 'Circle through three points: click the second, then the third · [Esc] cancels' },
+    { id: 'tangent', name: 'Circle: tangent to two lines', clicks: 3, lines: true, next: 'Tangent circle: click the second line, then where it lies (its size) · [Esc] cancels' },
   ],
   ngon: [
-    { id: 'corner', name: 'Regular polygon: centre to a corner', clicks: 2, pic: `${HEX}${dot(12, 12)}${dot(12, 4)}` },
-    { id: 'side', name: "Regular polygon: centre to a side's middle", clicks: 2, pic: `${HEX}${dot(12, 12)}${dot(15.45, 6)}` },
-    { id: 'edge', name: 'Regular polygon: one side, end to end', clicks: 2, pic: `${HEX}${dot(5.1, 16)}${dot(12, 20)}` },
+    { id: 'corner', name: 'Regular polygon: centre to a corner', clicks: 2 },
+    { id: 'side', name: "Regular polygon: centre to a side's middle", clicks: 2 },
+    { id: 'edge', name: 'Regular polygon: one side, end to end', clicks: 2 },
   ],
 };
 
 /** The drawing mode's pictogram and name, top left in the view for a moment. */
-function showMode(el: HTMLElement, m: Mode, ms = 1000) {
+function showMode(el: HTMLElement, kind: ToolKind, m: Mode, ms = 1000) {
   el.querySelector('.mode-note')?.remove();
-  const note = Object.assign(document.createElement('div'), { className: 'mode-note', innerHTML: `<svg viewBox="0 0 24 24">${m.pic}</svg><span>${m.name}</span>` });
+  const note = Object.assign(document.createElement('div'), { className: 'mode-note', innerHTML: `${icon(`${kind}-${m.id}`)}<span>${m.name}</span>` });
   el.append(note);
   setTimeout(() => note.remove(), ms);
 }

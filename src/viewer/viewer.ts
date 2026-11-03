@@ -1725,7 +1725,7 @@ export class Viewer implements ToolView {
   /** Bodies hovered in the list: outlined orange (a temporary mark). */
   private hovered: string[] = [];
   /** At the view's edge, pointing to what is hovered in the list when it lies outside the view. */
-  private offscreen = Object.assign(document.createElement('div'), { className: 'offscreen', hidden: true, innerHTML: '<svg viewBox="0 0 24 24"><path d="M4 12h14M12 6l6 6-6 6"/></svg>' });
+  private offscreen = Object.assign(document.createElement('div'), { className: 'offscreen', hidden: true, innerHTML: icon('offscreen') });
 
   /** Outlines bodies orange (hovered in the list; none: clears it); off the view, an arrow at its edge points to them. */
   lightBodies(ids: string[]) {

@@ -1,84 +1,13 @@
-// Stroke icons on a 24 grid, in the style of incase.
-const ICONS = {
-  new: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M12 11v6M9 14h6"/>',
-  open: '<path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
-  save: '<path d="M5 3h11l4 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
-  autosave: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4h-4"/><path d="M12 8v4l3 2"/>',
-  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
-  redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
-  ngon: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/>',
-  sphere: '<circle cx="12" cy="12" r="8"/><ellipse class="faint" cx="12" cy="12" rx="8" ry="3"/>',
-  boolean: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
-  union: '<path d="M12 7.1A6 6 0 1 0 12 16.9A6 6 0 1 0 12 7.1z"/>',
-  subtract: '<path d="M12 7.1A6 6 0 1 0 12 16.9A6 6 0 0 1 12 7.1z"/><circle cx="15" cy="12" r="6" stroke-dasharray="2 2"/>',
-  intersect: '<path d="M12 7.1A6 6 0 0 1 12 16.9A6 6 0 0 1 12 7.1z"/><circle cx="9" cy="12" r="6" stroke-dasharray="2 2"/><circle cx="15" cy="12" r="6" stroke-dasharray="2 2"/>',
-  rect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
-  circle: '<circle cx="12" cy="12" r="8"/><path class="faint" d="M12 12h8"/>',
-  polygon: '<path d="M4 18l3-12 9-2 4 9-7 7z"/>',
-  home: '<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5M10 20v-6h4v6"/>',
-  pattern: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1" stroke-dasharray="2 1.6"/><rect x="3" y="15" width="6" height="6" rx="1" stroke-dasharray="2 1.6"/><rect x="15" y="15" width="6" height="6" rx="1" stroke-dasharray="2 1.6"/>',
-  thread: '<path d="M8 3v18M16 3v18"/><path d="m8 6 8-2M8 10l8-2M8 14l8-2M8 18l8-2"/>',
-  step: '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
-  plane: '<path d="M3 16 9 8h12l-6 8z"/><path d="M12 4v8" stroke-dasharray="2 1.6"/>',
-  mirror: '<path d="M12 3v18" stroke-dasharray="2 1.6"/><path d="M9 7 3 17h6zM15 7l6 10h-6z"/>',
-  offset: '<path d="M3 5v16h18V5h-2.5v13.5h-13V5z"/><path class="faint" d="M5.5 5h13"/>',
-  sweep: '<path d="M4 18c4 0 5-12 10-12h6" stroke-dasharray="2 1.6"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="6" r="2.5"/>',
-  align: '<path d="M4 3v18"/><rect x="7" y="6" width="12" height="4" rx="1"/><rect x="7" y="14" width="7" height="4" rx="1"/>',
-  joint: '<path d="M6.2 15.5 7.3 3M8.5 18H21"/><circle cx="6" cy="18" r="2"/><path class="faint" d="M9.1 9.5A9 9 0 0 1 14.2 14.2M14.6 11.7l-.4 2.5-2.2-1.3"/>',
-  play: '<path d="M7 5v14l11-7z"/>',
-  pause: '<path d="M8 5v14M16 5v14"/>',
-  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
-  target: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
-  loop: '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>',
-  rotate: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/><circle cx="12" cy="12" r="1.5"/>',
-  revolve: '<path d="M12 2v20" stroke-dasharray="2 1.6"/><path d="M12 6h4v12h-4"/><path d="M8 7.5a7 2.5 0 1 0 8.5 0"/><path d="m16.5 7.5-.2-2.3 2 1"/>',
-  fingers: '<path d="M3 7h4v4h4V7h4v4h4v6H3z"/><path class="faint" d="M7 7V3h4v4M15 7V3h4v4"/>',
-  measure: '<path d="M3 16 16 3l5 5L8 21z"/><path class="faint" d="M7 12l2 2M10 9l2 2M13 6l2 2"/>',
-  param: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
-  bulge: '<path d="M3 19h18" class="faint"/><path d="M4 19C4 11 8 7 12 7s8 4 8 12"/><path d="M12 3v2" class="faint"/>',
-  loft: '<path d="M4 20h16"/><ellipse cx="12" cy="5" rx="4" ry="1.6"/><path d="M4 20C4 12 8 10 8 5M20 20c0-8-4-10-4-15"/>',
-  cut: '<path d="M5 9.5V4h14v5.5M5 14.5V20h14v-5.5"/><path d="M3 12h18" stroke-dasharray="2 1.6"/>',
-  move: '<path d="M12 3v18M3 12h18"/><path d="M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
-  body: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
-  sketch: '<path d="M3 17l9 4 9-4-9-4z"/><path d="M15 3l3 3-6 6H9V9z"/>',
-  select: '<path d="M6 3l12 9-6 1-3 6z"/>',
-  finish: '<path d="M5 12l5 5 9-10"/>',
-  extrude: '<path d="M4 17l8 4 8-4-8-4z"/><path d="M12 15V3M8 7l4-4 4 4"/>',
-  look: '<path d="M15 7.5l6.5 4.5-6.5 4.5"/><path d="M15 7.5a5.5 5.5 0 0 0 0 9"/><path d="M13.6 10.7a1.6 1.6 0 0 0 0 2.6"/><path d="M5 12h5" stroke-dasharray="1.5 1.5"/><path d="M2.5 6v12"/>',
-  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
-  isolate: '<path d="M3 7V3h4M17 3h4v4M21 17v4h-4M7 21H3v-4"/><path d="M5 12s3-4.5 7-4.5 7 4.5 7 4.5-3 4.5-7 4.5S5 12 5 12z"/><circle cx="12" cy="12" r="2" fill="currentColor"/>',
-  eyeFaded: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke-dasharray="2.5 2"/><circle cx="12" cy="12" r="3" opacity=".45"/>',
-  eyeOff: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" opacity=".35"/><path d="M4 4l16 16"/>',
-  duplicate: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
-  delete: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
-  left: '<path d="M4 3v18"/><rect x="7" y="6" width="12" height="4" rx="1"/><rect x="7" y="14" width="7" height="4" rx="1"/>',
-  centerX: '<path d="M12 3v18"/><rect x="5" y="6" width="14" height="4" rx="1"/><rect x="8" y="14" width="8" height="4" rx="1"/>',
-  right: '<path d="M20 3v18"/><rect x="5" y="6" width="12" height="4" rx="1"/><rect x="10" y="14" width="7" height="4" rx="1"/>',
-  top: '<path d="M3 4h18"/><rect x="6" y="7" width="4" height="12" rx="1"/><rect x="14" y="7" width="4" height="7" rx="1"/>',
-  centerY: '<path d="M3 12h18"/><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="8" width="4" height="8" rx="1"/>',
-  bottom: '<path d="M3 20h18"/><rect x="6" y="5" width="4" height="12" rx="1"/><rect x="14" y="10" width="4" height="7" rx="1"/>',
-  distributeX: '<path d="M3 4v16M21 4v16"/><rect x="6" y="8" width="3" height="8" rx="1"/><rect x="15" y="8" width="3" height="8" rx="1"/><rect x="10.5" y="8" width="3" height="8" rx="1"/>',
-  distributeY: '<path d="M4 3h16M4 21h16"/><rect x="8" y="6" width="8" height="3" rx="1"/><rect x="8" y="15" width="8" height="3" rx="1"/><rect x="8" y="10.5" width="8" height="3" rx="1"/>',
-  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
-  theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>',
-  render: '<path d="M4 7h3l2-3h6l2 3h3v12H4z"/><circle cx="12" cy="13" r="3.5"/>',
-  renderNice: '<path d="M4 7h3l2-3h6l2 3h3v12H4z"/><path d="M12 9.5l1 2.2 2.3.3-1.7 1.6.4 2.3-2-1.1-2 1.1.4-2.3-1.7-1.6 2.3-.3z"/>',
-  laser: '<rect x="8.5" y="2.5" width="7" height="6" rx="1.2"/><path d="M10.5 8.5l1 1.5h1l1-1.5M12 10v7M3.5 18h7M13.5 18h7M10.5 17.5l-2.5-4M10.5 18l-3.5-2M13.5 17.5l3.5-5.5M13.5 18l5-4"/>',
-  print: '<path d="M8 3h8v6H8zM10 9l1 3h2l1-3M7 15h10v5H7zM3 20h18M7 17.5h10"/>',
-  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/><circle cx="12" cy="12" r="6.5"/>',
-  group: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2"/><rect x="6" y="6" width="7" height="7" rx="1"/><rect x="11" y="11" width="7" height="7" rx="1"/>',
-  ungroup: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/><path d="M14 4l6 6M20 4l-6 6"/>',
-  chevron: '<path d="M9 6l6 6-6 6"/>',
-  import: '<path d="M12 3v11M8 10l4 4 4-4"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
-  line: '<path d="M5 19L19 5"/>',
-  unlink: '<path d="M15 9l3-3a3 3 0 0 0-4.2-4.2l-3 3M9 15l-3 3a3 3 0 0 0 4.2 4.2l3-3M4 8h3M8 4v3M20 16h-3M16 20v-3"/>',
-  fit: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.2 15.2L20 20"/><rect x="7.5" y="7.5" width="6" height="6" rx=".5"/>',
-  section: '<path d="M4 20L20 4"/><path d="M4 12l8-8M12 20l8-8" stroke-dasharray="2 2"/>',
-};
+// Stroke icons on a 24 grid, in the style of incase: one file each in ./icons (bundled with the app). Parts with
+// class="faint" (and dashed ones) show in a lighter grey on toolbar buttons.
+const ICONS = Object.fromEntries(
+  Object.entries(import.meta.glob<string>('./icons/*.svg', { query: '?raw', import: 'default', eager: true })).map(([path, svg]) => [path.slice('./icons/'.length, -'.svg'.length), svg]),
+);
 
-export type IconName = keyof typeof ICONS;
+/** An icon's file name, without .svg. */
+export type IconName = string;
 
-export const icon = (name: IconName) => `<svg viewBox="0 0 24 24">${ICONS[name]}</svg>`;
+export const icon = (name: IconName) => ICONS[name];
 
 /** Square icon button (incase's toolbar style); `on` marks an active mode. */
 export function tool(name: IconName, title: string, onclick: () => void, on = false, disabled = false) {
