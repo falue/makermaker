@@ -1800,6 +1800,7 @@ export class Viewer implements ToolView {
       this.placeWheel();
       this.drawSky();
       this.scaleDashes();
+      this.drawCrossings();
       this.pointTo(this.arrowAt());
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
@@ -2116,6 +2117,81 @@ export class Viewer implements ToolView {
     return (this.cuts = { lines, corners });
   }
 
+  private crossings: { key: string; lines: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut: true; plane?: true }[]; ends: THREE.Vector3[] } | null = null;
+  private crossMark = new THREE.Group();
+
+  /**
+   * Where shown bodies cross each other, and work planes (within their rectangles) cross bodies and each other: lines
+   * that snap and pick like edges (no finishes on them: `cut`; `plane`: a work plane's), and their ends; computed when
+   * first asked after bodies or planes changed.
+   */
+  private crossEdges() {
+    const shown = [...this.bodies].flatMap(([id, g]) => {
+      const solid = g.children.find((c) => c instanceof THREE.Mesh) as THREE.Mesh | undefined;
+      return solid && !this.hidden.has(id) && !this.cutters.has(id) ? [{ id, g: (g.updateMatrix(), g), solid }] : [];
+    });
+    const key = shown.map((b) => `${b.id} ${b.solid.geometry.id} ${b.g.matrix.elements.join()}`).join('|') + JSON.stringify(this.workPlanes.map((w) => [w.frame, w.rect]));
+    if (this.crossings?.key === key) return this.crossings;
+    const lines: NonNullable<Viewer['crossings']>['lines'] = [];
+    // bodies crossing bodies, where their boxes overlap
+    const tris = shown.map((b) => triangles(b.solid.geometry, b.g.matrix));
+    const boxes = tris.map((ts) => ts.reduce((box, t) => box.union(t.box), new THREE.Box3()));
+    for (let i = 0; i < shown.length; i++)
+      for (let j = i + 1; j < shown.length; j++) {
+        const both = boxes[i].clone().intersect(boxes[j]);
+        if (both.isEmpty()) continue;
+        const [as, bs] = [tris[i].filter((t) => t.box.intersectsBox(both)), tris[j].filter((t) => t.box.intersectsBox(both))];
+        // each piece once (neighbouring triangles find shared ones twice), none too short to keep
+        const pieces = new Map<string, [THREE.Vector3, THREE.Vector3]>();
+        const point = (v: THREE.Vector3) => v.toArray().map((x) => Math.round(x * 1e4)).join();
+        for (const a of as)
+          for (const b of bs) {
+            const seg = a.box.intersectsBox(b.box) && triCross(a, b);
+            if (seg && seg[0].distanceTo(seg[1]) > 1e-4) pieces.set([point(seg[0]), point(seg[1])].sort().join(' '), seg);
+          }
+        for (const line of chained([...pieces.values()])) lines.push({ body: shown[i].id, segs: line, cut: true });
+      }
+    // work planes: their planes and the four sides of their rectangles (clipping planes keep their inside)
+    const planes = this.workPlanes.map((w) => {
+      const [o, x, y, n] = [w.frame.o, w.frame.x, w.frame.y, w.frame.n].map((v) => new THREE.Vector3(...v));
+      const side = (d: THREE.Vector3, at: number) => new THREE.Plane(d, -d.dot(o) - at);
+      const [u0, v0, u1, v1] = w.rect;
+      return { id: w.id, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n, o), clips: [side(x, u0), side(x.clone().negate(), -u1), side(y, v0), side(y.clone().negate(), -v1)] };
+    });
+    for (const w of planes) for (const b of shown) for (const segs of planeCut(b.solid.geometry, b.g.matrix, w.plane, w.clips)) lines.push({ body: b.id, segs, cut: true, plane: true });
+    for (let i = 0; i < planes.length; i++)
+      for (let j = i + 1; j < planes.length; j++) {
+        const [p, q] = [planes[i].plane, planes[j].plane];
+        const dir = p.normal.clone().cross(q.normal);
+        if (dir.lengthSq() < 1e-12) continue;
+        // a point on both (n·x = h each): (h₁ n₂×d + h₂ d×n₁) / |d|²
+        const at = new THREE.Vector3().crossVectors(q.normal, dir).multiplyScalar(-p.constant).add(new THREE.Vector3().crossVectors(dir, p.normal).multiplyScalar(-q.constant)).divideScalar(dir.lengthSq());
+        let [lo, hi] = [-1e6, 1e6];
+        for (const c of [...planes[i].clips, ...planes[j].clips]) {
+          const [d0, k] = [c.distanceToPoint(at), c.normal.dot(dir)];
+          if (Math.abs(k) < 1e-12) {
+            if (d0 < 0) lo = hi;
+          } else if (k > 0) lo = Math.max(lo, -d0 / k);
+          else hi = Math.min(hi, -d0 / k);
+        }
+        if (hi - lo > 1e-6) lines.push({ body: planes[i].id, segs: [[at.clone().addScaledVector(dir, lo), at.clone().addScaledVector(dir, hi)]], cut: true, plane: true });
+      }
+    const ends = lines.flatMap(({ segs }) => (segs[0][0].distanceTo(segs.at(-1)![1]) > 1e-6 ? [segs[0][0], segs.at(-1)![1]] : []));
+    return (this.crossings = { key, lines, ends });
+  }
+
+  /** The work planes' crossing lines drawn green, redrawn when they change. */
+  private drawCrossings() {
+    const c = this.crossEdges();
+    if (this.crossMark.userData.key === c.key) return;
+    for (const o of this.crossMark.children) ((o as THREE.LineSegments).geometry.dispose(), ((o as THREE.LineSegments).material as THREE.Material).dispose());
+    this.crossMark.clear();
+    if (!this.crossMark.parent) this.scene.add(this.crossMark);
+    this.crossMark.userData.key = c.key;
+    const segs = c.lines.filter((l) => l.plane).flatMap((l) => l.segs.flat());
+    if (segs.length) this.crossMark.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), new THREE.LineBasicMaterial({ color: 0x2fae5a })));
+  }
+
   /** The edges of the shown bodies (world segments), with their body; cut outlines of the section too (`cut`). */
   /** Centres of round body edges (world), per edge lines: kept while their geometry and place stay. */
   private roundCentres = new WeakMap<THREE.Object3D, { key: string; pts: THREE.Vector3[] }>();
@@ -2149,7 +2225,7 @@ export class Viewer implements ToolView {
   }
 
   private bodyEdges() {
-    const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true }[] = [...this.cutEdges().lines];
+    const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true }[] = [...this.cutEdges().lines, ...this.crossEdges().lines];
     for (const [id, g] of this.bodies)
       for (const c of this.hidden.has(id) ? [] : g.children) {
         const groups = c.userData.edgeGroups as Uint32Array | undefined;
@@ -2298,7 +2374,7 @@ export class Viewer implements ToolView {
         const xyz = c.userData.corners as Float32Array | undefined;
         for (let i = 0; xyz && i < xyz.length; i += 3) out.push(new THREE.Vector3(xyz[i], xyz[i + 1], xyz[i + 2]).applyMatrix4(g.matrix));
       }
-    return [...out, ...this.balls.map((b) => b.center), ...this.cutEdges().corners];
+    return [...out, ...this.balls.map((b) => b.center), ...this.cutEdges().corners, ...this.crossEdges().ends];
   }
 
   spheres() {
@@ -3207,6 +3283,49 @@ export class Viewer implements ToolView {
   }
 }
 
+type Tri = { p: THREE.Vector3[]; n: THREE.Vector3; c: number; box: THREE.Box3 };
+
+/** A mesh's triangles in the world (`matrix`), each with its plane (`n`·p = `c`) and box. */
+function triangles(geo: THREE.BufferGeometry, matrix: THREE.Matrix4): Tri[] {
+  const pos = geo.attributes.position;
+  const index = geo.index;
+  const at = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, index ? index.getX(i) : i).applyMatrix4(matrix);
+  const out: Tri[] = [];
+  for (let t = 0; t + 2 < (index ? index.count : pos.count); t += 3) {
+    const p = [at(t), at(t + 1), at(t + 2)];
+    const n = p[1].clone().sub(p[0]).cross(p[2].clone().sub(p[0]));
+    if (n.lengthSq() < 1e-18) continue;
+    n.normalize();
+    out.push({ p, n, c: n.dot(p[0]), box: new THREE.Box3().setFromPoints(p) });
+  }
+  return out;
+}
+
+/** Where triangle `a` crosses triangle `b` (a segment; null: they do not, or lie in one plane). */
+function triCross(a: Tri, b: Tri, eps = 1e-7): [THREE.Vector3, THREE.Vector3] | null {
+  // the part of t on the other's plane
+  const on = (t: Tri, o: Tri) => {
+    const d = t.p.map((q) => o.n.dot(q) - o.c);
+    if (d.every((x) => x > eps) || d.every((x) => x < -eps) || d.every((x) => Math.abs(x) <= eps)) return null;
+    const pts: THREE.Vector3[] = [];
+    for (let k = 0; k < 3; k++) {
+      const j = (k + 1) % 3;
+      if (Math.abs(d[k]) <= eps) pts.push(t.p[k]);
+      else if (Math.abs(d[j]) > eps && d[k] * d[j] < 0) pts.push(t.p[k].clone().lerp(t.p[j], d[k] / (d[k] - d[j])));
+    }
+    return pts.length >= 2 ? [pts[0], pts[pts.length - 1]] : null;
+  };
+  const [s, r] = [on(a, b), on(b, a)];
+  const dir = a.n.clone().cross(b.n);
+  if (!s || !r || dir.lengthSq() < 1e-12) return null;
+  // both lie on the planes' line: their overlap along it
+  const [s0, s1, r0, r1] = [...s, ...r].map((p) => p.dot(dir));
+  const [lo, hi] = [Math.max(Math.min(s0, s1), Math.min(r0, r1)), Math.min(Math.max(s0, s1), Math.max(r0, r1))];
+  if (hi - lo < 1e-9) return null;
+  const at = (v: number) => s[0].clone().lerp(s[1], (v - s0) / (s1 - s0 || 1));
+  return [at(lo), at(hi)];
+}
+
 /**
  * Where `plane` cuts a mesh (`matrix`: to the world), kept where all `others` keep it (clipping planes keep their
  * positive side): its segments joined end to end into loops (open where the others clip them).
@@ -3233,7 +3352,11 @@ function planeCut(geo: THREE.BufferGeometry, matrix: THREE.Matrix4, plane: THREE
     }
     if (a.distanceTo(b) > 1e-6) segs.push([a, b]);
   }
-  // joined at shared ends (0.1 µm), grown both ways from each segment not taken yet
+  return chained(segs);
+}
+
+/** Segments joined at shared ends (0.1 µm; else the nearest end within `tol`) into lines, grown both ways from each segment not taken yet. */
+function chained(segs: [THREE.Vector3, THREE.Vector3][], tol = 1e-3) {
   const key = (v: THREE.Vector3) => v.toArray().map((x) => Math.round(x * 1e4)).join();
   const ends = new Map<string, number[]>();
   segs.forEach((s, i) => s.forEach((v) => (ends.get(key(v)) ?? ends.set(key(v), []).get(key(v))!).push(i)));
@@ -3245,11 +3368,11 @@ function planeCut(geo: THREE.BufferGeometry, matrix: THREE.Matrix4, plane: THREE
     const loop = [first];
     const grow = (forward: boolean) => {
       for (let end = forward ? loop.at(-1)![1] : loop[0][0]; ; ) {
-        const j = ends.get(key(end))?.find((k) => !used.has(k));
-        if (j === undefined) return;
+        const j = ends.get(key(end))?.find((k) => !used.has(k)) ?? segs.findIndex((g, k) => !used.has(k) && Math.min(g[0].distanceTo(end), g[1].distanceTo(end)) < tol);
+        if (j < 0) return;
         used.add(j);
         const [a, b] = segs[j];
-        const fromEnd = key(a) === key(end);
+        const fromEnd = a.distanceTo(end) <= b.distanceTo(end);
         if (forward) loop.push(fromEnd ? [a, b] : [b, a]);
         else loop.unshift(fromEnd ? [b, a] : [a, b]);
         end = forward ? loop.at(-1)![1] : loop[0][0];
