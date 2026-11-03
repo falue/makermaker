@@ -288,7 +288,7 @@ export const COMMANDS: Record<string, Command> = {
       { name: 'translucency', type: 'number', doc: 'solid 0, clear 1', optional: true },
       { name: 'glow', type: 'string', doc: '#rrggbb', optional: true },
       { name: 'glowStrength', type: 'number', doc: 'off 0', optional: true },
-      { name: 'raster', type: 'enum', values: ['metric', 'imperial'], doc: 'a measuring grid', optional: true },
+      { name: 'overlay', type: 'enum', values: ['metric', 'imperial'], doc: 'a measuring grid', optional: true },
     ],
     run: (doc, { ids, ...patch }) => ({ doc: editOneOff(doc, ids as string[], patch as Partial<MaterialLook>) }),
   },

@@ -9,7 +9,7 @@ export interface Look {
   translucency: number;
   glow: string;
   glowStrength: number;
-  raster?: MaterialLook['raster'];
+  overlay?: MaterialLook['overlay'];
 }
 
 export const DEFAULT_LIGHT: Light = { sunHeight: 53, sunAround: -63, sun: 2, sunColor: '#ffffff', ambient: 2, ambientColor: '#ffffff' };
@@ -23,7 +23,7 @@ export const toLook = (m: MaterialLook): Look => ({
   translucency: m.translucency,
   glow: m.glow,
   glowStrength: m.glowStrength,
-  ...(m.raster ? { raster: m.raster } : {}),
+  ...(m.overlay ? { overlay: m.overlay } : {}),
 });
 
 /** A plain look of a colour: what a body without a material has. */
@@ -31,19 +31,37 @@ export const plainLook = (color: string): MaterialLook => ({ color, bump: 0.35, 
 
 const standard = (id: string, name: string, color: string, look: Partial<MaterialLook> = {}): Material => ({ ...plainLook(color), id: `std-${id}`, name, ...look });
 
-/** The materials every file has; they are never saved in it. */
-export const STANDARD_MATERIALS: Material[] = [
-  standard('metal', 'Metal', '#c9ccd1', { bump: 0.15, reflection: 1 }),
-  standard('white', 'White plastic', '#f2f2ee', { bump: 0.2 }),
-  standard('red', 'Red plastic', '#c8322d', { bump: 0.2 }),
-  standard('black', 'Black plastic', '#1c1c1e', { bump: 0.2 }),
-  standard('wood', 'Wood', '#a9773f', { bump: 0.65 }),
-  standard('glass', 'Glass', '#f4f8f8', { bump: 0, translucency: 0.95 }),
-  standard('frosted', 'Glass frosted', '#eef3f4', { bump: 0.35, translucency: 0.85 }),
-  standard('lamp', 'Lamp', '#fff4dc', { bump: 0.3, glow: '#ffe2b0', glowStrength: 0.8 }),
-  standard('grid-metric', 'Grid 10 × 10 cm', '#ffffff', { bump: 0.4, raster: 'metric' }),
-  standard('grid-imperial', 'Grid 1 × 1 ft', '#ffffff', { bump: 0.4, raster: 'imperial' }),
+/** The materials every file has, in the dialog's sections; they are never saved in it. */
+export const STANDARD_SECTIONS: [string, Material[]][] = [
+  [
+    'Standard',
+    [
+      standard('metal', 'Metal', '#c9ccd1', { bump: 0.15, reflection: 1 }),
+      standard('white', 'Plastic, white', '#f2f2ee', { bump: 0.2 }),
+      standard('red', 'Plastic, red', '#c8322d', { bump: 0.2 }),
+      standard('yellow', 'Plastic, yellow', '#e8b818', { bump: 0.2 }),
+      standard('black', 'Plastic, black', '#1c1c1e', { bump: 0.2 }),
+      standard('dark-grey', 'Plastic, dark grey', '#3a3b3e', { bump: 0.2 }),
+      standard('wood', 'Wood', '#a9773f', { bump: 0.65 }),
+    ],
+  ],
+  [
+    'Transparent',
+    [
+      standard('glass', 'Glass', '#f4f8f8', { bump: 0, translucency: 0.95 }),
+      standard('frosted', 'Glass frosted', '#eef3f4', { bump: 0.35, translucency: 0.85 }),
+    ],
+  ],
+  [
+    'Specials',
+    [
+      standard('lamp', 'Lamp', '#fff4dc', { bump: 0.3, glow: '#ffe2b0', glowStrength: 0.8 }),
+      standard('grid-metric', 'Grid 10 × 10 cm', '#808080', { bump: 0.4, overlay: 'metric' }),
+      standard('grid-imperial', 'Grid 1 × 1 ft', '#808080', { bump: 0.4, overlay: 'imperial' }),
+    ],
+  ],
 ];
+export const STANDARD_MATERIALS = STANDARD_SECTIONS.flatMap(([, list]) => list);
 
 export const findMaterial = (doc: Doc, id?: string) => (id ? (STANDARD_MATERIALS.find((m) => m.id === id) ?? doc.materials.find((m) => m.id === id)) : undefined);
 
@@ -83,8 +101,8 @@ export function saveOneOff(doc: Doc, ids: string[], id: string, name = `Material
   const first = [...doc.bodies, ...doc.groups].find((x) => ids.includes(x.id));
   const look = first && setLook(doc, first);
   if (!look) return doc;
-  const { color, bump, reflection, translucency, glow, glowStrength, raster } = look;
-  const material: Material = { id, name, color, bump, reflection, translucency, glow, glowStrength, ...(raster ? { raster } : {}) };
+  const { color, bump, reflection, translucency, glow, glowStrength, overlay } = look;
+  const material: Material = { id, name, color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}) };
   return assignMaterial({ ...doc, materials: [...doc.materials, material] }, ids, id);
 }
 

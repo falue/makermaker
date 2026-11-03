@@ -53,11 +53,11 @@ export function boxUv(geometry: THREE.BufferGeometry) {
 
 const strength = (bump: number) => bump * 1.5;
 
-const rasters = new Map<string, THREE.CanvasTexture>();
+const overlays = new Map<string, THREE.CanvasTexture>();
 
 /** A measuring grid as a texture: thick lines every 10 cm (imperial: foot), thin ones every 1 cm (inch), repeating. */
-function rasterMap(kind: 'metric' | 'imperial') {
-  const known = rasters.get(kind);
+function overlayMap(kind: 'metric' | 'imperial') {
+  const known = overlays.get(kind);
   if (known) return known;
   const { major, minor } = kind === 'metric' ? { major: 100, minor: 10 } : { major: 304.8, minor: 25.4 };
   const size = 2048;
@@ -80,12 +80,12 @@ function rasterMap(kind: 'metric' | 'imperial') {
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.anisotropy = 8;
   map.repeat.setScalar(TILE / major); // texture coordinates count in TILE mm
-  rasters.set(kind, map);
+  overlays.set(kind, map);
   return map;
 }
 
 /** Whether a look needs a mesh's texture coordinates (`boxUv`). */
-export const needsUv = (l: Look) => l.bump > 0 || !!l.raster;
+export const needsUv = (l: Look) => l.bump > 0 || !!l.overlay;
 
 /** Dresses a body's material in the 3D view; see-through there is plain opacity. `around`: what a reflecting one mirrors. */
 export function applyLook(m: THREE.MeshStandardMaterial, l: Look, around: THREE.Texture | null = null) {
@@ -94,7 +94,7 @@ export function applyLook(m: THREE.MeshStandardMaterial, l: Look, around: THREE.
   m.metalness = l.metalness;
   m.emissive.set(l.glow);
   m.emissiveIntensity = l.glowStrength * 2;
-  const [normal, map, transparent] = [l.bump > 0 ? bumpMap() : null, l.raster ? rasterMap(l.raster) : null, l.translucency > 0];
+  const [normal, map, transparent] = [l.bump > 0 ? bumpMap() : null, l.overlay ? overlayMap(l.overlay) : null, l.translucency > 0];
   if (m.normalMap !== normal || m.map !== map || m.transparent !== transparent || m.envMap !== around) m.needsUpdate = true;
   m.normalMap = normal;
   m.map = map;
@@ -114,7 +114,7 @@ export function renderMaterial(l: Look) {
     emissiveIntensity: l.glowStrength * 4,
     transmission: l.translucency,
     ior: 1.5,
-    map: l.raster ? rasterMap(l.raster) : null,
+    map: l.overlay ? overlayMap(l.overlay) : null,
     normalMap: l.bump > 0 ? bumpMap() : null,
     normalScale: new THREE.Vector2(strength(l.bump), strength(l.bump)),
   });

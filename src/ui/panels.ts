@@ -1012,7 +1012,7 @@ function materialRows(ctx: UIContext, ids: string[], inherited: string): Node[] 
   const same = objects.every((x) => x.material === objects[0]?.material) ? objects[0]?.material : undefined;
   const list = select(oneOff ? 'one-off' : (same ?? ''), {
     '': inherited,
-    ...(oneOff ? { 'one-off': 'One-off (just this)' } : {}),
+    ...(oneOff ? { 'one-off': 'Custom (just this object)' } : {}),
     ...Object.fromEntries([...STANDARD_MATERIALS, ...doc.materials].map((m) => [m.id, m.name])),
     new: '+ New…',
   } as Record<string, string>, (id) => {

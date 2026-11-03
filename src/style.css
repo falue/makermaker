@@ -1232,14 +1232,35 @@ button.primary.wide {
   gap: 18px;
   margin-top: 10px;
 }
-.mat-list {
-  max-height: 68vh;
-  overflow: auto;
+.mat-left {
   padding-right: 8px;
   border-right: 1px solid var(--line);
 }
+.mat-search {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.mat-list {
+  max-height: 64vh;
+  overflow: auto;
+}
 .mat-list h3:first-child {
   margin-top: 0;
+}
+.mat-section {
+  cursor: pointer;
+}
+.mat-section::before {
+  content: '▸ ';
+}
+.mat-section.open::before {
+  content: '▾ ';
+}
+.mat-title {
+  margin: 0 0 10px;
+  text-transform: none;
+  font-size: 13px;
+  color: var(--text);
 }
 .mat-row {
   display: flex;
@@ -1286,13 +1307,58 @@ button.primary.wide {
   gap: 6px;
   margin-top: 10px;
 }
-.mat-edit canvas {
-  display: block;
-  width: 100%;
-  height: auto;
+.mat-compare {
+  position: relative;
+  aspect-ratio: 4 / 3;
   margin-bottom: 10px;
+  overflow: hidden;
   border-radius: 8px;
   background: var(--field);
+}
+.mat-compare canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.mat-compare span {
+  position: absolute;
+  bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.5);
+  color: #fff;
+  font-size: 11px;
+  pointer-events: none;
+}
+.mat-compare .left {
+  left: 6px;
+}
+.mat-compare .right {
+  right: 6px;
+}
+/* over the whole picture: only its handle shows, a line from top to bottom */
+.mat-compare input[type='range'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: none;
+  appearance: none;
+  cursor: ew-resize;
+}
+.mat-compare input[type='range']::-webkit-slider-runnable-track {
+  height: 100%;
+  background: none;
+}
+.mat-compare input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 3px;
+  height: 100%;
+  background: #fff;
+  box-shadow: 0 0 3px rgb(0 0 0 / 0.7);
+  cursor: ew-resize;
 }
 .mat-edit .mat-name {
   width: 100%;

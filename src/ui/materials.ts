@@ -1,6 +1,6 @@
-import { STANDARD_MATERIALS, toLook } from '../doc/materials';
+import { STANDARD_SECTIONS, toLook } from '../doc/materials';
 import type { Light, Material, MaterialLook } from '../doc/types';
-import { MaterialPreview } from '../viewer/preview';
+import { MaterialPreview, PREVIEW_SCENE } from '../viewer/preview';
 import { pressed } from './keys';
 
 /** What the materials dialog needs of the app. */
@@ -26,7 +26,13 @@ export interface MaterialsHost {
   light(): Light;
 }
 
+/** Pictures of the standard materials, made by scripts/render-material-previews.mjs: they never change by themselves. */
+const SHIPPED = Object.fromEntries(
+  Object.entries(import.meta.glob<string>('./material-previews/*.jpg', { query: '?url', import: 'default', eager: true })).map(([path, url]) => [/([^/]+)\.jpg$/.exec(path)![1], url]),
+);
+
 const THUMBS = 'makermaker.materialThumbnails';
+const OPEN_SECTIONS = 'makermaker.materialSections';
 const KEEP = 300;
 
 /** Small pictures by look and light: they stay in this browser, not in design files. */
@@ -56,19 +62,28 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
   const preview = new MaterialPreview();
   const cache = thumbnails();
   let editing = startEditing ?? null;
+  const search = make('input', { className: 'mat-search', placeholder: 'Search materials', title: 'Shows the materials with this in their name', oninput: () => drawList() }) as HTMLInputElement;
+  const folded = new Set<string>(JSON.parse(localStorage.getItem(OPEN_SECTIONS) ?? '[]'));
   const list = make('div', { className: 'mat-list' });
+  // the picture: the 3D view's left of the slider, the rendered one right of it
+  const split = make('input', { type: 'range', min: '0', max: '100', step: '0.1', value: '50', title: 'Left: as in the 3D view. Right: rendered', oninput: () => placeSplit() }) as HTMLInputElement;
+  const placeSplit = () => (preview.viewCanvas.style.clipPath = `inset(0 ${100 - +split.value}% 0 0)`);
+  placeSplit();
+  const compare = make('div', { className: 'mat-compare' }, preview.canvas, preview.viewCanvas, make('span', { className: 'left', textContent: '3D view' }), make('span', { className: 'right', textContent: 'Rendered' }), split);
   const side = make('div', { className: 'mat-edit' });
 
   const editedLook = (): MaterialLook | undefined => (editing ? host.saved().find((m) => m.id === editing) : host.target() ? host.current().look : undefined);
   const showPreview = () => {
     const look = editedLook();
-    if (look) preview.show(toLook(look), host.light());
+    if (!look) return;
+    const shipped = !editing && !host.current().oneOff ? SHIPPED[host.current().material ?? ''] : undefined;
+    preview.show(toLook(look), host.light(), shipped);
   };
 
   const thumb = (look: MaterialLook) => {
     const light = host.light();
-    const { color, bump, reflection, translucency, glow, glowStrength, raster } = look;
-    const key = JSON.stringify([color, bump, reflection, translucency, glow, glowStrength, raster, light]);
+    const { color, bump, reflection, translucency, glow, glowStrength, overlay } = look;
+    const key = JSON.stringify([PREVIEW_SCENE, color, bump, reflection, translucency, glow, glowStrength, overlay, light]);
     const img = make('img', { className: 'mat-thumb', alt: '', ...(cache.get(key) ? { src: cache.get(key) } : {}) }) as HTMLImageElement;
     if (!cache.get(key))
       void preview.thumbnail(toLook(look), light).then((url) => {
@@ -93,7 +108,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
             drawAll();
           },
         },
-        thumb(m),
+        SHIPPED[m.id] ? make('img', { className: 'mat-thumb', alt: '', src: SHIPPED[m.id] }) : thumb(m),
         make('span', { className: 'name', textContent: m.name }),
         ...buttons,
       );
@@ -114,14 +129,29 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       await host.importFile(file);
       drawAll();
     };
+    const wanted = search.value.trim().toLowerCase();
+    const matches = (m: Material) => m.name.toLowerCase().includes(wanted);
+    /** A section's heading (a click folds it) and its rows; while searching, open, and gone if nothing matches. */
+    const section = (name: string, rows: Node[]) => {
+      if (wanted && !rows.length) return [];
+      const open = wanted || !folded.has(name);
+      const head = make('h3', {
+        className: `mat-section${open ? ' open' : ''}`,
+        title: open ? 'Fold' : 'Unfold',
+        onclick: () => {
+          if (!folded.delete(name)) folded.add(name);
+          localStorage.setItem(OPEN_SECTIONS, JSON.stringify([...folded]));
+          drawList();
+        },
+      }, name);
+      return [head, ...(open ? rows : [])];
+    };
     list.replaceChildren(
       ...(now?.oneOff && !editing
-        ? [make('h3', {}, 'One-off'), make('div', { className: 'mat-row on', title: 'A look for this alone' }, thumb(now.look), make('span', { className: 'name', textContent: host.target()! }))]
+        ? [make('h3', {}, 'Custom for this object'), make('div', { className: 'mat-row on', title: 'A look for this object alone' }, thumb(now.look), make('span', { className: 'name', textContent: host.target()! }))]
         : []),
-      make('h3', {}, 'Standard'),
-      ...STANDARD_MATERIALS.map((m) => row(m)),
-      make('h3', {}, 'In this file'),
-      ...saved.map((m) =>
+      ...STANDARD_SECTIONS.flatMap(([name, materials]) => section(name, materials.filter(matches).map((m) => row(m)))),
+      ...section('In this file', saved.filter(matches).map((m) =>
         row(m, [
           button('✎', 'Edit this material, for everything using it', () => {
             editing = editing === m.id ? null : m.id;
@@ -133,7 +163,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
             drawAll();
           }),
         ]),
-      ),
+      )),
       make(
         'div',
         { className: 'mat-actions' },
@@ -195,20 +225,20 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       };
       return el;
     };
-    const raster = make(
+    const overlay = make(
       'select',
       {
-        title: 'A measuring grid on it',
+        title: 'Drawn over its colour',
         onchange: () => {
-          const v = (raster as HTMLSelectElement).value;
-          change({ raster: v === 'metric' || v === 'imperial' ? v : undefined }, false);
+          const v = (overlay as HTMLSelectElement).value;
+          change({ overlay: v === 'metric' || v === 'imperial' ? v : undefined }, false);
           drawList();
         },
       },
-      ...[['', 'None'], ['metric', '10 × 10 cm, lines every 1 cm'], ['imperial', '1 × 1 ft, lines every 1 in']].map(([value, textContent]) => make('option', { value, textContent, selected: (look?.raster ?? '') === value })),
+      ...[['', 'None'], ['metric', 'Grid 10 × 10 cm, lines every 1 cm'], ['imperial', 'Grid 1 × 1 ft, lines every 1 in']].map(([value, textContent]) => make('option', { value, textContent, selected: (look?.overlay ?? '') === value })),
     );
     side.replaceChildren(
-      preview.canvas,
+      compare,
       ...(!look
         ? [make('p', { className: 'hint', textContent: 'Select a body or group to give it a material, or edit a saved one with ✎.' })]
         : [
@@ -222,14 +252,14 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
                     drawList();
                   },
                 })
-              : make('p', { className: 'hint', textContent: `Only for ${target}. Everything here changes it alone.` }),
+              : make('h3', { className: 'mat-title', textContent: `Custom material for object: ${target}` }),
             ...(saved ? [make('p', { className: 'hint', textContent: 'Changes everything that uses this material.' })] : []),
             make('div', { className: 'row light' }, make('span', { textContent: 'Colour' }), colour('color', 'Its colour')),
             slider('bump', 'Surface', 'From a mirror over matte to bumpy', 'mirror', 'bumpy'),
             slider('reflection', 'Reflection', 'How much it mirrors what is around it, like metal'),
             slider('translucency', 'See-through', 'Solid to clear'),
             make('div', { className: 'row light' }, make('span', { textContent: 'Glow' }), (slider('glowStrength', '', 'How strong it glows (in renders it lights what is around)').querySelector('input') as HTMLElement), colour('glow', 'Colour of the glow')),
-            make('div', { className: 'row light' }, make('span', { textContent: 'Grid' }), raster),
+            make('div', { className: 'row light' }, make('span', { textContent: 'Overlay' }), overlay),
             saveSlot,
           ]),
     );
@@ -255,7 +285,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
         if (e.target === dialog) close();
       },
     },
-    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Materials'), make('button', { className: 'icon', textContent: '×', title: 'Close (Esc)', onclick: () => close() })), make('div', { className: 'mat-columns' }, list, side)),
+    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Materials'), make('button', { className: 'icon', textContent: '×', title: 'Close (Esc)', onclick: () => close() })), make('div', { className: 'mat-columns' }, make('div', { className: 'mat-left' }, search, list), side)),
   );
   addEventListener('keydown', esc, { capture: true });
   document.body.append(dialog);

@@ -1,22 +1,31 @@
 import * as THREE from 'three';
 import { TeapotGeometry } from 'three/addons/geometries/TeapotGeometry.js';
-import { sunDirection, type Look } from '../doc/materials';
+import { findMaterial, sunDirection, toLook, type Look } from '../doc/materials';
+import type { Doc } from '../doc/types';
 import type { Light } from '../doc/types';
-import { boxUv, renderMaterial } from './look';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { applyLook, boxUv, renderMaterial } from './look';
 
 type Tracer = import('three-gpu-pathtracer').WebGLPathTracer;
 
 const BLANK: Look = { color: '#ffffff', roughness: 0.5, bump: 0, metalness: 0, translucency: 0, glow: '#000000', glowStrength: 0 };
-const WIDTH = 320;
-const HEIGHT = 240;
+const WIDTH = 640;
+const HEIGHT = 480;
+/** Goes up when the scene changes: pictures kept in browsers then are of something else. */
+export const PREVIEW_SCENE = 5;
 
 /**
- * A teapot wearing a material, on the floor in a light grey, slightly shiny corner, in given light. `show` draws at
+ * A teapot wearing a material, on a dark grey plastic floor in a corner of measuring grid walls, in given light. `show` draws at
  * once (three's own renderer) and, when nothing changes for `rest` ms, path traces on the same picture, on `canvas`;
- * `thumbnail` traces a small picture for the list, when nothing is being shown. One renderer and one tracer do all of it.
+ * `viewCanvas` always has it as the 3D view draws it. `thumbnail` traces a small picture for the list, when nothing is being shown. One renderer and one tracer do all of it.
  */
 export class MaterialPreview {
+  /** The picture as rendered, and as the 3D view draws it. */
   readonly canvas = Object.assign(document.createElement('canvas'), { width: WIDTH, height: HEIGHT });
+  readonly viewCanvas = Object.assign(document.createElement('canvas'), { width: WIDTH, height: HEIGHT });
+  /** What the 3D view has, in place of the renderer's looks: its materials, its light from all around, what metal mirrors. */
+  private inView = { teapot: new THREE.MeshStandardMaterial(), floor: new THREE.MeshStandardMaterial(), grid: new THREE.MeshStandardMaterial(), ambient: new THREE.HemisphereLight(), around: null as THREE.Texture | null };
+  private walls: THREE.Mesh[] = [];
   private renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, antialias: true });
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(32, WIDTH / HEIGHT, 1, 5000);
@@ -25,9 +34,9 @@ export class MaterialPreview {
   private sky: THREE.DataTexture | null = null;
   private lit: Light | null = null;
   private tracer: Tracer | null = null;
-  private wanted: { look: Look; light: Light } | null = null;
+  private wanted: { look: Look; light: Light; finished?: string } | null = null;
   private tracing: { look: Look; light: Light; at: number } | null = null;
-  private thumbnails: { look: Look; light: Light; done: (url: string) => void }[] = [];
+  private thumbnails: { look: Look; light: Light; done: (url: string) => void; width: number; samples: number; scale: number; quality: number }[] = [];
   private running = false;
   private closed = false;
 
@@ -39,19 +48,28 @@ export class MaterialPreview {
     geometry.deleteAttribute('uv');
     boxUv(geometry); // bumps and grids in mm, as on a body
     this.teapot = new THREE.Mesh(geometry, renderMaterial(BLANK));
-    this.teapot.position.y = 50; // its bottom on the floor
+    this.teapot.position.set(-12, 50, 9); // its bottom on the floor, its spout inside the picture
     this.teapot.castShadow = true;
-    const corner = new THREE.MeshStandardMaterial({ color: 0x9c9da0, roughness: 0.6 });
+    const standard = (id: string) => toLook(findMaterial({ materials: [] } as unknown as Doc, id)!);
+    const [floorLook, gridLook] = [standard('std-dark-grey'), standard('std-grid-metric')];
+    const [floor, grid] = [renderMaterial(floorLook), renderMaterial(gridLook)];
+    applyLook(this.inView.floor, floorLook);
+    applyLook(this.inView.grid, gridLook);
     const side = (x: number, y: number, z: number, rx: number, ry: number) => {
-      const wall = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), corner);
+      const geometry = new THREE.PlaneGeometry(1600, 1600);
+      geometry.deleteAttribute('uv');
+      boxUv(geometry);
+      const wall = new THREE.Mesh(geometry, rx ? floor : grid);
       wall.position.set(x, y, z);
       wall.rotation.set(rx, ry, 0);
       wall.receiveShadow = true;
+      this.walls.push(wall);
       return wall;
     };
-    this.scene.add(this.teapot, this.sun, side(0, 0, 0, -Math.PI / 2, 0), side(-170, 0, 0, 0, Math.PI / 2), side(0, 0, -130, 0, 0));
+    this.inView.ambient.visible = false;
+    this.scene.add(this.inView.ambient, this.teapot, this.sun, side(0, 0, 0, -Math.PI / 2, 0), side(-170, 0, 0, 0, Math.PI / 2), side(0, 0, -130, 0, 0));
     // the tracer takes its textures from the scene once: these wear each of them, hidden under the floor
-    for (const look of [{ raster: 'metric' }, { raster: 'imperial' }, { bump: 1 }] as Partial<Look>[]) {
+    for (const look of [{ overlay: 'metric' }, { overlay: 'imperial' }, { bump: 1 }] as Partial<Look>[]) {
       const carrier = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), renderMaterial({ ...BLANK, ...look }));
       carrier.position.y = -10;
       this.scene.add(carrier);
@@ -61,21 +79,21 @@ export class MaterialPreview {
     Object.assign(this.sun.shadow.camera, { left: -300, right: 300, top: 300, bottom: -300, near: 1, far: 2000 });
     this.sun.shadow.bias = -0.002;
     this.camera.up.set(0, 1, 0); // this scene is y up, the app's default z
-    this.camera.position.set(330, 200, 430);
-    this.camera.lookAt(-10, 45, -10);
+    this.camera.position.set(165, 115, 215);
+    this.camera.lookAt(0, 42, 0);
     this.camera.updateMatrixWorld();
   }
 
-  /** Shows a look: at once, then traced. */
-  show(look: Look, light: Light) {
-    this.wanted = { look, light };
+  /** Shows a look: at once as the 3D view draws it; rendered: `finished` if there is such a picture, else traced. */
+  show(look: Look, light: Light, finished?: string) {
+    this.wanted = { look, light, finished };
     void this.run();
   }
 
-  /** A small picture of a look, as a data URL, when there is time. */
-  thumbnail(look: Look, light: Light) {
+  /** A picture of a look, as a data URL, when there is time: small by default, for the list. */
+  thumbnail(look: Look, light: Light, { width = 80, samples = this.thumbnailSamples, scale = 0.25, quality = 0.8 } = {}) {
     return new Promise<string>((done) => {
-      this.thumbnails.push({ look, light, done });
+      this.thumbnails.push({ look, light, done, width, samples, scale, quality });
       void this.run();
     });
   }
@@ -112,6 +130,36 @@ export class MaterialPreview {
     this.tracer?.updateEnvironment();
   }
 
+  /** Draws what is dressed as the 3D view does: on its materials and its light, without shadows, onto `viewCanvas`. */
+  private drawAsView(look: Look, light: Light) {
+    const { inView } = this;
+    if (look.metalness > 0 && !inView.around) {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      inView.around = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      pmrem.dispose();
+    }
+    applyLook(inView.teapot, look, look.metalness > 0 ? inView.around : null);
+    inView.ambient.color.set(light.ambientColor);
+    inView.ambient.groundColor.set(light.ambientColor).multiplyScalar(0.53);
+    inView.ambient.intensity = light.ambient;
+    const rendered = [this.teapot.material, ...this.walls.map((w) => w.material)];
+    const { environment } = this.scene;
+    this.teapot.material = inView.teapot;
+    this.walls.forEach((w) => (w.material = w.rotation.x ? inView.floor : inView.grid));
+    this.scene.environment = null;
+    inView.ambient.visible = true;
+    this.sun.castShadow = false;
+    this.renderer.toneMapping = THREE.NoToneMapping;
+    this.renderer.render(this.scene, this.camera);
+    this.viewCanvas.getContext('2d')!.drawImage(this.renderer.domElement, 0, 0);
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.sun.castShadow = true;
+    inView.ambient.visible = false;
+    this.scene.environment = environment;
+    this.teapot.material = rendered[0] as THREE.Material;
+    this.walls.forEach((w, i) => (w.material = rendered[i + 1] as THREE.Material));
+  }
+
   private copy() {
     this.canvas.getContext('2d')!.drawImage(this.renderer.domElement, 0, 0);
   }
@@ -142,25 +190,34 @@ export class MaterialPreview {
     this.running = true;
     while (!this.closed) {
       if (this.wanted) {
-        const { look, light } = this.wanted;
+        const { look, light, finished } = this.wanted;
         this.wanted = null;
         this.dress(look, light);
-        this.renderer.render(this.scene, this.camera);
-        this.copy();
-        this.tracing = { look, light, at: performance.now() + this.rest };
+        this.drawAsView(look, light);
+        this.tracing = null;
+        if (finished) {
+          const image = new Image();
+          image.src = finished;
+          await image.decode();
+          this.canvas.getContext('2d')!.drawImage(image, 0, 0, WIDTH, HEIGHT);
+        } else {
+          this.renderer.render(this.scene, this.camera);
+          this.copy();
+          this.tracing = { look, light, at: performance.now() + this.rest };
+        }
       } else if (this.tracing) {
         if (performance.now() >= this.tracing.at) {
-          const done = await this.trace(this.samples, 1, () => this.copy());
+          const done = await this.trace(this.samples, 0.5, () => this.copy());
           if (done) this.tracing = null;
         }
       } else if (this.thumbnails.length) {
         const job = this.thumbnails[0];
         this.dress(job.look, job.light);
-        if (await this.trace(this.thumbnailSamples, 0.4)) {
+        if (await this.trace(job.samples, job.scale)) {
           this.thumbnails.shift();
-          const small = Object.assign(document.createElement('canvas'), { width: 80, height: 60 });
-          small.getContext('2d')!.drawImage(this.renderer.domElement, 0, 0, 80, 60);
-          job.done(small.toDataURL('image/jpeg', 0.8));
+          const small = Object.assign(document.createElement('canvas'), { width: job.width, height: (job.width * HEIGHT) / WIDTH });
+          small.getContext('2d')!.drawImage(this.renderer.domElement, 0, 0, small.width, small.height);
+          job.done(small.toDataURL('image/jpeg', job.quality));
         }
       } else break;
       await new Promise(requestAnimationFrame);

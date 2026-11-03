@@ -10,7 +10,7 @@ export function toMtlx(materials: Material[]) {
     const node = `m${i}_${m.name.replace(/[^A-Za-z0-9]+/g, '_')}`;
     const input = (name: string, type: string, value: string | number) => `    <input name="${name}" type="${type}" value="${value}" />`;
     return [
-      `  <standard_surface name="${node}" type="surfaceshader" makermaker_name="${attr(m.name)}" makermaker_bump="${m.bump}"${m.raster ? ` makermaker_raster="${m.raster}"` : ''}>`,
+      `  <standard_surface name="${node}" type="surfaceshader" makermaker_name="${attr(m.name)}" makermaker_bump="${m.bump}"${m.overlay ? ` makermaker_overlay="${m.overlay}"` : ''}>`,
       input('base_color', 'color3', rgb(m.color)),
       input('metalness', 'float', m.reflection),
       input('specular_roughness', 'float', +Math.min(1, m.bump * 2).toFixed(4)),
@@ -46,7 +46,7 @@ export function fromMtlx(text: string): Material[] {
       const v = parseFloat(inputs.get(name) ?? '');
       return Number.isNaN(v) ? fallback : Math.min(1, Math.max(0, v));
     };
-    const raster = attribute('makermaker_raster');
+    const overlay = attribute('makermaker_overlay');
     const bump = parseFloat(attribute('makermaker_bump') ?? '');
     return {
       ...plainLook(hex(inputs.get('base_color'), '#cccccc')),
@@ -57,7 +57,7 @@ export function fromMtlx(text: string): Material[] {
       translucency: number('transmission', 0),
       glow: hex(inputs.get('emission_color'), '#ffffff'),
       glowStrength: number('emission', 0),
-      ...(raster === 'metric' || raster === 'imperial' ? { raster } : {}),
+      ...(overlay === 'metric' || overlay === 'imperial' ? { overlay } : {}),
     } satisfies Material;
   });
 }

@@ -31,7 +31,7 @@ it('every file has the standard materials, and a one-off beats them', () => {
   const d = doc([], [body({ material: 'std-wood' })]);
   expect(findMaterial(d, 'std-wood')?.name).toBe('Wood');
   expect(lookOf(d, d.bodies[0]).color).toBe('#a9773f');
-  expect(STANDARD_MATERIALS.map((m) => m.name)).toEqual(['Metal', 'White plastic', 'Red plastic', 'Black plastic', 'Wood', 'Glass', 'Glass frosted', 'Lamp', 'Grid 10 × 10 cm', 'Grid 1 × 1 ft']);
+  expect(STANDARD_MATERIALS.map((m) => m.name)).toEqual(['Metal', 'Plastic, white', 'Plastic, red', 'Plastic, yellow', 'Plastic, black', 'Plastic, dark grey', 'Wood', 'Glass', 'Glass frosted', 'Lamp', 'Grid 10 × 10 cm', 'Grid 1 × 1 ft']);
   const own = editOneOff(d, ['b'], { color: '#010203' });
   expect(own.bodies[0].ownLook).toMatchObject({ color: '#010203', bump: 0.65 });
   expect(lookOf(own, own.bodies[0]).color).toBe('#010203');

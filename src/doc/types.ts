@@ -283,7 +283,7 @@ export interface Group {
 
 /**
  * What a surface looks like. `bump`: mirror (0) over matte (0.5) to bumpy (1); `reflection`: how much it mirrors what
- * is around it, in its colour, like metal; `translucency` and `glowStrength` run 0 to 1. `raster`: a measuring grid on it.
+ * is around it, in its colour, like metal; `translucency` and `glowStrength` run 0 to 1. `overlay`: a measuring grid on it.
  */
 export interface MaterialLook {
   color: string;
@@ -292,7 +292,7 @@ export interface MaterialLook {
   translucency: number;
   glow: string;
   glowStrength: number;
-  raster?: 'metric' | 'imperial';
+  overlay?: 'metric' | 'imperial';
 }
 
 /** A look with a name, saved in the file. */
@@ -419,7 +419,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 28;
+  schema: 29;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];
