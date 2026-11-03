@@ -80,7 +80,7 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
   const custom = Object.assign(document.createElement('div'), { id: 'custom-sections' });
   const more = Object.assign(document.createElement('button'), { textContent: '+ Section', title: 'A section parallel to a face you click: slanted planes too', onclick: add });
   panel.append(custom, more);
-  host.append(drawer('Section view', 'left', panel));
+  host.append(drawer('Section view', 'left', panel, true));
   return {
     /** While a face is being picked the button says what to do. */
     picking(on: boolean) {

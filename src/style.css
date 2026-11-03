@@ -597,7 +597,7 @@ body.scrubbing * {
 }
 /* a drawer: its title at the bottom of the view, sliding up with its contents; only those two take the pointer */
 .drawer {
-  --tab: 26px;
+  --tab: 20px;
   position: absolute;
   bottom: 0;
   z-index: 5;
@@ -634,7 +634,6 @@ body.scrubbing * {
   border-radius: 6px 6px 0 0;
   background: var(--accent);
   color: var(--accent-text);
-  font-weight: 600;
 }
 .drawer-tab svg {
   width: 10px;
