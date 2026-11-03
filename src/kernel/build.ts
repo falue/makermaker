@@ -580,7 +580,7 @@ function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
  * from a pillow (Poisson's equation on a grid over the face, 0 at the rim: one smooth field, rounded towards corners,
  * no creases), leaning so its top lies at the peak, then shaped by the curve. OpenCascade's filling passes through those heights on `dirs` lines from the rim to the peak.
  */
-function dome(face: BRepFace, n: V3, s: Of<'bulge'>, mid?: V3, cells = 60, dirs = 48, rings = 6, margin = 0.3): BRepFace {
+function dome(face: BRepFace, n: V3, s: Of<'bulge'>, mid?: V3, cells = 60, dirs = 48, rings = 6, margin = 0.3, grid = 12): BRepFace {
   const oc = getOC();
   // the peak's height above the face; the face's plane: u, v around its middle (read before its wire: that frees the face)
   const amount = dot(s.peak, n);
@@ -663,17 +663,24 @@ function dome(face: BRepFace, n: V3, s: Of<'bulge'>, mid?: V3, cells = 60, dirs 
     };
     const height = (x: number, y: number) => amount * rise(Math.max(0, Math.min(1, field(x, y))), fullness(s.fullness));
     const peak: [number, number] = [X(top % nx), Y(Math.floor(top / nx))];
-    // the filling's points: on `dirs` lines from the rim to the top, `rings` along each, and the top. OpenCascade's filling
-    // now and then ignores them (a flat face back): tried again with other settings until its top is near the height
-    // per try: lines, iterations, highest degree, most segments
+    // the filling's points, and the top: first on an even grid over the face (`grid` across, kept off the rim), else on
+    // `dirs` lines from the rim to the top, `rings` along each. OpenCascade's filling now and then ignores them (a flat
+    // face back): tried again with other settings until its top is near the height
+    // per try: lines (0: the grid), iterations, highest degree, most segments
     const tries = [
+      [0, 3, 8, 12],
       [dirs, 3, 10, 30],
       [32, 2, 8, 9],
       [24, 2, 8, 20],
     ];
+    const step = Math.max(1, Math.round(cells / grid));
     for (const [count, iterations, degree, segments] of tries) {
       const fill = new oc.BRepOffsetAPI_MakeFilling(3, 15, iterations, false, 1e-5, 1e-4, 0.01, 0.1, degree, segments);
       for (const e of edges) fill.Add(e.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
+      if (!count)
+        for (let j = 0; j < ny; j += step)
+          for (let i = 0; i < nx; i += step)
+            if (inside[j * nx + i] && fromRim(X(i), Y(j)) > step * h && Math.hypot(X(i) - peak[0], Y(j) - peak[1]) > step * h) fill.Add(new oc.gp_Pnt(...at(X(i), Y(j), height(X(i), Y(j)))));
       for (let k = 0; k < count; k++) {
         const r = rim[Math.floor((k * rim.length) / count)];
         for (let q = 1; q < rings; q++) {
