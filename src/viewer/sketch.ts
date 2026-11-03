@@ -1469,7 +1469,7 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** A size label (`active`: typed into); `t`: it says T reaches to an object for it. */
 export function sizeLabel(text: string, active: boolean, t = false) {
   const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text });
-  if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }));
+  if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}G`, title: 'G: measure' }));
   return el;
 }
 /** Radius (px) of the arc showing what a side's angle is measured from. */
@@ -1477,7 +1477,7 @@ const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
 export const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
 const POLYGON_HINT = 'Click corners, or type a length · [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · click the first one, double-click or [Enter] to close it · [Esc] leaves it open · [Backspace] removes the last';
-const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done';
+const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [G] measure · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */
 /** Lines to snap to (world): outlines of the sketches' shapes (with the shape), and body edges. */

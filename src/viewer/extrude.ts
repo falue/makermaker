@@ -9,7 +9,7 @@ import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click a face or sketch to extrude · [Shift]-click: more (again: drops it) · double-click: everything inside a shape · a sketch in the list: all of it · [Enter] pulls them · [Esc] stops';
-const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] back to picking';
+const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [G] measure · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] back to picking';
 
 /**
  * A face of a body: where it was clicked, its outward normal (world), which face of which mesh, the finish (fillet /

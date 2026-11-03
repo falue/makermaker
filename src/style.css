@@ -411,7 +411,17 @@ input.invalid {
 }
 .to-tools {
   display: inline-flex;
+  flex: none;
   align-self: stretch;
+  gap: 2px;
+}
+.to-tools .to-object {
+  flex: none;
+  min-width: 28px;
+}
+.axis-move > .to-tools .to-object {
+  border: 1px solid var(--line);
+  border-radius: 4px;
 }
 .axis-move .to-tools .to-object {
   align-self: stretch;
@@ -422,10 +432,6 @@ input.invalid {
   border: none;
   border-left: 1px solid var(--line);
   border-radius: 0;
-}
-.measure .use {
-  padding: 2px 6px;
-  color: var(--accent);
 }
 .axis-move .cell > .to-object {
   align-self: stretch;

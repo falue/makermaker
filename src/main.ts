@@ -2683,8 +2683,7 @@ function fingersPanel(body: string, id: string, fresh = false) {
  * values in a panel at the top of the view; a click on one copies it. Goes on until Esc.
  */
 /**
- * Measure. With `use` another tool or field waits for it: every length measured gets a Use button, which hands it over (mm)
- * and ends this tool.
+ * Measure. With `use` another tool or field waits for it: a click on a length measured hands it over (mm) and ends this tool.
  */
 function measureTool(use?: (mm: number) => void, done?: () => void) {
   const u = history.current.units;
@@ -2700,18 +2699,20 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
       ...items.map(([label, mm, area]) => {
         const text = area ? `${fmt(+(mm / UNITS[u] ** 2).toFixed(4))} ${u}²` : `${fmt(+(mm / UNITS[u]).toFixed(4))} ${u}`;
         const shown = axisHtml(`${label} ${text}`);
-        // copied: the button says so for a moment (the top bar shows the tool's hint)
-        const b = panelButton('', 'Click: copied', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
+        // waiting field: the value goes straight in; else copied: the button says so for a moment (the top bar shows the tool's hint)
+        const b = use && !area
+          ? panelButton('', `Use ${text}: it goes in the field`, () => (close(), use(mm)))
+          : panelButton('', 'Click: copied', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
         b.innerHTML = shown;
-        if (!use || area) return b;
-        const take = panelButton('Use', `Puts ${text} in the field and goes back`, () => (close(), use(mm)));
-        take.classList.add('use');
-        const both = document.createElement('span');
-        both.className = 'cell';
-        both.append(b, take);
-        return both;
+        return b;
       }),
     );
+  // at the top of the view, under the panel of what waits for it
+  const place = () => {
+    atTop(box);
+    const waiting = [...document.querySelectorAll('.axis-move:not(.measure)')].at(-1);
+    if (use && waiting) box.style.top = `${waiting.getBoundingClientRect().bottom + 6}px`;
+  };
   const long = (segs: [Vector3, Vector3][]) => segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
   const showParts = () => {
     if (edges.length) return show(edges.length > 1 ? [[`${edges.length} edges`, edges.reduce((n, e) => n + long(e), 0)]] : [['Edge', long(edges[0])]]);
@@ -2719,14 +2720,26 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     const { area, sides } = viewer.faceSize(faces[0]);
     show([['Area', area, true], ...(sides ? ([['L', sides[0]], ['B', sides[1]]] as [string, number][]) : [])]);
   };
+  // Esc ends this only, not what waits for it
+  const keys = (e: KeyboardEvent) => {
+    if (!pressed(e, 'cancel')) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    close();
+  };
+  addEventListener('keydown', keys, { capture: true });
+  const hintBefore = toolHint;
   const close = () => {
+    if (!box.isConnected) return; // ending the pick comes back here
     box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    viewer.cancelFacePick();
     viewer.aiming = null;
     viewer.aimAt(null);
     tips.cursorTip(null);
     viewer.showMeasureLine(null);
     viewer.showMeasured([], []);
-    toolHint = null;
+    toolHint = use ? hintBefore : null;
     done?.();
     render();
   };
@@ -2763,18 +2776,18 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           }
           last = p;
         }
-        atTop(box);
+        place();
         pick();
       },
       true,
       false,
       'alt',
     );
-  toolHint = `Measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · ${use ? 'Use: the value goes in, back to where you were' : 'click a value: copied'} · [Esc] ${use ? 'goes back' : 'stops'}`;
+  toolHint = `Measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · ${use ? 'click a value: it goes in, back to where you were' : 'click a value: copied'} · [Esc] ${use ? 'goes back' : 'stops'}`;
   viewer.aiming = (a) => tips.cursorTip(a?.what ?? null);
   show([], 'Click a point, or Alt-click an edge or face');
   document.body.append(box);
-  atTop(box);
+  place();
   render();
   pick();
 }
@@ -5344,9 +5357,7 @@ function importStep(name: string, data: string) {
 const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
 /** A field's value measured instead of typed (G, or the button by To object): goes in at the cursor. */
 function measureInto(field: HTMLInputElement) {
-  const hintBefore = toolHint;
   measureTool((mm) => {
-    toolHint = hintBefore;
     field.focus();
     field.setRangeText(fmt(+(mm / UNITS[history.current.units]).toFixed(4)), field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, 'end');
     field.dispatchEvent(new Event('input', { bubbles: true }));
