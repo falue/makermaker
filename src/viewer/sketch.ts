@@ -356,6 +356,7 @@ export class SketchTool implements Tool {
   /** Returns true if the press belongs to the tool (no orbiting). */
   down(e: PointerEvent): boolean {
     const used = this.press(e);
+    clearTimeout(this.dwell.timer); // nor does a line just clicked get one
     SketchTool.guides = SketchTool.guides.filter((g) => g.fixed); // a click (which may have snapped to them) drops the others
     this.update();
     return used;
@@ -402,14 +403,16 @@ export class SketchTool implements Tool {
       }
       // a tangent circle starts on a line
       const line = this.drawMode()?.lines ? this.lineUV(target) : null;
-      if (this.drawMode()?.lines && !line) return this.host.hint('Circle tangent to two lines: click the first line · [A] another drawing mode'), true;
+      if (this.drawMode()?.lines && !line) return this.host.hint('Circle tangent to two lines: click the first line · [Alt] another drawing mode'), true;
       this.phase =
         this.kind === 'polygon' || this.kind === 'line'
           ? { kind: 'polygon', target, pts: [at], cur: at, typed: [], axis: 0, base: 0 }
           : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, shift: role(e, 'constrain'), pts: [], lines: line ? [line] : [] };
       this.host.hint(this.kind === 'polygon' ? POLYGON_HINT : this.kind === 'line' ? LINE_HINT : SHAPE_HINT);
-    } else if (ph.kind === 'shape') this.advance(); // a further click of click-click drawing
-    else if (ph.kind === 'polygon') {
+    } else if (ph.kind === 'shape') {
+      ph.px = [e.clientX, e.clientY]; // a drag counts from this press
+      this.advance(); // a further click of click-click drawing
+    } else if (ph.kind === 'polygon') {
       const at = this.sideEnd(e, ph);
       if (!at) return true;
       const r = this.view.el.getBoundingClientRect();
@@ -450,8 +453,9 @@ export class SketchTool implements Tool {
     }
     if (ph.kind === 'shape' && this.reaching) return this.aim(this.view.aimAt(e)); // aiming: the shape stays as it is
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
-      const at = ph.kind === 'polygon' ? this.sideEnd(e, ph) : this.point(e, ph.target);
-      if (at) ph.cur = at;
+      const riding = this.riding(ph);
+      const at = ph.kind === 'polygon' ? this.sideEnd(e, ph) : this.point(e, ph.target, !riding);
+      if (at) ph.cur = riding ? this.ride(e, ph, at) : at;
       this.shiftHeld = role(e, 'constrain');
       if (ph.kind === 'shape') {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
@@ -507,10 +511,49 @@ export class SketchTool implements Tool {
     this.host.hint(this.phase.kind === 'shape' ? SHAPE_HINT : this.hoverHint());
   }
 
-  /** The straight line under the pointer (as snapping found it), in the target's plane coordinates; null: none. */
-  private lineUV(t: Target): [UV, UV] | null {
-    const s = this.snapSeg;
-    return s ? [uvOf(t.frame, s[0]), uvOf(t.frame, s[1])] : null;
+  /** The straight side, edge or guide nearest the pointer within `px` (snap points do not hide it; one in the plane goes before one off it), in the target's plane coordinates; null: none. */
+  private lineUV(t: Target, px = 8): [UV, UV] | null {
+    const e = this.lastPoint?.[0];
+    if (!e) return null;
+    const r = this.view.el.getBoundingClientRect();
+    const best = { flat: null as [UV, UV] | null, off: null as [UV, UV] | null };
+    const nearest = { flat: px, off: px };
+    for (const { segs, shape } of this.snapLines()) {
+      if (shape?.p.kind === 'circle' || (!shape && segs.length > 1)) continue;
+      for (const [a, b] of segs) {
+        const { d } = this.screenDist(e.clientX - r.left, e.clientY - r.top, a, b);
+        const [p, q] = [uvOf(t.frame, a), uvOf(t.frame, b)];
+        const k = inPlane(t.frame, a) && inPlane(t.frame, b) ? 'flat' : 'off';
+        if (d < nearest[k] && Math.hypot(q[0] - p[0], q[1] - p[1]) > 1e-6) [best[k], nearest[k]] = [[p, q], d]; // not seen end-on
+      }
+    }
+    return best.flat ?? best.off;
+  }
+
+  /** Drawing a tangent circle, both lines picked: its middle rides on their bisector. */
+  private riding(ph: Phase): ph is Extract<Phase, { kind: 'shape' }> {
+    return ph.kind === 'shape' && ph.lines.length > 1 && this.drawMode(ph)?.id === 'tangent';
+  }
+
+  /** The bisector a tangent circle's middle rides on, as a guide: it snaps and crosses like one. */
+  private bisectGuide() {
+    const ph = this.phase;
+    const b = this.riding(ph) && bisector(ph.lines[0], ph.lines[1], ph.cur);
+    if (!b || ph.kind !== 'shape') return null;
+    const f = ph.target.frame;
+    const l = Math.hypot(...b.v);
+    const at = v3(toWorld(f, ...b.o));
+    return { at, dir: v3(toWorld(f, b.o[0] + b.v[0] / l, b.o[1] + b.v[1] / l)).sub(at).normalize(), fixed: false };
+  }
+
+  /** Where the pointer's `at` puts a tangent circle: a snap as it is, else on its bisector at a radius on the zoom's step. */
+  private ride(e: MouseEvent, ph: Extract<Phase, { kind: 'shape' }>, at: UV): UV {
+    const b = bisector(ph.lines[0], ph.lines[1], at);
+    if (!b || (this.snapped && this.snapWhat !== BISECTOR)) return at;
+    const raw = ((at[0] - b.o[0]) * b.v[0] + (at[1] - b.o[1]) * b.v[1]) / (b.v[0] * b.v[0] + b.v[1] * b.v[1]);
+    const step = this.view.step(v3(toWorld(ph.target.frame, ...at)), e, false);
+    const r = Math.round(raw / step) * step || raw; // 0 would lose the side the pointer is on
+    return [b.o[0] + b.v[0] * r, b.o[1] + b.v[1] * r];
   }
 
   /** A click (or the end of a drag) while drawing a shape: the next point (or line) its mode needs, else done. */
@@ -523,6 +566,7 @@ export class SketchTool implements Tool {
     if (m.lines) {
       const line = this.lineUV(ph.target);
       if (!line) return this.host.hint('Circle tangent to two lines: click the second line · [Esc] cancels');
+      if (ph.lines.length && !bisector(ph.lines[0], line, ph.cur)) return this.host.hint('That line runs along the first: click one that crosses it · [Esc] cancels');
       ph.lines.push(line);
     } else ph.pts.push(ph.cur);
     ph.dragged = false;
@@ -569,7 +613,10 @@ export class SketchTool implements Tool {
       this.update();
       return false;
     }
-    if (free && guide && pressed(e, 'fixGuide')) guide.fixed = !guide.fixed;
+    if (free && guide && pressed(e, 'fixGuide')) {
+      guide.fixed = !guide.fixed;
+      if (!SketchTool.guides.includes(guide)) SketchTool.guides.push(guide); // the bisector, kept
+    }
     else if (free && ph.kind === 'polygon' && pressed(e, 'baseline')) {
       // the hovered line, either way round: the one nearer the side's direction (again, or off a line: the x axis)
       const line = this.hoveredLine(ph.target.frame);
@@ -709,7 +756,12 @@ export class SketchTool implements Tool {
 
   /** Lines to snap to, each as segments (world): outlines of every visible sketch's shapes (with the shape), and body edges. */
   private snapLines(): SnapLine[] {
-    return [...snapLines(this.view.sketches, this.view.edges()), ...SketchTool.guides.map((guide) => ({ segs: [guideSeg(guide)], what: 'on guide', guide }))];
+    const bisect = this.bisectGuide();
+    return [
+      ...snapLines(this.view.sketches, this.view.edges()),
+      ...SketchTool.guides.map((guide) => ({ segs: [guideSeg(guide)], what: 'on guide', guide })),
+      ...(bisect ? [{ segs: [guideSeg(bisect)], what: BISECTOR, guide: bisect }] : []),
+    ];
   }
 
   /**
@@ -1174,18 +1226,7 @@ export class SketchTool implements Tool {
       }
       if (profile.kind === 'circle' && ph.kind === 'shape') {
         const tangent = this.drawMode(ph)?.id === 'tangent'; // sized by its radius
-        // the line its middle rides on, from where the lines cross past the middle
-        const b = tangent && ph.lines.length > 1 && bisector(ph.lines[0], ph.lines[1], ph.cur);
-        if (b) {
-          const start = v3(toWorld(f, ...b.o));
-          const l = Math.hypot(...b.v);
-          const reach = Math.max(2 * Math.hypot(profile.x - b.o[0], profile.y - b.o[1]), 200 / this.view.pixelsPerMm(start));
-          const m = new LineMaterial({ color: GUIDE_COLOR, linewidth: 1, depthTest: false, dashed: true, dashSize: 1.5, gapSize: 1.5 });
-          m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
-          const end = v3(toWorld(f, b.o[0] + (b.v[0] / l) * reach, b.o[1] + (b.v[1] / l) * reach));
-          this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions([...start.toArray(), ...end.toArray()]), m).computeLineDistances());
-        }
-        label(tangent ? 'R' : 'Ø', ph.typed[0], tangent ? profile.d / 2 : profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
+        if (!tangent || ph.lines.length > 1) label(tangent ? 'R' : 'Ø', ph.typed[0], tangent ? profile.d / 2 : profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
       }
       if (profile.kind === 'ngon' && ph.kind === 'shape') {
         label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), ph.axis === 0);
@@ -1201,7 +1242,19 @@ export class SketchTool implements Tool {
       this.view.overlay.add(marks([this.snapped], 0xff8c1a, this.snapWhat?.startsWith('on ') ? 8 : 12));
     }
     if (this.dots.length && ph.kind !== 'pull') this.view.overlay.add(marks(this.dots, 0xff8c1a, 7));
-    for (const g of ph.kind === 'pull' ? [] : SketchTool.guides) {
+    // a tangent circle: the lines picked, and the one a click would pick
+    const lineMode = (ph.kind === 'hover' || ph.kind === 'shape') && this.drawMode(ph.kind === 'shape' ? ph : undefined)?.lines;
+    const onFrame = lineMode && this.lastPoint?.[1];
+    if (onFrame) {
+      const picked = ph.kind === 'shape' ? ph.lines : [];
+      const next = picked.length < 2 ? this.lineUV(onFrame) : null;
+      const segs = [...picked, ...(next ? [next] : [])].flat().flatMap((q) => v3(toWorld(onFrame.frame, ...q)).toArray());
+      const lit = new LineMaterial({ color: 0xff8c1a, linewidth: 3, depthTest: false });
+      lit.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
+      if (segs.length) this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(segs), lit));
+    }
+    const bisect = this.bisectGuide();
+    for (const g of ph.kind === 'pull' ? [] : [...SketchTool.guides, ...(bisect ? [bisect] : [])]) {
       // dashed like construction lines (mm)
       const m = new LineMaterial({ color: GUIDE_COLOR, linewidth: g.fixed ? 1.4 : 0.8, depthTest: false, dashed: true, dashSize: 1.5, gapSize: 1.5 });
       m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
@@ -1296,6 +1349,9 @@ export class SketchTool implements Tool {
     this.view.overlay.add(mesh);
   }
 }
+
+/** What the pointer's note calls a tangent circle's bisector. */
+const BISECTOR = 'on bisector';
 
 const SHAPE_HINT = 'Drag to size, or type it · [Tab] other side or number of sides · [Alt] another drawing mode for this shape · [Shift] square / 15° · [Ctrl] precise · [Enter] or click: done · [Esc] cancels';
 
