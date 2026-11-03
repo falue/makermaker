@@ -18,13 +18,15 @@ export class Kernel {
   private asked = new Map<number, (answer: Response) => void>();
   private nextAsk = 0;
 
-  constructor(onResult: (r: BodyResult) => void) {
+  /** `onResults`: bodies as they get built, in several lots for a long build; `done`: the last lot of a send. */
+  constructor(onResults: (results: BodyResult[], done: boolean) => void) {
     this.worker.onmessage = ({ data }: MessageEvent<Response>) => {
       if (data.kind !== 'build') {
         this.asked.get(data.id)?.(data);
         return this.asked.delete(data.id);
       }
-      data.results.forEach(onResult);
+      onResults(data.results, data.done);
+      if (!data.done) return;
       this.busy = false;
       if (this.waiting.size) this.send([...this.waiting.values()]);
       this.waiting.clear();

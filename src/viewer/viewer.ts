@@ -1592,11 +1592,21 @@ export class Viewer implements ToolView {
     group.add(solid, lines);
     this.dress(id);
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
-    if (!this.fitted) {
-      this.fitted = true;
-      requestAnimationFrame(() => this.home(0)); // after the other bodies of this batch
-    }
+    this.fitWaiting();
     this.applySection();
+  }
+
+  /** While more bodies are coming the first frame waits for them. */
+  holdFit(on: boolean) {
+    this.fitHeld = on;
+    if (!on && this.bodies.size) this.fitWaiting();
+  }
+  private fitHeld = false;
+
+  private fitWaiting() {
+    if (this.fitted || this.fitHeld) return;
+    this.fitted = true;
+    requestAnimationFrame(() => this.home(0)); // after the other bodies of this batch
   }
 
   /** Where a body sits in the world: its origin and its turn (from turned groups). */
@@ -2180,7 +2190,7 @@ export class Viewer implements ToolView {
     if (picture) return new THREE.Vector3(...picture.frame.o);
     const box = new THREE.Box3();
     const ids = this.hovered.length ? this.hovered : this.sketchHover.children.length ? [] : this.selection.filter((id) => this.bodies.has(id) && !this.hidden.has(id));
-    for (const id of ids) box.expandByObject(this.bodies.get(id)!);
+    for (const id of ids) if (this.bodies.has(id)) box.expandByObject(this.bodies.get(id)!); // undo may have removed a hovered one
     if (!this.hovered.length && this.sketchHover.children.length) box.setFromObject(this.sketchHover);
     return box.isEmpty() ? null : box.getCenter(new THREE.Vector3());
   }
@@ -2474,9 +2484,10 @@ export class Viewer implements ToolView {
   /**
    * Where shown bodies cross each other, and work planes (within their rectangles) cross bodies and each other: lines
    * that snap and pick like edges (no finishes on them: `cut`; `plane`: a work plane's), and their ends; computed when
-   * first asked after bodies or planes changed.
+   * first asked after bodies or planes changed. Bodies with over `maxTriangles` together get no crossings among them,
+   * and they stop at `maxPairs` triangle pairs tried: a snapping aid must not freeze a big assembly.
    */
-  private crossEdges() {
+  private crossEdges(maxTriangles = 300_000, maxPairs = 50_000_000) {
     const shown = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children.find((c) => c instanceof THREE.Mesh) as THREE.Mesh | undefined;
       return solid && !this.hidden.has(id) && !this.cutters.has(id) ? [{ id, g: (g.updateMatrix(), g), solid }] : [];
@@ -2485,13 +2496,17 @@ export class Viewer implements ToolView {
     if (this.crossings?.key === key) return this.crossings;
     const lines: NonNullable<Viewer['crossings']>['lines'] = [];
     // bodies crossing bodies, where their boxes overlap
-    const tris = shown.map((b) => triangles(b.solid.geometry, b.g.matrix));
+    const big = shown.reduce((n, b) => n + (b.solid.geometry.index?.count ?? 0) / 3, 0) > maxTriangles;
+    const tris = big ? [] : shown.map((b) => triangles(b.solid.geometry, b.g.matrix));
+    let pairs = maxPairs;
     const boxes = tris.map((ts) => ts.reduce((box, t) => box.union(t.box), new THREE.Box3()));
-    for (let i = 0; i < shown.length; i++)
-      for (let j = i + 1; j < shown.length; j++) {
+    for (let i = 0; i < tris.length; i++)
+      for (let j = i + 1; j < tris.length; j++) {
         const both = boxes[i].clone().intersect(boxes[j]);
         if (both.isEmpty()) continue;
         const [as, bs] = [tris[i].filter((t) => t.box.intersectsBox(both)), tris[j].filter((t) => t.box.intersectsBox(both))];
+        pairs -= as.length * bs.length;
+        if (pairs < 0) break;
         // each piece once (neighbouring triangles find shared ones twice), none too short to keep
         const pieces = new Map<string, [THREE.Vector3, THREE.Vector3]>();
         const point = (v: THREE.Vector3) => v.toArray().map((x) => Math.round(x * 1e4)).join();

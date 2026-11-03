@@ -337,18 +337,23 @@ function applySettings() {
 }
 applySettings();
 
-const kernel = new Kernel((r) => {
-  for (const id of reading.get(r.id)?.steps ?? []) readSteps.add(id);
-  reading.delete(r.id);
-  if (!history.current.bodies.some((p) => p.id === r.id)) return render(); // deleted while it was built
-  if ('mesh' in r) {
-    kernelErrors.delete(r.id);
-    viewer.setBody(r.id, r.mesh);
-  } else {
-    kernelErrors.set(r.id, r); // the viewer keeps the last valid geometry
-    if (r.max) clampFinish(r.id, r.featureId, r.max);
+const kernel = new Kernel((results, done) => {
+  viewer.holdFit(!done);
+  const here = new Set(history.current.bodies.map((p) => p.id));
+  for (const r of results) {
+    for (const id of reading.get(r.id)?.steps ?? []) readSteps.add(id);
+    reading.delete(r.id);
+    if (!here.has(r.id)) continue; // deleted while it was built
+    if ('mesh' in r) {
+      kernelErrors.delete(r.id);
+      viewer.setBody(r.id, r.mesh);
+    } else {
+      kernelErrors.set(r.id, r); // the viewer keeps the last valid geometry
+      if (r.max) clampFinish(r.id, r.featureId, r.max);
+    }
   }
   render();
+  if (done) viewer.holdFit(false);
 });
 
 /** Resolves expressions, moves bodies, and rebuilds bodies whose features changed and resolved cleanly. */
@@ -4646,7 +4651,7 @@ function render() {
     title: file.name,
     dirty: doc !== file.saved,
     status,
-    busy: [...[...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => `Reading ${r.name}`), ...busy],
+    busy: [...new Set([...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => `Reading ${r.name}`)), ...busy],
     shapes: shapeSel,
     active: pending?.tool ?? (toolMode === 'pull' && !viewer.activeTool ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
     // the tool's own notes show in the top bar (see showNote); the footer has the hints for what is selected
