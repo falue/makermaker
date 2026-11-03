@@ -1,7 +1,8 @@
 import type { Axis } from '../viewer/viewer';
+import { drawer } from './drawer';
 
 /**
- * Section panel (bottom left of the 3D view), as in incase: per axis a two-handle slider for the shown range,
+ * Section panel (a drawer at the bottom left of the 3D view), as in incase: per axis a two-handle slider for the shown range,
  * reset and invert (show only what is outside the handles); double-click a slider to reset it. Below: custom
  * sections (rows rendered into #custom-sections by the panels) and a button that starts a new one.
  * Cuts are world positions (mm, ±Infinity: open): they stay where they are when bodies change; the sliders span the
@@ -9,7 +10,7 @@ import type { Axis } from '../viewer/viewer';
  */
 export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void, add: () => void) {
   const spans: ((box: { min: Record<Axis, number>; max: Record<Axis, number> }) => void)[] = [];
-  const panel = Object.assign(document.createElement('div'), { className: 'overlay bottom-left sections' });
+  const panel = Object.assign(document.createElement('div'), { className: 'sections' });
   const tips: Record<Axis, [string, string]> = {
     x: ['Show only a slice left to right', 'Drag the handles to cut the 3D view left / right · double-click to reset'],
     y: ['Show only a slice front to back', 'Drag the handles to cut the 3D view front / back · double-click to reset'],
@@ -79,7 +80,7 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
   const custom = Object.assign(document.createElement('div'), { id: 'custom-sections' });
   const more = Object.assign(document.createElement('button'), { textContent: '+ Section', title: 'A section parallel to a face you click: slanted planes too', onclick: add });
   panel.append(custom, more);
-  host.append(panel);
+  host.append(drawer('Section view', 'left', panel));
   return {
     /** While a face is being picked the button says what to do. */
     picking(on: boolean) {

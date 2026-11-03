@@ -35,6 +35,7 @@ import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, role, roleKeyName, type Action } from './ui/keys';
 import { installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
+import { drawer } from './ui/drawer';
 import { keepInside } from './ui/inside';
 import { ANGLE_STEPS, SketchTool, uvOf, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
@@ -3689,7 +3690,8 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
  * is (either pauses it). Joints left still are reported below.
  */
 const jointsBox = Object.assign(document.createElement('div'), { className: 'joints-box' });
-viewer.el.append(jointsBox);
+const jointsDrawer = drawer('Joint animation', 'right', jointsBox);
+viewer.el.append(jointsDrawer);
 let jointsKey = '';
 /**
  * Joints playing: their phase (0 → 1 from min to max, 1 → 2 back), where a single play stops (1 or 2), the last
@@ -3703,7 +3705,7 @@ function renderJoints() {
   const key = JSON.stringify([doc.joints.map((j) => [j.id, j.name, j.kind, j.min, j.max]), jointProblems, [...playing.keys()], [...repeating], doc.units]);
   if (key !== jointsKey) {
     jointsKey = key;
-    jointsBox.hidden = !doc.joints.length;
+    jointsDrawer.hidden = !doc.joints.length;
     jointsBox.replaceChildren(...doc.joints.map(jointRow), ...jointProblems.map((p) => Object.assign(document.createElement('p'), { className: 'error', textContent: p })));
   }
   // the sliders and fields show where the joints are now (not the one being typed in)

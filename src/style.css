@@ -595,6 +595,57 @@ body.scrubbing * {
   bottom: 8px;
   left: 8px;
 }
+/* a drawer: its title at the bottom of the view, sliding up with its contents; only those two take the pointer */
+.drawer {
+  --tab: 26px;
+  position: absolute;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(calc(100% - var(--tab)));
+  transition: transform 0.12s ease-out;
+  pointer-events: none;
+}
+.drawer.open {
+  transform: none;
+}
+.drawer[hidden] {
+  display: none;
+}
+.drawer > * {
+  pointer-events: auto;
+}
+.drawer.left {
+  left: 8px;
+  align-items: flex-start;
+}
+.drawer.right {
+  right: 10px;
+  align-items: flex-end;
+}
+.drawer-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--tab);
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.drawer-tab svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  transition: transform 0.12s;
+}
+.drawer.open .drawer-tab svg {
+  transform: rotate(90deg);
+}
 .sections {
   display: grid;
   grid-template-columns: auto auto 160px;
@@ -604,6 +655,9 @@ body.scrubbing * {
   border-radius: 8px;
   background: var(--panel);
   color: var(--muted);
+}
+.sections button {
+  background: var(--panel);
 }
 .sections button.icon {
   padding: 0 5px;
@@ -1554,12 +1608,8 @@ button.icon.tool-op {
   width: 56px;
 }
 
-/* joints: play, loop and where each is now, at the bottom right of the view */
+/* joints: play, loop and where each is now, in a drawer at the bottom right of the view */
 .joints-box {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  z-index: 5;
   display: grid;
   gap: 4px;
   padding: 6px 8px;
@@ -1567,9 +1617,6 @@ button.icon.tool-op {
   background: var(--panel);
   color: var(--muted);
   font-size: 12px;
-}
-.joints-box[hidden] {
-  display: none;
 }
 .joint-row {
   display: flex;
