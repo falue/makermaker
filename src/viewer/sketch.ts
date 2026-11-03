@@ -1301,7 +1301,7 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
 };
 
 /** The drawing mode's pictogram and name, top left in the view for a moment. */
-function showMode(el: HTMLElement, kind: ToolKind, m: Mode, ms = 1000) {
+function showMode(el: HTMLElement, kind: ToolKind, m: Mode, ms = 3000) {
   el.querySelector('.mode-note')?.remove();
   const note = Object.assign(document.createElement('div'), { className: 'mode-note', innerHTML: `${icon(`${kind}-${m.id}`)}<span>${m.name}</span>` });
   el.append(note);
