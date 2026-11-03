@@ -561,7 +561,7 @@ function update() {
     ),
   );
   viewer.setLooks(doc.bodies.map((b) => ({ ...b, visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));
-  viewer.select(contents(doc, selected));
+  viewer.select(contents(doc, selected), groupKept(doc));
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
   if (sketching && !drawn) exitSketch();
@@ -862,9 +862,16 @@ function isolate(id: string) {
 }
 
 function showSelection() {
-  viewer.select(contents(history.current, selected));
+  viewer.select(contents(history.current, selected), groupKept(history.current));
   viewer.setSketches(viewer.sketches, activeSketch(), shapeSel);
   render();
+}
+
+/** Objects of one group selected (not in sketch mode): that group's contents stay, the rest fades; else null. */
+function groupKept(doc: Doc) {
+  const objects = [...doc.bodies, ...doc.sketches].filter((o) => selected.includes(o.id));
+  const g = objects[0]?.group;
+  return g && !sketching && objects.length === selected.length && objects.every((o) => o.group === g) ? new Set(contents(doc, [g])) : null;
 }
 
 /** Writes new positions (mm) as plain numbers in the display unit; untouched axes keep their expressions. */

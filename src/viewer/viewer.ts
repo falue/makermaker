@@ -797,7 +797,7 @@ export class Viewer implements ToolView {
       for (const p of s.shapes) {
         const color = s.id === this.activeSketch && this.selectedShapes.includes(p.id) ? 0xff8c1a : s.color;
         const q = this.overrides.get(p.id) ?? p;
-        const faint = !!this.focus && (s.id !== this.focus.sketch || !inGroup(s, p, this.focus.group)); // outside the open (sub-)group
+        const faint = this.focus ? s.id !== this.focus.sketch || !inGroup(s, p, this.focus.group) : !!this.kept && !this.kept.has(s.id); // outside the open (sub-)group, or the selection's group
         if (this.moving && (q !== p || by)) this.sketchView.add(outline(p, s.frame, 0x8a8f98, lift)); // where it was
         this.sketchView.add(outline(q, frame, color, lift, 1.5, 2, faint ? 0.25 : 1));
         if (q.kind === 'circle') this.sketchView.add(marks([new THREE.Vector3(...toWorld(frame, q.x, q.y))], color, 6)); // its centre, clickable
@@ -1284,8 +1284,10 @@ export class Viewer implements ToolView {
     this.applySection();
   }
 
-  select(ids: string[]) {
+  /** `kept`: objects inside a group selected: that group's bodies and sketches; the rest fades (still picked). */
+  select(ids: string[], kept: Set<string> | null = null) {
     this.selection = ids;
+    this.kept = kept;
     this.rehide();
     const bodies = [...this.pickedFaces.map((p) => p.mesh.userData.bodyId as string), ...(this.pickedEdge ? [this.pickedEdge.body] : [])];
     if (bodies.some((b) => !ids.includes(b))) this.dropPicked();
@@ -1326,7 +1328,7 @@ export class Viewer implements ToolView {
     if (!solid) return;
     const cutter = this.cutters.has(id);
     const dropped = !cutter && this.dropped.has(id);
-    const faded = dropped || (!cutter && !!this.focus && !this.focus.solid.has(id));
+    const faded = dropped || (!cutter && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id)));
     (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : this.materialOf(id);
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
     // a see-through body's depth, drawn before the see-through colours (sections and picking skip it)
@@ -1342,6 +1344,7 @@ export class Viewer implements ToolView {
   }
 
   private dropped = new Set<string>();
+  private kept: Set<string> | null = null;
   private droppedFill = new THREE.MeshStandardMaterial({ color: 0xe5484d, roughness: 0.7, transparent: true, opacity: 0.35, depthWrite: false });
 
   /** Bodies `ids` see-through in the cut's red (to be deleted), the others as they are. */
