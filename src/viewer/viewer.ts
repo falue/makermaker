@@ -18,6 +18,7 @@ import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './
 import { FacePullTool, type PullLook } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
+import { fastRaycast } from './pick';
 import { DEFAULT_LIGHT, sunDirection, type Look } from '../doc/materials';
 import { applyLook, boxUv, renderMaterial } from './look';
 import { loadImage, photoPass, photoTexture } from './photo';
@@ -1579,7 +1580,7 @@ export class Viewer implements ToolView {
     geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-    const solid = new THREE.Mesh(geometry);
+    const solid = Object.assign(new THREE.Mesh(geometry), { raycast: fastRaycast });
     Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
@@ -2263,25 +2264,25 @@ export class Viewer implements ToolView {
     r.setClearColor(0x000000, 0);
     r.clear();
     r.autoClear = false; // all solids into one mask: one silhouette around them together
-    for (const s of solids) {
     mask.texture.generateMipmaps = false; // not after each of them
+    for (const s of solids) {
       const own = s.material as THREE.Material;
       flat.clippingPlanes = own.clippingPlanes; // a cut copy stays cut
       s.material = flat;
       r.render(s, this.camera);
       s.material = own;
     }
-    r.setRenderTarget(null);
     mask.texture.generateMipmaps = true;
     r.render(nothing, this.camera); // ends a render on the mask: its levels get made
+    r.setRenderTarget(null);
     r.setClearColor(clear, alpha);
     const u = (quad.material as THREE.ShaderMaterial).uniforms;
     u.mask.value = mask.texture;
     u.color.value.set(...rgb);
     u.texel.value.set(1 / size.x, 1 / size.y);
     u.width.value = px * r.getPixelRatio();
-    r.autoClear = false;
     u.near.value = Math.ceil(Math.log2(2 * u.width.value + 1));
+    r.autoClear = false;
     r.render(quad, this.camera);
     r.autoClear = autoClear;
   }
