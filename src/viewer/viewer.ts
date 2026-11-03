@@ -875,6 +875,8 @@ export class Viewer implements ToolView {
     this.sketchHover.clear();
     const s = id ? this.sketches.find((k) => k.id === id) : undefined;
     for (const q of s?.shapes ?? []) this.sketchHover.add(outline(q, s!.frame, 0xff8c1a, 0, 1.5, 3));
+    const box = new THREE.Box3().setFromObject(this.sketchHover);
+    this.pointTo(box.isEmpty() ? null : box.getCenter(new THREE.Vector3()));
     this.sketchHover.traverse((o) => (o.renderOrder = 1e6));
     this.render();
   }
@@ -1690,6 +1692,37 @@ export class Viewer implements ToolView {
     });
   };
 
+  /** Bodies hovered in the list: outlined orange (a temporary mark). */
+  private hovered: string[] = [];
+  /** At the view's edge, pointing to what is hovered in the list when it lies outside the view. */
+  private offscreen = Object.assign(document.createElement('div'), { className: 'offscreen', hidden: true, innerHTML: '<svg viewBox="0 0 24 24"><path d="M4 12h14M12 6l6 6-6 6"/></svg>' });
+
+  /** Outlines bodies orange (hovered in the list; none: clears it); off the view, an arrow at its edge points to them. */
+  lightBodies(ids: string[]) {
+    this.hovered = ids.filter((id) => this.bodies.has(id) && !this.hidden.has(id));
+    const box = new THREE.Box3();
+    for (const id of this.hovered) box.expandByObject(this.bodies.get(id)!);
+    this.pointTo(box.isEmpty() ? null : box.getCenter(new THREE.Vector3()));
+    this.render();
+  }
+
+  /** The off-view arrow: at the view's edge towards `at` (world) when it lies outside the view; null: hidden. */
+  private pointTo(at: THREE.Vector3 | null, margin = 24) {
+    if (!this.offscreen.isConnected) this.el.append(this.offscreen);
+    const r = this.el.getBoundingClientRect();
+    const p = at?.clone().project(this.camera);
+    // behind the camera the projection mirrors: turned back round
+    const [nx, ny] = p ? (p.z > 1 ? [-p.x, -p.y] : [p.x, p.y]) : [0, 0];
+    const inside = !p || (p.z <= 1 && Math.abs(nx) <= 1 && Math.abs(ny) <= 1);
+    this.offscreen.hidden = inside;
+    if (inside) return;
+    // from the middle towards it, to where that ray leaves the view (less the margin)
+    const [w, h] = [r.width / 2 - margin, r.height / 2 - margin];
+    const [dx, dy] = [nx * (r.width / 2), -ny * (r.height / 2)];
+    const k = Math.min(w / Math.abs(dx || 1e-9), h / Math.abs(dy || 1e-9));
+    Object.assign(this.offscreen.style, { left: `${r.width / 2 + dx * k}px`, top: `${r.height / 2 + dy * k}px`, transform: `translate(-50%, -50%) rotate(${Math.atan2(dy, dx)}rad)` });
+  }
+
   /** The outline around the selected bodies' silhouettes (cut ones too), over the finished picture. */
   private drawSilhouette() {
     const shown = this.selection.filter((id) => !this.hidden.has(id));
@@ -1703,6 +1736,8 @@ export class Viewer implements ToolView {
       shown.filter((id) => this.cutters.has(id)).flatMap((id) => (this.bodies.get(id)?.children[0] as THREE.Mesh | undefined) ?? []),
       [0xe5 / 255, 0x48 / 255, 0x4d / 255],
     );
+    // hovered in the list: orange, a temporary mark
+    this.outline(this.hovered.filter((id) => !this.hidden.has(id)).flatMap((id) => (this.bodies.get(id)?.children[0] as THREE.Mesh | undefined) ?? []), [1, 0x8c / 255, 0x1a / 255]);
   }
 
   /** The silhouette of `solids` outlined in `rgb` (0..1) over the picture. */
@@ -2058,7 +2093,9 @@ export class Viewer implements ToolView {
 
   /**
    * The tangent chain of the edge near the pointer: the edges joined to it end to end where they run on smoothly
-   * (within `deg`: edges are drawn as segments, so a smooth joint still turns a little), e.g. a circle's halves, a hole's rim, a rounded rectangle's outline. Off a face: that edge alone.
+   * (within `deg`: edges are drawn as segments, so a smooth joint still turns a little), e.g. a circle's halves, a
+   * hole's rim, a rounded rectangle's outline. A straight edge between sharp corners (a box's): the edges joined end to
+   * end in the plane of the face under the pointer, all around it.
    */
   private edgeLoop(e: MouseEvent, deg = 30) {
     const start = this.edgeAt(e);
@@ -2075,7 +2112,17 @@ export class Viewer implements ToolView {
     for (let i = 0; i < chain.length; i++)
       for (const [p, d] of tips(chain[i].segs))
         for (const x of pool) if (!chain.includes(x) && tips(x.segs).some(([q, t]) => q.distanceTo(p) < 0.01 && Math.abs(t.dot(d)) > cos)) chain.push(x);
-    return { body: start.body, edges: chain.map((x) => x.segs) };
+    if (chain.length > 1) return { body: start.body, edges: chain.map((x) => x.segs) };
+    // nothing runs on smoothly: the loop around the face under the pointer
+    const hit = this.frontHit(e);
+    const plane = hit && new THREE.Plane().setFromNormalAndCoplanarPoint(hit.face!.normal.clone().transformDirection(hit.object.matrixWorld), hit.point);
+    const flat = (segs: Segs) => !!plane && segs.every(([a, b]) => Math.abs(plane.distanceToPoint(a)) < 0.05 && Math.abs(plane.distanceToPoint(b)) < 0.05);
+    if (!flat(chain[0].segs)) return { body: start.body, edges: [chain[0].segs] };
+    const loop = [chain[0]];
+    const ends = (segs: Segs) => [segs[0][0], segs[segs.length - 1][1]];
+    for (let i = 0; i < loop.length; i++)
+      for (const x of pool) if (!loop.includes(x) && flat(x.segs) && ends(x.segs).some((p) => ends(loop[i].segs).some((q) => p.distanceTo(q) < 0.01))) loop.push(x);
+    return { body: start.body, edges: loop.map((x) => x.segs) };
   }
 
   /** Lights `segs` (world) as the picked or hovered edge; none: clears it. */

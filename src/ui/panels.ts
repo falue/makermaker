@@ -82,10 +82,12 @@ export interface UIContext {
   lightSketch(id: string | null): void;
   /** Opens a bulge's panel (`body` holds it). */
   editBulge(body: string, feature: string): void;
-  /** Lights bodies in the view (a body with linked copies hovered in the list; null: the selection again). */
+  /** Outlines objects orange in the view, a temporary mark (hovered in the list; groups: their contents; null: none). */
   lightBodies(ids: string[] | null): void;
   /** A body's linked copies become their own objects, together with it in a new group of its name. */
   breakLinks(source: string): void;
+  /** One linked copy gets its own steps and leaves the others. */
+  unlinkCopy(id: string): void;
   /**
    * To object for the value at `path`: the next click's value (in the display unit) is handed to `insert`, to go into
    * the field where the cursor is; false: that value has none.
@@ -448,7 +450,7 @@ const SHAPES = [
 /** Left of the 3D view (incase's toolbar): sketching and making things, grouping, duplicating, deleting. */
 /** Shapes with several drawing modes, and how to switch them. */
 const MODED = ['rect', 'circle', 'ngon'];
-const MODE_TIP = ' · again (or A with the pointer off lines): its next drawing mode';
+const MODE_TIP = ' · again (or Alt): its next drawing mode';
 
 function toolbar(ctx: UIContext): Node[] {
   const on = (name: string) => ctx.active === name;
@@ -622,6 +624,9 @@ function left(ctx: UIContext): Node[] {
   const dragged = (id: string) => (ctx.selected.includes(id) ? ctx.selected : [id]);
   const row = (id: string, depth: number, group: boolean, ...cells: HTMLElement[]) => {
     const el = h('div', { className: `listed${dimmed(id)}`, draggable: renaming !== id }, ...cells);
+    // hovered: it (a group: its contents; a body: its linked copies too) outlined orange in the view
+    el.onmouseenter = () => ctx.lightBodies([id, ...doc.bodies.filter((b) => b.link === id).map((b) => b.id)]);
+    el.onmouseleave = () => ctx.lightBodies(null);
     el.dataset.id = id;
     el.style.paddingLeft = `${depth * 22}px`; // a level: the chevron's width, so contents line up under the group name
     el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
@@ -743,13 +748,11 @@ function left(ctx: UIContext): Node[] {
     const source = doc.bodies.find((b) => b.id === p.link);
     const copies = doc.bodies.filter((b) => b.link === p.id).map((b) => b.id);
     const linked = source
-      ? [h('span', { className: 'icon linked-mark', innerHTML: icon('link'), title: `Linked copy of ${source.name}: it shares its steps (shape edits on any of them go to all)` })]
+      ? [h('button', { className: 'icon linked-mark', innerHTML: icon('link'), title: `Linked copy of ${source.name}: it shares its steps (edits on any of them go to all) · click: unlink it (its own steps, on its own in the list)`, onclick: () => ctx.unlinkCopy(p.id) })]
       : copies.length
         ? [h('button', { className: 'icon linked-mark', innerHTML: icon('link'), title: `Its ${copies.length} linked cop${copies.length === 1 ? 'y shares' : 'ies share'} its steps · click: break the links (each its own object, together in a new group "${p.name}")`, onclick: () => ctx.breakLinks(p.id) })]
         : [];
     const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...sketch, ...bools, ...jointMark(id), tool);
-    // hovered: it and its linked copies light in the view
-    if (copies.length) [el.onmouseenter, el.onmouseleave] = [() => ctx.lightBodies([id, ...copies]), () => ctx.lightBodies(null)];
     return el;
   });
   // sketches: their own list, each with the body it belongs to
@@ -1002,7 +1005,7 @@ function linkedNote(ctx: UIContext, body: Body): Node[] {
   if (followers) return [h('p', { className: 'hint linked' }, `${followers} linked cop${followers === 1 ? 'y follows' : 'ies follow'} its steps: editing them edits those too`)];
   if (!source) return [];
   const copies = ctx.doc.bodies.filter((b) => b.link === source.id).length;
-  const unlink = button('Unlink', () => ctx.commit(setIn(ctx.doc, ['bodies', String(ctx.doc.bodies.indexOf(body))], { ...body, link: null, features: [...structuredClone(source.features), ...body.features] })), 'Its own copy of the steps: editing it no longer changes the others');
+  const unlink = button('Unlink', () => ctx.unlinkCopy(body.id), 'Its own copy of the steps: editing it no longer changes the others');
   return [h('div', { className: 'row linked' }, h('span', { className: 'hint' }, `Linked copy of ${source.name} (${copies + 1} alike): editing its steps edits all of them`), unlink)];
 }
 

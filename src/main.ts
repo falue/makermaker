@@ -815,9 +815,12 @@ function applyBoolean(op: BooleanOp) {
     return showSelection();
   }
   const [target, ...tools] = ids;
+  // a linked copy's boolean goes to its source's steps, so every copy gets it: the tools move by the source, as they lie by the copy
+  const owner = doc.bodies[stepsOf(doc, target)].id;
+  const by = owner === target ? null : bodyPlaces.get(owner)!.clone().multiply(bodyPlaces.get(target)!.clone().invert());
   const bodies = doc.bodies.map((b) => {
-    if (tools.includes(b.id)) return { ...b, visible: op === 'subtract' }; // cutters show as red outlines
-    if (b.id !== target) return b;
+    if (tools.includes(b.id)) return { ...b, visible: op === 'subtract', ...(by ? placementIn(parentPlace(b.id), by.clone().multiply(bodyPlaces.get(b.id)!)) : {}) }; // cutters show as red outlines
+    if (b.id !== owner) return b;
     return { ...b, features: [...b.features, ...tools.map((body): Feature => ({ id: newId(), type: 'boolean', op, body }))] };
   });
   [selected, shapeSel] = [[target], []];
@@ -1257,6 +1260,14 @@ function stepsOf(doc: Doc, body: string) {
   return doc.bodies.findIndex((b) => b.id === id);
 }
 
+/** One linked copy gets its own steps (its source's, then its own): editing it no longer edits the others, and it leaves them in the list. */
+function unlinkCopy(id: string) {
+  const doc = history.current;
+  const i = doc.bodies.findIndex((b) => b.id === id);
+  const src = doc.bodies.find((b) => b.id === doc.bodies[i]?.link);
+  if (src) commit(setIn(doc, ['bodies', String(i)], { ...doc.bodies[i], link: null, features: [...structuredClone(src.features), ...doc.bodies[i].features] }));
+}
+
 /**
  * Breaks a body's links (asked first): its linked copies in its group get all its steps and go, with it, into a new group of its
  * name (in its place in the list); copies elsewhere just get their steps. One undo step.
@@ -1424,7 +1435,10 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   const split = (side: 1 | -1): Feature => ({ id: newId(), type: 'split', cutter: structuredClone(current()!), side });
   const [copy] = copiesOf([doc0.bodies[i]], [], ' B').bodies;
   const chunkB: Body = { ...copy, color: newBody(doc0.bodies.length + 1, []).color, features: [...copy.features, split(-1)] };
-  history.push({ ...doc0, bodies: [...doc0.bodies.slice(0, i), { ...doc0.bodies[i], features: [...doc0.bodies[i].features, split(1)] }, chunkB, ...doc0.bodies.slice(i + 1)] });
+  // a linked copy's cut goes to its source's steps: every copy is cut (B: the clicked one's other side only)
+  const a = doc0.bodies[stepsOf(doc0, body)].id;
+  const withA = doc0.bodies.map((x) => (x.id === a ? { ...x, features: [...x.features, split(1)] } : x));
+  history.push({ ...doc0, bodies: [...withA.slice(0, i + 1), chunkB, ...withA.slice(i + 1)] });
   cutting = { chunk: chunkB.id };
   [selected, shapeSel] = [[body], []];
   const hint = 'Cut: set the offset, pick what stays · type or scrub it, T: to object' + (cutter.kind === 'plane' ? ' · the turn (Set axis: what it turns around)' : '') + ' · [Enter] cuts · [Esc] leaves the body as it was';
@@ -1435,7 +1449,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     if (c) {
       const doc = history.current;
       const bodies = doc.bodies.map((x) => {
-        if (x.id !== body && x.id !== chunkB.id) return x;
+        if (x.id !== a && x.id !== chunkB.id) return x;
         const cut = structuredClone(x.features.at(-1)!);
         if (cut.type === 'split') cut.cutter = structuredClone(c);
         // B alone stays: it is the body as it was named and coloured
@@ -2175,7 +2189,7 @@ function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
       const w = on.point.clone().sub(r.at);
       const out = w.sub(r.dir.clone().multiplyScalar(w.dot(r.dir))).normalize();
       feature = { ...base, on: { kind: 'round', at: unplaced(pl, r.at.toArray()), dir: unplaced(pl, r.dir.toArray(), true), r: r.r, length: r.length, shaft: r.shaft }, peak: peak(unplaced(pl, out.multiplyScalar(r.r * (r.shaft ? 1.5 : 0.5)).toArray(), true)) };
-    } else feature = { ...base, on: { kind: 'face', at: unplaced(pl, on.point.toArray()), mid: unplaced(pl, viewer.faceCentre(on).toArray()) }, peak: peak(unplaced(pl, on.n.clone().multiplyScalar(10).toArray(), true)) };
+    } else feature = { ...base, on: { kind: 'face', at: unplaced(pl, on.point.toArray()), mid: unplaced(pl, viewer.faceCentre(on).toArray()), n: unplaced(pl, on.n.toArray(), true) }, peak: peak(unplaced(pl, on.n.clone().multiplyScalar(10).toArray(), true)) };
     i = stepsOf(doc, on.body);
     [selected, shapeSel] = [[on.body], []];
     commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
@@ -2206,20 +2220,36 @@ function bulgePanel(body: string, id: string, fresh = false) {
     const shapes = s?.shapes.filter((q) => on.shapes.includes(q.id)) ?? [];
     middle = shapes.reduce((sum, q) => sum.add(new Vector3(...toWorld(s!.frame, ...centre(q)))), new Vector3()).divideScalar(Math.max(1, shapes.length));
   }
+  // To object: only the height goes to the clicked point (across the face; a round face: how far from its axis)
+  const local = (v: Vector3) => new Vector3(...unplaced(pl, v.toArray(), true));
+  const axis = on.kind === 'round' ? new Vector3(...on.dir).normalize() : null;
+  const normal = on.kind === 'face' ? new Vector3(...on.n) : on.kind === 'sketch' ? local(new Vector3(...(viewer.sketches.find((v) => v.id === on.sketch)?.frame.n ?? [0, 0, 1]))) : null;
+  const reach = (p: Vector3) => {
+    const q = local(p.clone().sub(middle));
+    const now = new Vector3(...panel.inputs.slice(0, 3).map((i) => length(i.value || '0') ?? 0));
+    if (!axis) return now.addScaledVector(normal!, q.dot(normal!) - now.dot(normal!)).toArray();
+    const along = now.dot(axis);
+    const out = now.clone().addScaledVector(axis, -along);
+    if (out.lengthSq() < 1e-12) out.copy(new Vector3(1, 0, 0).cross(axis).lengthSq() > 1e-6 ? new Vector3(1, 0, 0).cross(axis) : new Vector3(0, 1, 0).cross(axis));
+    return axis.clone().multiplyScalar(along).addScaledVector(out.normalize(), q.clone().addScaledVector(axis, -q.dot(axis)).length()).toArray();
+  };
   const write = ([x, y, z, k]: string[]) => {
+    // fullness kept between -4 and 4, in its field too
+    const full = Number(k);
+    if (Number.isFinite(full) && Math.abs(full) > 4) panel.inputs[3].value = k = String(Math.sign(full) * 4);
     const next = setIn(history.current, path, { ...(getIn(history.current, path) as BulgeFeature), peak: [x, y, z].map((e) => ({ e, u })) as BulgeFeature['peak'], fullness: { e: k, u: 'mm' } });
     if (fresh || history.current !== doc0) history.replace(next);
     else history.push(next);
     update();
   };
-  valuePanel(
+  const panel = valuePanel(
     [
-      ...(['X', 'Y', 'Z'] as const).map((a, k) => ({ label: a, value: feature.peak[k].e, title: `Peak ${a}: the high point from the face's middle (across the face: its height)`, ...(k === 2 ? { reach: (p: Vector3) => unplaced(pl, p.clone().sub(middle).toArray(), true) } : {}) })),
+      ...(['X', 'Y', 'Z'] as const).map((a, k) => ({ label: a, value: feature.peak[k].e, title: `Peak ${a}: the high point from the face's middle (across the face: its height)`, ...(k === 2 ? { reach } : {}) })),
       { label: 'Fullness', value: feature.fullness.e, raw: true, title: 'Fullness: -4 pointy, 0 a pillow, 1 a dome, 4 flat topped' },
     ],
     write,
     (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
-    'Bulge: where its peak is · X / Y / Z from the middle; across the face: its height (negative: a dent) · T: a point, all three · Fullness: -4 pointy, 0 pillow, 1 dome, 4 flat top · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    'Bulge: where its peak is · X / Y / Z from the middle; across the face: its height (negative: a dent) · T: the height to a point · Fullness: -4 pointy, 0 pillow, 1 dome, 4 flat top · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
   );
 }
 
@@ -4020,8 +4050,9 @@ function render() {
     jointRange: rangeText,
     lightSketch: (id) => viewer.lightSketch(id),
     editBulge: bulgePanel,
-    lightBodies: (ids) => (ids ? viewer.select(ids) : showSelection()),
+    lightBodies: (ids) => viewer.lightBodies(ids ? contents(history.current, ids) : []),
     breakLinks,
+    unlinkCopy,
     showJoint(id) {
       const j = history.current.joints.find((x) => x.id === id);
       if (j) viewer.select(contents(history.current, j.children));
@@ -4108,7 +4139,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 18, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 19, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
