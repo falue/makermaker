@@ -137,8 +137,8 @@ export interface UIContext {
   previewColor(id: string, color: string): void;
   /** Sets the material of bodies and groups (none: their group's, else their own colour). */
   setMaterialOf(ids: string[], material: string | undefined): void;
-  /** The materials dialog; `oneOff`: the selection starts a one-off in it. */
-  openMaterials(oneOff?: boolean): void;
+  /** The materials dialog; `fresh`: the selection gets a new material of the file first. */
+  openMaterials(fresh?: boolean): void;
   startTool(kind: ToolKind): void;
   /** Pulls the selected shapes (or all) of the selected sketch. */
   extrude(): void;
@@ -1008,18 +1008,16 @@ function turnSlider(ctx: UIContext, i: number, turn: number) {
 function materialRows(ctx: UIContext, ids: string[], inherited: string): Node[] {
   const { doc } = ctx;
   const objects = [...doc.bodies, ...doc.groups].filter((x) => ids.includes(x.id));
-  const oneOff = objects.some((x) => x.ownLook);
   const same = objects.every((x) => x.material === objects[0]?.material) ? objects[0]?.material : undefined;
-  const list = select(oneOff ? 'one-off' : (same ?? ''), {
+  const list = select(same ?? '', {
     '': inherited,
-    ...(oneOff ? { 'one-off': 'Custom (just this object)' } : {}),
     ...Object.fromEntries([...STANDARD_MATERIALS, ...doc.materials].map((m) => [m.id, m.name])),
     new: '+ New…',
   } as Record<string, string>, (id) => {
     if (id === 'new') return ctx.openMaterials(true);
-    if (id !== 'one-off') ctx.setMaterialOf(ids, id || undefined);
+    ctx.setMaterialOf(ids, id || undefined);
   });
-  return [h('h3', {}, 'Material'), h('div', { className: 'row' }, list, button('Edit…', () => ctx.openMaterials(), 'The materials dialog: pick, change its look just for this, or edit saved materials'))];
+  return [h('h3', {}, 'Material'), h('div', { className: 'row' }, list, button('Edit…', () => ctx.openMaterials(), 'The materials dialog: pick one, change the look of this object, or edit the materials of the file'))];
 }
 
 /** An image's card: name, Delete; width (mm), opacity, a colour shown transparent (and how far off still counts), Calibrate. */
@@ -1050,7 +1048,7 @@ function imagePanel(ctx: UIContext, i: number): Node[] {
 
 /** What a body without its own material gets, as the list's first entry. */
 function inheritedLabel(ctx: UIContext, body: Body) {
-  const bare = { ...body, material: undefined, ownLook: undefined };
+  const bare = { ...body, material: undefined };
   const m = setLook(ctx.doc, bare) as Material | undefined;
   return m ? `From its group${m.name ? `: ${m.name}` : ''}` : 'None (its own colour)';
 }

@@ -65,11 +65,9 @@ export const STANDARD_MATERIALS = STANDARD_SECTIONS.flatMap(([, list]) => list);
 
 export const findMaterial = (doc: Doc, id?: string) => (id ? (STANDARD_MATERIALS.find((m) => m.id === id) ?? doc.materials.find((m) => m.id === id)) : undefined);
 
-const lookHere = (doc: Doc, x: Body | Group) => x.ownLook ?? findMaterial(doc, x.material);
-
-/** What a body or group looks like by what is set on it or the nearest of its groups; none: nothing is. */
+/** What a body or group looks like by the material set on it or the nearest of its groups; none: nothing is. */
 export function setLook(doc: Doc, x: Body | Group): MaterialLook | undefined {
-  const here = lookHere(doc, x);
+  const here = findMaterial(doc, x.material);
   if (here) return here;
   const up = 'parent' in x ? x.parent : x.group;
   const group = doc.groups.find((g) => g.id === up);
@@ -85,25 +83,38 @@ function withObjects(doc: Doc, ids: string[], change: <T extends Body | Group>(x
 }
 
 const bare = <T extends Body | Group>(x: T): T => {
-  const { material: _, ownLook: __, ...rest } = x;
+  const { material: _, ...rest } = x;
   return rest as T;
 };
 
-/** Bodies and groups `ids` get a material (none: their group's, else their own colour); a one-off they had goes. */
+/** Bodies and groups `ids` get a material (none: their group's, else their own colour). */
 export const assignMaterial = (doc: Doc, ids: string[], material?: string) => withObjects(doc, ids, (x) => (material ? { ...bare(x), material } : bare(x)));
 
-/** Each of `ids` changes its look by `patch`, for itself alone: a one-off, starting from how it looks now. */
-export const editOneOff = (doc: Doc, ids: string[], patch: Partial<MaterialLook>) =>
-  withObjects(doc, ids, (x) => ({ ...x, ownLook: { ...(setLook(doc, x) ?? plainLook('color' in x ? x.color : '#d8c3a0')), ...patch } }));
+/** A name for a new material of the file, not taken yet. */
+function freeName(doc: Doc, name: string) {
+  const taken = new Set(doc.materials.map((m) => m.name));
+  for (let n = 2; ; n++) if (!taken.has(n === 2 ? name : `${name} ${n - 1}`)) return n === 2 ? name : `${name} ${n - 1}`;
+}
 
-/** The look of `ids`' first as a new material of the file, which all of them then use. */
-export function saveOneOff(doc: Doc, ids: string[], id: string, name = `Material ${doc.materials.length + 1}`) {
+/** How the first of `ids` looks now, changed by `patch`, as a new material of the file named after it, which they then use. */
+export function newMaterialFor(doc: Doc, ids: string[], id: string, patch: Partial<MaterialLook> = {}): Doc {
   const first = [...doc.bodies, ...doc.groups].find((x) => ids.includes(x.id));
-  const look = first && setLook(doc, first);
-  if (!look) return doc;
-  const { color, bump, reflection, translucency, glow, glowStrength, overlay } = look;
-  const material: Material = { id, name, color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}) };
+  if (!first) return doc;
+  const { color, bump, reflection, translucency, glow, glowStrength, overlay } = setLook(doc, first) ?? plainLook('color' in first ? first.color : '#d8c3a0');
+  const material: Material = { color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}), ...patch, id, name: freeName(doc, first.name) };
   return assignMaterial({ ...doc, materials: [...doc.materials, material] }, ids, id);
+}
+
+/**
+ * Changes how `ids` look, and nothing else: a material of the file only they use changes; else they get a new one
+ * (`id`) with the change.
+ */
+export function changeLook(doc: Doc, ids: string[], patch: Partial<MaterialLook>, id: string): Doc {
+  const mine = [...doc.bodies, ...doc.groups].filter((x) => ids.includes(x.id));
+  const material = mine[0]?.material;
+  const others = [...doc.bodies, ...doc.groups].some((x) => x.material === material && !ids.includes(x.id));
+  if (!material || others || mine.some((x) => x.material !== material) || !doc.materials.some((m) => m.id === material)) return newMaterialFor(doc, ids, id, patch);
+  return { ...doc, materials: doc.materials.map((m) => (m.id === material ? { ...m, ...patch } : m)) };
 }
 
 /** The document without the material; what used it falls back to its group or its own colour. */

@@ -15,7 +15,7 @@ import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { readStep, stepObjects } from './io/step';
-import { dropMaterial, editOneOff, lookOf, plainLook, setLook } from './doc/materials';
+import { changeLook, dropMaterial, lookOf, newMaterialFor, plainLook, setLook } from './doc/materials';
 import { fromMtlx, toMtlx } from './io/materials';
 import { openMaterials } from './ui/materials';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
@@ -4544,8 +4544,8 @@ function setMaterialOf(ids: string[], material: string | undefined) {
 /** The selection's bodies and groups. */
 const lookTargets = () => [...history.current.bodies, ...history.current.groups].filter((x) => selected.includes(x.id));
 
-/** The materials dialog on the selection; `oneOff`: it starts with a look of its own. */
-function materialsDialog(oneOff = false) {
+/** The materials dialog on the selection; `fresh`: it gets a new material of the file first. */
+function materialsDialog(fresh = false) {
   const ids = () => lookTargets().map((x) => x.id);
   /** A change: one undo step for a whole drag. */
   const put = (next: Doc, live: boolean) => {
@@ -4553,7 +4553,7 @@ function materialsDialog(oneOff = false) {
     else history.push(next);
     update();
   };
-  if (oneOff && ids().length) put(editOneOff(history.current, ids(), {}), false);
+  if (fresh && ids().length) put(newMaterialFor(history.current, ids(), newId()), false);
   openMaterials({
     saved: () => history.current.materials,
     target() {
@@ -4561,17 +4561,11 @@ function materialsDialog(oneOff = false) {
       return list.length > 1 ? `${list.length} objects` : (list[0]?.name ?? null);
     },
     current() {
-      const doc = history.current;
       const [first] = lookTargets();
-      return { material: first?.material, oneOff: !!first?.ownLook, look: setLook(doc, first) ?? plainLook('color' in first ? first.color : '#d8c3a0') };
+      return { material: first?.material, look: setLook(history.current, first) ?? plainLook('color' in first ? first.color : '#d8c3a0') };
     },
     assign: (material) => setMaterialOf(ids(), material),
-    editOneOff: (patch, live) => put(editOneOff(history.current, ids(), patch), live),
-    saveOneOff() {
-      const { doc, result } = runCommand(history.current, 'material_save', { ids: ids() });
-      commit(doc);
-      return result as string;
-    },
+    changeLook: (patch, live) => put(changeLook(history.current, ids(), patch, newId()), live),
     add(look) {
       const id = newId();
       commit({ ...history.current, materials: [...history.current.materials, { ...(look ?? plainLook('#d8c3a0')), id, name: `Material ${history.current.materials.length + 1}` }] });
@@ -4975,7 +4969,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 29, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 30, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

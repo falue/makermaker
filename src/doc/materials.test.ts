@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { assignMaterial, dropMaterial, editOneOff, findMaterial, lookOf, plainLook, saveOneOff, setLook, STANDARD_MATERIALS, sunDirection, toLook, DEFAULT_LIGHT } from './materials';
+import { assignMaterial, changeLook, dropMaterial, findMaterial, lookOf, newMaterialFor, plainLook, setLook, STANDARD_MATERIALS, sunDirection, toLook, DEFAULT_LIGHT } from './materials';
 import type { Body, Doc, Group, Material } from './types';
 
 const material = (id: string): Material => ({ ...plainLook('#112233'), id, name: id, bump: 0.75, translucency: 0.25, glow: '#ff0000', glowStrength: 0.5 });
@@ -27,30 +27,44 @@ it('a group gives its contents a default, the nearest wins, a body its own first
   expect(of(body({ group: 'low', material: 'a' })).id).toBe('a');
 });
 
-it('every file has the standard materials, and a one-off beats them', () => {
+it('every file has the standard materials', () => {
   const d = doc([], [body({ material: 'std-wood' })]);
   expect(findMaterial(d, 'std-wood')?.name).toBe('Wood');
   expect(lookOf(d, d.bodies[0]).color).toBe('#a9773f');
   expect(STANDARD_MATERIALS.map((m) => m.name)).toEqual(['Metal', 'Plastic, white', 'Plastic, red', 'Plastic, yellow', 'Plastic, black', 'Plastic, dark grey', 'Wood', 'Glass', 'Glass frosted', 'Lamp', 'Grid 10 × 10 cm', 'Grid 1 × 1 ft']);
-  const own = editOneOff(d, ['b'], { color: '#010203' });
-  expect(own.bodies[0].ownLook).toMatchObject({ color: '#010203', bump: 0.65 });
-  expect(lookOf(own, own.bodies[0]).color).toBe('#010203');
-  expect(findMaterial(own, 'std-wood')?.color).toBe('#a9773f');
 });
 
-it('one click makes a one-off a material of the file, for all that had it', () => {
-  const start = doc([], [body({}), body({ id: 'c' })]);
-  const own = editOneOff(start, ['b', 'c'], { color: '#010203' });
-  const saved = saveOneOff(own, ['b', 'c'], 'new');
-  expect(saved.materials.at(-1)).toMatchObject({ id: 'new', name: 'Material 3', color: '#010203' });
-  expect(saved.bodies.map((b) => [b.material, b.ownLook])).toEqual([['new', undefined], ['new', undefined]]);
+it('changing a look makes a material of the file named after the object, from how it looked', () => {
+  const d = doc([], [{ ...body({ material: 'std-wood' }), name: 'Pin' }]);
+  const next = changeLook(d, ['b'], { color: '#010203' }, 'new');
+  expect(next.materials.at(-1)).toMatchObject({ id: 'new', name: 'Pin', color: '#010203', bump: 0.65 });
+  expect(next.bodies[0].material).toBe('new');
+  expect(findMaterial(next, 'std-wood')?.color).toBe('#a9773f');
 });
 
-it('picking a material drops a one-off; none takes both away', () => {
-  const own = editOneOff(doc([], [body({})]), ['b'], { color: '#010203' });
-  const picked = assignMaterial(own, ['b'], 'a');
+it('a material only they use changes; one others use too is copied for them', () => {
+  const start = doc([], [{ ...body({ material: 'a' }), name: 'Pin' }, body({ id: 'c', material: 'b' })]);
+  const alone = changeLook(start, ['b'], { color: '#010203' }, 'new');
+  expect(alone.materials).toHaveLength(2);
+  expect(alone.materials[0].color).toBe('#010203');
+  const shared = doc([], [{ ...body({ material: 'a' }), name: 'Pin' }, body({ id: 'c', material: 'a' })]);
+  const copied = changeLook(shared, ['b'], { color: '#010203' }, 'new');
+  expect(copied.materials[0].color).toBe('#112233');
+  expect(copied.bodies.map((x) => x.material)).toEqual(['new', 'a']);
+});
+
+it('several objects without a shared material get one together; names stay apart', () => {
+  const start = doc([], [{ ...body({}), name: 'Pin' }, { ...body({ id: 'c' }), name: 'Nut' }]);
+  const next = changeLook(start, ['b', 'c'], { color: '#010203' }, 'new');
+  expect(next.bodies.map((x) => x.material)).toEqual(['new', 'new']);
+  expect(next.materials.at(-1)?.name).toBe('Pin');
+  expect(newMaterialFor(next, ['b'], 'newer').materials.at(-1)?.name).toBe('Pin 2');
+});
+
+it('picking a material; none takes it away', () => {
+  const d = doc([], [body({})]);
+  const picked = assignMaterial(d, ['b'], 'a');
   expect(picked.bodies[0].material).toBe('a');
-  expect(picked.bodies[0].ownLook).toBeUndefined();
   expect('material' in assignMaterial(picked, ['b']).bodies[0]).toBe(false);
 });
 

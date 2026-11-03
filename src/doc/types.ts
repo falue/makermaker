@@ -248,8 +248,6 @@ export interface Body {
   order?: number;
   /** Its material (none: its group's, else its own colour). */
   material?: string;
-  /** A look of its own, before its material: a one-off. */
-  ownLook?: MaterialLook;
 }
 
 /** Custom section plane (world coordinates): keeps the side `normal` points to, cut at `origin` moved `offset` along it. */
@@ -277,8 +275,6 @@ export interface Group {
   order?: number;
   /** The material of its contents that have none of their own. */
   material?: string;
-  /** A look of its own, before its material, for those contents: a one-off. */
-  ownLook?: MaterialLook;
 }
 
 /**
@@ -419,7 +415,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 29;
+  schema: 30;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

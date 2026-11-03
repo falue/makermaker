@@ -1,4 +1,4 @@
-import { assignMaterial, editOneOff, findMaterial, saveOneOff } from '../doc/materials';
+import { assignMaterial, changeLook, findMaterial } from '../doc/materials';
 import { ex, newId, unturned } from '../doc/sample';
 import type { Body, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
 
@@ -263,23 +263,15 @@ export const COMMANDS: Record<string, Command> = {
     },
   },
   material: {
-    doc: 'Gives bodies or groups a material (a saved one, or a standard one such as std-wood; none: their group\'s, else their own colour); a one-off look they had goes.',
+    doc: 'Gives bodies or groups a material (one of the file, or a standard one such as std-wood; none: their group\'s, else their own colour).',
     params: [{ name: 'ids', type: 'ids', doc: 'the bodies and groups' }, { name: 'material', type: 'id', doc: 'its id', optional: true }],
     run: (doc, a) => {
       if (a.material !== undefined && !findMaterial(doc, a.material as string)) throw new Error(`material: no material "${a.material}"`);
       return { doc: assignMaterial(doc, a.ids as string[], a.material as string | undefined) };
     },
   },
-  material_save: {
-    doc: 'Saves the one-off look of bodies or groups as a new material of the file, which they then use. Returns its id.',
-    params: [{ name: 'ids', type: 'ids', doc: 'the bodies and groups' }, named],
-    run: (doc, a) => {
-      const id = newId();
-      return { doc: saveOneOff(doc, a.ids as string[], id, a.name as string | undefined), result: id };
-    },
-  },
   look: {
-    doc: 'Changes the look of bodies or groups for themselves alone (a one-off). Each value 0 to 1; colours #rrggbb.',
+    doc: 'Changes the look of bodies or groups and nothing else: a material only they use changes, else they get a new one of the file. Each value 0 to 1; colours #rrggbb. Returns the material.',
     params: [
       { name: 'ids', type: 'ids', doc: 'the bodies and groups' },
       { name: 'color', type: 'string', doc: '#rrggbb', optional: true },
@@ -290,7 +282,10 @@ export const COMMANDS: Record<string, Command> = {
       { name: 'glowStrength', type: 'number', doc: 'off 0', optional: true },
       { name: 'overlay', type: 'enum', values: ['metric', 'imperial'], doc: 'a measuring grid', optional: true },
     ],
-    run: (doc, { ids, ...patch }) => ({ doc: editOneOff(doc, ids as string[], patch as Partial<MaterialLook>) }),
+    run: (doc, { ids, ...patch }) => {
+      const next = changeLook(doc, ids as string[], patch as Partial<MaterialLook>, newId());
+      return { doc: next, result: next.bodies.find((b) => (ids as string[]).includes(b.id))?.material };
+    },
   },
   parameter: {
     doc: 'Sets a named parameter (a number with a unit, or an expression); any value may use it by name.',

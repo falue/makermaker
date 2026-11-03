@@ -9,13 +9,11 @@ export interface MaterialsHost {
   saved(): Material[];
   /** What is selected (bodies and groups), as a name; none: only saved materials can be edited. */
   target(): string | null;
-  /** How the selection looks now: its material's id if it has one, and whether that look is a one-off. */
-  current(): { material?: string; oneOff: boolean; look: MaterialLook };
+  /** How the selection looks now, and its material's id if it has its own. */
+  current(): { material?: string; look: MaterialLook };
   assign(material?: string): void;
-  /** The selection's look changes for itself alone; `live`: not the first of a drag (one undo step). */
-  editOneOff(patch: Partial<MaterialLook>, live: boolean): void;
-  /** Its one-off becomes a material of the file; its id. */
-  saveOneOff(): string;
+  /** The selection's look changes, nothing else's: see `changeLook`; `live`: not the first of a drag (one undo step). */
+  changeLook(patch: Partial<MaterialLook>, live: boolean): void;
   /** A new material of the file; its id. */
   add(look?: MaterialLook): string;
   edit(id: string, patch: Partial<MaterialLook> | { name: string }, live: boolean): void;
@@ -50,8 +48,8 @@ function thumbnails() {
 
 /**
  * The materials dialog: the list on the left (a click gives it to what is selected), on the right the teapot and
- * the sliders. These change the selection alone (a one-off, saved as a material with one click); ✎ on a saved material
- * edits that one, for everything using it. All live; × or Esc closes.
+ * the sliders. These change the selection alone (the first move makes it a material of the file, named after it);
+ * ✎ on a material of the file edits that one, for everything using it. All live; × or Esc closes.
  */
 export function openMaterials(host: MaterialsHost, startEditing?: string) {
   const make = (tag: string, props: object = {}, ...children: (Node | string)[]) => {
@@ -76,7 +74,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
   const showPreview = () => {
     const look = editedLook();
     if (!look) return;
-    const shipped = !editing && !host.current().oneOff ? SHIPPED[host.current().material ?? ''] : undefined;
+    const shipped = !editing ? SHIPPED[host.current().material ?? ''] : undefined;
     preview.show(toLook(look), host.light(), shipped);
   };
 
@@ -99,7 +97,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       make(
         'div',
         {
-          className: `mat-row${now?.material === m.id && !now.oneOff ? ' on' : ''}${editing === m.id ? ' editing' : ''}`,
+          className: `mat-row${now?.material === m.id ? ' on' : ''}${editing === m.id ? ' editing' : ''}`,
           title: host.target() ? `Give ${m.name} to ${host.target()}` : m.name,
           onclick: () => {
             if (!host.target()) return;
@@ -147,9 +145,6 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       return [head, ...(open ? rows : [])];
     };
     list.replaceChildren(
-      ...(now?.oneOff && !editing
-        ? [make('h3', {}, 'Custom for this object'), make('div', { className: 'mat-row on', title: 'A look for this object alone' }, thumb(now.look), make('span', { className: 'name', textContent: host.target()! }))]
-        : []),
       ...STANDARD_SECTIONS.flatMap(([name, materials]) => section(name, materials.filter(matches).map((m) => row(m)))),
       ...section('In this file', saved.filter(matches).map((m) =>
         row(m, [
@@ -182,29 +177,14 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
     const look = editedLook();
     const target = host.target();
     const saved = editing ? host.saved().find((m) => m.id === editing) : undefined;
-    /** A change of what is edited; the list shows a new one-off when it appears. */
+    /** A change of what is edited; the list shows a material that appears by it, the sliders stay: one may be held. */
     const change = (patch: Partial<MaterialLook>, live: boolean) => {
-      const wasOneOff = !editing && host.current().oneOff;
+      const before = !editing && host.current().material;
       if (editing) host.edit(editing, patch, live);
-      else host.editOneOff(patch, live);
+      else host.changeLook(patch, live);
       showPreview();
-      // a one-off has begun: not the sliders anew, one may be held
-      if (!editing && !wasOneOff) {
-        drawList();
-        saveSlot.replaceChildren(saveButton());
-      }
+      if (!editing && host.current().material !== before) drawList();
     };
-    const saveButton = () =>
-      make('button', {
-        className: 'primary wide',
-        textContent: 'Save as material',
-        title: 'Keep this look in the file, under a name, for other objects too',
-        onclick: () => {
-          editing = host.saveOneOff();
-          drawAll();
-        },
-      });
-    const saveSlot = make('div', {}, ...(!saved && look && host.current().oneOff ? [saveButton()] : []));
     const slider = (key: 'bump' | 'reflection' | 'translucency' | 'glowStrength', label: string, title: string, left = '', right = '') => {
       const el = make('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(look![key]), title }) as HTMLInputElement;
       let live = false;
@@ -260,7 +240,6 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
             slider('translucency', 'See-through', 'Solid to clear'),
             make('div', { className: 'row light' }, make('span', { textContent: 'Glow' }), (slider('glowStrength', '', 'How strong it glows (in renders it lights what is around)').querySelector('input') as HTMLElement), colour('glow', 'Colour of the glow')),
             make('div', { className: 'row light' }, make('span', { textContent: 'Overlay' }), overlay),
-            saveSlot,
           ]),
     );
     showPreview();
