@@ -124,9 +124,12 @@ function toLine(p: V3, pts: ArrayLike<number>, pairs: boolean) {
   return best;
 }
 
-/** The mesh of a body; `finishing` (from `buildBody`) marks the edges and faces its unbaked finishes made. */
-export function meshBody(shape: Shape3D, finishing?: Finishing): BodyMesh {
-  const opts = { tolerance: 0.02, angularTolerance: 0.1 };
+/**
+ * The mesh of a body; `finishing` (from `buildBody`) marks the edges and faces its unbaked finishes made. `tolerance`:
+ * how far (mm) the drawn surface may stray from the real one; display only, exports mesh for themselves.
+ */
+export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05): BodyMesh {
+  const opts = { tolerance, angularTolerance: Math.max(0.1, tolerance * 4) };
   const m = shape.mesh(opts);
   const e = shape.meshEdges(opts);
   // an edge the finishes made lies on no edge of the shape before them (no unbaked finish: none, skip the costly check)

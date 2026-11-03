@@ -19,7 +19,7 @@ export type ExportBody = { name: string; color: string; features: BuildFeature[]
 export type PrintCheck = { name: string; closed: boolean; manifold: boolean; sound: boolean; size: V3; error?: string };
 type V3 = [number, number, number];
 export type Request =
-  | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[] }
+  | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[]; tolerance: number }
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
   | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[] }
   | { kind: 'check'; id: number; bodies: ExportBody[] };
@@ -165,6 +165,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
     return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
   }
   // a long build shows as it goes: what is ready goes out every so often
+  const { tolerance } = data;
   let results: BodyResult[] = [];
   let sent = performance.now();
   const send = (done: boolean) => {
@@ -178,7 +179,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
       const finishing: Finishing = { base: null, edges: [] };
       const shape = buildBody(features, finishing);
       try {
-        return { id, mesh: meshBody(shape, finishing) };
+        return { id, mesh: meshBody(shape, finishing, tolerance) };
       } finally {
         shape.delete();
         finishing.base?.delete();

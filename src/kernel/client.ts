@@ -17,6 +17,7 @@ export class Kernel {
   /** Answers awaited from the worker, by request id. */
   private asked = new Map<number, (answer: Response) => void>();
   private nextAsk = 0;
+  private tolerance = 0.05;
 
   /** `onResults`: bodies as they get built, in several lots for a long build; `done`: the last lot of a send. */
   constructor(onResults: (results: BodyResult[], done: boolean) => void) {
@@ -31,6 +32,12 @@ export class Kernel {
       if (this.waiting.size) this.send([...this.waiting.values()]);
       this.waiting.clear();
     };
+  }
+
+  /** How closely bodies are meshed for the view (mm); all build anew at the next `build`. */
+  setTolerance(mm: number) {
+    this.tolerance = mm;
+    this.sent.clear();
   }
 
   /** The areas of overlapping shapes (see `areasOf`). */
@@ -73,6 +80,6 @@ export class Kernel {
 
   private send(bodies: BuildPart[]) {
     this.busy = true;
-    this.worker.postMessage({ kind: 'build', bodies } satisfies Request);
+    this.worker.postMessage({ kind: 'build', bodies, tolerance: this.tolerance } satisfies Request);
   }
 }

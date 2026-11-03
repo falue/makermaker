@@ -21,10 +21,12 @@ export interface Settings {
   background: { mode: 'solid' | 'colours' | 'sky' | 'photo'; top: string; bottom: string; sky: number; photo: string | null; turn: number };
   /** Sun and ambient light of the 3D view and of new renders. */
   light: Light;
+  /** How far (mm) the 3D view's surfaces may stray from the real ones. */
+  meshDetail: number;
 }
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, meshDetail: 0.05 };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
@@ -51,6 +53,18 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   };
   const body = make('div', { className: 'body' });
   const nav = make('nav', { className: 'chapters' });
+  /** How closely the view draws curves: applied when the slider is let go, as all bodies mesh anew. */
+  const meshRows = () => {
+    const value = make('span', {}, `${s.meshDetail} mm`);
+    const slider = input({ type: 'range', min: '0.02', max: '0.12', step: '0.01', value: String(s.meshDetail), title: 'Left: finer curves, slower. Right: coarser curves, faster' });
+    slider.oninput = () => (value.textContent = `${slider.value} mm`);
+    slider.onchange = () => set({ ...s, meshDetail: +slider.value }, false);
+    return [
+      make('h3', {}, 'Mesh detail'),
+      make('p', { className: 'hint' }, 'How far the 3D view may stray from the real curves. Smaller: rounder, slower. Your model and its exports stay exact; renders and the Info panel use this mesh, so they follow it a little.'),
+      make('div', { className: 'row light' }, slider, value),
+    ];
+  };
   /** The document's photo spheres to pick from, adding one, and how far the shown one is turned. */
   const photoRows = () => {
     const bg = s.background;
@@ -135,6 +149,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
               ]
             : []),
           ...(bg.mode === 'photo' ? photoRows() : []),
+          ...meshRows(),
           make('h3', {}, 'Light'),
           make('p', { className: 'hint' }, 'Of the 3D view, and of new renders (each render keeps its own). In renders a photo sphere lights the model too, instead of the ambient colour.'),
           ...lightRows(s.light, (light) => set({ ...s, light }, false)),

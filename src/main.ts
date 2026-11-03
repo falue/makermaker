@@ -357,6 +357,8 @@ const kernel = new Kernel((results, done) => {
   render();
 });
 
+kernel.setTolerance(settings.meshDetail);
+
 /** Resolves expressions, moves bodies, and rebuilds bodies whose features changed and resolved cleanly. */
 function update() {
   const doc = history.current;
@@ -4871,8 +4873,13 @@ function render() {
       openSettings(
         settings,
         (next) => {
+          const remesh = next.meshDetail !== settings.meshDetail;
           settings = next;
           applySettings();
+          if (remesh) {
+            kernel.setTolerance(next.meshDetail);
+            update();
+          }
         },
         {
           units: () => history.current.units,
