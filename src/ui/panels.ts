@@ -443,16 +443,20 @@ const SHAPES = [
 ] as const;
 
 /** Left of the 3D view (incase's toolbar): sketching and making things, grouping, duplicating, deleting. */
+/** Shapes with several drawing modes, and how to switch them. */
+const MODED = ['rect', 'circle', 'ngon'];
+const MODE_TIP = ' · again (or A with the pointer off lines): its next drawing mode';
+
 function toolbar(ctx: UIContext): Node[] {
   const on = (name: string) => ctx.active === name;
   if (ctx.sketching)
     return [
       tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.active),
-      ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw into the sketch`, () => ctx.startTool(kind), on(kind))),
+      ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw into the sketch${MODED.includes(kind) ? MODE_TIP : ''}`, () => ctx.startTool(kind), on(kind))),
     ];
   return [
     tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
-    ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)`, () => ctx.startTool(kind), on(kind))),
+    ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)${MODED.includes(kind) ? MODE_TIP : ''}`, () => ctx.startTool(kind), on(kind))),
     tool('sphere', 'Sphere (O): drag from its centre on a face or the ground', () => ctx.startTool('sphere'), on('sphere')),
     tool('plane', "Work plane: a green plane on a face clicked next (or the base plane facing you), moved by an offset (T: a point's distance, e.g. /2 for halfway); drawing tools draw on it", ctx.planeTool),
     h('hr'), // making above, organizing below

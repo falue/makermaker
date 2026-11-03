@@ -473,6 +473,14 @@ export class SketchTool implements Tool {
     return swap ? list.find((x) => x.id === m.alt)! : m;
   }
 
+  /** The next drawing mode, as A does (false: the shape has none). */
+  nextMode() {
+    if (!this.drawMode()) return false;
+    this.switchMode(1);
+    this.update();
+    return true;
+  }
+
   /** The next drawing mode (`by` -1: the one before; an id: that one), remembered this session, shown for a moment. */
   private switchMode(by: number | string) {
     const list = this.kind ? MODES[this.kind] : undefined;
@@ -620,7 +628,7 @@ export class SketchTool implements Tool {
     const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? 'Click two points' : m?.lines ? 'Click a line' : m && m.clicks > 2 ? 'Click three times' : 'Drag (or click twice)';
     const chain = this.kind === 'line' && SketchTool.lineEnd ? ` · [${MAC ? '⌘' : 'Ctrl'}]-click: on from the last end` : '';
     if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]}${chain} · [R] [C] [P] switch · snaps to corners and centres · [A] / [Shift A] more / fewer snap points on a line · [Ctrl] grid · [Esc] stops drawing shapes`;
-    const modes = m ? ` · ${m.name} ([A] off a line: the next mode; [Alt]: centre ⇄ corner)` : '';
+    const modes = m ? ` · ${m.name} ([A] off a line, or the tool's key or button again: the next mode; [Alt]: centre ⇄ corner)` : '';
     return `${how} to draw ${NAMES[this.kind!]}${chain}${modes}${target ? ` · on ${target.name}` : ''} · [Ctrl] precise · right-drag turns the view · [Esc] stops`;
   }
 
@@ -979,6 +987,16 @@ export class SketchTool implements Tool {
       if (m === 'side') return { kind: 'ngon', x: au, y: av, d: typedD ?? (2 * Math.hypot(du, dv)) / Math.cos(half), sides, rot: deg + 180 / sides };
       return { kind: 'ngon', x: au, y: av, d: typedD ?? 2 * Math.hypot(du, dv), sides, rot: deg };
     }
+    if (m === 'turnedCentre') {
+      // its middle, a point it points to, then its size: twice the pointer's distance along and across
+      const [bu, bv] = ph.pts[0] ?? ph.cur;
+      const l = Math.hypot(bu - au, bv - av) || 1;
+      const [eu, ev] = [(bu - au) / l, (bv - av) / l];
+      const [pu, pv] = ph.pts.length ? [ph.cur[0] - au, ph.cur[1] - av] : [bu - au, bv - av];
+      const w = typedD ?? 2 * Math.abs(pu * eu + pv * ev);
+      const h = this.typed(ph.typed[1]) ?? (ph.pts.length ? 2 * Math.abs(-pu * ev + pv * eu) : 0);
+      return { kind: 'rect', x: au, y: av, w, h, r: 0, rot: (Math.atan2(ev, eu) * 180) / Math.PI };
+    }
     if (m === 'turned') {
       // a side from the first click to the second, then the width to the pointer (either side)
       if (!ph.pts.length) return { kind: 'rect', x: au + du / 2, y: av + dv / 2, w: typedD ?? Math.hypot(du, dv), h: 0, r: 0, rot: (Math.atan2(dv, du) * 180) / Math.PI };
@@ -1262,7 +1280,8 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
   rect: [
     { id: 'corners', name: 'Rectangle: two corners', clicks: 2, alt: 'centre', pic: `<rect x="4" y="6" width="16" height="12"/>${dot(4, 6)}${dot(20, 18)}` },
     { id: 'centre', name: 'Rectangle: from the centre', clicks: 2, alt: 'corners', pic: `<rect x="4" y="6" width="16" height="12"/>${dot(12, 12)}${dot(20, 18)}` },
-    { id: 'turned', name: 'Rectangle: turned (a side, then its width)', clicks: 3, pic: `<path d="M3 14l8-8 8 8-8 8z"/>${dot(3, 14)}${dot(11, 6)}${dot(15, 18)}`, next: 'Turned rectangle: click the side\'s other end, then the width · [Esc] cancels' },
+    { id: 'turned', name: 'Rectangle: turned (a side, then its width)', clicks: 3, alt: 'turnedCentre', pic: `<path d="M3 14l8-8 8 8-8 8z"/>${dot(3, 14)}${dot(11, 6)}${dot(15, 18)}`, next: 'Turned rectangle: click the side\'s other end, then the width · [Esc] cancels' },
+    { id: 'turnedCentre', name: 'Rectangle: turned, from the centre (a direction, then its size)', clicks: 3, alt: 'turned', pic: `<path d="M3 14l8-8 8 8-8 8z"/><path d="M11 14l4-4"/>${dot(11, 14)}${dot(15, 10)}${dot(15, 18)}`, next: 'Turned rectangle from its centre: click a point it points to, then its size · [Esc] cancels' },
   ],
   circle: [
     { id: 'centre', name: 'Circle: centre and radius', clicks: 2, alt: 'diameter', pic: `<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>${dot(12, 12)}${dot(20, 12)}` },

@@ -565,6 +565,11 @@ export class Viewer implements ToolView {
     return this.tool?.kind ?? null;
   }
 
+  /** The drawing tool's next drawing mode (false: it has none). */
+  nextDrawMode() {
+    return this.tool instanceof SketchTool && this.tool.nextMode();
+  }
+
   /** A drawing tool (`kind`; none: picking a plane); `mode`: sketch mode or plane picking. */
   startTool(kind: ToolKind | null, host: ToolHost, mode?: ToolMode) {
     this.stopTool();
