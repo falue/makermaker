@@ -335,6 +335,23 @@ export interface WorkPlane {
 }
 
 /**
+ * A picture placed as a reference, on a plane (`frame`, world: its middle at the origin, its x along x), `width` mm
+ * wide (its height from its pixels), seen through by `opacity`; `key`: a colour shown transparent (as far off as
+ * `tolerance`, 0–1); a PNG's own transparency is kept. `data`: the file as a data URL.
+ */
+export interface ImageRef {
+  id: string;
+  name: string;
+  data: string;
+  frame: { o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] };
+  width: number;
+  opacity: number;
+  key: string | null;
+  tolerance: number;
+  visible: boolean;
+}
+
+/**
  * A joint: `parent` (a body or group) stays, `children` (bodies or groups) move with it and along the joint: a hinge
  * turns them around `axis`, a slider moves them along it (a line through `at` along `dir`, in the parent's
  * coordinates); `value` (degrees or mm, between `min` and `max`) is where they are now, and modelling happens there;
@@ -354,7 +371,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 25;
+  schema: 26;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];
@@ -363,6 +380,7 @@ export interface Doc {
   sections: Section[];
   joints: Joint[];
   planes: WorkPlane[];
+  images: ImageRef[];
   /** Renders (snapshots and nice ones), newest first. */
   renders: RenderShot[];
 }

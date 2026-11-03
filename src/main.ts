@@ -18,10 +18,11 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
+import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
@@ -440,6 +441,7 @@ function update() {
     }),
   );
   viewer.setWorkPlanes(doc.planes.filter((w) => w.visible).map((w) => ({ id: w.id, name: w.name, frame: workFrames.get(w.id)!, rect: workRects.get(w.id)!, selected: selected.includes(w.id) })));
+  viewer.setImages(doc.images.filter((im) => im.visible).map((im) => ({ ...im, selected: selected.includes(im.id) })));
   /** A placement's frame in the world; undefined while its body is not built (or its face is gone). */
   const worldFrame = (p: Resolved<SketchPlacement>): Frame | undefined => {
     if (p.kind === 'base') return { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) };
@@ -562,7 +564,7 @@ function update() {
   const ids = new Set(doc.bodies.map((p) => p.id));
   for (const id of kernelErrors.keys()) if (!ids.has(id)) kernelErrors.delete(id);
   for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id), bodyPlaces.delete(id);
-  selected = selected.filter((id) => ids.has(id) || [...doc.sketches, ...doc.groups, ...doc.planes].some((o) => o.id === id));
+  selected = selected.filter((id) => ids.has(id) || [...doc.sketches, ...doc.groups, ...doc.planes, ...doc.images].some((o) => o.id === id));
   if (isolated && !ids.has(isolated.body)) isolated = null;
   const shapes = doc.sketches.find((s) => s.id === activeSketch())?.shapes ?? [];
   shapeSel = shapeSel.filter((id) => shapes.some((q) => q.id === id));
@@ -3830,7 +3832,7 @@ function remove() {
   for (const id of gone) for (const [tool, o] of owner) if (o === id) gone.add(tool);
   const kept = unlinkedFrom(doc, gone); // linked copies of what goes take over its steps
   const bodies = kept.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => (f.type !== 'boolean' && f.type !== 'fingers') || !gone.has(f.body)) }));
-  commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)) });
+  commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) });
 }
 
 /** Folded groups in the object list. */
@@ -4719,6 +4721,8 @@ function render() {
     jointRange: rangeText,
     lightSketch: (id) => viewer.lightSketch(id),
     lightPlane: (id) => viewer.lightPlane(id),
+    lightImage: (id) => viewer.lightImage(id),
+    calibrate,
     editPlane: (id) => planePanel(id),
     measureTool,
     boxJoint,
@@ -4815,7 +4819,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 25, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 26, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -5112,13 +5116,22 @@ function importStep(name: string, data: string) {
   commit({ ...doc, bodies: [...doc.bodies, body] });
 }
 
-const IMPORTS = ['.step', '.stp', '.stl', '.obj'];
+const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+const IMPORTS = ['.step', '.stp', '.stl', '.obj', '.svg', '.dxf', ...PICTURES];
 
-/** Imports a STEP, STL or OBJ file by its extension; false: not one of those. */
-function importFile(f: File) {
+/**
+ * Imports a file by its extension; false: not one it takes. STEP, STL and OBJ become bodies; SVG and DXF a sketch,
+ * 1:1, and pictures an image to calibrate: on what lies at client point `at` (a work plane, a flat face, else the
+ * ground; none: the ground at the origin), a drawing centred there.
+ */
+function importFile(f: File, at?: { x: number; y: number }) {
   const ext = f.name.toLowerCase().match(/\.[^.]*$/)?.[0] ?? '';
   if (!IMPORTS.includes(ext)) return false;
+  const ground = { placement: { kind: 'base', axis: 'xy', offset: 0 } as const, frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] } as Frame, body: null, name: 'the ground', point: null };
+  const target = (at && viewer.dropTarget(at.x, at.y)) ?? ground;
   run(async () => {
+    if (ext === '.svg' || ext === '.dxf') return importDrawing(f.name, ext === '.svg' ? svgShapes(await f.text()) : dxfShapes(await f.text()), target);
+    if (PICTURES.includes(ext)) return importPicture(f, target.frame, target.point);
     if (ext === '.stl') return importMesh(f.name, parseStl(await f.arrayBuffer()));
     if (ext !== '.obj') return importStep(f.name, await f.text());
     const text = await f.text();
@@ -5126,6 +5139,96 @@ function importFile(f: File) {
     importMesh(f.name, parseObj(text, kind.zUp), kind.unit);
   });
   return true;
+}
+
+/** A drawing's shapes as a new sketch on `target`, 1:1, its middle at `target.point` (none: its own origin there). */
+function importDrawing(name: string, shapes: Shape2[], target: { placement: Target['placement']; frame: Frame; body: string | null; name: string; point: Vector3 | null }) {
+  if (!shapes.length) return fail(`${name}: nothing drawn in it that a sketch takes`);
+  const xs = shapes.flatMap((q) => (q.kind === 'circle' ? [q.x - q.d / 2, q.x + q.d / 2] : q.pts.map((p) => p[0])));
+  const ys = shapes.flatMap((q) => (q.kind === 'circle' ? [q.y - q.d / 2, q.y + q.d / 2] : q.pts.map((p) => p[1])));
+  const [u, v] = target.point ? uvOf(target.frame, target.point) : [0, 0];
+  const [dx, dy] = target.point ? [u - (Math.min(...xs) + Math.max(...xs)) / 2, v - (Math.min(...ys) + Math.max(...ys)) / 2] : [0, 0];
+  const r = (x: number) => +fmt(x);
+  const doc = history.current;
+  const sketch = { ...sketchAt({ sketch: null, ...target }, doc.sketches.length), name: name.replace(/\.[^.]*$/, '') };
+  sketch.shapes = shapes.map((q): Profile => (q.kind === 'circle' ? { id: newId(), kind: 'circle', x: len(q.x + dx), y: len(q.y + dy), d: len(q.d) } : q.kind === 'polygon' ? { id: newId(), kind: 'polygon', pts: q.pts.map(([x, y]) => [r(x + dx), r(y + dy)]), r: len(0), rot: ex('0') } : { id: newId(), kind: 'line', pts: q.pts.map(([x, y]) => [r(x + dx), r(y + dy)]) }));
+  [selected, shapeSel] = [[sketch.id], []];
+  commit({ ...doc, sketches: [...doc.sketches, sketch] });
+  notify(`${name}: ${shapes.length} shape${shapes.length === 1 ? '' : 's'} as sketch "${sketch.name}" on ${target.name}, 1:1`);
+}
+
+/** A picture as an image on `frame`, its middle at `point` (none: the frame's origin), 100 mm wide until calibrated. */
+async function importPicture(f: File, frame: Frame, point: Vector3 | null) {
+  const data = await new Promise<string>((done) => {
+    const reader = new FileReader();
+    reader.onload = () => done(reader.result as string);
+    reader.readAsDataURL(f);
+  });
+  const doc = history.current;
+  const image: ImageRef = { id: newId(), name: f.name.replace(/\.[^.]*$/, ''), data, frame: { ...frame, o: point ? point.toArray() : frame.o }, width: 100, opacity: 1, key: null, tolerance: 0.1, visible: true };
+  [selected, shapeSel] = [[image.id], []];
+  commit({ ...doc, images: [...doc.images, image] });
+  calibrate(image.id);
+}
+
+/**
+ * Calibrating an image: click two points on it, then type their real distance: it grows or shrinks about the first.
+ * Enter or ✓ keeps it, Esc leaves it as it was.
+ */
+function calibrate(id: string) {
+  const doc0 = history.current;
+  const i = doc0.images.findIndex((im) => im.id === id);
+  const im = doc0.images[i];
+  if (!im) return;
+  const [o, n] = [new Vector3(...im.frame.o), new Vector3(...im.frame.n)];
+  const onPicture = () => {
+    const p = viewer.pointer();
+    return p && viewer.pointOnPlane({ clientX: p.x, clientY: p.y } as MouseEvent, o, n);
+  };
+  const pts: Vector3[] = [];
+  const u = doc0.units;
+  const end = () => {
+    viewer.aiming = null;
+    viewer.cancelFacePick();
+    viewer.showMeasureLine(null);
+    tips.cursorTip(null);
+  };
+  const pick = () =>
+    viewer.pickFace((face) => {
+      const p = face && onPicture();
+      if (!face) return end(), (toolHint = null), render();
+      if (!p) return pick();
+      pts.push(p);
+      viewer.showMeasureLine(pts[0], pts[1] ?? null);
+      if (pts.length < 2) return pick();
+      end();
+      // the distance as it is now; typing the real one scales the image about the first point
+      const now = pts[0].distanceTo(pts[1]);
+      valuePanel(
+        [{ label: 'Distance', value: fmt(+(now / UNITS[u]).toFixed(3)), title: 'Distance: how far apart the two points really are' }],
+        ([t]) => {
+          const real = length(t);
+          if (!real || real <= 0) return;
+          const k = real / now;
+          const next = { ...im, width: im.width * k, frame: { ...im.frame, o: pts[0].clone().add(o.clone().sub(pts[0]).multiplyScalar(k)).toArray() as Vec3 } };
+          const doc = setIn(history.current, ['images', String(i)], next);
+          if (history.current === doc0) history.push(doc);
+          else history.replace(doc);
+          update();
+        },
+        (ok) => (ok ? render() : history.current !== doc0 ? undo() : render()),
+        'Calibrate: the real distance between the two points · [Enter] keeps it · [Esc] leaves it as it was',
+      );
+    }, true);
+  viewer.aiming = () => {
+    viewer.aimAt(null);
+    const p = onPicture();
+    viewer.showMeasureLine(pts[0] ?? p, pts[0] ? p : null);
+    tips.cursorTip(pts.length ? 'Click the second point' : 'Click a point on the picture whose distance to another you know');
+  };
+  toolHint = 'Calibrate: click two points on the picture whose distance you know · then type it · [Esc] skips';
+  render();
+  pick();
 }
 
 /** Asks for a file to import. */
@@ -5293,7 +5396,7 @@ addEventListener('drop', (e) => {
   const pending = item.getAsFileSystemHandle?.();
   const f = item.getAsFile();
   // a STEP, STL or OBJ file is imported into the design
-  if (f && importFile(f)) return;
+  if (f && importFile(f, { x: e.clientX, y: e.clientY })) return;
   run(async () => {
     const handle = await pending;
     if (handle instanceof FileSystemFileHandle) loadFile(await readHandle(handle));

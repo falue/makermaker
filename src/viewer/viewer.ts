@@ -787,6 +787,113 @@ export class Viewer implements ToolView {
     return this.host.placeOn({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId }, flat);
   }
 
+  /**
+   * Where something dropped at client point (`x`, `y`) lands: a work plane in front, else a flat face, else the
+   * ground; `point`: where on it.
+   */
+  dropTarget(x: number, y: number): (Omit<Target, 'sketch'> & { point: THREE.Vector3 }) | null {
+    const e = { clientX: x, clientY: y } as MouseEvent;
+    const hit = this.frontHit(e);
+    const w = this.workPlaneAt(e, hit);
+    if (w) return { placement: { kind: 'work', plane: w.id }, frame: w.frame, body: null, name: this.workPlanes.find((p) => p.id === w.id)!.name, point: w.point };
+    const placed = hit && this.placeOn(hit);
+    if (placed) return { ...placed, point: hit!.point.clone() };
+    const ground = new THREE.Vector3();
+    if (!this.ray(e).intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), ground)) return null;
+    return { placement: { kind: 'base', axis: 'xy', offset: 0 }, frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, body: null, name: 'the ground', point: ground };
+  }
+
+  /** The images shown (see `setImages`): where they lie and how big (mm). */
+  images: { id: string; frame: Frame; w: number; h: number }[] = [];
+  private imageList: { id: string; data: string; frame: Frame; width: number; opacity: number; key: string | null; tolerance: number; selected: boolean }[] = [];
+  private imageMark = new THREE.Group();
+  /** Pictures as textures, by image and colour key; 'loading' while their file is read. */
+  private textures = new Map<string, THREE.Texture | 'loading'>();
+  /** The image hovered in the list: outlined orange. */
+  private hotImage: string | null = null;
+
+  /** The images: pictures on their planes, see-through as set (a colour key drops a colour); a selected one outlined. */
+  setImages(list: Viewer['imageList']) {
+    this.imageList = list;
+    this.drawImages();
+  }
+
+  /** An image hovered in the list: outlined orange for the moment (null: none); off the view, the arrow points to it. */
+  lightImage(id: string | null) {
+    this.hotImage = id;
+    this.drawImages();
+  }
+
+  private drawImages() {
+    if (!this.imageMark.parent) this.scene.add(this.imageMark);
+    this.imageMark.traverse((o) => o !== this.imageMark && ((o as THREE.Mesh).geometry?.dispose(), ((o as THREE.Mesh).material as THREE.Material)?.dispose()));
+    this.imageMark.clear();
+    this.images = [];
+    for (const im of this.imageList) {
+      const key = `${im.id}|${im.data.length}|${im.key}|${im.tolerance}`;
+      const tex = this.textures.get(key);
+      if (!tex) {
+        this.textures.set(key, 'loading');
+        void this.loadPicture(im, key);
+      }
+      if (!tex || tex === 'loading') continue;
+      const { width, height } = tex.image as { width: number; height: number };
+      const h = (im.width * height) / width;
+      this.images.push({ id: im.id, frame: im.frame, w: im.width, h });
+      const place = new THREE.Matrix4().makeBasis(new THREE.Vector3(...im.frame.x), new THREE.Vector3(...im.frame.y), new THREE.Vector3(...im.frame.n)).setPosition(...im.frame.o);
+      const picture = new THREE.Mesh(new THREE.PlaneGeometry(im.width, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: im.opacity, side: THREE.DoubleSide, depthWrite: false }));
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => new THREE.Vector3((u * im.width) / 2, (v * h) / 2, 0));
+      const lit = im.id === this.hotImage ? 0xff8c1a : im.selected ? 0x2f80ed : null;
+      for (const o of [picture, ...(lit === null ? [] : [new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(corners), new THREE.LineBasicMaterial({ color: lit }))])]) {
+        o.matrixAutoUpdate = false;
+        o.matrix.copy(place);
+        this.imageMark.add(o);
+      }
+    }
+    this.render();
+  }
+
+  /** Reads an image's picture into a texture (its colour key made transparent), then draws the images again. */
+  private async loadPicture(im: Viewer['imageList'][number], key: string) {
+    const img = new Image();
+    img.src = im.data;
+    try {
+      await img.decode();
+    } catch {
+      return; // not a picture the browser reads: stays 'loading', not shown
+    }
+    const canvas = Object.assign(document.createElement('canvas'), { width: img.naturalWidth, height: img.naturalHeight });
+    const g = canvas.getContext('2d')!;
+    g.drawImage(img, 0, 0);
+    if (im.key) {
+      // pixels as near the key colour as the tolerance lets (0–1 of the largest colour distance): see-through
+      const [kr, kg, kb] = [1, 3, 5].map((i) => parseInt(im.key!.slice(i, i + 2), 16));
+      const px = g.getImageData(0, 0, canvas.width, canvas.height);
+      const reach = im.tolerance * Math.sqrt(3 * 255 * 255);
+      for (let i = 0; i < px.data.length; i += 4) if (Math.hypot(px.data[i] - kr, px.data[i + 1] - kg, px.data[i + 2] - kb) <= reach) px.data[i + 3] = 0;
+      g.putImageData(px, 0, 0);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    for (const [k, t] of this.textures) if (k.startsWith(`${im.id}|`) && k !== key && t !== 'loading') (t.dispose(), this.textures.delete(k));
+    this.textures.set(key, tex);
+    this.drawImages();
+  }
+
+  /** The nearest image under the pointer, in front of any body (`hit`: the body face there); null: none. */
+  private imageAt(e: MouseEvent, hit = this.frontHit(e)) {
+    const ray = this.ray(e);
+    let best: { id: string; d: number } | null = null;
+    for (const im of this.images) {
+      const p = planeHit(ray, im.frame);
+      const d = p?.distanceTo(ray.origin) ?? Infinity;
+      if (!p || (hit && d > hit.distance) || (best && d >= best.d)) continue;
+      const [u, v] = uvOf(im.frame, p);
+      if (Math.abs(u) <= im.w / 2 && Math.abs(v) <= im.h / 2) best = { id: im.id, d };
+    }
+    return best;
+  }
+
   /** Where shapes go on the face last clicked on a selected body (a face first, then the sketch tool). */
   lastTarget() {
     const hit = this.lastHit;
@@ -1975,7 +2082,7 @@ export class Viewer implements ToolView {
     const ray = this.ray(e);
     const s = this.shapeAt(ray, hit?.distance);
     // a plane counts only in front of the body hit
-    const id = (s && s.edge < Infinity ? s.sketch : null) ?? this.workPlaneAt(e, hit)?.id ?? (hit?.object.userData.bodyId as string | undefined) ?? null;
+    const id = (s && s.edge < Infinity ? s.sketch : null) ?? this.workPlaneAt(e, hit)?.id ?? this.imageAt(e, hit)?.id ?? (hit?.object.userData.bodyId as string | undefined) ?? null;
     if (id !== this.hovering) this.onHover?.((this.hovering = id));
   }
 
@@ -1983,6 +2090,8 @@ export class Viewer implements ToolView {
   private arrowAt() {
     const hot = this.workPlanes.find((w) => w.id === this.hotPlane);
     if (hot) return new THREE.Vector3(...toWorld(hot.frame, (hot.rect[0] + hot.rect[2]) / 2, (hot.rect[1] + hot.rect[3]) / 2));
+    const picture = this.images.find((im) => im.id === this.hotImage);
+    if (picture) return new THREE.Vector3(...picture.frame.o);
     const box = new THREE.Box3();
     const ids = this.hovered.length ? this.hovered : this.sketchHover.children.length ? [] : this.selection.filter((id) => this.bodies.has(id) && !this.hidden.has(id));
     for (const id of ids) box.expandByObject(this.bodies.get(id)!);

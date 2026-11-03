@@ -52,19 +52,23 @@ function valid(s: Shape3D) {
 }
 
 describe('booleans', () => {
-  const shapes = new Map<string, { shape: Shape3D; volume: number }>();
   it('builds every kind of body soundly', () => {
     for (const [name, features] of Object.entries(zoo)) {
       const shape = buildBody(features);
       expect(valid(shape), `${name} is not a sound solid`).toBe(true);
-      shapes.set(name, { shape, volume: measureVolume(shape) });
+      shape.delete();
     }
   }, 300_000);
 
-  it('cuts any body with any other, overlapping, into a sound solid', () => {
-    const failed: string[] = [];
-    for (const [a, { volume }] of shapes)
-      for (const b of shapes.keys()) {
+  // a row per body, each on a fresh OpenCascade (hundreds of cuts in one would run out of memory)
+  for (const a of Object.keys(zoo))
+    it(`cuts ${a} with every other body, overlapping, into a sound solid`, async () => {
+      setOC(await init({ wasmBinary: wasm }));
+      const whole = buildBody(zoo[a]);
+      const volume = measureVolume(whole);
+      whole.delete();
+      const failed: string[] = [];
+      for (const b of Object.keys(zoo)) {
         if (a === b) continue;
         // the cutter moved off a little, so the two overlap partly; the body's finishes as they were, cut through (baked)
         const body = zoo[a].map((x) => (x.type === 'finish' ? { ...x, baked: true } : x));
@@ -77,6 +81,6 @@ describe('booleans', () => {
           failed.push(`${a} − ${b}: ${(e as Error).message}`);
         }
       }
-    expect(failed).toEqual([]);
-  }, 1_200_000);
+      expect(failed).toEqual([]);
+    }, 300_000);
 });

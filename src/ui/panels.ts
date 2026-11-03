@@ -84,6 +84,10 @@ export interface UIContext {
   showJoint(joint: string | null): void;
   /** Lights a sketch's shapes in the view (hovered in the list; null: none). */
   lightSketch(id: string | null): void;
+  /** An image hovered in the list: outlined orange in the view for the moment (null: none). */
+  lightImage(id: string | null): void;
+  /** Calibrating an image: two points clicked on it, their real distance typed. */
+  calibrate(id: string): void;
   /** A work plane hovered in the list: orange in the view for the moment (null: none). */
   lightPlane(id: string | null): void;
   /** Opens a bulge's panel (`body` holds it). */
@@ -440,7 +444,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
-    tool('import', 'Import STEP, STL or OBJ (or drop the file): STEP becomes a solid body, STL and OBJ stay meshes', ctx.importFile),
+    tool('import', 'Import (or drop the file where it should go): STEP becomes a solid body, STL and OBJ meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate', ctx.importFile),
     tool('autosave', `Autosave ${ctx.autosave ? 'on' : 'off'}: saves into the file a moment after each change`, ctx.toggleAutosave, ctx.autosave),
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
@@ -799,7 +803,7 @@ function left(ctx: UIContext): Node[] {
     return h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, body, eye('sketches', sk.id, sk.visible));
   });
   /** A list's title: a click folds it; objects and sketches have an eye that hides all of them for now (their eyes stay). */
-  const heading = (key: 'objects' | 'sketches' | 'params' | 'planes', label: string, kind?: Parameters<typeof icon>[0]) => {
+  const heading = (key: 'objects' | 'sketches' | 'params' | 'planes' | 'images', label: string, kind?: Parameters<typeof icon>[0]) => {
     const open = !ctx.folded.has(`list:${key}`);
     const title = h('h3', { className: 'fold-head', title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(`list:${key}`) }, h('span', { className: `fold${open ? ' open' : ''}`, innerHTML: icon('chevron') }), ...(kind ? [h('span', { className: 'kind', innerHTML: icon(kind) })] : []), label);
     const hidden = (key === 'objects' || key === 'sketches') && ctx.hideAll[key];
@@ -810,6 +814,14 @@ function left(ctx: UIContext): Node[] {
   const sketchList = heading('sketches', 'Sketches', 'sketch');
   const paramList = heading('params', 'Parameters', 'param');
   const planeList = heading('planes', 'Work planes', 'plane');
+  const imageList = heading('images', 'Images', 'image');
+  const imageRows = doc.images.map((im, i) => {
+    const item = listItem(im.id, selectedClass(im.id), (how) => ctx.select(im.id, how), h('span', { className: 'kind', innerHTML: icon('image') }), nameOf(im.id, im.name, ['images', String(i), 'name']));
+    item.onmouseenter = () => ctx.lightImage(im.id);
+    item.onmouseleave = () => ctx.lightImage(null);
+    const look = h('button', { className: 'icon', title: im.visible ? 'Hide' : 'Show', innerHTML: icon(im.visible ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, ['images', String(i), 'visible'], !im.visible)) });
+    return h('div', { className: 'listed' }, item, look);
+  });
   const planeRows = doc.planes.map((w, i) => {
     const item = listItem(w.id, selectedClass(w.id), (how) => ctx.select(w.id, how), h('span', { className: 'kind plane-swatch' }), nameOf(w.id, w.name, ['planes', String(i), 'name']));
     item.onmouseenter = () => ctx.lightPlane(w.id);
@@ -855,6 +867,7 @@ function left(ctx: UIContext): Node[] {
     section('objects', head, objectsOpen, [...rows, ...none]),
     section('sketches', sketchList.head, sketchList.open, sketchRows),
     ...(doc.planes.length ? [section('planes', planeList.head, planeList.open, planeRows)] : []),
+    ...(doc.images.length ? [section('images', imageList.head, imageList.open, imageRows)] : []),
     section('params', paramList.head, paramList.open, [...params, addParam]),
   ];
 }
@@ -953,6 +966,32 @@ function rendersPanel(ctx: UIContext): Node[] {
   ];
 }
 
+/** An image's card: name, Delete; width (mm), opacity, a colour shown transparent (and how far off still counts), Calibrate. */
+function imagePanel(ctx: UIContext, i: number): Node[] {
+  const { doc } = ctx;
+  const im = doc.images[i];
+  const at = (key: string) => ['images', String(i), key];
+  // sliders: live, one undo step per drag
+  const slider = (key: 'opacity' | 'tolerance', title: string) => {
+    let live = false;
+    const el = h('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(im[key]), title });
+    el.oninput = () => (ctx.setValue(at(key), +el.value, live), (live = true));
+    el.onchange = () => (live = false);
+    return el;
+  };
+  const width = h('input', { value: String(+im.width.toFixed(3)), title: 'Width in mm (Calibrate sets it from two points)' });
+  width.onchange = () => +width.value > 0 && ctx.commit(setIn(doc, at('width'), +width.value));
+  const colour = h('input', { type: 'color', value: im.key ?? '#ffffff', title: 'This colour is shown transparent' });
+  colour.onchange = () => ctx.commit(setIn(doc, at('key'), colour.value));
+  return [
+    h('div', { className: 'head' }, input(`images.${i}.name`, im.name, (name) => ctx.commit(setIn(doc, at('name'), name))), button('Delete', () => ctx.commit({ ...doc, images: doc.images.filter((x) => x !== im) }), 'Delete the image')),
+    h('div', { className: 'row' }, h('label', { className: 'field' }, h('span', {}, 'Width mm'), width), button('Calibrate', () => ctx.calibrate(im.id), 'Click two points on the picture, then type their real distance')),
+    h('div', { className: 'row' }, h('span', {}, 'Opacity'), slider('opacity', 'How much it hides what lies behind it')),
+    h('div', { className: 'row' }, h('span', {}, 'Transparent'), colour, ...(im.key ? [slider('tolerance', 'How far off the colour still turns transparent'), button('×', () => ctx.commit(setIn(doc, at('key'), null)), 'No colour transparent')] : [])),
+    h('p', { className: 'hint' }, 'A picture to draw over, on the plane it was dropped on; a PNG keeps its own transparency. Calibrate: two points on it and their real distance.'),
+  ];
+}
+
 function selectionPanel(ctx: UIContext): Node[] {
   const n = ctx.selected.length;
   if (n > 1)
@@ -978,6 +1017,8 @@ function selectionPanel(ctx: UIContext): Node[] {
       h('p', { className: 'hint' }, `${{ face: 'On a face (✎: Set axis to turn it)', edge: w.points.length ? 'Along an edge, through a point' : 'Along an edge, turned around it (✎: click a point instead)', points: `Through ${w.points.length} of 3 points (✎: click more; a fourth drops the first)` }[w.mode]}; moved along its normal by Offset (T: a clicked point's distance, type on, e.g. /2 for halfway). Sketches on it follow it.`),
     ];
   }
+  const ii = ctx.doc.images.findIndex((im) => im.id === ctx.selected[0]);
+  if (ii >= 0) return imagePanel(ctx, ii);
   const gi = ctx.doc.groups.findIndex((g) => g.id === ctx.selected[0]);
   if (gi >= 0) return groupPanel(ctx, gi);
   const i = ctx.doc.bodies.findIndex((p) => p.id === ctx.selected[0]);

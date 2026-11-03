@@ -11,7 +11,7 @@ export interface Version {
 /** Only the current schema opens: the app is not released yet, so old files are not converted. */
 export function migrate(raw: unknown): Doc {
   const schema = (raw as { schema?: number })?.schema;
-  if (schema !== 25) throw new Error(`This file uses document schema ${schema}; this version only opens schema 25`);
+  if (schema !== 26) throw new Error(`This file uses document schema ${schema}; this version only opens schema 26`);
   return raw as Doc;
 }
 
