@@ -450,7 +450,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
-    tool('import', 'Import (or drop the file where it should go): STEP becomes a solid body, STL and OBJ meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate', ctx.importFile),
+    tool('import', 'Import (or drop the file where it should go): STEP becomes solid bodies with their groups, names, colours and materials, STL and OBJ meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate', ctx.importFile),
     tool('autosave', `Autosave ${ctx.autosave ? 'on' : 'off'}: saves into the file a moment after each change`, ctx.toggleAutosave, ctx.autosave),
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),

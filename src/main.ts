@@ -14,6 +14,7 @@ import { jointed } from './doc/joints';
 import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
+import { readStep, stepObjects } from './io/step';
 import { lookOf, materialOf } from './doc/materials';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
@@ -352,8 +353,8 @@ const kernel = new Kernel((results, done) => {
       if (r.max) clampFinish(r.id, r.featureId, r.max);
     }
   }
-  render();
   if (done) viewer.holdFit(false);
+  render();
 });
 
 /** Resolves expressions, moves bodies, and rebuilds bodies whose features changed and resolved cleanly. */
@@ -5167,9 +5168,21 @@ function meshUnits(body: string, size: Vec3, unit: Unit) {
   addEventListener('keydown', keys, { capture: true });
 }
 
-/** Imports a STEP file as a solid body at the origin (in mm, as the file says); the kernel reads it. */
+/**
+ * Imports a STEP file at the origin (in mm, as the file says); the kernel reads it. An assembly or several solids: its
+ * groups, bodies and materials. One solid, or what `readStep` cannot place: one body.
+ */
 function importStep(name: string, data: string) {
   const doc = history.current;
+  const tree = readStep(data);
+  if (tree && (tree.children.length || tree.parts.length > 1)) {
+    let count = doc.bodies.length;
+    const made = stepObjects(tree, name, doc.materials, (features, group) => newBody(count++, features, group));
+    for (const id of made.folded) folded.add(id);
+    [selected, shapeSel] = [[made.root], []];
+    commit({ ...doc, bodies: [...doc.bodies, ...made.bodies], groups: [...doc.groups, ...made.groups], materials: [...doc.materials, ...made.materials] });
+    return notify(`Imported ${name}: ${made.bodies.length} bodies in ${made.groups.length} groups, ${made.materials.length} new materials`);
+  }
   const step: Feature = { id: newId(), type: 'step', source: name, data };
   const body = { ...newBody(doc.bodies.length, [step]), name: name.replace(/\.[^.]*$/, '') };
   [selected, shapeSel] = [[body.id], []];
