@@ -299,7 +299,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     if (!s || !q) return;
     if (pending?.tool === 'move') return pickShape(sketch, shape, false); // that shape moves, without entering
     if (picks(sketch)) return select(sketch);
-    if (sketching !== sketch) enterSketch(sketch, null, true);
+    if (sketching !== sketch) enterSketch(sketch, null, 'near');
     sketchPath = chainOf(s, q.group);
     [selected, shapeSel] = [[sketch], [shape]];
     showSelection();
@@ -4191,14 +4191,17 @@ async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; shapes
   render();
 }
 
-/** Sketch mode on a sketch: R / C / P draw flat into it (`kind` starts one); `look` turns the camera to its plane. */
-function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
+/** Sketch mode on a sketch: R / C / P draw flat into it (`kind` starts one); `look` turns the camera to its plane, 'near' slides the view to it if it is off the view. */
+function enterSketch(id: string, kind: ToolKind | null = null, look: boolean | 'near' = false) {
   const s = viewer.sketches.find((v) => v.id === id);
   if (!s) return fail('Show the sketch to draw on it');
   if (sketching !== id) sketchPath = [];
   sketching = id;
   [selected, shapeSel] = [[id], shapeSel];
-  if (look) viewer.lookAlong(new Vector3(...s.frame.n));
+  if (look === 'near') {
+    const box = new Box3().setFromPoints(sketchHull(s).map((p) => new Vector3(...p)));
+    viewer.bringIntoView(box.isEmpty() ? new Vector3(...s.frame.o) : box.getCenter(new Vector3()));
+  } else if (look) viewer.lookAlong(new Vector3(...s.frame.n));
   viewer.setSketchGrid(s.frame);
   showSelection();
   if (kind) startTool(kind);
@@ -4551,7 +4554,7 @@ function render() {
       const pulling = extruding?.picking(); // Extrude first: the sketch gets pulled instead
       const picked = picks(id); // a waiting tool takes it
       select(id);
-      if (!pulling && !picked) enterSketch(id, null, true);
+      if (!pulling && !picked) enterSketch(id, null, 'near');
     },
     exitSketch,
     stopTool: () => (stopTool(), render()),
