@@ -47,6 +47,13 @@ function edgeTests(): Body[] {
   ];
 }
 
+/** A test piece for bulges: a plate whose top is domed (its card edits the amount, curve and peak). */
+function bulgeTest(): Body {
+  const plate = solid('Domed plate', '#a9c4d8', [-160, -60, 0], [rect(40, 30)], 4);
+  const dome = { id: newId(), type: 'bulge' as const, on: { kind: 'face' as const, at: [0, 0, 4] as [number, number, number] }, amount: ex(8), fullness: ex(2), peak: [ex(0), ex(0), ex(0)] as [Expr, Expr, Expr] };
+  return { ...plate, features: [...plate.features, dome] };
+}
+
 /** A test piece for booleans: a block with a ball cut into its corner, a cylinder cut through it and a polygon joined on another corner (shown under it in the list). */
 function cutTest(): Body[] {
   const ball: Body = { ...solid('Cut ball', '#d9a98f', [115, -110, 25], [], 0), features: [{ id: newId(), type: 'sphere', x: ex(0), y: ex(0), z: ex(0), d: ex(24) }] };
@@ -176,10 +183,10 @@ export function sampleDoc(): Doc {
   };
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
-    schema: 16,
+    schema: 17,
     units: 'mm',
     params: { ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies],
+    bodies: [plate, disc, pin, block, ball, nut, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest()],
     sketches: [
       outline,
       {

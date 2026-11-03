@@ -1,4 +1,4 @@
-import { draw, drawCircle, drawRectangle, drawRoundedRectangle, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Shape3D, type Sketch } from 'replicad';
+import { assembleWire, basicFaceExtrusion, cast, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cutPlane, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
 import { beside, centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
@@ -78,6 +78,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
       if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
       if (s.type === 'thread') apply(s.id, (cur) => thread(cur, s));
+      if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -461,6 +462,110 @@ function thread(shape: Shape3D | null, s: Of<'thread'>, steps = 36): Shape3D {
   const angle = (Math.acos(Math.max(-1, Math.min(1, s.dir[2] / Math.hypot(...s.dir)))) * 180) / Math.PI;
   const turned = Math.hypot(...axis) > 1e-9 ? groove.rotate(angle, [0, 0, 0], axis) : s.dir[2] < 0 ? groove.rotate(180, [0, 0, 0], [1, 0, 0]) : groove;
   return joined(shape, turned.translate(...s.at), 'cut');
+}
+
+/** A bulge's height (0 to 1) from its rim (`t` 0) to its peak (1) for fullness `k`: 0 soft, 1 straight, 2 a quarter ellipse, more flatter topped. */
+export const rise = (t: number, k: number) => (k < 1 ? ((1 - k) * (1 - Math.cos(Math.PI * t))) / 2 + k * t : Math.pow(1 - Math.pow(1 - t, k), 1 / k));
+
+/**
+ * A face bulged out (`amount` mm at its peak, negative: in), its rim kept. A flat face is replaced by a smooth surface
+ * over its outer edges (OpenCascade's filling through points on `dirs` lines from the rim to the peak, `rings` per
+ * line, at the curve's heights) and the solid sewn again; a round one is turned again around its axis with a bulging
+ * profile; sketch shapes get a solid of their own: their face and a dome over it.
+ */
+function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
+  if (!s.amount) throw new Error('the amount must not be 0');
+  if (!(s.fullness >= 0)) throw new Error('the fullness must be 0 or more');
+  const on = s.on;
+  if (on.kind === 'round') return bulgeRound(shape, s, on);
+  if (on.kind === 'frame') {
+    const f = on.frame;
+    const sketched = combine(on.profiles).sketchOnPlane(new Plane(f.o, f.x, f.n)) as unknown as { faces?(): Shape3D; face?(): BRepFace };
+    const base = sketched.faces ? sketched.faces().faces : [sketched.face!()];
+    // each piece its own dome, its base facing away from it
+    const solids = base.map((face) => makeSolid([dome(face.clone() as BRepFace, f.n, s), face]) as unknown as Shape3D); // reading a face's wire frees it
+    return solids.reduce((acc: Shape3D | null, solid) => joined(acc, solid, 'add'), shape)!;
+  }
+  if (!shape) throw new Error('nothing to bulge yet');
+  const faces = shape.faces;
+  const hit = new FaceFinder().containsPoint(on.at).find(shape).find((f) => f.geomType === 'PLANE');
+  const i = hit ? faces.findIndex((f) => f.isSame(hit)) : -1;
+  if (i < 0) throw new Error('its face is gone, or no longer flat');
+  const face = faces[i];
+  const n = face.normalAt(on.at).toTuple();
+  const holes = (face.clone() as BRepFace).innerWires();
+  if (!holes.length) return makeSolid([...faces.filter((_, j) => j !== i), dome(face, n, s)]) as unknown as Shape3D;
+  // with holes: a dome over its outline joined (a dent: cut), then the holes drilled through it again
+  const lid = makeSolid([dome(face.clone() as BRepFace, n, s), makeFace((face.clone() as BRepFace).outerWire())]) as unknown as Shape3D;
+  let out = joined(shape.clone(), lid, s.amount > 0 ? 'add' : 'cut');
+  for (const w of holes) {
+    const drill = basicFaceExtrusion(makeFace(w), new Vector(scale(n, Math.abs(s.amount) + 1))) as Shape3D;
+    const next = joined(out, drill, 'cut');
+    out.delete();
+    out = next;
+  }
+  return out;
+}
+
+/** The smooth surface over a flat face's outer edges, rising along `n` (see `bulge`). */
+function dome(face: BRepFace, n: V3, s: Of<'bulge'>, dirs = 32, rings = 6): BRepFace {
+  const oc = getOC();
+  // the peak: the face's middle moved by `peak`, kept in its plane
+  const c = add(face.center.toTuple(), s.peak);
+  const off = (c[0] - face.center.x) * n[0] + (c[1] - face.center.y) * n[1] + (c[2] - face.center.z) * n[2];
+  const peak = add(c, scale(n, -off));
+  const fill = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 0.01, 0.1, 8, 9);
+  const edges = face.outerWire().edges;
+  for (const e of edges) fill.Add(e.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
+  // the rim, sampled evenly along its length
+  const lengths = edges.map((e) => e.length);
+  const total = lengths.reduce((a, b) => a + b, 0);
+  const point = (p: V3) => new oc.gp_Pnt(...p);
+  for (let i = 0; i < dirs; i++) {
+    let along = (i / dirs) * total;
+    let k = 0;
+    while (along > lengths[k] && k < edges.length - 1) along -= lengths[k++];
+    const rim = edges[k].pointAt(Math.min(1, along / lengths[k])).toTuple() as V3;
+    for (let r = 1; r < rings; r++) {
+      const t = r / rings;
+      fill.Add(point(add(add(rim, scale(add(peak, scale(rim, -1)), t)), scale(n, s.amount * rise(t, s.fullness)))));
+    }
+  }
+  fill.Add(point(add(peak, scale(n, s.amount))));
+  fill.Build(new oc.Message_ProgressRange());
+  if (!fill.IsDone()) throw new Error('the bulge surface could not be made');
+  return cast(fill.Shape()) as BRepFace;
+}
+
+/** A round face bulged: its radius grows by the curve along its axis (peak: `peak` along it from the middle), turned around the axis. */
+function bulgeRound(shape: Shape3D | null, s: Of<'bulge'>, on: Extract<Of<'bulge'>['on'], { kind: 'round' }>, steps = 40): Shape3D {
+  if (!shape) throw new Error('nothing to bulge yet');
+  const dir = scale(on.dir, 1 / Math.hypot(...on.dir));
+  const mid = Math.max(0.01 * on.length, Math.min(0.99 * on.length, on.length / 2 + s.peak[0] * dir[0] + s.peak[1] * dir[1] + s.peak[2] * dir[2]));
+  // the radius along the axis (z from `at`): a shaft grows outward, a hole closes in
+  const radius = (z: number) => on.r + (on.shaft ? 1 : -1) * s.amount * rise(z < mid ? z / mid : (on.length - z) / (on.length - mid), s.fullness);
+  const pts = Array.from({ length: steps + 1 }, (_, i) => (i / steps) * on.length).map((z): V3 => [radius(z), 0, z]);
+  if (pts.some(([r]) => r <= 0)) throw new Error('the hole would close up');
+  // the half outline in the XZ plane, its bulging side one smooth curve through the points (one face when turned)
+  const side = makeBSplineApproximation(pts, { tolerance: 1e-3, degMax: 3 });
+  const [top, bottom] = [pts[steps], pts[0]];
+  const outline = assembleWire([side, makeLine(top, [0, 0, on.length]), makeLine([0, 0, on.length], [0, 0, 0]), makeLine([0, 0, 0], bottom)]);
+  const vase = revolution(makeFace(outline), [0, 0, 0], [0, 0, 1]);
+  const core = makeCylinder(on.r, on.length) as Shape3D;
+  // into place: Z along the axis from `at`
+  const place = (solid: Shape3D) => {
+    const axis: V3 = [-dir[1], dir[0], 0]; // Z × dir
+    const angle = (Math.acos(Math.max(-1, Math.min(1, dir[2]))) * 180) / Math.PI;
+    const turned = Math.hypot(...axis) > 1e-9 ? solid.rotate(angle, [0, 0, 0], axis) : dir[2] < 0 ? solid.rotate(180, [0, 0, 0], [1, 0, 0]) : solid;
+    return turned.translate(...on.at);
+  };
+  // a shaft: its round part becomes the vase; a hole: filled, then the vase cut out
+  const between = joined(shape, place(core), on.shaft ? 'cut' : 'add');
+  try {
+    return joined(between, place(vase), on.shaft ? 'add' : 'cut');
+  } finally {
+    between.delete();
+  }
 }
 
 /** `tool` joined to or cut from `shape` (none yet: `tool` itself); `tool` is used up. */

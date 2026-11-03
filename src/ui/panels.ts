@@ -92,6 +92,8 @@ export interface UIContext {
   /** A joint's range in words: `0–110°`, `0–35 mm`. */
   jointRange(joint: Joint): string;
   loftTool(): void;
+  /** Bulge: a face or closed sketch shapes domed (see main's bulgeTool). */
+  bulgeTool(): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
   /** Moves objects before or after another one (into its group), or into a group. */
@@ -459,6 +461,7 @@ function editbar(ctx: UIContext): Node[] {
   if (ctx.sketching)
     return [
       tool('extrude', 'Extrude (E): the selected shapes, or the whole sketch, picked; click more, Enter pulls them', ctx.extrude, on('extrude')),
+      tool('bulge', 'Bulge: the selected shapes (or the one clicked next) become a dome of their own', ctx.bulgeTool),
       tool('mirror', 'Mirror: the selected shapes across a line or edge clicked next: mirrored copies', ctx.mirrorTool),
       tool('offset', 'Offset: the selected shapes get outlines a distance outside (negative: inside; a line moves to its left)', ctx.offsetTool),
       h('hr'),
@@ -469,6 +472,7 @@ function editbar(ctx: UIContext): Node[] {
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
     tool('sweep', 'Sweep: a line or shape outline clicked (the path), then the outline of a closed sketch shape to run along it (the profile)', ctx.sweepTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
+    tool('bulge', 'Bulge: a face swells out smoothly, its rim kept (flat: a dome, round: a vase), or closed sketch shapes become a dome; amount, curve and peak in a panel', ctx.bulgeTool),
     h('hr'),
     h(
       'div',
@@ -1148,6 +1152,14 @@ function refGrid(ctx: UIContext, shape: string) {
   return h('div', { className: 'ref-grid', title: 'Reference diamond: X / Y measure this point of the shape; changing size or turn keeps it in place' }, ...cells);
 }
 
+/** A bulge's curve presets: name and fullness (0 soft, 1 tent, 2 dome, 4 flat topped). */
+export const BULGE_SHAPES = [
+  ['Soft', '0'],
+  ['Tent', '1'],
+  ['Dome', '2'],
+  ['Flat top', '4'],
+] as const;
+
 function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, setBody: (p: Body) => void) {
   const setFeature = (next: Feature) => setBody({ ...body, features: body.features.map((s) => (s === feature ? next : s)) });
   const remove = button('×', () => setBody({ ...body, features: body.features.filter((s) => s !== feature) }), 'Remove');
@@ -1259,6 +1271,19 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         setFeature({ ...feature, size: t.name, d: { e: fmt(t.d / UNITS[ctx.doc.units]), u: ctx.doc.units }, pitch: { e: fmt(t.pitch / UNITS[ctx.doc.units]), u: ctx.doc.units } });
       });
       return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, units, size), h('div', { className: 'row' }, f('d', 'Ø'), f('pitch', 'Pitch'), f('length', 'Length')), h('p', { className: 'hint' }, `On a round face Ø ${fmt(feature.r * 2)} mm`));
+    }
+    case 'bulge': {
+      // a preset sets the fullness; a typed one in between shows as Custom
+      const shape = select(BULGE_SHAPES.find(([, v]) => v === feature.fullness.e)?.[1] ?? 'custom', Object.fromEntries([...BULGE_SHAPES.map(([n, v]) => [v, n]), ['custom', 'Custom']]), (v) => v !== 'custom' && setFeature({ ...feature, fullness: { e: v, u: 'mm' } }));
+      const where = feature.on.kind === 'sketch' ? 'sketch shapes' : feature.on.kind === 'round' ? (feature.on.shaft ? 'a round shaft' : 'a round hole') : 'a flat face';
+      return h(
+        'section',
+        {},
+        h('h4', {}, 'Bulge', remove),
+        h('div', { className: 'row' }, f('amount', 'Amount'), shape, exprField(ctx, `${at}.fullness`, 'Fullness', true)),
+        h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => f(`peak.${k}`, `Peak ${l}`))),
+        h('p', { className: 'hint' }, `On ${where}; the peak counts from its middle`),
+      );
     }
     case 'mirror':
       return h('section', {}, h('h4', {}, 'Mirror', remove), h('p', { className: 'hint' }, 'Mirrored across the plane it was made with'));

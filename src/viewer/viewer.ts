@@ -91,6 +91,8 @@ export interface PickedFace {
   sketch?: { id: string; shape: string };
   /** A round (cylindrical) face clicked (world): its axis from `at` along `dir` for `length`, radius `r`; `shaft`: material inside it (else a hole). */
   round?: { at: THREE.Vector3; dir: THREE.Vector3; length: number; r: number; shaft: boolean };
+  /** The face of a body clicked, whole (see `FaceItem`). */
+  item?: FaceItem;
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -657,7 +659,23 @@ export class Viewer implements ToolView {
   /** The face of a body hit, to pull. */
   faceItem(hit: THREE.Intersection): FaceItem {
     const mesh = hit.object as THREE.Mesh;
-    return { body: mesh.userData.bodyId, point: hit.point.clone(), n: hit.face!.normal.clone().transformDirection(mesh.matrixWorld), mesh, index: faceOf(hit), finish: this.finishAt(hit)?.feature };
+    return { body: mesh.userData.bodyId, point: hit.point.clone(), n: hit.face!.normal.clone().transformDirection(mesh.matrixWorld), mesh, index: faceOf(hit), finish: this.finishAt(hit)?.feature, round: this.roundOf(hit) };
+  }
+
+  /** The middle of a face (world): its triangles' centres weighed by their areas. */
+  faceCentre(f: FaceItem) {
+    const groups = f.mesh.userData.faces as Uint32Array;
+    const index = f.mesh.geometry.index!.array;
+    const pos = f.mesh.geometry.attributes.position;
+    const [sum, a, b, c] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    let total = 0;
+    for (let i = groups[f.index * 2]; i + 2 < groups[f.index * 2] + groups[f.index * 2 + 1]; i += 3) {
+      [a, b, c].forEach((v, k) => v.fromBufferAttribute(pos, index[i + k]));
+      const area = b.clone().sub(a).cross(c.clone().sub(a)).length() / 2;
+      sum.addScaledVector(a.clone().add(b).add(c), area / 3);
+      total += area;
+    }
+    return sum.divideScalar(total || 1).applyMatrix4(f.mesh.matrixWorld);
   }
 
   /** The face last clicked (null: none). */
@@ -2213,7 +2231,7 @@ export class Viewer implements ToolView {
     if (this.quietPick) return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined });
     const s = this.sketchShapeAt(e, hit);
     const sketch = s ? { sketch: { id: s.sketch.id, shape: s.q.id } } : {};
-    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), ...sketch });
+    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), item: this.faceItem(hit), ...sketch });
     // a body cut open by a section: its cut face (only back faces are hit through it)
     const behind = this.intersect(this.raycaster(e))[0];
     const cut = behind && this.cutPlane(e);

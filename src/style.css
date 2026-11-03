@@ -1206,6 +1206,12 @@ button.primary.wide {
 .axis-move input {
   width: 90px;
 }
+.axis-move select {
+  width: auto;
+}
+.axis-move > span {
+  white-space: nowrap;
+}
 .axis-move.targeting .to-object {
   border-color: var(--accent);
   background: var(--selected);

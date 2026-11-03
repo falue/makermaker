@@ -17,13 +17,13 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, BulgeFeature, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { BULGE_SHAPES, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, type Action } from './ui/keys';
@@ -1685,10 +1685,11 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
 
 /**
  * A panel at the top middle of the view with value fields, each scrubbed by its label; T or To object: a click's value
- * (`reach`, in mm, or degrees when `raw`) goes in where the cursor is, to calculate on with it. `change` gets the texts
- * as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
+ * (`reach`, in mm, or degrees when `raw`) goes in where the cursor is, to calculate on with it (several values: they
+ * replace this field's and those before it, a point's X / Y / Z, say). `change` gets the texts as typed (live, valid
+ * ones), `finish` whether to keep them (Enter or ✓; Esc: not).
  */
-function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number; raw?: boolean }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
   const u = history.current.units;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
@@ -1707,7 +1708,9 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
       field.focus();
       if (!face?.snap) return;
       const v = f.reach!(face.snap);
-      field.setRangeText(fmt(f.raw ? v : v / UNITS[u]), field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, 'end');
+      const text = (x: number) => fmt(f.raw ? x : x / UNITS[u]);
+      if (Array.isArray(v)) v.forEach((x, j) => (inputs[k - v.length + 1 + j].value = text(x)));
+      else field.setRangeText(text(v), field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, 'end');
       emit();
     }, true);
   };
@@ -2052,6 +2055,101 @@ function threadTool() {
       [systems, pick],
     );
   });
+}
+
+/**
+ * Bulge: a face bulged out smoothly, its rim kept (flat: domed; round: swelling along its axis), or closed sketch
+ * shapes domed into a body of their own. What is selected (a face picked with Alt-click or last clicked on a selected
+ * body; a sketch's selected shapes), else what is clicked next. A panel: Amount (T: to a point), the curve (a preset
+ * or Fullness), the peak's X / Y / Z from the face's middle (T: to a point, all three). Live, one undo step.
+ */
+function bulgeTool() {
+  const sketch = activeSketch();
+  if (sketch && shapeSel.length) return bulgeOn({ sketch, shapes: shapeSel });
+  const last = viewer.lastFaceItem();
+  const face = viewer.pickedFaceItems()[0] ?? (last && selected.includes(last.body) ? last : null);
+  if (face) return viewer.dropPicked(), bulgeOn(face);
+  toolHint = 'Bulge: click a face or sketch shape · a flat face domes, a round one swells · a closed sketch shape: a dome of its own · [Esc] cancels';
+  render();
+  viewer.pickFace(
+    (picked) => {
+      toolHint = null;
+      if (picked?.sketch) return bulgeOn({ sketch: picked.sketch.id, shapes: [picked.sketch.shape] });
+      if (picked?.item) return bulgeOn(picked.item);
+      render();
+    },
+    false,
+    true,
+  );
+}
+
+/** Bulges a face or sketch shapes (see `bulgeTool`). */
+function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
+  const doc = history.current;
+  const u = doc.units;
+  let i: number;
+  let feature: BulgeFeature;
+  /** The face's middle (world), from which the peak counts, and how far a point lies above the face. */
+  let middle: Vector3;
+  let above: (p: Vector3) => number;
+  const base = { id: newId(), type: 'bulge' as const, fullness: ex('2'), peak: [len(0), len(0), len(0)] as BulgeFeature['peak'] };
+  let toLocal = (v: Vector3) => v.toArray();
+  if ('sketch' in on) {
+    const s = viewer.sketches.find((v) => v.id === on.sketch);
+    const shapes = s?.shapes.filter((q) => on.shapes.includes(q.id) && !q.construction && q.kind !== 'line') ?? [];
+    if (!s || !shapes.length) return fail('Bulge needs closed sketch shapes');
+    const f = s.frame;
+    middle = shapes.reduce((sum, q) => sum.add(new Vector3(...toWorld(f, ...centre(q)))), new Vector3()).divideScalar(shapes.length);
+    above = (p) => p.clone().sub(new Vector3(...f.o)).dot(new Vector3(...f.n));
+    feature = { ...base, on: { kind: 'sketch', sketch: s.id, shapes: shapes.map((q) => q.id) }, amount: len(10) };
+    const sk = doc.sketches.find((k) => k.id === s.id)!;
+    const body = newBody(doc.bodies.length, [feature], sk.plane.kind === 'base' ? sk.group : null);
+    body.name = `Bulge ${doc.bodies.filter((b) => b.features.some((x) => x.type === 'bulge')).length + 1}`;
+    i = doc.bodies.length;
+    [selected, shapeSel] = [[body.id], []];
+    commit({ ...doc, bodies: [...doc.bodies, body] });
+  } else {
+    if (on.finish) return fail('Bulge works on flat and round faces, not on fillets or chamfers');
+    const pl = bodyPlace(on.body);
+    toLocal = (v) => unplaced(pl, v.toArray(), true);
+    const r = on.round;
+    if (r) {
+      middle = r.at.clone().addScaledVector(r.dir, r.length / 2);
+      above = (p) => (r.shaft ? 1 : -1) * (p.clone().sub(r.at).cross(r.dir).length() - r.r);
+      feature = { ...base, on: { kind: 'round', at: unplaced(pl, r.at.toArray()), dir: unplaced(pl, r.dir.toArray(), true), r: r.r, length: r.length, shaft: r.shaft }, amount: len(Math.min(5, r.r / 2)) };
+    } else {
+      middle = viewer.faceCentre(on);
+      above = (p) => p.clone().sub(on.point).dot(on.n);
+      feature = { ...base, on: { kind: 'face', at: unplaced(pl, on.point.toArray()) }, amount: len(10) };
+    }
+    i = doc.bodies.findIndex((b) => b.id === on.body);
+    [selected, shapeSel] = [[on.body], []];
+    commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
+  }
+  const path = ['bodies', String(i), 'features', String(history.current.bodies[i].features.length - 1)];
+  const write = ([amount, fullness, ...peak]: string[]) => {
+    const f = getIn(history.current, path) as BulgeFeature;
+    shape.value = BULGE_SHAPES.find(([, v]) => v === fullness.trim())?.[1] ?? 'custom';
+    history.replace(setIn(history.current, path, { ...f, amount: { e: amount, u }, fullness: { e: fullness, u: 'mm' }, peak: peak.map((e) => ({ e, u })) as BulgeFeature['peak'] }));
+    update();
+  };
+  // a preset sets Fullness
+  const shape = Object.assign(document.createElement('select'), { title: 'The curve: soft (no edge at the rim), tent, dome, flat topped; Fullness in between' });
+  shape.append(...[...BULGE_SHAPES, ['Custom', 'custom']].map(([name, v]) => Object.assign(document.createElement('option'), { value: v, textContent: name, selected: v === '2' })));
+  shape.onchange = () => shape.value !== 'custom' && ((panel.inputs[1].value = shape.value), panel.inputs[1].dispatchEvent(new Event('input')));
+  const panel = valuePanel(
+    [
+      { label: 'Amount', value: feature.amount.e, reach: above },
+      { label: 'Fullness', value: '2', raw: true },
+      { label: 'Peak X', value: '0' },
+      { label: 'Peak Y', value: '0' },
+      { label: 'Peak Z', value: '0', reach: (p) => toLocal(p.clone().sub(middle)) },
+    ],
+    write,
+    (ok) => (ok ? render() : undo()),
+    'Bulge: its amount, curve and peak · Amount: how high (negative: a dent; T: to a point) · Fullness: 0 soft, 1 tent, 2 dome, 4 flat top · Peak X / Y / Z from the middle (T: to a point) · [Enter] keeps it · [Esc] leaves nothing',
+    [shape],
+  );
 }
 
 /**
@@ -3678,6 +3776,7 @@ function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string, linked = f
       if (c.type === 'split' && c.cutter.kind === 'shape') return { ...c, cutter: { ...c.cutter, sketch: renamed(c.cutter.sketch), shape: renamed(c.cutter.shape) } };
       if (c.type === 'loft') return { ...c, sections: c.sections.map((q) => ({ sketch: renamed(q.sketch), shape: renamed(q.shape) })) };
       if (c.type === 'sweep') return { ...c, profile: { sketch: renamed(c.profile.sketch), shape: renamed(c.profile.shape) }, path: { sketch: renamed(c.path.sketch), shape: renamed(c.path.shape) } };
+      if (c.type === 'bulge') return c.on.kind === 'sketch' ? { ...c, on: { ...c.on, sketch: renamed(c.on.sketch), shapes: c.on.shapes.map(renamed) } } : c;
       if (c.type !== 'extrude' && c.type !== 'revolve') return c;
       const src = c.source;
       if (src.kind === 'own') return src.plane.kind === 'cap' ? { ...c, source: { ...src, plane: { ...src.plane, feature: renamed(src.plane.feature) } } } : c;
@@ -3856,6 +3955,7 @@ function render() {
       else showSelection();
     },
     loftTool,
+    bulgeTool,
     groupSelected: selected.length === 1 && doc.groups.some((g) => g.id === selected[0]),
     arrange,
     select,
@@ -3935,7 +4035,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 16, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 17, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

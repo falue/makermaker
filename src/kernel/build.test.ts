@@ -106,6 +106,40 @@ describe('buildBody', () => {
     nut.done();
   }, 60000);
 
+  it('bulges a flat face, a shaft and sketch shapes', () => {
+    const bulge = (on: object, amount: number, fullness = 2, peak = [0, 0, 0]) => ({ id: 'b', type: 'bulge', on, amount, fullness, peak }) as BuildFeature;
+    // the plate's top (z 4) domed 10 mm: its rim stays, the peak reaches 14
+    const domed = built([base(60), bulge({ kind: 'face', at: [0, 0, 4] }, 10)]);
+    expect(domed.faces).toBe(6);
+    expect(domed.box.bounds[1][2]).toBeCloseTo(14, 0);
+    expect(domed.box.width).toBeCloseTo(60, 3);
+    domed.done();
+    const dented = built([base(60, 20), bulge({ kind: 'face', at: [0, 0, 20] }, -5)]);
+    expect(dented.box.bounds[1][2]).toBeCloseTo(20, 3); // the rim stays at the top
+    dented.done();
+    // a shaft Ø 10, 20 long, swelling 3 mm in its middle
+    const shaft = { id: 'c', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false } as BuildFeature;
+    const vase = built([shaft, bulge({ kind: 'round', at: [0, 0, 0], dir: [0, 0, 1], r: 5, length: 20, shaft: true }, 3)]);
+    expect(vase.box.width).toBeCloseTo(16, 0);
+    expect(vase.faces).toBe(3); // one smooth side: quick to mesh
+    // a face with a hole: the dome joined, the hole drilled on through it (bottom, 4 sides, dome, the hole's wall)
+    const holed = built([...plate(100), bulge({ kind: 'face', at: [0, 0, 4] }, 10)]);
+    expect(holed.faces).toBe(7);
+    expect(holed.box.bounds[1][2]).toBeCloseTo(14, 0);
+    holed.done();
+    expect(vase.box.bounds[1][2]).toBeCloseTo(20, 3);
+    vase.done();
+    const down = built([shaft, bulge({ kind: 'round', at: [0, 0, 20], dir: [0, 0, -1], r: 5, length: 20, shaft: true }, 3)]);
+    expect(down.box.width).toBeCloseTo(16, 0);
+    down.done();
+    // a sketch circle Ø 30 on the ground: a dome 8 high of its own
+    const frame = { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] };
+    const own = built([bulge({ kind: 'frame', frame, profiles: [{ id: 'k', kind: 'circle', x: 0, y: 0, d: 30 }] }, 8)]);
+    expect(own.box.bounds.map((b) => +b[2].toFixed(1))).toEqual([0, 8]);
+    expect(own.box.width).toBeCloseTo(30, 0);
+    own.done();
+  }, 60000);
+
   it('mirrors a body across a plane', () => {
     const m = built([base(100), { id: 'm', type: 'mirror', o: [60, 0, 0], n: [1, 0, 0] } as BuildFeature]);
     expect(m.box.bounds[0][0]).toBeCloseTo(70, 3); // -50..50 mirrored at x = 60: 70..170

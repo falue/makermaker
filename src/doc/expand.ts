@@ -47,6 +47,15 @@ export function toBuild(
     const frame = cutterFrame(sketch);
     return frame ? { ...feature, profile, path: { frame, profile: path } } : null;
   }
+  if (feature.type === 'bulge') {
+    const on = feature.on;
+    if (on.kind !== 'sketch') return { ...feature, on };
+    const sketch = sketches.get(on.sketch);
+    const profiles = on.shapes.map((id) => sketch?.shapes.find((s) => s.id === id)).filter((s) => s && !s.construction && s.kind !== 'line');
+    if (!sketch || !profiles.length) return 'its shapes were deleted';
+    const frame = cutterFrame(sketch);
+    return frame ? { ...feature, on: { kind: 'frame', frame, profiles: profiles as Resolved<Sketch>['shapes'] } } : null;
+  }
   if (feature.type !== 'extrude' && feature.type !== 'revolve') return feature;
   const { source, ...rest } = feature;
   if (source.kind === 'own') return { ...rest, plane: source.plane, profiles: source.profiles, areas: source.areas };

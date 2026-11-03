@@ -125,6 +125,21 @@ export type MirrorFeature = { id: string; type: 'mirror'; o: [number, number, nu
  */
 export type ThreadFeature = { id: string; type: 'thread'; at: [number, number, number]; dir: [number, number, number]; r: number; inside: boolean; size: string; d: Expr; pitch: Expr; length: Expr };
 
+/**
+ * A face bulged out smoothly (a negative `amount`: dented in), its rim kept: a flat face through body point `at`, a
+ * round one (body-local axis from `at` along `dir`, radius `r`, `length` long; `shaft`: material inside, else a hole),
+ * or closed sketch shapes (a solid of its own on their plane). The high point lies `peak` (x, y, z) from the face's
+ * middle (a round face: along its axis only); `fullness` sets the curve: 0 soft, 1 tent, 2 dome, 4 and up flat topped.
+ */
+export type BulgeFeature = {
+  id: string;
+  type: 'bulge';
+  on: { kind: 'face'; at: [number, number, number] } | { kind: 'round'; at: [number, number, number]; dir: [number, number, number]; r: number; length: number; shaft: boolean } | { kind: 'sketch'; sketch: string; shapes: string[] };
+  amount: Expr;
+  fullness: Expr;
+  peak: [Expr, Expr, Expr];
+};
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   /** `back`: how far it also reaches behind its sketch plane (none: 0). */
@@ -140,7 +155,8 @@ export type Feature =
   | SweepFeature
   | ShellFeature
   | MirrorFeature
-  | ThreadFeature;
+  | ThreadFeature
+  | BulgeFeature;
 
 /**
  * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the
@@ -185,7 +201,9 @@ export type RevolveIn = Omit<RevolveFeature, 'source'> & { plane: SketchPlane | 
 export type LoftIn = { id: string; type: 'loft'; sections: { frame: Omit<FramePlane, 'kind'>; profile: Profile }[]; ruled: boolean };
 /** A sweep with its path on its frame (body-local), as the kernel builds it. */
 export type SweepIn = { id: string; type: 'sweep'; profile: Profile; path: { frame: Omit<FramePlane, 'kind'>; profile: Profile } };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | MirrorFeature | ThreadFeature;
+/** A bulge with sketch shapes on their frame (body-local), as the kernel builds it. */
+export type BulgeIn = Omit<BulgeFeature, 'on'> & { on: Exclude<BulgeFeature['on'], { kind: 'sketch' }> | { kind: 'frame'; frame: Omit<FramePlane, 'kind'>; profiles: Profile[] } };
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | MirrorFeature | ThreadFeature | BulgeIn;
 
 export interface Body {
   id: string;
@@ -300,7 +318,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 16;
+  schema: 17;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

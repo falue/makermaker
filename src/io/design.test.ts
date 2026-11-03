@@ -13,7 +13,7 @@ describe('design file', () => {
   });
 
   it('rejects unknown schemas', () => {
-    expect(() => unpack(pack({ ...sampleDoc(), schema: 9 as 16 }, []))).toThrow('schema');
+    expect(() => unpack(pack({ ...sampleDoc(), schema: 9 as 17 }, []))).toThrow('schema');
   });
 
 });
