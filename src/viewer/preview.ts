@@ -191,7 +191,7 @@ export class MaterialPreview {
     }
     if (this.fog) {
       const m = this.fog.material as THREE.MeshStandardMaterial & { density: number };
-      m.density = air.fog / 300;
+      m.density = air.fog / 1500;
       m.color.copy(hazeColourOf(light.ambientColor));
       this.fog.visible = air.fog > 0;
       this.tracer?.updateMaterials();
