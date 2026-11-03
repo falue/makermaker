@@ -506,22 +506,24 @@ export class Viewer implements ToolView {
   private sky = { canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 256 }), texture: null as THREE.CanvasTexture | null, drawn: '' };
   /** Selected bodies get an outline around their silhouette (tool bodies in red): they are drawn into `mask`, then a ring of `px` around it on top. */
   private silhouette = {
-    mask: new THREE.WebGLRenderTarget(1, 1),
+    mask: new THREE.WebGLRenderTarget(1, 1, { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter }),
+    nothing: new THREE.Scene(),
     flat: new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
     // covers the screen, whatever the camera sees
     quad: Object.assign(new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
       new THREE.ShaderMaterial({
-        uniforms: { mask: { value: null }, texel: { value: new THREE.Vector2() }, width: { value: 3 }, color: { value: new THREE.Vector3(0, 0xbc / 255, 0xd4 / 255) } },
+        uniforms: { mask: { value: null }, texel: { value: new THREE.Vector2() }, width: { value: 3 }, near: { value: 0 }, color: { value: new THREE.Vector3(0, 0xbc / 255, 0xd4 / 255) } },
         vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-        // outside the mask, within `width` px of it: the colour, edges smoothed over half a pixel
-        fragmentShader: `uniform sampler2D mask; uniform vec2 texel; uniform float width; uniform vec3 color; varying vec2 vUv;
+        // outside the mask, within `width` px of it: the colour, edges smoothed over half a pixel; a coarse level of
+        // the mask (`near`: its blocks over twice that wide) tells most pixels at one look that nothing is that near
+        fragmentShader: `uniform sampler2D mask; uniform vec2 texel; uniform float width; uniform float near; uniform vec3 color; varying vec2 vUv;
           void main() {
-            if (texture2D(mask, vUv).r > 0.5) discard;
+            if (textureLod(mask, vUv, 0.0).r > 0.5 || textureLod(mask, vUv, near).r <= 0.0) discard;
             float a = 0.0;
             for (int x = -8; x <= 8; x++) for (int y = -8; y <= 8; y++) {
               float d = length(vec2(x, y));
-              if (d > width + 0.5 || texture2D(mask, vUv + vec2(x, y) * texel).r < 0.5) continue;
+              if (d > width + 0.5 || textureLod(mask, vUv + vec2(x, y) * texel, 0.0).r < 0.5) continue;
               a = max(a, clamp(width + 0.5 - d, 0.0, 1.0));
             }
             if (a <= 0.0) discard;
@@ -2252,7 +2254,7 @@ export class Viewer implements ToolView {
   /** The silhouette of `solids` outlined in `rgb` (0..1) over the picture. */
   private outline(solids: THREE.Mesh[], rgb: [number, number, number]) {
     if (!solids.length) return;
-    const { mask, flat, quad, px } = this.silhouette;
+    const { mask, nothing, flat, quad, px } = this.silhouette;
     const r = this.renderer;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     if (mask.width !== size.x || mask.height !== size.y) mask.setSize(size.x, size.y);
@@ -2262,6 +2264,7 @@ export class Viewer implements ToolView {
     r.clear();
     r.autoClear = false; // all solids into one mask: one silhouette around them together
     for (const s of solids) {
+    mask.texture.generateMipmaps = false; // not after each of them
       const own = s.material as THREE.Material;
       flat.clippingPlanes = own.clippingPlanes; // a cut copy stays cut
       s.material = flat;
@@ -2269,6 +2272,8 @@ export class Viewer implements ToolView {
       s.material = own;
     }
     r.setRenderTarget(null);
+    mask.texture.generateMipmaps = true;
+    r.render(nothing, this.camera); // ends a render on the mask: its levels get made
     r.setClearColor(clear, alpha);
     const u = (quad.material as THREE.ShaderMaterial).uniforms;
     u.mask.value = mask.texture;
@@ -2276,6 +2281,7 @@ export class Viewer implements ToolView {
     u.texel.value.set(1 / size.x, 1 / size.y);
     u.width.value = px * r.getPixelRatio();
     r.autoClear = false;
+    u.near.value = Math.ceil(Math.log2(2 * u.width.value + 1));
     r.render(quad, this.camera);
     r.autoClear = autoClear;
   }
