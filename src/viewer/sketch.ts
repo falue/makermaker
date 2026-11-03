@@ -226,7 +226,8 @@ type Segment = [THREE.Vector3, THREE.Vector3];
 type Phase =
   | { kind: 'hover' }
   /** Rectangle or circle from `anchor`; typed sizes per axis (circle: only 0, the diameter). */
-  | { kind: 'shape'; target: Target; anchor: UV; cur: UV; px: [number, number]; dragged: boolean; typed: (string | undefined)[]; axis: number; alt: boolean; shift: boolean }
+  /** `pts`: further points clicked (a turned rectangle's side end, a circle's second point); `lines`: a tangent circle's lines; `altStart`: Alt held since before it began (it switched the mode: not a swap here) */
+  | { kind: 'shape'; target: Target; anchor: UV; cur: UV; px: [number, number]; dragged: boolean; typed: (string | undefined)[]; axis: number; alt: boolean; shift: boolean; pts: UV[]; lines: [UV, UV][]; altStart: boolean }
   /**
    * Line or polygon: corners so far and the open side's end; typed length (0) and angle (1) of the open side;
    * `chained`: a line started at the last one's end by holding ⌘ (else Ctrl); `base`: the direction (radians, plane
@@ -292,6 +293,8 @@ export class SketchTool implements Tool {
   private raysUntil = 0;
   /** Snap points along a line (by its key, see `sideKey`): evenly spaced inside a side, or around a circle. Kept across tool restarts. */
   static divisions = new Map<string, number>();
+  /** Each shape's drawing mode (see `MODES`), this session. */
+  static modes = new Map<ToolKind, string>();
   /** The line the pointer snapped to or along (its key), for A / Shift A. */
   private snapKey: string | null = null;
   /** The line whose snap points were just changed: all its points show while the pointer stays on it. */
@@ -393,12 +396,15 @@ export class SketchTool implements Tool {
         this.finishLine();
         return this.update(), true;
       }
+      // a tangent circle starts on a line
+      const line = this.drawMode()?.lines ? this.lineUV(target) : null;
+      if (this.drawMode()?.lines && !line) return this.host.hint('Circle tangent to two lines: click the first line · [A] another drawing mode'), true;
       this.phase =
         this.kind === 'polygon' || this.kind === 'line'
           ? { kind: 'polygon', target, pts: [at], cur: at, typed: [], axis: 0, base: 0 }
-          : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, alt: e.altKey, shift: e.shiftKey };
+          : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, alt: e.altKey, shift: e.shiftKey, pts: [], lines: line ? [line] : [], altStart: e.altKey };
       this.host.hint(this.kind === 'polygon' ? POLYGON_HINT : this.kind === 'line' ? LINE_HINT : SHAPE_HINT);
-    } else if (ph.kind === 'shape') this.shapeDone(); // second click of click-click drawing
+    } else if (ph.kind === 'shape') this.advance(); // a further click of click-click drawing
     else if (ph.kind === 'polygon') {
       const at = this.sideEnd(e, ph);
       if (!at) return true;
@@ -438,7 +444,7 @@ export class SketchTool implements Tool {
       this.shiftHeld = e.shiftKey;
       if (ph.kind === 'shape') {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
-        Object.assign(ph, { alt: e.altKey, shift: e.shiftKey });
+        Object.assign(ph, { alt: e.altKey, shift: e.shiftKey, altStart: ph.altStart && e.altKey });
       }
     } else {
       if (this.reaching) return this.aim(this.view.aimAt(e)); // aiming at what to reach
@@ -454,8 +460,56 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     if (ph.kind === 'shape') ph.dragged &&= !this.reached; // the release of a To object click does not end the shape
     this.reached = false;
-    if (ph.kind === 'shape' && ph.dragged) this.shapeDone();
+    if (ph.kind === 'shape' && ph.dragged) this.advance();
     this.update();
+  }
+
+  /** The drawing mode now (none: a shape without modes); `ph`: drawing it, Alt held swaps centre ⇄ corner. */
+  private drawMode(ph?: Extract<Phase, { kind: 'shape' }>) {
+    const list = this.kind ? MODES[this.kind] : undefined;
+    if (!list) return null;
+    const m = list.find((x) => x.id === SketchTool.modes.get(this.kind!)) ?? list[0];
+    const swap = ph?.alt && !ph.altStart && m.alt;
+    return swap ? list.find((x) => x.id === m.alt)! : m;
+  }
+
+  /** The next drawing mode (`by` -1: the one before; an id: that one), remembered this session, shown for a moment. */
+  private switchMode(by: number | string) {
+    const list = this.kind ? MODES[this.kind] : undefined;
+    if (!list) return;
+    const now = list.indexOf(this.drawMode()!);
+    const next = typeof by === 'string' ? list.find((x) => x.id === by)! : list[(now + by + list.length) % list.length];
+    SketchTool.modes.set(this.kind!, next.id);
+    // drawing: the first point stays (a tangent circle starts over, on a line)
+    const ph = this.phase;
+    if (ph.kind === 'shape') {
+      if (next.lines) this.phase = { kind: 'hover' };
+      else Object.assign(ph, { pts: [], lines: [] });
+    }
+    showMode(this.view.el, next);
+    this.host.hint(this.phase.kind === 'shape' ? SHAPE_HINT : this.hoverHint());
+  }
+
+  /** The straight line under the pointer (as snapping found it), in the target's plane coordinates; null: none. */
+  private lineUV(t: Target): [UV, UV] | null {
+    const s = this.snapSeg;
+    return s ? [uvOf(t.frame, s[0]), uvOf(t.frame, s[1])] : null;
+  }
+
+  /** A click (or the end of a drag) while drawing a shape: the next point (or line) its mode needs, else done. */
+  private advance() {
+    const ph = this.phase;
+    if (ph.kind !== 'shape') return;
+    const m = this.drawMode(ph);
+    const clicks = 1 + ph.pts.length + Math.max(0, ph.lines.length - 1);
+    if (!m || clicks + 1 >= m.clicks) return this.shapeDone();
+    if (m.lines) {
+      const line = this.lineUV(ph.target);
+      if (!line) return this.host.hint('Circle tangent to two lines: click the second line · [Esc] cancels');
+      ph.lines.push(line);
+    } else ph.pts.push(ph.cur);
+    ph.dragged = false;
+    this.host.hint(m.next ?? SHAPE_HINT);
   }
 
   clicks() {
@@ -484,6 +538,8 @@ export class SketchTool implements Tool {
       this.aim(this.view.aimHere());
       return true;
     }
+    // Alt before drawing: the other of centre ⇄ corner, kept (held while drawing it only swaps for that shape)
+    if (ph.kind === 'hover' && e.key === 'Alt' && this.drawMode()?.alt) return this.switchMode(this.drawMode()!.alt!), this.update(), true;
     if (ph.kind === 'hover' && this.kind === 'line' && SketchTool.lineEnd && e.key === modKey && this.lastPoint) {
       this.chain(...this.lastPoint);
       this.update();
@@ -511,7 +567,8 @@ export class SketchTool implements Tool {
       this.showing = k;
       const at = ph.kind === 'polygon' ? this.sideEnd(this.lastPoint[0], ph) : this.point(...this.lastPoint);
       if (at && (ph.kind === 'shape' || ph.kind === 'polygon')) ph.cur = at;
-    } else if (free && (more || pressed(e, 'fewerSnaps')) && ph.kind === 'polygon') {
+    } else if (free && (more || pressed(e, 'fewerSnaps')) && this.drawMode()) this.switchMode(more ? 1 : -1); // off a line: the next drawing mode
+    else if (free && (more || pressed(e, 'fewerSnaps')) && ph.kind === 'polygon') {
       // off a line: the angle step for Shift, finer or coarser; its rays show for a moment
       const i = ANGLE_STEPS.indexOf(SketchTool.angleStep);
       SketchTool.angleStep = ANGLE_STEPS[Math.min(ANGLE_STEPS.length - 1, Math.max(0, i + (more ? 1 : -1)))];
@@ -559,10 +616,12 @@ export class SketchTool implements Tool {
 
   private hoverHint(target?: Target) {
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
-    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? 'Click two points' : 'Drag (or click twice)';
+    const m = this.drawMode();
+    const how = this.kind === 'polygon' ? 'Click corners' : this.kind === 'line' ? 'Click two points' : m?.lines ? 'Click a line' : m && m.clicks > 2 ? 'Click three times' : 'Drag (or click twice)';
     const chain = this.kind === 'line' && SketchTool.lineEnd ? ` · [${MAC ? '⌘' : 'Ctrl'}]-click: on from the last end` : '';
     if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]}${chain} · [R] [C] [P] switch · snaps to corners and centres · [A] / [Shift A] more / fewer snap points on a line · [Ctrl] grid · [Esc] stops drawing shapes`;
-    return `${how} to draw ${NAMES[this.kind!]}${chain}${target ? ` · on ${target.name}` : ''} · [Ctrl] precise · right-drag turns the view · [Esc] stops`;
+    const modes = m ? ` · ${m.name} ([A] off a line: the next mode; [Alt]: centre ⇄ corner)` : '';
+    return `${how} to draw ${NAMES[this.kind!]}${chain}${modes}${target ? ` · on ${target.name}` : ''} · [Ctrl] precise · right-drag turns the view · [Esc] stops`;
   }
 
   /**
@@ -890,17 +949,49 @@ export class SketchTool implements Tool {
     const [au, av] = ph.anchor;
     let du = ph.cur[0] - au;
     let dv = ph.cur[1] - av;
+    const m = this.drawMode(ph)?.id;
+    const typedD = this.typed(ph.typed[0]);
     if (this.kind === 'circle' || this.kind === 'sphere') {
-      const d = this.typed(ph.typed[0]) ?? 2 * Math.hypot(du, dv);
-      return { kind: 'circle', x: au, y: av, d };
+      if (m === 'diameter' || (m === 'three' && !ph.pts.length)) {
+        const d = typedD ?? Math.hypot(du, dv);
+        const l = Math.hypot(du, dv) || 1;
+        return { kind: 'circle', x: au + (du / l) * (d / 2), y: av + (dv / l) * (d / 2), d };
+      }
+      if (m === 'three') return circleThrough(ph.anchor, ph.pts[0], ph.cur) ?? { kind: 'circle', x: au, y: av, d: 0 };
+      if (m === 'tangent') return (ph.lines.length > 1 && tangentCircle(ph.lines[0], ph.lines[1], ph.cur, typedD)) || { kind: 'circle', x: ph.cur[0], y: ph.cur[1], d: 0 };
+      return { kind: 'circle', x: au, y: av, d: typedD ?? 2 * Math.hypot(du, dv) };
     }
     if (this.kind === 'ngon') {
-      // the first corner points at the pointer (Shift: turns in 15° steps); typed: diameter, then the number of sides
-      const deg = (Math.atan2(dv, du) * 180) / Math.PI - 90;
-      const sides = Math.round(Number(ph.typed[1]) || 6);
-      return { kind: 'ngon', x: au, y: av, d: this.typed(ph.typed[0]) ?? 2 * Math.hypot(du, dv), sides: Math.max(3, sides), rot: ph.shift ? Math.round(deg / 15) * 15 : deg };
+      // typed: diameter (across the corners), then the number of sides
+      const sides = Math.max(3, Math.round(Number(ph.typed[1]) || 6));
+      const half = Math.PI / sides;
+      const snap = (deg: number) => (ph.shift ? Math.round(deg / 15) * 15 : deg);
+      if (m === 'edge') {
+        // one side from the first click to the pointer, the polygon to its left
+        const s = Math.hypot(du, dv);
+        const apothem = s / (2 * Math.tan(half));
+        const [cx, cy] = [au + du / 2 - (dv / (s || 1)) * apothem, av + dv / 2 + (du / (s || 1)) * apothem];
+        const d = typedD ?? s / Math.sin(half);
+        return { kind: 'ngon', x: cx, y: cy, d, sides, rot: (Math.atan2(av - cy, au - cx) * 180) / Math.PI - 90 };
+      }
+      const deg = snap((Math.atan2(dv, du) * 180) / Math.PI - 90);
+      // the first corner points at the pointer; 'side': a side's middle does (the diameter across the corners grows to match)
+      if (m === 'side') return { kind: 'ngon', x: au, y: av, d: typedD ?? (2 * Math.hypot(du, dv)) / Math.cos(half), sides, rot: deg + 180 / sides };
+      return { kind: 'ngon', x: au, y: av, d: typedD ?? 2 * Math.hypot(du, dv), sides, rot: deg };
     }
-    const k = ph.alt ? 2 : 1; // from the centre, the pointer sets half the size
+    if (m === 'turned') {
+      // a side from the first click to the second, then the width to the pointer (either side)
+      if (!ph.pts.length) return { kind: 'rect', x: au + du / 2, y: av + dv / 2, w: typedD ?? Math.hypot(du, dv), h: 0, r: 0, rot: (Math.atan2(dv, du) * 180) / Math.PI };
+      const [bu, bv] = ph.pts[0];
+      const s = Math.hypot(bu - au, bv - av) || 1;
+      const [nu, nv] = [-(bv - av) / s, (bu - au) / s];
+      const off = (ph.cur[0] - au) * nu + (ph.cur[1] - av) * nv;
+      const h = this.typed(ph.typed[1]) ?? Math.abs(off);
+      const side = Math.sign(off) || 1;
+      return { kind: 'rect', x: (au + bu) / 2 + (nu * side * h) / 2, y: (av + bv) / 2 + (nv * side * h) / 2, w: s, h, r: 0, rot: (Math.atan2(bv - av, bu - au) * 180) / Math.PI };
+    }
+    const centred = m === 'centre';
+    const k = centred ? 2 : 1; // from the centre, the pointer sets half the size
     if (ph.shift) {
       const s = Math.max(Math.abs(du), Math.abs(dv));
       du = Math.sign(du || 1) * s;
@@ -910,7 +1001,7 @@ export class SketchTool implements Tool {
     const h = this.typed(ph.typed[1]) ?? Math.abs(dv) * k;
     const sx = Math.sign(du || 1);
     const sy = Math.sign(dv || 1);
-    return ph.alt ? { kind: 'rect', x: au, y: av, w, h, r: 0, rot: 0 } : { kind: 'rect', x: au + (sx * w) / 2, y: av + (sy * h) / 2, w, h, r: 0, rot: 0 };
+    return centred ? { kind: 'rect', x: au, y: av, w, h, r: 0, rot: 0 } : { kind: 'rect', x: au + (sx * w) / 2, y: av + (sy * h) / 2, w, h, r: 0, rot: 0 };
   }
 
   private shapeDone() {
@@ -1160,7 +1251,76 @@ export class SketchTool implements Tool {
   }
 }
 
-const SHAPE_HINT = 'Drag to size, or type it · [Tab] other side or number of sides · [Alt] from the centre · [Shift] square / 15° · [Ctrl] precise · [Enter] or click: done · [Esc] cancels';
+const SHAPE_HINT = 'Drag to size, or type it · [Tab] other side or number of sides · [Alt] held: centre ⇄ corner · [A] off a line: the next drawing mode · [Shift] square / 15° · [Ctrl] precise · [Enter] or click: done · [Esc] cancels';
+
+/** A drawing mode: its name and pictogram, how many clicks it takes, its Alt pair (centre ⇄ corner), whether it starts on lines, the hint after the first click. */
+type Mode = { id: string; name: string; pic: string; clicks: number; alt?: string; lines?: true; next?: string };
+const dot = (x: number, y: number) => `<circle cx="${x}" cy="${y}" r="1.7" fill="currentColor" stroke="none"/>`;
+const HEX = '<path d="M12 4l6.9 4v8L12 20l-6.9-4V8z"/>';
+/** The drawing modes of the shapes that have several (A cycles them, Shift A back). */
+const MODES: Partial<Record<ToolKind, Mode[]>> = {
+  rect: [
+    { id: 'corners', name: 'Rectangle: two corners', clicks: 2, alt: 'centre', pic: `<rect x="4" y="6" width="16" height="12"/>${dot(4, 6)}${dot(20, 18)}` },
+    { id: 'centre', name: 'Rectangle: from the centre', clicks: 2, alt: 'corners', pic: `<rect x="4" y="6" width="16" height="12"/>${dot(12, 12)}${dot(20, 18)}` },
+    { id: 'turned', name: 'Rectangle: turned (a side, then its width)', clicks: 3, pic: `<path d="M3 14l8-8 8 8-8 8z"/>${dot(3, 14)}${dot(11, 6)}${dot(15, 18)}`, next: 'Turned rectangle: click the side\'s other end, then the width · [Esc] cancels' },
+  ],
+  circle: [
+    { id: 'centre', name: 'Circle: centre and radius', clicks: 2, alt: 'diameter', pic: `<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>${dot(12, 12)}${dot(20, 12)}` },
+    { id: 'diameter', name: 'Circle: two points across', clicks: 2, alt: 'centre', pic: `<circle cx="12" cy="12" r="8"/><path d="M4 12h16"/>${dot(4, 12)}${dot(20, 12)}` },
+    { id: 'three', name: 'Circle: through three points', clicks: 3, pic: `<circle cx="12" cy="12" r="8"/>${dot(4, 12)}${dot(17.7, 6.3)}${dot(14, 19.7)}`, next: 'Circle through three points: click the second, then the third · [Esc] cancels' },
+    { id: 'tangent', name: 'Circle: tangent to two lines', clicks: 3, lines: true, pic: `<path d="M3 20h18M3 20L13 3"/><circle cx="11.5" cy="14" r="5.5"/>`, next: 'Tangent circle: click the second line, then where it lies (its size) · [Esc] cancels' },
+  ],
+  ngon: [
+    { id: 'corner', name: 'Regular polygon: centre to a corner', clicks: 2, alt: 'edge', pic: `${HEX}${dot(12, 12)}${dot(12, 4)}` },
+    { id: 'side', name: "Regular polygon: centre to a side's middle", clicks: 2, alt: 'edge', pic: `${HEX}${dot(12, 12)}${dot(15.45, 6)}` },
+    { id: 'edge', name: 'Regular polygon: one side, end to end', clicks: 2, alt: 'corner', pic: `${HEX}${dot(5.1, 16)}${dot(12, 20)}` },
+  ],
+};
+
+/** The drawing mode's pictogram and name, top left in the view for a moment. */
+function showMode(el: HTMLElement, m: Mode, ms = 1000) {
+  el.querySelector('.mode-note')?.remove();
+  const note = Object.assign(document.createElement('div'), { className: 'mode-note', innerHTML: `<svg viewBox="0 0 24 24">${m.pic}</svg><span>${m.name}</span>` });
+  el.append(note);
+  setTimeout(() => note.remove(), ms);
+}
+
+/** The circle through three points (plane coordinates); null: they lie on one line. */
+function circleThrough([ax, ay]: UV, [bx, by]: UV, [cx, cy]: UV): DrawnProfile | null {
+  const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+  if (Math.abs(d) < 1e-9) return null;
+  const [a2, b2, c2] = [ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy];
+  const x = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+  const y = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+  return { kind: 'circle', x, y, d: 2 * Math.hypot(ax - x, ay - y) };
+}
+
+/**
+ * The circle touching two lines (plane coordinates) in the corner between them where `p` is, its middle as near `p`
+ * as its size lets (`d`: that diameter); null: the lines are parallel.
+ */
+function tangentCircle([a1, b1]: [UV, UV], [a2, b2]: [UV, UV], p: UV, d?: number): DrawnProfile | null {
+  const dir = ([a, b]: [UV, UV]): UV => {
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+  };
+  const [d1, d2] = [dir([a1, b1]), dir([a2, b2])];
+  const cross = d1[0] * d2[1] - d1[1] * d2[0];
+  if (Math.abs(cross) < 1e-9) return null;
+  // where the lines cross
+  const t = ((a2[0] - a1[0]) * d2[1] - (a2[1] - a1[1]) * d2[0]) / cross;
+  const o: UV = [a1[0] + d1[0] * t, a1[1] + d1[1] * t];
+  // each line's normal towards p: the middle lies 1 out from both per unit of radius
+  const normal = (d: UV): UV => {
+    const n: UV = [-d[1], d[0]];
+    return (p[0] - o[0]) * n[0] + (p[1] - o[1]) * n[1] < 0 ? [-n[0], -n[1]] : n;
+  };
+  const [n1, n2] = [normal(d1), normal(d2)];
+  const det = n1[0] * n2[1] - n1[1] * n2[0];
+  const v: UV = [(n2[1] - n1[1]) / det, (n1[0] - n2[0]) / det]; // solves n1·v = 1, n2·v = 1
+  const r = d !== undefined ? d / 2 : Math.max(0, ((p[0] - o[0]) * v[0] + (p[1] - o[1]) * v[1]) / (v[0] * v[0] + v[1] * v[1]));
+  return { kind: 'circle', x: o[0] + v[0] * r, y: o[1] + v[1] * r, d: 2 * r };
+}
 const LINE_HINT = 'Click the end point, or type a length · [Tab] the angle, [Enter] · turns in 1° steps, [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · [Esc] cancels';
 /** An angle (radians) in degrees, the short way: -180 to 180. */
 const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;
