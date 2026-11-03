@@ -12,10 +12,10 @@ const BLANK: Look = { color: '#ffffff', roughness: 0.5, bump: 0, metalness: 0, t
 const WIDTH = 640;
 const HEIGHT = 480;
 /** Goes up when the scene changes: pictures kept in browsers then are of something else. */
-export const PREVIEW_SCENE = 5;
+export const PREVIEW_SCENE = 6;
 
 /**
- * A teapot wearing a material, on a dark grey plastic floor in a corner of measuring grid walls, in given light. `show` draws at
+ * A teapot wearing a material, on a POM-C floor in a corner of measuring grid walls, in given light. `show` draws at
  * once (three's own renderer) and, when nothing changes for `rest` ms, path traces on the same picture, on `canvas`;
  * `viewCanvas` always has it as the 3D view draws it. `thumbnail` traces a small picture for the list, when nothing is being shown. One renderer and one tracer do all of it.
  */
@@ -51,7 +51,7 @@ export class MaterialPreview {
     this.teapot.position.set(-12, 50, 9); // its bottom on the floor, its spout inside the picture
     this.teapot.castShadow = true;
     const standard = (id: string) => toLook(findMaterial({ materials: [] } as unknown as Doc, id)!);
-    const [floorLook, gridLook] = [standard('std-dark-grey'), standard('std-grid-metric')];
+    const [floorLook, gridLook] = [standard('std-pom-black'), standard('std-grid-metric')];
     const [floor, grid] = [renderMaterial(floorLook), renderMaterial(gridLook)];
     applyLook(this.inView.floor, floorLook);
     applyLook(this.inView.grid, gridLook);
