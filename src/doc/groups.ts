@@ -1,4 +1,4 @@
-import type { Doc, Feature } from './types';
+import type { Body as DocBody, Doc, Feature } from './types';
 
 /** The sketch a feature takes its shapes from (an extrusion's or revolve's), if any. */
 export const sourceSketch = (f: Feature) => ((f.type === 'extrude' || f.type === 'revolve') && f.source.kind === 'sketch' ? f.source.sketch : null);
@@ -53,10 +53,12 @@ export function rank(doc: Doc, id: string): number {
 export function tree(doc: Doc, folded: Set<string>): Row[] {
   const out: Row[] = [];
   const owner = ownersOf(doc);
-  // a body, then the tool bodies of its booleans under it, like a group's contents; owners start folded (`folded`
-  // holding an owner means it is open)
+  // a linked copy in its source's group sits under the source
+  const under = (b: DocBody) => !!b.link && doc.bodies.some((s) => s.id === b.link && s.group === b.group);
+  // a body, then the tool bodies of its booleans and its linked copies under it, like a group's contents; these start
+  // folded (`folded` holding the body means it is open)
   const body = (id: string, depth: number) => {
-    const tools = doc.bodies.filter((t) => owner.get(t.id) === id && !out.some((r) => r.id === t.id));
+    const tools = doc.bodies.filter((t) => (owner.get(t.id) === id || (t.link === id && under(t))) && !out.some((r) => r.id === t.id));
     const open = tools.length ? folded.has(id) : undefined;
     out.push({ id, kind: 'body', depth, open });
     if (open) for (const t of tools) body(t.id, depth + 1);
@@ -64,7 +66,7 @@ export function tree(doc: Doc, folded: Set<string>): Row[] {
   // per level its groups and bodies in their places (see `rank`)
   const walk = (parent: string | null, depth: number) => {
     const groups = doc.groups.filter((g) => parentOf(doc, g.parent) === parent).map((g) => ({ id: g.id, group: true }));
-    const bodies = doc.bodies.filter((b) => parentOf(doc, b.group) === parent && !owner.has(b.id)).map((b) => ({ id: b.id, group: false }));
+    const bodies = doc.bodies.filter((b) => parentOf(doc, b.group) === parent && !owner.has(b.id) && !under(b)).map((b) => ({ id: b.id, group: false }));
     for (const { id, group } of [...groups, ...bodies].sort((a, b) => rank(doc, a.id) - rank(doc, b.id) || +b.group - +a.group)) {
       if (!group) {
         body(id, depth);

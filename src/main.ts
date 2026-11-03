@@ -259,7 +259,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   dragFinish,
   dragEdges(body, edges) {
     const before = history.current;
-    const i = before.bodies.findIndex((b) => b.id === body);
+    const i = stepsOf(before, body);
     if (i < 0) return;
     // the edges in body coordinates (the finish runs there), as polylines
     const pl = bodyPlace(body);
@@ -956,7 +956,7 @@ const clamped = (feature: string, v: number) => Math.sign(v) * Math.min(Math.abs
 /** A finish too big for its edges: its size becomes the largest that works (in the same undo step). */
 function clampFinish(body: string, feature: string, max: number) {
   const doc = history.current;
-  const i = doc.bodies.findIndex((b) => b.id === body);
+  const i = stepsOf(doc, body);
   const j = doc.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
   const f = doc.bodies[i]?.features[j];
   if (f?.type !== 'finish') return;
@@ -1147,7 +1147,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
     const b = by();
     if (!b) return show();
     close();
-    if (copy.checked) copyMoved(b);
+    if (copy.checked) copyMoved(b, linked.checked);
     else moveBy(b);
   };
   // focus moving between the fields (or into the view) stays; to another field or button elsewhere it cancels
@@ -1161,22 +1161,21 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
     last?.focus();
     viewer.aiming(viewer.aimHere());
   }, 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it');
-  const copy = Object.assign(document.createElement('input'), { type: 'checkbox', onchange: () => (show(), last?.focus()) });
+  const copy = Object.assign(document.createElement('input'), { type: 'checkbox', onchange: () => ((linkedLabel.hidden = !copy.checked), show(), last?.focus()) });
   const copyLabel = Object.assign(document.createElement('label'), { title: 'Leave the selection where it is and move a copy of it' });
   copyLabel.append(copy, 'Copy');
-  // linked: copies share their source's steps (editing one edits all); just duplicated ones change at once
+  // linked (off first): copies share their source's steps (editing one edits all); just duplicated ones change at once
   const linked = Object.assign(document.createElement('input'), {
     type: 'checkbox',
-    checked: linkedCopies,
     onchange: () => {
-      linkedCopies = linked.checked;
-      if (made) history.replace(relinked(history.current, made.sources, made.copies, linkedCopies)), update();
+      if (made) history.replace(relinked(history.current, made.sources, made.copies, linked.checked)), update();
       last?.focus();
     },
   });
-  const linkedLabel = Object.assign(document.createElement('label'), { title: 'Copies are linked copies: they share their steps, editing one edits all of them' });
+  const linkedLabel = Object.assign(document.createElement('label'), { title: 'Copies are linked copies: they share their steps, editing one edits all of them', hidden: !made });
   linkedLabel.append(linked, 'Linked');
-  box.append(toObject, ...(made ? [] : [copyLabel]), linkedLabel, panelButton('✓', 'Move it (Enter); Esc leaves it', () => confirm()));
+  // copies made already (Duplicate, paste): no Copy; Linked only while their sources are there
+  box.append(toObject, ...(made ? [] : [copyLabel]), ...(made && !made.sources.length ? [] : [linkedLabel]), panelButton('✓', 'Move it (Enter); Esc leaves it', () => confirm()));
   if (all) [2, 1, 0].forEach(open); // all three, then the cursor goes to `first`
   open(first);
   show();
@@ -1253,6 +1252,30 @@ function moveBy(by: Vector3) {
 /** Copies are made linked (sharing their source's steps): the Linked checkboxes of copy-move, Duplicate, Mirror and Pattern (this session). */
 let linkedCopies = false;
 
+/** Where a body's shape edits go (its index): a linked copy's source, so all its copies change too; else the body. */
+function stepsOf(doc: Doc, body: string) {
+  const id = doc.bodies.find((b) => b.id === body)?.link ?? body;
+  return doc.bodies.findIndex((b) => b.id === id);
+}
+
+/**
+ * Breaks a body's links: its linked copies in its group get all its steps and go, with it, into a new group of its
+ * name (in its place in the list); copies elsewhere just get their steps. One undo step.
+ */
+function breakLinks(source: string) {
+  const doc = history.current;
+  const src = doc.bodies.find((b) => b.id === source);
+  if (!src) return;
+  const group: Group = { id: newId(), name: src.name, parent: src.group, visible: true, origin: { kind: 'parent' }, ...(src.order !== undefined ? { order: src.order } : {}) };
+  const bodies = doc.bodies.map((b) => {
+    if (b.id !== source && b.link !== source) return b;
+    const own = b.link === source ? { link: null, features: [...structuredClone(src.features), ...b.features] } : {};
+    return { ...b, ...own, ...(b.group === src.group ? { group: group.id, order: undefined } : {}) };
+  });
+  selected = [group.id];
+  commit({ ...doc, bodies, groups: [...doc.groups, group] });
+}
+
 /** Copies `copies` of bodies `sources` (pairwise) made linked copies of them (`on`), or independent with all their steps. */
 function relinked(doc: Doc, sources: string[], copies: string[], on: boolean): Doc {
   return {
@@ -1266,8 +1289,8 @@ function relinked(doc: Doc, sources: string[], copies: string[], on: boolean): D
   };
 }
 
-/** Moves a copy of the selection by `by` (one undo step): shapes in their sketch, else bodies and sketches. */
-function copyMoved(by: Vector3) {
+/** Moves a copy of the selection by `by` (one undo step): shapes in their sketch, else bodies and sketches (`linked`: linked copies). */
+function copyMoved(by: Vector3, linked: boolean) {
   const before = history.current;
   const sketch = activeSketch();
   moveBy(by);
@@ -1280,7 +1303,7 @@ function copyMoved(by: Vector3) {
     shapeSel = copies.map((q) => q.id);
     history.replace(setIn(before, ['sketches', String(k), 'shapes'], [...before.sketches[k].shapes, ...copies]));
   } else {
-    const { bodies, sketches } = copiesOf(moved.bodies.filter((b) => selected.includes(b.id)), moved.sketches.filter((s) => selected.includes(s.id)), ' copy', linkedCopies);
+    const { bodies, sketches } = copiesOf(moved.bodies.filter((b) => selected.includes(b.id)), moved.sketches.filter((s) => selected.includes(s.id)), ' copy', linked);
     selected = [...bodies, ...sketches].map((c) => c.id);
     history.replace({ ...before, bodies: [...before.bodies, ...bodies], sketches: [...before.sketches, ...sketches] });
   }
@@ -1313,7 +1336,10 @@ function paste() {
     if (!doc.sketches.some((x) => x.id === shapes.sketch)) return fail('The sketch the shapes came from is gone');
     return addShapes(shapes.sketch, shapes.profiles, cut ? 0 : 10);
   }
-  placeCopies(copiesOf(copied.bodies, copied.sketches, cut ? '' : ' copy'), cut ? [0, 0, 0] : [5, 5, 0]);
+  // as Duplicate: no Copy in the move fields; Linked while the bodies copied from are there (not after ⌘X)
+  const copies = copiesOf(copied.bodies, copied.sketches, cut ? '' : ' copy');
+  const there = cut ? [] : copied.bodies.filter((b) => doc.bodies.some((x) => x.id === b.id));
+  placeCopies(copies, cut ? [0, 0, 0] : [5, 5, 0], { sources: there.map((b) => b.id), copies: copies.bodies.filter((_, k) => there.includes(copied!.bodies[k])).map((b) => b.id) });
 }
 
 /**
@@ -1686,15 +1712,16 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
 /**
  * A panel at the top middle of the view with value fields, each scrubbed by its label; T or To object: a click's value
  * (`reach`, in mm, or degrees when `raw`) goes in where the cursor is, to calculate on with it (several values: they
- * replace this field's and those before it, a point's X / Y / Z, say). `change` gets the texts as typed (live, valid
- * ones), `finish` whether to keep them (Enter or ✓; Esc: not).
+ * replace this field's and those before it, a point's X / Y / Z, say); `int`: whole numbers only (scrubbed in 1s).
+ * `change` gets the texts as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
  */
-function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
   const u = history.current.units;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
   let last = inputs[0];
-  const emit = () => inputs.every((i) => length(i.value || '0') !== null) && change(inputs.map((i) => i.value || '0'));
+  const valid = (k: number) => (fields[k].int ? Number.isInteger(Number(inputs[k].value || '0')) : length(inputs[k].value || '0') !== null);
+  const emit = () => inputs.every((_, k) => valid(k)) && change(inputs.map((i) => i.value || '0'));
   const aim = (k = inputs.indexOf(last)) => {
     const f = fields[k];
     if (!f.reach) return;
@@ -1717,13 +1744,13 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
   const cells = fields.flatMap((f, k) => {
     const input = inputs[k];
     input.dataset.complete = '';
-    input.oninput = () => (input.classList.toggle('invalid', length(input.value || '0') === null), emit());
+    input.oninput = () => (input.classList.toggle('invalid', !valid(k)), emit());
     input.onfocus = () => (last = input);
     input.onkeydown = (e) => {
       if (f.reach && wantsT(e, input, history.current.params)) e.preventDefault(), aim(k);
     };
     const label = Object.assign(document.createElement('span'), { innerHTML: axisHtml(f.label) });
-    scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()));
+    scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()), f.int);
     // To object right after the field it fills
     return [label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field')] : [])];
   });
@@ -1783,9 +1810,11 @@ function checkbox(label: string, title: string, on: boolean, change: (on: boolea
 
 /**
  * Pattern: copies of the selected bodies (or those clicked next, Enter), live, one undo step. Around: an axis clicked
- * first (as Rotate's: an edge, line, circle or point), Count (with the original) over Angle ° (360: evenly all the way
- * round), the copies turned with it or only moved. Grid: X / Y / Z counts, their spacing as the gap between copies or
- * the overall size (first to last), and a turn per copy (each further copy turns that much more around its middle).
+ * first (as Rotate's: an edge, line, circle or point; Set axis picks another), Count (with the original, whole) over
+ * Angle ° (360: evenly all the way round), the copies turned with it or only moved. Grid: X / Y / Z pcs (whole), their
+ * spacing as the gap between copies or Overall (from the first's start to the last's end: switching fills it in), T:
+ * the last copy's far side at a clicked point, and a turn per copy (each further copy turns that much more around its
+ * middle).
  */
 function patternTool(mode: 'around' | 'grid' = 'grid') {
   const sources = selected.filter((id) => history.current.bodies.some((b) => b.id === id));
@@ -1877,25 +1906,49 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
     const b = Object.assign(document.createElement('button'), { textContent: k === 'grid' ? 'Grid' : 'Around', className: k === mode ? 'on' : '', onclick: () => k !== mode && (panel.end(false), patternTool(k)) });
     switcher.append(b);
   });
+  const pcs = (k: number) => Math.max(1, Math.round(Number(texts[k]) || 1));
+  /** How far from the selection's start a point lies along axis `k` (mm): the gap, or overall, that ends the last copy there. */
+  const reach = (k: number) => (p: Vector3) => {
+    const d = p.getComponent(k) - box.min.getComponent(k);
+    return [overall ? d : pcs(k) > 1 ? (d - pcs(k) * size.getComponent(k)) / (pcs(k) - 1) : 0]; // replaces the field's value
+  };
   const fields =
     mode === 'around'
-      ? [{ label: 'Count', value: '6', raw: true }, { label: 'Angle °', value: '360', raw: true }]
+      ? [{ label: 'Count', value: '6', raw: true, int: true }, { label: 'Angle °', value: '360', raw: true }]
       : [
-          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} ×`, value: k ? '1' : '3', raw: true })),
-          ...['X', 'Y', 'Z'].map((a) => ({ label: `${a} gap`, value: fmt(5 / u) })),
+          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} pcs`, value: k ? '1' : '3', raw: true, int: true })),
+          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} gap`, value: fmt(5 / u), reach: reach(k) })),
           { label: 'Turn °', value: '0', raw: true },
         ];
   const link = checkbox('Linked', 'The copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => ((linkedCopies = on), apply()));
+  // around: another axis, the values kept
+  const setAxis = panelButton('Set axis', 'Click another axis: an edge or line, a circle (its centre) or a point (Z through it)', () => {
+    toolHint = 'Pattern around: click the new axis · [Esc] keeps this one';
+    render();
+    viewer.pickAxis(
+      (a) => {
+        tips.cursorTip(null);
+        viewer.showAxis(null);
+        toolHint = null;
+        if (a) (axis = a), apply();
+        render();
+      },
+      (a) => (tips.cursorTip(a ? `${a.what}\nClick: copies go round it` : null), viewer.showAxis(a, a?.at, 60)),
+    );
+  });
   const extra =
     mode === 'around'
-      ? [switcher, link, checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply()))]
-      : [switcher, link, checkbox('Overall', 'The spacing fields are the whole size from first to last, not the gap between copies', false, (on) => {
+      ? [switcher, link, checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply())), setAxis]
+      : [switcher, link, checkbox('Overall', 'The spacing fields are the whole size from the first copy\'s start to the last one\'s end, not the gap between copies', false, (on) => {
           overall = on;
           panel.inputs.slice(3, 6).forEach((input, k) => {
             const label = input.previousElementSibling as HTMLElement;
             label.innerHTML = axisHtml(`${'XYZ'[k]} ${on ? 'overall' : 'gap'}`);
+            // the same spacing, written the other way: overall = pcs × size + (pcs − 1) × gap
+            const [n, s, v] = [pcs(k), size.getComponent(k), length(input.value || '0') ?? 0];
+            input.value = fmt((on ? n * s + (n - 1) * v : n > 1 ? (v - n * s) / (n - 1) : 0) / u);
           });
-          apply();
+          panel.inputs[3].dispatchEvent(new Event('input'));
         })];
   const panel = valuePanel(fields, change, (ok) => (ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] keeps them · [Esc] leaves nothing' : 'Pattern grid: counts and gaps · along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] keeps them · [Esc] leaves nothing', extra);
   texts = fields.map((f) => f.value);
@@ -2009,7 +2062,7 @@ function threadTool() {
     const u = UNITS[doc.units];
     let system: ThreadSize['system'] = ['in', 'ft'].includes(doc.units) ? 'imperial' : 'metric';
     let size = fitting(2 * round.r, !round.shaft, system);
-    const i = doc.bodies.findIndex((b) => b.id === body);
+    const i = stepsOf(doc, body);
     const pl = bodyPlace(body);
     const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, start.toArray()), dir: unplaced(pl, dir.toArray(), true), r: round.r, inside: !round.shaft, size: size.name, d: len(size.d), pitch: len(size.pitch), length: len(round.length) };
     [selected, shapeSel] = [[body], []];
@@ -2122,7 +2175,7 @@ function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
       above = (p) => p.clone().sub(on.point).dot(on.n);
       feature = { ...base, on: { kind: 'face', at: unplaced(pl, on.point.toArray()) }, amount: len(10) };
     }
-    i = doc.bodies.findIndex((b) => b.id === on.body);
+    i = stepsOf(doc, on.body);
     [selected, shapeSel] = [[on.body], []];
     commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
   }
@@ -2183,7 +2236,7 @@ function offsetTool() {
   const walls = () => {
     stop();
     const doc = history.current;
-    const i = doc.bodies.findIndex((b) => b.id === body);
+    const i = stepsOf(doc, body);
     const feature = { id: newId(), type: 'shell' as const, thickness: len(2), open };
     commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
     const j = history.current.bodies[i].features.length - 1;
@@ -3091,8 +3144,9 @@ function remove() {
     const { body, feature, mid } = finishSel;
     viewer.setFinishMark((finishSel = null));
     const last = (f: Extract<Feature, { type: 'finish' }>) => typeof f.edges === 'object' && f.edges.pts.length - f.skip.length <= 1;
+    const steps = doc.bodies[stepsOf(doc, body)]?.id; // a linked copy's finish is its source's
     const bodies = doc.bodies.map((b) =>
-      b.id !== body ? b : { ...b, features: b.features.flatMap((f) => (f.id !== feature || f.type !== 'finish' ? [f] : mid && !last(f) ? [{ ...f, skip: [...f.skip, mid] }] : [])) },
+      b.id !== steps ? b : { ...b, features: b.features.flatMap((f) => (f.id !== feature || f.type !== 'finish' ? [f] : mid && !last(f) ? [{ ...f, skip: [...f.skip, mid] }] : [])) },
     );
     return commit({ ...doc, bodies });
   }
@@ -3469,7 +3523,7 @@ const centred = (p: DrawnProfile, ref: [number, number]) => !ref[0] && !ref[1] &
 /** Drags a finish's size from `at` (up: bigger; past 0 a fillet turns into a chamfer and back); release or a click ends it. */
 function dragFinish(body: string, feature: string, at: Vector3) {
   const before = history.current;
-  const i = before.bodies.findIndex((b) => b.id === body);
+  const i = stepsOf(before, body);
   const j = before.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
   const f = before.bodies[i]?.features[j];
   if (f?.type !== 'finish') return;
@@ -3743,7 +3797,7 @@ async function toggleAutosave() {
 function duplicate() {
   const doc = history.current;
   const sources = doc.bodies.filter((p) => selected.includes(p.id));
-  const copies = copiesOf(sources, doc.sketches.filter((s) => selected.includes(s.id)), ' copy', linkedCopies);
+  const copies = copiesOf(sources, doc.sketches.filter((s) => selected.includes(s.id)), ' copy');
   placeCopies(copies, [5, 5, 0], { sources: sources.map((b) => b.id), copies: copies.bodies.map((b) => b.id) });
 }
 
@@ -3951,6 +4005,8 @@ function render() {
     },
     jointRange: rangeText,
     lightSketch: (id) => viewer.lightSketch(id),
+    lightBodies: (ids) => (ids ? viewer.select(ids) : showSelection()),
+    breakLinks,
     showJoint(id) {
       const j = history.current.joints.find((x) => x.id === id);
       if (j) viewer.select(contents(history.current, j.children));

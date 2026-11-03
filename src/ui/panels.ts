@@ -80,6 +80,10 @@ export interface UIContext {
   showJoint(joint: string | null): void;
   /** Lights a sketch's shapes in the view (hovered in the list; null: none). */
   lightSketch(id: string | null): void;
+  /** Lights bodies in the view (a body with linked copies hovered in the list; null: the selection again). */
+  lightBodies(ids: string[] | null): void;
+  /** A body's linked copies become their own objects, together with it in a new group of its name. */
+  breakLinks(source: string): void;
   /**
    * To object for the value at `path`: the next click's value (in the display unit) is handed to `insert`, to go into
    * the field where the cursor is; false: that value has none.
@@ -326,9 +330,10 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
  * Scrubbing (as in incase): dragging `label`, or the `field` while it is not focused, sideways changes its number (a
  * plain one, or with a unit, `text()` at the press; else nothing) by a step per px for its unit (Shift ×10, Ctrl
  * `minStep` mm), handing each new text to `set` (`live` after the first); a press on the field without dragging calls
- * `click` (to edit it). The pointer hides and is not stopped by the screen edge meanwhile.
+ * `click` (to edit it); `whole`: whole numbers, one per `wholePx` (Shift: ten). The pointer hides and is not stopped by
+ * the screen edge meanwhile.
  */
-export function scrub(label: HTMLElement, field: HTMLInputElement, text: () => string, u: Unit, minStep: number, set: (text: string, live: boolean) => void, click: () => void) {
+export function scrub(label: HTMLElement, field: HTMLInputElement, text: () => string, u: Unit, minStep: number, set: (text: string, live: boolean) => void, click: () => void, whole = false, wholePx = 8) {
   // a number with an optional unit (`12`, `4mm`) keeps its unit while scrubbed; an expression is not scrubbed
   const number = (shown: string) => {
     const num = /^\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*([a-z]*)\s*$/i.exec(shown);
@@ -355,7 +360,7 @@ export function scrub(label: HTMLElement, field: HTMLInputElement, text: () => s
       } else travel += m.movementX;
       // per px: Shift ten times more, Ctrl the minimum step (Settings → General)
       const per = m.ctrlKey ? minStep / UNITS[unit] : m.shiftKey ? step * 10 : step;
-      const next = fmt(base + Math.round(travel) * per) + num[2];
+      const next = whole ? String(Math.round(base + Math.trunc(travel / wholePx) * (m.shiftKey ? 10 : 1))) : fmt(base + Math.round(travel) * per) + num[2];
       if (next === last) return;
       set(next, last !== shown);
       last = next;
@@ -640,8 +645,12 @@ function left(ctx: UIContext): Node[] {
   const fold = ({ id, open, kind }: Row) => {
     if (open === undefined) return [];
     const tools = doc.bodies.find((o) => o.id === id)?.features.filter((f) => f.type === 'boolean').length ?? 0;
-    const title = kind === 'body' ? `${open ? 'Hide' : 'Show'} its ${tools} boolean tool bod${tools === 1 ? 'y' : 'ies'}` : open ? 'Fold' : 'Unfold';
-    return [h('button', { className: `icon fold${kind === 'body' ? ' bool' : ''}${open ? ' open' : ''}`, innerHTML: icon(kind === 'body' ? 'boolean' : 'chevron'), title, onclick: () => ctx.toggleFold(id) })];
+    const copies = doc.bodies.filter((o) => o.link === id).length;
+    // a body: its tool bodies (the boolean button) and linked copies (a chevron, as a group)
+    const what = [tools ? `${tools} boolean tool bod${tools === 1 ? 'y' : 'ies'}` : '', copies ? `${copies} linked cop${copies === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' and ');
+    const title = kind === 'body' ? `${open ? 'Hide' : 'Show'} its ${what}` : open ? 'Fold' : 'Unfold';
+    const bool = kind === 'body' && tools > 0;
+    return [h('button', { className: `icon fold${bool ? ' bool' : ''}${open ? ' open' : ''}`, innerHTML: icon(bool ? 'boolean' : 'chevron'), title, onclick: () => ctx.toggleFold(id) })];
   };
   /**
    * A row's name: a plain click on the name of the only selected row edits it in place (Enter or leaving the field
@@ -721,11 +730,18 @@ function left(ctx: UIContext): Node[] {
       op?.type === 'boolean'
         ? h('button', { className: 'icon tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name} · click: free it from the boolean`, onclick: () => ctx.commit(freed(doc, id)) })
         : look;
-    // linked copies: the link mark (on the copies and their source)
+    // linked copies: the link mark on the copies; on their source a button that breaks the links
     const source = doc.bodies.find((b) => b.id === p.link);
-    const follows = doc.bodies.some((b) => b.link === p.id);
-    const linked = source || follows ? [h('span', { className: 'icon linked-mark', innerHTML: icon('link'), title: source ? `Linked copy of ${source.name}: it shares its steps` : 'Its linked copies share its steps' })] : [];
-    return row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...sketch, ...bools, ...jointMark(id), tool);
+    const copies = doc.bodies.filter((b) => b.link === p.id).map((b) => b.id);
+    const linked = source
+      ? [h('span', { className: 'icon linked-mark', innerHTML: icon('link'), title: `Linked copy of ${source.name}: it shares its steps (shape edits on any of them go to all)` })]
+      : copies.length
+        ? [h('button', { className: 'icon linked-mark', innerHTML: icon('link'), title: `Its ${copies.length} linked cop${copies.length === 1 ? 'y shares' : 'ies share'} its steps · click: break the links (each its own object, together in a new group "${p.name}")`, onclick: () => ctx.breakLinks(p.id) })]
+        : [];
+    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...sketch, ...bools, ...jointMark(id), tool);
+    // hovered: it and its linked copies light in the view
+    if (copies.length) [el.onmouseenter, el.onmouseleave] = [() => ctx.lightBodies([id, ...copies]), () => ctx.lightBodies(null)];
+    return el;
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
@@ -957,7 +973,11 @@ function selectionPanel(ctx: UIContext): Node[] {
     h(
       'div',
       { className: 'row' },
-      button('+ Fillet', () => setBody({ ...body, features: [...body.features, newFinish(ctx.doc.units)] })),
+      // a linked copy's fillet goes to its source's steps: all copies get it
+      button('+ Fillet', () => {
+        const k = ctx.doc.bodies.findIndex((b) => b.id === (body.link ?? body.id));
+        ctx.commit(setIn(ctx.doc, ['bodies', String(k), 'features'], [...ctx.doc.bodies[k].features, newFinish(ctx.doc.units)]));
+      }),
     ),
     ...jointCards(ctx, body.id),
   ];

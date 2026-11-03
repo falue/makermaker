@@ -1209,6 +1209,9 @@ button.primary.wide {
 .axis-move select {
   width: auto;
 }
+.axis-move label[hidden] {
+  display: none;
+}
 .axis-move > span {
   white-space: nowrap;
 }
