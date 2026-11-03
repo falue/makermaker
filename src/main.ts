@@ -3,7 +3,7 @@ import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
-import { add, BASE, capFrame, cutPlane, dot, extent, frames, moved, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
+import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, centre, closedLoop, corners, grown, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
@@ -4132,6 +4132,30 @@ function dragFinish(body: string, feature: string, at: Vector3) {
 function facePull(doc: Doc, face: FaceItem): ((d: Doc, mm: number) => Doc) | null {
   const features = built.get(face.body);
   const pl = bodyPlace(face.body);
+  const pull = facePullOnly(doc, face, features, pl);
+  if (!pull) return null;
+  // the finishes' picked edges on that face go along with it
+  const [at, n, i] = [unplaced(pl, face.point.toArray()), norm(unplaced(pl, face.n.toArray(), true)), stepsOf(doc, face.body)];
+  return (d, mm) => movedEdges(pull(d, mm), i, at, n, mm);
+}
+
+/**
+ * The finishes of body `i` with their picked edges (and left out edges) where a face moved: their points on its plane
+ * (through `at`, square to `n`, body coordinates) moved `mm` along `n`; a straight edge stays straight between its ends.
+ */
+function movedEdges(doc: Doc, i: number, at: V3, n: V3, mm: number, tol = 0.01): Doc {
+  const move = (p: V3): V3 => (Math.abs(dot(sub(p, at), n)) < tol ? add(p, scale(n, mm)) : p);
+  const straight = (pts: V3[]) => pts.length < 3 || pts.every((p) => Math.hypot(...cross(sub(p, pts[0]), norm(sub(pts.at(-1)!, pts[0])))) < tol);
+  const line = (pts: V3[]): V3[] => {
+    const [a, b] = [move(pts[0]), move(pts.at(-1)!)];
+    return straight(pts) ? pts.map((_, k) => add(a, scale(sub(b, a), k / (pts.length - 1 || 1)))) : pts.map(move);
+  };
+  const features = doc.bodies[i].features.map((f) => (f.type === 'finish' && typeof f.edges === 'object' ? { ...f, edges: { pts: f.edges.pts.map(line) }, skip: f.skip.map(move) } : f));
+  return setIn(doc, ['bodies', String(i), 'features'], features);
+}
+
+/** How pulling a face (`face`) by mm changes the document, edges aside (see `facePull`); null: it cannot be pulled. */
+function facePullOnly(doc: Doc, face: FaceItem, features: BuildFeature[] | undefined, pl: Place): ((d: Doc, mm: number) => Doc) | null {
   // any other flat face: a Push / pull step of its own (in the steps it belongs to: a linked copy's source's)
   const push = () => {
     if (face.round || face.finish) return null;
