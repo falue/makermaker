@@ -688,6 +688,12 @@ export class Viewer implements ToolView {
     return this.lastHit && this.faceItem(this.lastHit);
   }
 
+  /** The edge picked with Alt-click (its first), as a line from its start to its end (world); null: none. */
+  pickedEdgeLine() {
+    const segs = this.pickedEdge?.edges[0];
+    return segs ? { at: segs[0][0].clone(), to: segs[segs.length - 1][1].clone() } : null;
+  }
+
   /** The faces picked with Alt-click, to pull. */
   pickedFaceItems(): FaceItem[] {
     return this.pickedFaces.flatMap(({ mesh, faces }) => {

@@ -288,7 +288,12 @@ export interface RenderShot {
   results: { at: string; preview: string; nice: boolean }[];
 }
 
-/** A work plane (world): through `o` moved `offset` along `n`, `x` and `y` in it; shown green, sketches go on it and follow it. */
+/**
+ * A work plane (world): its base frame (`o`, `x`, `y` in it, normal `n`: where it was made), then through its `points`
+ * (one: turned around its axis until it passes through it; two: through both; three: through all three), else turned
+ * `turn` degrees around its `axis` (null: its own x through `o`); moved `offset` along its normal last (see
+ * `workFrame`). Shown green; sketches go on it and follow it.
+ */
 export interface WorkPlane {
   id: string;
   name: string;
@@ -297,6 +302,9 @@ export interface WorkPlane {
   y: [number, number, number];
   n: [number, number, number];
   offset: Expr;
+  turn: Expr;
+  axis: { at: [number, number, number]; dir: [number, number, number] } | null;
+  points: [Expr, Expr, Expr][];
   visible: boolean;
 }
 
@@ -320,7 +328,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 19;
+  schema: 20;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

@@ -11,6 +11,7 @@ import { fitting, THREADS, type ThreadSize } from './doc/threads';
 import { icon } from './ui/icons';
 import { axisHtml } from './ui/axes';
 import { jointed } from './doc/joints';
+import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
@@ -121,9 +122,6 @@ function measureAt([k, i, ...rest]: string[]): ((p: Vector3) => number) | null {
   }
   return null;
 }
-
-/** `o` moved `d` along `n`. */
-const add3 = (o: Vec3, n: Vec3, d: number): Vec3 => [o[0] + n[0] * d, o[1] + n[1] * d, o[2] + n[2] * d];
 
 /** Where a joint is now: degrees (hinge) or mm (slider); 0 while its value is no number. */
 function jointValue(j: Joint, lookup: Lookup) {
@@ -423,8 +421,10 @@ function update() {
   // work planes: moved along their normal by their offset; shown green, drawing tools take them
   const workFrames = new Map(
     doc.planes.map((w, i) => {
-      const d = resolve(w.offset, lookup, `planes.${i}.offset`, exprErrors);
-      return [w.id, { o: add3(w.o, w.n, Number.isFinite(d) ? d : 0), x: w.x, y: w.y, n: w.n }] as const;
+      const num = (v: number) => (Number.isFinite(v) ? v : 0);
+      const [d, t] = [resolve(w.offset, lookup, `planes.${i}.offset`, exprErrors), resolve(w.turn, lookup, `planes.${i}.turn`, exprErrors)].map(num);
+      const points = w.points.map((p, k) => resolve(p, lookup, `planes.${i}.points.${k}`, exprErrors).map(num) as V3);
+      return [w.id, workFrame({ o: w.o, x: w.x, y: w.y, n: w.n }, d, t, w.axis, points)] as const;
     }),
   );
   viewer.setWorkPlanes(doc.planes.filter((w) => w.visible).map((w) => ({ id: w.id, name: w.name, frame: workFrames.get(w.id)!, selected: selected.includes(w.id) })));
@@ -2324,11 +2324,22 @@ function offsetShapes(sketch: string) {
 }
 
 /**
- * Work plane: a face clicked (or empty space: the base plane facing you) gets a green plane on it, its offset typed in
- * a panel (T: a clicked point's distance, to calculate on: `/2` for halfway to another face). Drawing tools draw on it.
+ * Work plane: on what is selected (a sketch: its plane; an edge picked with Alt-click: a plane along it, turning around
+ * it), else on a face clicked (empty space: the base plane facing you). Then its panel (see `planePanel`).
  */
 function planeTool() {
-  toolHint = 'Work plane: click a face · empty space: the base plane facing you · [Esc] cancels';
+  const sketch = viewer.sketches.find((v) => v.id === activeSketch());
+  if (sketch) return newPlane(sketch.frame);
+  const edge = viewer.pickedEdgeLine();
+  if (edge) {
+    // along the edge, facing up as far as it can (a vertical edge: towards the front), turning around the edge
+    const x = edge.to.clone().sub(edge.at).normalize();
+    const up = Math.abs(x.z) < 0.9 ? new Vector3(0, 0, 1) : new Vector3(0, -1, 0);
+    const n = up.addScaledVector(x, -up.dot(x)).normalize();
+    viewer.dropPicked();
+    return newPlane({ o: edge.at.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: n.toArray() }, { at: edge.at.toArray(), dir: x.toArray() });
+  }
+  toolHint = 'Work plane: click a face · empty space: the base plane facing you · or select a sketch or Alt-click an edge first · [Esc] cancels';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
@@ -2337,14 +2348,87 @@ function planeTool() {
     const x = new Vector3(0, 0, 1).cross(n);
     if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
     x.normalize();
-    const doc = history.current;
-    const plane: WorkPlane = { id: newId(), name: `Plane ${doc.planes.length + 1}`, o: face.point.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: n.toArray(), offset: len(0), visible: true };
-    selected = [plane.id];
-    commit({ ...doc, planes: [...doc.planes, plane] });
-    const i = history.current.planes.length - 1;
-    const write = ([t]: string[]) => (history.replace(setIn(history.current, ['planes', String(i), 'offset'], { e: t, u: doc.units })), update());
-    valuePanel([{ label: 'Offset', value: '0', reach: (p) => p.clone().sub(face.point).dot(n) }], write, (ok) => (ok ? render() : undo()), "Work plane: its offset · type or scrub it; T: a point's distance (type on, e.g. /2 for halfway) · [Enter] keeps it · [Esc] leaves nothing");
+    newPlane({ o: face.point.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: n.toArray() });
   });
+}
+
+/** A new work plane on `base` (world; `axis`: what it turns around), selected, its panel open. */
+function newPlane(base: Frame, axis: WorkPlane['axis'] = null) {
+  const doc = history.current;
+  const plane: WorkPlane = { id: newId(), name: `Plane ${doc.planes.length + 1}`, ...base, offset: len(0), turn: ex('0'), axis, points: [], visible: true };
+  selected = [plane.id];
+  commit({ ...doc, planes: [...doc.planes, plane] });
+  planePanel(plane.id, true);
+}
+
+/**
+ * A work plane's panel: Offset (T: a point's distance), Turn ° and Set axis (while it passes through fewer than two
+ * points), Points: clicked points it passes through (one: it turns around its axis to it; two, three: through them; a
+ * fourth drops the first), Clear. Live; `fresh`: Esc leaves nothing, else Esc puts it back.
+ */
+function planePanel(id: string, fresh = false) {
+  const doc0 = history.current;
+  const i = doc0.planes.findIndex((w) => w.id === id);
+  const w = doc0.planes[i];
+  if (!w) return;
+  const u = doc0.units;
+  const at = (key: keyof WorkPlane) => ['planes', String(i), key];
+  const change = (next: Doc) => {
+    if (fresh || history.current !== doc0) history.replace(next);
+    else history.push(next);
+    update();
+  };
+  const now = () => history.current.planes[i];
+  let picking = false;
+  const status = () => {
+    pointsButton.textContent = picking ? `Points: click (${now().points.length})` : `Points (${now().points.length})`;
+    pointsButton.classList.toggle('on', picking);
+    clear.hidden = !now().points.length;
+  };
+  /** Clicked points, one after another, until Esc or the button again. */
+  const pickPoints = () => {
+    picking = !picking;
+    status();
+    if (!picking) return viewer.cancelFacePick();
+    toolHint = 'Work plane: click points it passes through (corners, edges, sketch points) · one: it turns to it · three: through all · a fourth drops the first · [Esc] stops';
+    render();
+    const next = () =>
+      viewer.pickFace((face) => {
+        if (!face || !picking) return (picking = false), status(), (toolHint = hint), render();
+        if (!face.snap) return next(); // empty space: nothing to pass through
+        const pts = [...now().points, face.snap.toArray().map((v) => len(v)) as [Expr, Expr, Expr]].slice(-3);
+        change(setIn(history.current, at('points'), pts));
+        status();
+        next();
+      }, true);
+    next();
+  };
+  const pointsButton = panelButton('Points', 'Click points the plane passes through: one turns it around its axis to it, two or three set it through them (a fourth drops the first)', pickPoints);
+  const clear = panelButton('Clear', 'Leave the points out: back to its turn', () => (change(setIn(history.current, at('points'), [])), status()));
+  const setAxis = panelButton('Set axis', 'Click an edge or line: it turns around that', () => {
+    viewer.pickAxis(
+      (a) => {
+        tips.cursorTip(null);
+        viewer.showAxis(null);
+        if (a) change(setIn(history.current, at('axis'), { at: a.at.toArray(), dir: a.dir.toArray() }));
+        render();
+      },
+      (a) => (tips.cursorTip(a ? `${a.what}\nClick: it turns around it` : null), viewer.showAxis(a, a?.at, 60)),
+    );
+  });
+  const hint = "Work plane: its offset and turn · T in Offset: a point's distance (type on, e.g. /2 for halfway) · Set axis: what it turns around · Points: through clicked points · [Enter] keeps it · [Esc] " + (fresh ? 'leaves nothing' : 'puts it back');
+  const n = new Vector3(...w.n);
+  valuePanel(
+    [
+      { label: 'Offset', value: w.offset.e, reach: (p) => p.clone().sub(new Vector3(...w.o)).dot(n) },
+      { label: 'Turn °', value: w.turn.e, raw: true, title: 'Turn °: around its axis (Set axis; none: its own x line), while it passes through fewer than two points' },
+    ],
+    ([o, t]) => change(setIn(setIn(history.current, at('offset'), { e: o, u }), at('turn'), { e: t, u: 'mm' })),
+    (ok) => ((picking = false), ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
+    hint,
+    [setAxis, pointsButton, clear],
+  );
+  status();
 }
 
 /**
@@ -4049,6 +4133,7 @@ function render() {
     },
     jointRange: rangeText,
     lightSketch: (id) => viewer.lightSketch(id),
+    editPlane: (id) => planePanel(id),
     editBulge: bulgePanel,
     lightBodies: (ids) => viewer.lightBodies(ids ? contents(history.current, ids) : []),
     breakLinks,
@@ -4139,7 +4224,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 19, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 20, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

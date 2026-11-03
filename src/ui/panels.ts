@@ -82,6 +82,8 @@ export interface UIContext {
   lightSketch(id: string | null): void;
   /** Opens a bulge's panel (`body` holds it). */
   editBulge(body: string, feature: string): void;
+  /** Opens a work plane's panel. */
+  editPlane(id: string): void;
   /** Outlines objects orange in the view, a temporary mark (hovered in the list; groups: their contents; null: none). */
   lightBodies(ids: string[] | null): void;
   /** A body's linked copies become their own objects, together with it in a new group of its name. */
@@ -937,8 +939,13 @@ function selectionPanel(ctx: UIContext): Node[] {
     const w = ctx.doc.planes[wi];
     return [
       h('div', { className: 'head' }, input(`planes.${wi}.name`, w.name, (name) => ctx.commit(setIn(ctx.doc, ['planes', String(wi), 'name'], name))), button('Delete', () => ctx.commit({ ...ctx.doc, planes: ctx.doc.planes.filter((x) => x !== w) }), 'Delete the work plane (sketches on it lose their plane)')),
-      h('div', { className: 'row' }, exprField(ctx, `planes.${wi}.offset`, 'Offset'), button('Draw on it', () => ctx.drawOn(w.id), 'A new sketch on it, opened (drawing tools also draw on it directly)')),
-      h('p', { className: 'hint' }, 'Moved along its normal from where it was made; T in Offset: a clicked point\'s distance (type on, e.g. /2 for halfway). Sketches on it follow it.'),
+      h('div', { className: 'row' }, exprField(ctx, `planes.${wi}.offset`, 'Offset'), ...(w.points.length < 2 ? [exprField(ctx, `planes.${wi}.turn`, 'Turn °', true)] : []), button('✎', () => ctx.editPlane(w.id), 'Edit it in its panel: offset, turn, its axis, points to pass through')),
+      // the points it passes through, each editable
+      ...w.points.map((_, k) =>
+        h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((a, c) => exprField(ctx, `planes.${wi}.points.${k}.${c}`, `${a}${k + 1}`)), button('×', () => ctx.commit(setIn(ctx.doc, ['planes', String(wi), 'points'], w.points.filter((__, j) => j !== k))), 'Leave this point out')),
+      ),
+      h('div', { className: 'row' }, button('Draw on it', () => ctx.drawOn(w.id), 'A new sketch on it, opened (drawing tools also draw on it directly)')),
+      h('p', { className: 'hint' }, w.points.length ? `Through ${w.points.length} point${w.points.length > 1 ? 's' : ''} (✎: click more; a fourth drops the first). Then moved along its normal by Offset.` : "Turned around its axis (✎: Set axis), moved along its normal; T in Offset: a clicked point's distance (type on, e.g. /2 for halfway). Sketches on it follow it."),
     ];
   }
   const gi = ctx.doc.groups.findIndex((g) => g.id === ctx.selected[0]);
