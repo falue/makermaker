@@ -229,7 +229,7 @@ export function readStep(text: string): StepNode | null {
 /** What an appearance's name says about its look (STEP files seldom say more than a colour). */
 function lookFromName(name: string): Pick<Material, 'bump' | 'translucency'> {
   const n = name.toLowerCase();
-  return { translucency: /glass|clear|transparent/.test(n) ? 0.85 : /frosted/.test(n) ? 0.5 : 0, bump: /rough|fabric/.test(n) ? 0.6 : /brushed|satin/.test(n) ? 0.3 : 0.15 };
+  return { translucency: /glass|clear|transparent|acryl|plexi|pmma/.test(n) ? 0.85 : /frosted/.test(n) ? 0.5 : 0, bump: /rough|rugged|coarse|fabric/.test(n) ? 0.6 : 0 };
 }
 
 /** Names that only repeat a colour. */

@@ -96,6 +96,23 @@ it('makes groups, bodies and one material; a product used again links', () => {
   expect(place.kind === 'custom' && place.position[1].e).toBe('10');
 });
 
+it('a material is smooth unless its name says rough, and clear if it is glass or acrylic', () => {
+  const look = (name: string) => {
+    const { bump, translucency } = objects(readStep(assembly().replace('Glass (Clear)', name))!).materials[0];
+    return [bump, translucency];
+  };
+  expect(look('Steel - Satin')).toEqual([0, 0]);
+  expect(look('Aluminum - Brushed Radial')).toEqual([0, 0]);
+  expect(look('Paint - Enamel Glossy (Black)')).toEqual([0, 0]);
+  expect(look('Aluminum - Anodized Rough (Red)')).toEqual([0.6, 0]);
+  expect(look('Rugged Plastic')).toEqual([0.6, 0]);
+  expect(look('Fabric (Grey)')).toEqual([0.6, 0]);
+  expect(look('Glass (Clear)')).toEqual([0, 0.85]);
+  expect(look('Acrylic')).toEqual([0, 0.85]);
+  expect(look('Acrylglas')).toEqual([0, 0.85]);
+  expect(look('A Type Bulb - Frosted - 800lm')).toEqual([0, 0.5]);
+});
+
 it('reads back parts cut from a file another program wrote, where they were', async () => {
   const shapes = [makeBaseBox(10, 20, 30) as Shape3D, (makeBaseBox(4, 4, 4) as Shape3D).translate(100, 0, 0)];
   const text = await exportSTEP(shapes.map((shape, i) => ({ shape, name: `Part${i}`, color: i ? '#00ff00' : '#ff0000' })), { unit: 'mm' }).text();
