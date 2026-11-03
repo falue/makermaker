@@ -375,6 +375,9 @@ input.invalid {
 .row > * {
   flex: 1;
 }
+.row.wrap {
+  flex-wrap: wrap;
+}
 .row > button {
   flex: none; /* as wide as its text: "+ Fillet" on one line */
 }
@@ -1181,6 +1184,45 @@ button.primary.wide {
   border-radius: 8px;
   border: 1px solid var(--line);
   cursor: pointer;
+}
+.settings .sky.photo {
+  position: relative;
+  width: 68px;
+  background-size: cover;
+  background-position: center;
+}
+.settings .sky.add {
+  background: none;
+  color: var(--text);
+  font-size: 18px;
+}
+.settings .sky .drop {
+  position: absolute;
+  top: 0;
+  right: 3px;
+  color: #fff;
+  text-shadow: 0 0 3px #000;
+  line-height: 1.2;
+}
+.row.light {
+  align-items: center;
+  gap: 6px;
+}
+.row.light > span {
+  width: 84px;
+  flex: none;
+}
+.row.light input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+.row.material > input:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.shot-light summary {
+  cursor: pointer;
+  margin: 4px 0;
 }
 .settings .sky.on {
   outline: 2px solid var(--accent);

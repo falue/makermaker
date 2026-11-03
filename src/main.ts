@@ -14,11 +14,12 @@ import { jointed } from './doc/joints';
 import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
+import { lookOf, materialOf } from './doc/materials';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -332,6 +333,7 @@ function applySettings() {
   SketchTool.guideMs = settings.guideMs;
   viewer.setAO(settings.ao);
   viewer.setBackdrop(settings.background);
+  viewer.setLight(settings.light);
 }
 applySettings();
 
@@ -576,7 +578,8 @@ function update() {
       b.visible && !hideAll.objects && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [{ center: new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z])), r: f.d / 2, body: b.id }] : [])) : [],
     ),
   );
-  viewer.setLooks(doc.bodies.map((b) => ({ ...b, visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));
+  viewer.setPhotos(doc.photos);
+  viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));
   viewer.select(contents(doc, selected), groupKept(doc));
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
@@ -4468,6 +4471,46 @@ function newSection() {
   });
 }
 
+function setMaterialOf(ids: string[], material: string | undefined, added?: Material) {
+  const doc = history.current;
+  const set = <T extends { id: string; material?: string }>(x: T): T => {
+    if (!ids.includes(x.id)) return x;
+    const { material: _, ...rest } = x;
+    return (material ? { ...rest, material } : rest) as T;
+  };
+  commit({ ...doc, materials: added ? [...doc.materials, added] : doc.materials, bodies: doc.bodies.map(set), groups: doc.groups.map(set) });
+}
+
+/** Bodies using `m` whose thinnest side (mm, unturned) differs from its thickness, as a sentence. */
+function thicknessOff(m: Material) {
+  const doc = history.current;
+  if (!m.thickness.e.trim()) return null;
+  let wanted: number;
+  try {
+    wanted = evalLength(m.thickness, paramLookup(doc.params));
+  } catch {
+    return `Thickness: cannot read ${m.thickness.e}`;
+  }
+  const off = doc.bodies.flatMap((b) => {
+    const thin = materialOf(doc, b)?.id === m.id ? viewer.thinnest(b.id) : null;
+    return thin !== null && Math.abs(thin - wanted) > 0.01 ? [`${b.name} (${fmt(thin / UNITS[doc.units])})`] : [];
+  });
+  return off.length ? `Not ${fmt(wanted / UNITS[doc.units])} ${doc.units} thick: ${off.slice(0, 5).join(', ')}${off.length > 5 ? ` and ${off.length - 5} more` : ''}` : null;
+}
+
+/** Keeps a photo sphere in the document, its long side at most 4096 px (it travels with every saved version). */
+async function addPhoto(file: File) {
+  const bitmap = await createImageBitmap(file);
+  const k = Math.min(1, 4096 / bitmap.width);
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(bitmap.width * k), height: Math.round(bitmap.height * k) });
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  if (Math.abs(bitmap.width / bitmap.height - 2) > 0.1) notify(`${file.name} is not about 2:1: a photo sphere covers all around, so this one looks stretched`);
+  bitmap.close();
+  const photo: PhotoSphere = { id: newId(), name: file.name.replace(/\.[^.]*$/, ''), data: canvas.toDataURL('image/jpeg', 0.85) };
+  commit({ ...history.current, photos: [...history.current.photos, photo] });
+  return photo.id;
+}
+
 /** Autosave writes in place (no history snapshot) a moment after the last change; it needs a file handle. */
 function scheduleAutosave(delay = 1500) {
   clearTimeout(autosaveTimer);
@@ -4746,7 +4789,12 @@ function render() {
     select,
     isolated: isolated?.body ?? null,
     isolate,
-    previewColor: (id, color) => viewer.previewColor(id, color),
+    previewColor(id, color) {
+      const doc = history.current;
+      for (const b of doc.bodies) if (b.id === id || materialOf(doc, b)?.id === id) viewer.previewColor(b.id, color);
+    },
+    setMaterialOf,
+    thicknessOff,
     startTool,
     extrude,
     sketching,
@@ -4815,12 +4863,18 @@ function render() {
           settings = next;
           applySettings();
         },
-        { units: () => history.current.units, setUnits: (units) => commit({ ...history.current, units }) },
+        {
+          units: () => history.current.units,
+          setUnits: (units) => commit({ ...history.current, units }),
+          photos: () => history.current.photos,
+          addPhoto,
+          removePhoto: (id) => commit({ ...history.current, photos: history.current.photos.filter((p) => p.id !== id) }),
+        },
       ),
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 26, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 27, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -4855,7 +4909,7 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
     taken.set(base, n);
     return n > 1 ? `${base}_${n}` : base;
   };
-  const { files, failed } = await kernel.export(format, bodies.map((b) => ({ name: nameOf(b), color: b.color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })));
+  const { files, failed } = await kernel.export(format, bodies.map((b) => ({ name: nameOf(b), color: lookOf(history.current, b).color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })));
   const type = { stl: 'model/stl', '3mf': 'model/3mf', step: 'model/step', svg: 'image/svg+xml', dxf: 'image/vnd.dxf' }[format];
   if ((format === 'step' || format === '3mf') && files.length) download(new Blob([files[0].data], { type }), `${project()}.${format}`);
   else if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
@@ -4977,7 +5031,7 @@ const dataUrl = (blob: Blob) =>
  * rendered again with newer model data), and a small picture taken at once. Returns its id.
  */
 async function newShot(results: RenderShot['results'] = []) {
-  const shot: RenderShot = { id: newId(), at: new Date().toISOString(), camera: viewer.cameraState(), background: viewer.backdropColours(), thumbnail: await dataUrl(await viewer.thumbnail()), results };
+  const shot: RenderShot = { id: newId(), at: new Date().toISOString(), camera: viewer.cameraState(), background: viewer.backdropColours(), light: settings.light, thumbnail: await dataUrl(await viewer.thumbnail()), results };
   const doc = history.current;
   commit({ ...doc, renders: [shot, ...doc.renders] });
   return shot.id;
@@ -5018,7 +5072,7 @@ async function renderQueue() {
       render();
       let shown = -1;
       try {
-        const image = await viewer.renderNice(shot.camera, shot.background, 256, {
+        const image = await viewer.renderNice(shot.camera, shot.background, shot.light, 256, {
           show: (canvas) => ((job.canvas = canvas), render()),
           progress(done) {
             job.done = done;

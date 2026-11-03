@@ -246,6 +246,8 @@ export interface Body {
   link: string | null;
   /** Its place among its group's groups and bodies in the object list (none: after the groups, as listed). */
   order?: number;
+  /** Its material (none: its group's, else its own colour). */
+  material?: string;
 }
 
 /** Custom section plane (world coordinates): keeps the side `normal` points to, cut at `origin` moved `offset` along it. */
@@ -271,6 +273,40 @@ export interface Group {
   origin: { kind: 'parent' } | { kind: 'custom'; position: [Expr, Expr, Expr]; rotation: { rx: Expr; ry: Expr; rz: Expr } };
   /** Its place among its parent's groups and bodies in the object list (none: first, as listed). */
   order?: number;
+  /** The material of its contents that have none of their own. */
+  material?: string;
+}
+
+/**
+ * What a body is made of. `bump`, `translucency` and `glowStrength` run 0 to 1; `thickness`: of the sheet (empty: no
+ * fixed one), compared with the bodies, it never changes them.
+ */
+export interface Material {
+  id: string;
+  name: string;
+  color: string;
+  bump: number;
+  translucency: number;
+  glow: string;
+  glowStrength: number;
+  thickness: Expr;
+}
+
+/** The sun (degrees above the horizon and around Z from +X; three's light intensity) and the light from all around. */
+export interface Light {
+  sunHeight: number;
+  sunAround: number;
+  sun: number;
+  sunColor: string;
+  ambient: number;
+  ambientColor: string;
+}
+
+/** A picture of all around (equirectangular, about 2:1), as a data URL. */
+export interface PhotoSphere {
+  id: string;
+  name: string;
+  data: string;
 }
 
 /** A camera as it was: enough to render the same picture again with newer model data. */
@@ -289,19 +325,22 @@ export interface CameraState {
 /**
  * A background around the horizon: colour stops from straight up (`at` 0) to straight down (`at` 1), blended over
  * `band` degrees above and below the horizon (looking further up or down shows only the end colours). One colour:
- * solid, and renders get a floor of it that catches the shadows.
+ * solid, and renders get a floor of it that catches the shadows. `photo`: a photo sphere of the document instead,
+ * turned by `turn` degrees (the stops show if it is gone).
  */
 export interface Backdrop {
   stops: { color: string; at: number }[];
   band: number;
+  photo?: { id: string; turn: number };
 }
 
-/** A nice render: when, from where, on which background, and a small picture taken when it was asked for. */
+/** A nice render: when, from where, on which background, in which light, and a small picture taken when it was asked for. */
 export interface RenderShot {
   id: string;
   at: string;
   camera: CameraState;
   background: Backdrop;
+  light: Light;
   /** PNG data URL, about 320 px wide. */
   thumbnail: string;
   /** Small data URLs of its pictures, newest first (rendered again: the older ones stay below); `nice`: path traced, else a snapshot. */
@@ -371,7 +410,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 26;
+  schema: 27;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];
@@ -381,6 +420,8 @@ export interface Doc {
   joints: Joint[];
   planes: WorkPlane[];
   images: ImageRef[];
+  materials: Material[];
+  photos: PhotoSphere[];
   /** Renders (snapshots and nice ones), newest first. */
   renders: RenderShot[];
 }

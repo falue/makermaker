@@ -1,5 +1,7 @@
 import { UNITS } from '../doc/expr';
-import type { Unit } from '../doc/types';
+import { DEFAULT_LIGHT } from '../doc/materials';
+import type { Light, PhotoSphere, Unit } from '../doc/types';
+import { lightRows } from './light';
 import { backdropCss, SKIES } from '../viewer/sky';
 import { CHAPTERS, comboOf, comboText, KEYS, keysOf, MAC, MODIFIER_NAMES, MODS, pressed, resetKeys, roleKey, sameCombo, setKeys, setRole, type Action, type Binding, type Combo, type Modifier, type Role } from './keys';
 
@@ -15,23 +17,25 @@ export interface Settings {
   guideMs: number;
   /** How long a joint plays from its min to its max at speed 1, in seconds. */
   jointSeconds: number;
-  /** Background of the 3D view and of new renders: the theme's grey, two colours meeting sharply at the horizon, or a sky preset (`sky`: its index). */
-  background: { mode: 'solid' | 'colours' | 'sky'; top: string; bottom: string; sky: number };
+  /** Background of the 3D view and of new renders: the theme's grey, two colours meeting sharply at the horizon, a sky preset (`sky`: its index), or a photo sphere of the open document (`turn`: degrees; another document without it: the grey). */
+  background: { mode: 'solid' | 'colours' | 'sky' | 'photo'; top: string; bottom: string; sky: number; photo: string | null; turn: number };
+  /** Sun and ambient light of the 3D view and of new renders. */
+  light: Light;
 }
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4 } };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-  return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background } };
+  return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background }, light: { ...DEFAULTS.light, ...saved.light } };
 }
 
 /**
  * The settings dialog: changes apply and are saved at once; × or Esc closes it. `doc`: the open document's own
- * settings (its units), shown under General.
+ * settings (its units, shown under General) and its photo spheres.
  */
-export function openSettings(settings: Settings, changed: (next: Settings) => void, doc: { units(): Unit; setUnits(units: Unit): void }) {
+export function openSettings(settings: Settings, changed: (next: Settings) => void, doc: { units(): Unit; setUnits(units: Unit): void; photos(): PhotoSphere[]; addPhoto(file: File): Promise<string>; removePhoto(id: string): void }) {
   const make = (tag: string, props: object = {}, ...children: (Node | string)[]) => {
     const el = Object.assign(document.createElement(tag), props);
     el.append(...children);
@@ -47,6 +51,34 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   };
   const body = make('div', { className: 'body' });
   const nav = make('nav', { className: 'chapters' });
+  /** The document's photo spheres to pick from, adding one, and how far the shown one is turned. */
+  const photoRows = () => {
+    const bg = s.background;
+    const add = input({ type: 'file', accept: 'image/*', hidden: true });
+    add.onchange = async () => {
+      const file = add.files?.[0];
+      if (!file) return;
+      set({ ...s, background: { ...s.background, photo: await doc.addPhoto(file) } });
+    };
+    const turn = input({ type: 'range', min: '-180', max: '180', step: '1', value: String(bg.turn), title: 'Turn the photo around, degrees' });
+    turn.oninput = () => set({ ...s, background: { ...s.background, turn: +turn.value } }, false);
+    return [
+      make(
+        'div',
+        { className: 'skies' },
+        ...doc.photos().map((p) => {
+          const el = make('button', { className: `sky photo${bg.photo === p.id ? ' on' : ''}`, title: `${p.name}: click to show · × deletes it`, onclick: () => set({ ...s, background: { ...bg, photo: p.id } }) });
+          el.style.backgroundImage = `url(${p.data})`;
+          const remove = make('span', { className: 'drop', textContent: '×', onclick: (e: Event) => (e.stopPropagation(), doc.removePhoto(p.id), draw()) });
+          el.append(remove);
+          return el;
+        }),
+        make('button', { className: 'sky add', title: 'Add a photo sphere: an equirectangular picture, about 2:1 (saved in this document)', textContent: '+', onclick: () => add.click() }),
+      ),
+      add,
+      make('div', { className: 'row light' }, make('span', {}, 'Turn'), turn),
+    ];
+  };
   /** Chapters: the left column lists them, the right shows the open one. */
   const chapters: [string, () => Node[]][] = [
     [
@@ -87,7 +119,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
           make('label', { className: 'check' }, ao, 'Soft shadows in corners and creases'),
           make('h3', {}, 'Background'),
           make('p', { className: 'hint' }, 'Of the 3D view, and of new renders (each render keeps its own).'),
-          make('div', { className: 'row' }, mode('solid', 'Solid (the theme grey)'), mode('colours', 'Two colours'), mode('sky', 'Sky')),
+          make('div', { className: 'row wrap' }, mode('solid', 'Solid (the theme grey)'), mode('colours', 'Two colours'), mode('sky', 'Sky'), mode('photo', 'Photo sphere')),
           ...(bg.mode === 'colours' ? [make('div', { className: 'row' }, colour('top', 'Above the horizon'), colour('bottom', 'Below'))] : []),
           ...(bg.mode === 'sky'
             ? [
@@ -102,6 +134,10 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
                 ),
               ]
             : []),
+          ...(bg.mode === 'photo' ? photoRows() : []),
+          make('h3', {}, 'Light'),
+          make('p', { className: 'hint' }, 'Of the 3D view, and of new renders (each render keeps its own). In renders a photo sphere lights the model too, instead of the ambient colour.'),
+          ...lightRows(s.light, (light) => set({ ...s, light }, false)),
         ];
       },
     ],

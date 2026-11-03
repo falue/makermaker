@@ -7,7 +7,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import type { Backdrop, BasePlane, CameraState } from '../doc/types';
+import type { Backdrop, BasePlane, CameraState, Light } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
@@ -18,6 +18,9 @@ import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './
 import { FacePullTool, type PullLook } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
+import { DEFAULT_LIGHT, sunDirection, type Look } from '../doc/materials';
+import { applyLook, boxUv, renderMaterial } from './look';
+import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
@@ -489,8 +492,16 @@ export class Viewer implements ToolView {
     /** The pass reads `gbuffer` (else its own picture). */
     external: false,
   };
+  /** The light of the view (settings). */
+  private sun = new THREE.DirectionalLight();
+  private ambient = new THREE.HemisphereLight();
+  private looks = new Map<string, Look>();
+  /** The photo spheres of the document (data URLs by id), and the one shown: its picture as this camera sees it. */
+  private photos = new Map<string, string>();
+  private photo: { id: string; texture: THREE.Texture | null; target: THREE.WebGLRenderTarget; drawn: string } | null = null;
+  private photoDraw = photoPass();
   /** The view's background (settings): the theme grey, or a gradient from the top to the bottom of the view. */
-  private backdrop: Settings['background'] = { mode: 'solid', top: '#ffffff', bottom: '#ffffff', sky: 0 };
+  private backdrop: Settings['background'] = { mode: 'solid', top: '#ffffff', bottom: '#ffffff', sky: 0, photo: null, turn: 0 };
   /** The gradient background: a column redrawn when the camera tilts (`drawn`: for which tilt and view). */
   private sky = { canvas: Object.assign(document.createElement('canvas'), { width: 1, height: 256 }), texture: null as THREE.CanvasTexture | null, drawn: '' };
   /** Selected bodies get an outline around their silhouette (tool bodies in red): they are drawn into `mask`, then a ring of `px` around it on top. */
@@ -535,9 +546,8 @@ export class Viewer implements ToolView {
     const canvas = this.renderer.domElement;
     el.append(canvas, this.viewCube(), this.cameraControls(), this.crumbs, this.moveLabel);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 2);
-    sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.aimMark, this.cutMark, this.axisMark, this.ticks, this.workMark);
+    this.setLight(DEFAULT_LIGHT);
+    this.scene.add(this.ambient, this.sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.aimMark, this.cutMark, this.axisMark, this.ticks, this.workMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -1623,16 +1633,26 @@ export class Viewer implements ToolView {
 
   /** Colour and visibility per body; hidden bodies are not drawn, picked or snapped to (but still built). */
   /** `cutter`: a boolean's tool body, drawn as red outlines (shown while selected even when hidden: join / intersect tools). */
-  setLooks(looks: { id: string; color: string; visible: boolean; cutter: boolean; owner?: string }[]) {
+  setLooks(looks: { id: string; look: Look; visible: boolean; cutter: boolean; owner?: string }[]) {
     this.looksHidden = new Set(looks.filter((l) => !l.visible).map((l) => l.id));
     this.cutters = new Set(looks.filter((l) => l.cutter).map((l) => l.id));
     this.rehide();
     this.owners = new Map(looks.flatMap((l) => (l.owner ? [[l.id, l.owner]] : [])));
     for (const l of looks) {
-      this.materialOf(l.id).color.set(l.color);
+      this.looks.set(l.id, l.look);
+      applyLook(this.materialOf(l.id), l.look);
       this.dress(l.id);
     }
     this.applySection();
+  }
+
+  /** A body's smallest side along its own axes, mm (null: not built). */
+  thinnest(id: string) {
+    const solid = this.bodies.get(id)?.children[0] as THREE.Mesh | undefined;
+    if (!solid) return null;
+    solid.geometry.computeBoundingBox();
+    const size = solid.geometry.boundingBox!.getSize(new THREE.Vector3());
+    return Math.min(size.x, size.y, size.z);
   }
 
   /** Tool bodies of booleans show (as outlines) only while selected; the rest as their looks say. */
@@ -1651,6 +1671,7 @@ export class Viewer implements ToolView {
   private dress(id: string) {
     const [solid, lines] = this.bodies.get(id)?.children ?? [];
     if (!solid) return;
+    if (this.looks.get(id)?.bump) boxUv((solid as THREE.Mesh).geometry);
     const cutter = this.cutters.has(id);
     const dropped = !cutter && this.dropped.has(id);
     const faded = dropped || (!cutter && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id)));
@@ -1690,7 +1711,9 @@ export class Viewer implements ToolView {
   private fadedOf(id: string, opacity = 0.35) {
     let m = this.faded.get(id);
     if (!m) this.faded.set(id, (m = new THREE.MeshStandardMaterial({ roughness: 0.7, transparent: true, opacity, depthWrite: false })));
+    const bumpy = !!m.normalMap;
     m.copy(this.materialOf(id));
+    if (bumpy !== !!m.normalMap) m.needsUpdate = true;
     m.setValues({ transparent: true, opacity, depthWrite: false });
     return m;
   }
@@ -1926,15 +1949,17 @@ export class Viewer implements ToolView {
   }
 
   /** A path traced picture (`samples` passes) from a saved camera: shown bodies only, cutters and overlays left out. */
-  renderNice(camera: CameraState, background: Backdrop, samples: number, watch: RenderWatch) {
+  async renderNice(camera: CameraState, background: Backdrop, light: Light, samples: number, watch: RenderWatch) {
     const meshes = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children[0] as THREE.Mesh | undefined;
       if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];
-      const m = new THREE.Mesh(solid.geometry, new THREE.MeshStandardMaterial({ color: this.materialOf(id).color, roughness: 0.55 }));
+      const m = new THREE.Mesh(solid.geometry, renderMaterial(this.looks.get(id) ?? { color: '#d8c3a0', roughness: 0.7, bump: 0, translucency: 0, glow: '#000000', glowStrength: 0 }));
       m.applyMatrix4(g.matrixWorld);
       return [m];
     });
-    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
+    const url = background.photo && this.photos.get(background.photo.id);
+    const photo = url ? { image: await loadImage(url), turn: background.photo!.turn } : null;
+    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, light, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
   }
 
   /** The camera's tilt and half field of view (ortho: as the perspective camera would see it), for the sky. */
@@ -1946,6 +1971,7 @@ export class Viewer implements ToolView {
   /** Redraws the gradient background when the camera tilted. */
   private drawSky() {
     const backdrop = this.backdropColours();
+    if (backdrop.photo) return this.drawPhoto(backdrop.photo.turn);
     if (backdrop.stops.length < 2 || !this.sky.texture) return;
     const { pitch, tanHalf } = this.tilt();
     const key = `${pitch.toFixed(3)} ${tanHalf}`;
@@ -1953,6 +1979,59 @@ export class Viewer implements ToolView {
     this.sky.drawn = key;
     drawSky(this.sky.canvas.getContext('2d')!, 1, 256, pitch, tanHalf, backdrop);
     this.sky.texture.needsUpdate = true;
+  }
+
+  /** Redraws the photo sphere when the camera turned or the view changed size. */
+  private drawPhoto(turn: number) {
+    const p = this.photo;
+    if (!p?.texture) return;
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    const { tanHalf } = this.tilt();
+    const key = `${this.camera.quaternion.toArray().map((v) => v.toFixed(4))} ${size.x} ${size.y} ${tanHalf} ${turn}`;
+    if (key === p.drawn) return;
+    p.drawn = key;
+    p.target.setSize(size.x, size.y);
+    this.camera.updateMatrixWorld();
+    this.renderer.setRenderTarget(p.target);
+    this.photoDraw.draw(this.renderer, p.texture, this.camera, tanHalf, size.x / size.y, turn);
+    this.renderer.setRenderTarget(null);
+  }
+
+  /** The document's photo spheres; the background follows when the one it shows comes or goes. */
+  setPhotos(photos: { id: string; data: string }[]) {
+    const before = this.backdropColours().photo?.id;
+    this.photos = new Map(photos.map((p) => [p.id, p.data]));
+    if (before !== this.backdropColours().photo?.id) this.applyTheme();
+  }
+
+  /** The photo sphere shown; its picture loads once. */
+  private showPhoto(id: string) {
+    if (this.photo?.id === id) return this.photo;
+    this.dropPhoto();
+    const p = (this.photo = { id, texture: null as THREE.Texture | null, target: new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false }), drawn: '' });
+    void loadImage(this.photos.get(id)!).then((image) => {
+      if (this.photo !== p) return;
+      p.texture = photoTexture(image);
+      this.render();
+    });
+    return p;
+  }
+
+  private dropPhoto() {
+    this.photo?.texture?.dispose();
+    this.photo?.target.dispose();
+    this.photo = null;
+  }
+
+  /** The sun and the light from all around in the view. */
+  setLight(l: Light) {
+    this.sun.position.set(...sunDirection(l));
+    this.sun.color.set(l.sunColor);
+    this.sun.intensity = l.sun;
+    this.ambient.color.set(l.ambientColor);
+    this.ambient.groundColor.set(l.ambientColor).multiplyScalar(0.53);
+    this.ambient.intensity = l.ambient;
+    this.render();
   }
 
   /** The ambient occlusion composer for the current camera (stencil kept for the section caps). */
@@ -2241,19 +2320,30 @@ export class Viewer implements ToolView {
   /** The background now (solid: the theme grey). */
   backdropColours(): Backdrop {
     const b = this.backdrop;
+    if (b.mode === 'photo' && b.photo && this.photos.has(b.photo)) return { stops: [{ color: this.solidGrey(), at: 0 }], band: 25, photo: { id: b.photo, turn: b.turn } };
     if (b.mode === 'colours') return twoColours(b.top, b.bottom);
     if (b.mode === 'sky') return SKIES[b.sky]?.[1] ?? SKIES[0][1];
-    return { stops: [{ color: `#${new THREE.Color(this.isDark ? 0x1c1d20 : 0xeeeeec).getHexString()}`, at: 0 }], band: 25 };
+    return { stops: [{ color: this.solidGrey(), at: 0 }], band: 25 };
   }
+
+  private solidGrey = () => `#${new THREE.Color(this.isDark ? 0x1c1d20 : 0xeeeeec).getHexString()}`;
 
   applyTheme = () => {
     const dark = this.isDark;
     const backdrop = this.backdropColours();
-    if (backdrop.stops.length > 1) {
+    if (backdrop.photo) {
+      const photo = this.showPhoto(backdrop.photo.id);
+      photo.drawn = ''; // turned, or back from another background
+      this.scene.background = photo.target.texture;
+    } else if (backdrop.stops.length > 1) {
+      this.dropPhoto();
       this.sky.texture ??= Object.assign(new THREE.CanvasTexture(this.sky.canvas), { colorSpace: THREE.SRGBColorSpace });
       this.sky.drawn = ''; // colours changed: draw again
       this.scene.background = this.sky.texture;
-    } else this.scene.background = new THREE.Color(backdrop.stops[0].color);
+    } else {
+      this.dropPhoto();
+      this.scene.background = new THREE.Color(backdrop.stops[0].color);
+    }
     const grid = new THREE.GridHelper(1000, 100, dark ? 0x45474d : 0xbbbbbb, dark ? 0x2c2e32 : 0xd6d6d4);
     grid.rotation.x = Math.PI / 2;
     grid.material.depthWrite = false;
@@ -3208,7 +3298,11 @@ export class Viewer implements ToolView {
     view.ortho.updateProjectionMatrix();
     view.persp.aspect = aspect;
     view.persp.updateProjectionMatrix();
+    // a view has a renderer of its own: the photo's picture is the main view's, and from its camera
+    const background = this.scene.background;
+    if (this.photo) this.scene.background = new THREE.Color(this.solidGrey());
     view.renderer.render(this.scene, view.camera);
+    this.scene.background = background;
   }
 
   /** A projection chosen by hand stays when leaving a cube side. */
