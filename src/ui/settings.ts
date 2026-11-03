@@ -2,6 +2,7 @@ import { UNITS } from '../doc/expr';
 import { DEFAULT_LIGHT } from '../doc/materials';
 import type { Light, PhotoSphere, Unit } from '../doc/types';
 import { lightRows } from './light';
+import { BUILT_IN_PHOTOS } from './photospheres';
 import { backdropCss, SKIES } from '../viewer/sky';
 import { CHAPTERS, comboOf, comboText, KEYS, keysOf, MAC, MODIFIER_NAMES, MODS, pressed, resetKeys, roleKey, sameCombo, setKeys, setRole, type Action, type Binding, type Combo, type Modifier, type Role } from './keys';
 
@@ -76,15 +77,19 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     };
     const turn = input({ type: 'range', min: '-180', max: '180', step: '1', value: String(bg.turn), title: 'Turn the photo around, degrees' });
     turn.oninput = () => set({ ...s, background: { ...s.background, turn: +turn.value } }, false);
+    const sphere = (p: { id: string }, picture: string, title: string) => {
+      const el = make('button', { className: `sky photo${bg.photo === p.id ? ' on' : ''}`, title, onclick: () => set({ ...s, background: { ...bg, photo: p.id } }) });
+      el.style.backgroundImage = `url(${picture})`;
+      return el;
+    };
     return [
       make(
         'div',
         { className: 'skies' },
+        ...BUILT_IN_PHOTOS.map((p) => sphere(p, p.thumb, `${p.name}: click to show`)),
         ...doc.photos().map((p) => {
-          const el = make('button', { className: `sky photo${bg.photo === p.id ? ' on' : ''}`, title: `${p.name}: click to show · × deletes it`, onclick: () => set({ ...s, background: { ...bg, photo: p.id } }) });
-          el.style.backgroundImage = `url(${p.data})`;
-          const remove = make('span', { className: 'drop', textContent: '×', onclick: (e: Event) => (e.stopPropagation(), doc.removePhoto(p.id), draw()) });
-          el.append(remove);
+          const el = sphere(p, p.data, `${p.name}: click to show · × deletes it`);
+          el.append(make('span', { className: 'drop', textContent: '×', onclick: (e: Event) => (e.stopPropagation(), doc.removePhoto(p.id), draw()) }));
           return el;
         }),
         make('button', { className: 'sky add', title: 'Add a photo sphere: an equirectangular picture, about 2:1 (saved in this document)', textContent: '+', onclick: () => add.click() }),
@@ -122,7 +127,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         const ao = input({ type: 'checkbox', checked: s.ao, onchange: () => set({ ...s, ao: ao.checked }) });
         const bg = s.background;
         const mode = (value: Settings['background']['mode'], label: string) =>
-          make('label', { className: 'check' }, input({ type: 'radio', name: 'bg', checked: bg.mode === value, onchange: () => set({ ...s, background: { ...bg, mode: value } }) }), label);
+          make('label', { className: 'check' }, input({ type: 'radio', name: 'bg', checked: bg.mode === value, onchange: () => set({ ...s, background: { ...bg, mode: value, photo: value === 'photo' ? (bg.photo ?? BUILT_IN_PHOTOS[0].id) : bg.photo } }) }), label);
         const colour = (key: 'top' | 'bottom', label: string) => {
           const el = input({ type: 'color', value: bg[key], className: 'color' });
           el.oninput = () => set({ ...s, background: { ...s.background, [key]: el.value } }, false); // a redraw would close the picker

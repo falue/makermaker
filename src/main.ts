@@ -37,6 +37,7 @@ import { installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
 import { drawer } from './ui/drawer';
 import { keepInside } from './ui/inside';
+import { BUILT_IN_PHOTOS } from './ui/photospheres';
 import { ANGLE_STEPS, SketchTool, uvOf, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import type { ExtrudeTool, FaceItem } from './viewer/extrude';
@@ -587,7 +588,7 @@ function update() {
       b.visible && !hideAll.objects && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [{ center: new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z])), r: f.d / 2, body: b.id }] : [])) : [],
     ),
   );
-  viewer.setPhotos(doc.photos);
+  viewer.setPhotos([...BUILT_IN_PHOTOS, ...doc.photos]);
   viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));
   viewer.select(contents(doc, selected), groupKept(doc));
   viewer.setSketches(shown, activeSketch(), shapeSel);
