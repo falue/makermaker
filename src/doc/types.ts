@@ -248,6 +248,8 @@ export interface Body {
   order?: number;
   /** Its material (none: its group's, else its own colour). */
   material?: string;
+  /** A look of its own, before its material: a one-off. */
+  ownLook?: MaterialLook;
 }
 
 /** Custom section plane (world coordinates): keeps the side `normal` points to, cut at `origin` moved `offset` along it. */
@@ -275,21 +277,28 @@ export interface Group {
   order?: number;
   /** The material of its contents that have none of their own. */
   material?: string;
+  /** A look of its own, before its material, for those contents: a one-off. */
+  ownLook?: MaterialLook;
 }
 
 /**
- * What a body is made of. `bump`, `translucency` and `glowStrength` run 0 to 1; `thickness`: of the sheet (empty: no
- * fixed one), compared with the bodies, it never changes them.
+ * What a surface looks like. `bump`: mirror (0) over matte (0.5) to bumpy (1); `reflection`: how much it mirrors what
+ * is around it, in its colour, like metal; `translucency` and `glowStrength` run 0 to 1. `raster`: a measuring grid on it.
  */
-export interface Material {
-  id: string;
-  name: string;
+export interface MaterialLook {
   color: string;
   bump: number;
+  reflection: number;
   translucency: number;
   glow: string;
   glowStrength: number;
-  thickness: Expr;
+  raster?: 'metric' | 'imperial';
+}
+
+/** A look with a name, saved in the file. */
+export interface Material extends MaterialLook {
+  id: string;
+  name: string;
 }
 
 /** The sun (degrees above the horizon and around Z from +X; three's light intensity) and the light from all around. */
@@ -410,7 +419,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 27;
+  schema: 28;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

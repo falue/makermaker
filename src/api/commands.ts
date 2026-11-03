@@ -1,5 +1,6 @@
+import { assignMaterial, editOneOff, findMaterial, saveOneOff } from '../doc/materials';
 import { ex, newId, unturned } from '../doc/sample';
-import type { Body, Doc, Expr, Feature, Group, Profile, Sketch, Unit } from '../doc/types';
+import type { Body, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
 
 /**
  * The CAD command API: every modelling command as a pure step from one document to the next, described well enough
@@ -260,6 +261,36 @@ export const COMMANDS: Record<string, Command> = {
       const i = bodyOf(doc, a.id);
       return { doc: withBody(doc, i, { ...doc.bodies[i], color: a.color as string }) };
     },
+  },
+  material: {
+    doc: 'Gives bodies or groups a material (a saved one, or a standard one such as std-wood; none: their group\'s, else their own colour); a one-off look they had goes.',
+    params: [{ name: 'ids', type: 'ids', doc: 'the bodies and groups' }, { name: 'material', type: 'id', doc: 'its id', optional: true }],
+    run: (doc, a) => {
+      if (a.material !== undefined && !findMaterial(doc, a.material as string)) throw new Error(`material: no material "${a.material}"`);
+      return { doc: assignMaterial(doc, a.ids as string[], a.material as string | undefined) };
+    },
+  },
+  material_save: {
+    doc: 'Saves the one-off look of bodies or groups as a new material of the file, which they then use. Returns its id.',
+    params: [{ name: 'ids', type: 'ids', doc: 'the bodies and groups' }, named],
+    run: (doc, a) => {
+      const id = newId();
+      return { doc: saveOneOff(doc, a.ids as string[], id, a.name as string | undefined), result: id };
+    },
+  },
+  look: {
+    doc: 'Changes the look of bodies or groups for themselves alone (a one-off). Each value 0 to 1; colours #rrggbb.',
+    params: [
+      { name: 'ids', type: 'ids', doc: 'the bodies and groups' },
+      { name: 'color', type: 'string', doc: '#rrggbb', optional: true },
+      { name: 'bump', type: 'number', doc: 'mirror 0, matte 0.5, bumpy 1', optional: true },
+      { name: 'reflection', type: 'number', doc: 'how much it mirrors, like metal', optional: true },
+      { name: 'translucency', type: 'number', doc: 'solid 0, clear 1', optional: true },
+      { name: 'glow', type: 'string', doc: '#rrggbb', optional: true },
+      { name: 'glowStrength', type: 'number', doc: 'off 0', optional: true },
+      { name: 'raster', type: 'enum', values: ['metric', 'imperial'], doc: 'a measuring grid', optional: true },
+    ],
+    run: (doc, { ids, ...patch }) => ({ doc: editOneOff(doc, ids as string[], patch as Partial<MaterialLook>) }),
   },
   parameter: {
     doc: 'Sets a named parameter (a number with a unit, or an expression); any value may use it by name.',

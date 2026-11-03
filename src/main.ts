@@ -15,7 +15,9 @@ import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { readStep, stepObjects } from './io/step';
-import { lookOf, materialOf } from './doc/materials';
+import { dropMaterial, editOneOff, lookOf, plainLook, setLook } from './doc/materials';
+import { fromMtlx, toMtlx } from './io/materials';
+import { openMaterials } from './ui/materials';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
@@ -4535,31 +4537,59 @@ function newSection() {
   }, false, false, null, true);
 }
 
-function setMaterialOf(ids: string[], material: string | undefined, added?: Material) {
-  const doc = history.current;
-  const set = <T extends { id: string; material?: string }>(x: T): T => {
-    if (!ids.includes(x.id)) return x;
-    const { material: _, ...rest } = x;
-    return (material ? { ...rest, material } : rest) as T;
-  };
-  commit({ ...doc, materials: added ? [...doc.materials, added] : doc.materials, bodies: doc.bodies.map(set), groups: doc.groups.map(set) });
+function setMaterialOf(ids: string[], material: string | undefined) {
+  commit(runCommand(history.current, 'material', { ids, ...(material ? { material } : {}) }).doc);
 }
 
-/** Bodies using `m` whose thinnest side (mm, unturned) differs from its thickness, as a sentence. */
-function thicknessOff(m: Material) {
-  const doc = history.current;
-  if (!m.thickness.e.trim()) return null;
-  let wanted: number;
-  try {
-    wanted = evalLength(m.thickness, paramLookup(doc.params));
-  } catch {
-    return `Thickness: cannot read ${m.thickness.e}`;
-  }
-  const off = doc.bodies.flatMap((b) => {
-    const thin = materialOf(doc, b)?.id === m.id ? viewer.thinnest(b.id) : null;
-    return thin !== null && Math.abs(thin - wanted) > 0.01 ? [`${b.name} (${fmt(thin / UNITS[doc.units])})`] : [];
+/** The selection's bodies and groups. */
+const lookTargets = () => [...history.current.bodies, ...history.current.groups].filter((x) => selected.includes(x.id));
+
+/** The materials dialog on the selection; `oneOff`: it starts with a look of its own. */
+function materialsDialog(oneOff = false) {
+  const ids = () => lookTargets().map((x) => x.id);
+  /** A change: one undo step for a whole drag. */
+  const put = (next: Doc, live: boolean) => {
+    if (live) history.replace(next);
+    else history.push(next);
+    update();
+  };
+  if (oneOff && ids().length) put(editOneOff(history.current, ids(), {}), false);
+  openMaterials({
+    saved: () => history.current.materials,
+    target() {
+      const list = lookTargets();
+      return list.length > 1 ? `${list.length} objects` : (list[0]?.name ?? null);
+    },
+    current() {
+      const doc = history.current;
+      const [first] = lookTargets();
+      return { material: first?.material, oneOff: !!first?.ownLook, look: setLook(doc, first) ?? plainLook('color' in first ? first.color : '#d8c3a0') };
+    },
+    assign: (material) => setMaterialOf(ids(), material),
+    editOneOff: (patch, live) => put(editOneOff(history.current, ids(), patch), live),
+    saveOneOff() {
+      const { doc, result } = runCommand(history.current, 'material_save', { ids: ids() });
+      commit(doc);
+      return result as string;
+    },
+    add(look) {
+      const id = newId();
+      commit({ ...history.current, materials: [...history.current.materials, { ...(look ?? plainLook('#d8c3a0')), id, name: `Material ${history.current.materials.length + 1}` }] });
+      return id;
+    },
+    edit: (id, patch, live) => put({ ...history.current, materials: history.current.materials.map((m) => (m.id === id ? { ...m, ...patch } : m)) }, live),
+    remove: (id) => commit(dropMaterial(history.current, id)),
+    async importFile(f) {
+      // one that is there already, name and look, comes in once
+      const same = ({ id: _, ...m }: Material) => JSON.stringify(Object.entries(m).sort());
+      const known = new Set(history.current.materials.map(same));
+      const fresh = fromMtlx(await f.text()).filter((m) => !known.has(same(m)));
+      commit({ ...history.current, materials: [...history.current.materials, ...fresh] });
+      notify(`Imported ${fresh.length} new material${fresh.length === 1 ? '' : 's'} from ${f.name}`);
+    },
+    exportFile: () => download(new Blob([toMtlx(history.current.materials)], { type: 'application/xml' }), `${project()}_materials.mtlx`),
+    light: () => settings.light,
   });
-  return off.length ? `Not ${fmt(wanted / UNITS[doc.units])} ${doc.units} thick: ${off.slice(0, 5).join(', ')}${off.length > 5 ? ` and ${off.length - 5} more` : ''}` : null;
 }
 
 /** Keeps a photo sphere in the document, its long side at most 4096 px (it travels with every saved version). */
@@ -4858,12 +4888,9 @@ function render() {
     select,
     isolated: isolated?.body ?? null,
     isolate,
-    previewColor(id, color) {
-      const doc = history.current;
-      for (const b of doc.bodies) if (b.id === id || materialOf(doc, b)?.id === id) viewer.previewColor(b.id, color);
-    },
+    previewColor: (id, color) => viewer.previewColor(id, color),
     setMaterialOf,
-    thicknessOff,
+    openMaterials: materialsDialog,
     startTool,
     extrude,
     sketching,
@@ -4948,7 +4975,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 27, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 28, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

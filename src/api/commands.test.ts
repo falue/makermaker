@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Doc } from '../doc/types';
 import { COMMANDS, describe as tools, runCommand } from './commands';
 
-const empty = (): Doc => ({ schema: 27, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] });
+const empty = (): Doc => ({ schema: 28, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] });
 
 /** Runs commands one after another, each on the last one's document; their results. */
 function script(steps: [string, Record<string, unknown> | ((r: unknown[]) => Record<string, unknown>)][]) {

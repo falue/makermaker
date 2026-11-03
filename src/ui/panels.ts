@@ -1,8 +1,8 @@
 import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { fitting, THREADS } from '../doc/threads';
 import { getIn, setIn } from '../doc/resolve';
-import { dropMaterial, lookOf, materialOf } from '../doc/materials';
-import { ex, newFinish, newId } from '../doc/sample';
+import { lookOf, setLook, STANDARD_MATERIALS } from '../doc/materials';
+import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
@@ -135,10 +135,10 @@ export interface UIContext {
   isolate(id: string): void;
   /** Shows a body, or all bodies with a material, in a colour without changing the document (while the colour picker is open). */
   previewColor(id: string, color: string): void;
-  /** Sets the material of bodies and groups (none: their group's, else their own colour); `added`: a new one for the document, in the same undo step. */
-  setMaterialOf(ids: string[], material: string | undefined, added?: Material): void;
-  /** What differs from a material's thickness among the bodies using it, as a sentence (null: nothing, or no thickness). */
-  thicknessOff(material: Material): string | null;
+  /** Sets the material of bodies and groups (none: their group's, else their own colour). */
+  setMaterialOf(ids: string[], material: string | undefined): void;
+  /** The materials dialog; `oneOff`: the selection starts a one-off in it. */
+  openMaterials(oneOff?: boolean): void;
   startTool(kind: ToolKind): void;
   /** Pulls the selected shapes (or all) of the selected sketch. */
   extrude(): void;
@@ -447,6 +447,7 @@ function topbar(ctx: UIContext): Node[] {
   return [
     h('strong', {}, 'MAKERMAKER'),
     tool('settings', 'Settings: units, ambient occlusion, background, light', ctx.openSettings),
+    tool('material', 'Materials: pick, change and save looks; import and export', () => ctx.openMaterials()),
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
@@ -1001,46 +1002,24 @@ function turnSlider(ctx: UIContext, i: number, turn: number) {
 }
 
 /**
- * The material of bodies or a group: a list to pick from (`own`: the one set here; `inherited`: what they get without
- * it) with New; the picked one's look and thickness edit in place, for everything using it.
+ * The material of the selected bodies or groups: a list to pick from (`inherited`: what they get without one), New and
+ * Edit open the materials dialog; looks are edited only there.
  */
-function materialRows(ctx: UIContext, own: string | undefined, inherited: string, set: (id: string | undefined, added?: Material) => void, seed: string): Node[] {
+function materialRows(ctx: UIContext, ids: string[], inherited: string): Node[] {
   const { doc } = ctx;
-  const i = doc.materials.findIndex((m) => m.id === own);
-  const choose = (id: string) => {
-    if (id !== 'new') return set(id || undefined);
-    const m: Material = { id: newId(), name: `Material ${doc.materials.length + 1}`, color: seed, bump: 0, translucency: 0, glow: '#ffffff', glowStrength: 0, thickness: ex('', doc.units) };
-    set(m.id, m);
-  };
-  const list = select(own ?? '', { '': inherited, ...Object.fromEntries(doc.materials.map((m) => [m.id, m.name])), new: '+ New material' }, choose);
-  if (i < 0) return [h('h3', {}, 'Material'), h('div', { className: 'row' }, list)];
-  const m = doc.materials[i];
-  const at = (key: string) => ['materials', String(i), key];
-  const slider = (key: 'bump' | 'translucency' | 'glowStrength', title: string) => {
-    let live = false;
-    const el = h('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(m[key]), title });
-    el.oninput = () => (ctx.setValue(at(key), +el.value, live), (live = true));
-    el.onchange = () => (live = false);
-    return el;
-  };
-  const colour = (key: 'color' | 'glow', title: string) => {
-    // the panel is not rebuilt while picking: that would close the picker
-    const el = h('input', { type: 'color', value: m[key], title, className: 'color' });
-    if (key === 'color') el.oninput = () => ctx.previewColor(m.id, el.value);
-    el.onchange = () => ctx.commit(setIn(doc, at(key), el.value));
-    return el;
-  };
-  const off = ctx.thicknessOff(m);
-  return [
-    h('h3', {}, 'Material'),
-    h('div', { className: 'row' }, list),
-    h('div', { className: 'row material' }, input(`materials.${i}.name`, m.name, (name) => ctx.commit(setIn(doc, at('name'), name))), colour('color', 'Colour of everything with this material'), button('Delete', () => ctx.commit(dropMaterial(doc, m.id)), 'Delete the material: what uses it goes back to its group or its own colour')),
-    h('div', { className: 'row light' }, h('span', {}, 'Bumpy'), slider('bump', 'Smooth and shiny to bumpy and dull')),
-    h('div', { className: 'row light' }, h('span', {}, 'See-through'), slider('translucency', 'Solid to clear')),
-    h('div', { className: 'row light' }, h('span', {}, 'Glow'), slider('glowStrength', 'How strong it glows (in renders it lights what is around)'), colour('glow', 'Colour of the glow')),
-    h('div', { className: 'row' }, exprField(ctx, `materials.${i}.thickness`, 'Thickness')),
-    ...(off ? [h('p', { className: 'error' }, off)] : []),
-  ];
+  const objects = [...doc.bodies, ...doc.groups].filter((x) => ids.includes(x.id));
+  const oneOff = objects.some((x) => x.ownLook);
+  const same = objects.every((x) => x.material === objects[0]?.material) ? objects[0]?.material : undefined;
+  const list = select(oneOff ? 'one-off' : (same ?? ''), {
+    '': inherited,
+    ...(oneOff ? { 'one-off': 'One-off (just this)' } : {}),
+    ...Object.fromEntries([...STANDARD_MATERIALS, ...doc.materials].map((m) => [m.id, m.name])),
+    new: '+ New…',
+  } as Record<string, string>, (id) => {
+    if (id === 'new') return ctx.openMaterials(true);
+    if (id !== 'one-off') ctx.setMaterialOf(ids, id || undefined);
+  });
+  return [h('h3', {}, 'Material'), h('div', { className: 'row' }, list, button('Edit…', () => ctx.openMaterials(), 'The materials dialog: pick, change its look just for this, or edit saved materials'))];
 }
 
 /** An image's card: name, Delete; width (mm), opacity, a colour shown transparent (and how far off still counts), Calibrate. */
@@ -1071,14 +1050,9 @@ function imagePanel(ctx: UIContext, i: number): Node[] {
 
 /** What a body without its own material gets, as the list's first entry. */
 function inheritedLabel(ctx: UIContext, body: Body) {
-  const m = materialOf(ctx.doc, { ...body, material: undefined });
-  return m ? `From its group: ${m.name}` : 'None (its own colour)';
-}
-
-/** The material all selected bodies and groups have set, if they share one. */
-function sameMaterial(ctx: UIContext) {
-  const set = ctx.selected.flatMap((id) => [...ctx.doc.bodies, ...ctx.doc.groups].filter((x) => x.id === id)).map((x) => x.material);
-  return set.every((m) => m === set[0]) ? set[0] : undefined;
+  const bare = { ...body, material: undefined, ownLook: undefined };
+  const m = setLook(ctx.doc, bare) as Material | undefined;
+  return m ? `From its group${m.name ? `: ${m.name}` : ''}` : 'None (its own colour)';
 }
 
 function selectionPanel(ctx: UIContext): Node[] {
@@ -1086,7 +1060,7 @@ function selectionPanel(ctx: UIContext): Node[] {
   if (n > 1)
     return [
       h('p', { className: 'hint' }, `${n} bodies selected: drag, nudge, duplicate or delete them together; select one to edit it.`),
-      ...materialRows(ctx, sameMaterial(ctx), 'From their groups', (id, added) => ctx.setMaterialOf(ctx.selected, id, added), '#d8c3a0'),
+      ...materialRows(ctx, ctx.selected, 'From their groups'),
       h('h3', {}, 'Boolean'),
       h('p', { className: 'hint' }, 'The first selected body keeps the result; the others become its tool bodies: they move with it and stay editable (selected, they show as red outlines).'),
       h('div', { className: 'aligns' }, ...booleanTools(ctx)),
@@ -1129,7 +1103,7 @@ function selectionPanel(ctx: UIContext): Node[] {
       { className: 'head' },
       input(`${at}.name`, body.name, (name) => setBody({ ...body, name })),
       // a body with a material has that material's colour
-      ...(materialOf(ctx.doc, body)
+      ...(setLook(ctx.doc, body)
         ? []
         : [
             h('input', {
@@ -1146,7 +1120,7 @@ function selectionPanel(ctx: UIContext): Node[] {
     ),
     ...freeing,
     ...linkedNote(ctx, body),
-    ...materialRows(ctx, body.material, inheritedLabel(ctx, body), (id, added) => ctx.setMaterialOf([body.id], id, added), body.color),
+    ...materialRows(ctx, [body.id], inheritedLabel(ctx, body)),
     h('h3', {}, 'Position'),
     h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `${at}.position.${k}`, l))),
     h('h3', {}, 'Rotation'),
@@ -1219,7 +1193,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
   );
   return [
     h('div', { className: 'head' }, input(`groups.${i}.name`, g.name, (name) => set({ name })), button('Delete', ctx.remove, 'Delete the group with everything in it')),
-    ...materialRows(ctx, g.material, 'None', (id, added) => ctx.setMaterialOf([g.id], id, added), '#d8c3a0'),
+    ...materialRows(ctx, [g.id], 'None'),
     h('h3', {}, 'Origin'),
     h('div', { className: 'row' }, origin),
     ...(g.origin.kind === 'custom'

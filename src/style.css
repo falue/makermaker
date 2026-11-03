@@ -1222,6 +1222,89 @@ button.primary.wide {
   margin-bottom: 4px;
 }
 
+/* the materials dialog (on the settings dialog's frame) */
+.settings.materials .box {
+  width: min(760px, 94vw);
+}
+.mat-columns {
+  display: grid;
+  grid-template-columns: 270px 1fr;
+  gap: 18px;
+  margin-top: 10px;
+}
+.mat-list {
+  max-height: 68vh;
+  overflow: auto;
+  padding-right: 8px;
+  border-right: 1px solid var(--line);
+}
+.mat-list h3:first-child {
+  margin-top: 0;
+}
+.mat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.mat-row:hover {
+  background: var(--field);
+}
+.mat-row.on {
+  background: var(--selected);
+}
+.mat-row.editing {
+  border-color: var(--accent);
+}
+.mat-row .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mat-row button {
+  flex: none;
+  padding: 0 5px;
+}
+.mat-thumb {
+  flex: none;
+  width: 40px;
+  height: 30px;
+  border-radius: 4px;
+  background: var(--field);
+  object-fit: cover;
+}
+.mat-thumb:not([src]) {
+  visibility: hidden;
+}
+.mat-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.mat-edit canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: var(--field);
+}
+.mat-edit .mat-name {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.mat-edit small {
+  flex: none;
+  color: var(--muted);
+}
+.mat-edit .primary {
+  margin-top: 8px;
+}
 /* the settings dialog */
 .settings {
   position: fixed;

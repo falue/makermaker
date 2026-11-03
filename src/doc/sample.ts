@@ -142,10 +142,10 @@ function slantedPlane(): WorkPlane {
 export function sampleDoc(): Doc {
   const split = splitTest();
   const hinged = jointTests();
-  const material = (name: string, color: string, look: Partial<Material>): Material => ({ id: newId(), name, color, bump: 0, translucency: 0, glow: '#ffffff', glowStrength: 0, thickness: ex(''), ...look });
-  const frosted = material('Frosted acrylic', '#d7e8ef', { translucency: 0.8, bump: 0.2 });
+  const material = (name: string, color: string, look: Partial<Material>): Material => ({ id: newId(), name, color, bump: 0.2, reflection: 0, translucency: 0, glow: '#ffffff', glowStrength: 0, ...look });
+  const frosted = material('Frosted acrylic', '#d7e8ef', { translucency: 0.8, bump: 0.35 });
   const glowing = material('Glowing resin', '#332211', { glow: '#ff9a3c', glowStrength: 0.6 });
-  const rough = material('Rough plywood 4 mm', '#c7a26b', { bump: 0.8, thickness: ex(4) });
+  const rough = material('Rough plywood', '#c7a26b', { bump: 0.8 });
   const materialTests = [
     { ...solid('Frosted plate', '#ffffff', [160, -60, 0], [rect(40, 40)], 4), material: frosted.id },
     { ...solid('Glowing pin', '#ffffff', [160, 0, 0], [circle(0, 0, 16)], 30), material: glowing.id },
@@ -207,7 +207,7 @@ export function sampleDoc(): Doc {
   };
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
-    schema: 27,
+    schema: 28,
     units: 'mm',
     params: { ply: ex('4mm') },
     bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests()],

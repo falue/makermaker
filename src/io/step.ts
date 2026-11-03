@@ -227,9 +227,15 @@ export function readStep(text: string): StepNode | null {
 }
 
 /** What an appearance's name says about its look (STEP files seldom say more than a colour). */
-function lookFromName(name: string): Pick<Material, 'bump' | 'translucency'> {
+function lookFromName(name: string): Pick<Material, 'bump' | 'translucency' | 'reflection'> {
   const n = name.toLowerCase();
-  return { translucency: /glass|clear|transparent|acryl|plexi|pmma/.test(n) ? 0.85 : /frosted/.test(n) ? 0.5 : 0, bump: /rough|rugged|coarse|fabric/.test(n) ? 0.6 : 0 };
+  const frosted = /frosted/.test(n);
+  const clear = /glass|clear|transparent|acryl|plexi|pmma/.test(n);
+  return {
+    translucency: frosted ? 0.5 : clear ? 0.85 : 0,
+    bump: /rough|rugged|coarse|fabric/.test(n) ? 0.75 : frosted ? 0.35 : clear ? 0 : 0.2, // smooth unless it says otherwise
+    reflection: /alumin|steel|metal|brass|copper|chrome|titan/.test(n) ? 0.9 : 0,
+  };
 }
 
 /** Names that only repeat a colour. */
@@ -249,7 +255,7 @@ export function stepObjects(root: StepNode, file: string, materials: Material[],
     const same = (m: Material) => m.name === name && m.color === (p.color ?? '#d8c3a0');
     const found = [...materials, ...out.materials].find(same);
     if (found) return found.id;
-    const m: Material = { id: newId(), name, color: p.color ?? '#d8c3a0', glow: '#ffffff', glowStrength: 0, thickness: ex(''), ...lookFromName(name) };
+    const m: Material = { id: newId(), name, color: p.color ?? '#d8c3a0', glow: '#ffffff', glowStrength: 0, ...lookFromName(name) };
     if (p.translucency !== null) m.translucency = p.translucency;
     out.materials.push(m);
     return m.id;

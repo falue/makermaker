@@ -53,15 +53,52 @@ export function boxUv(geometry: THREE.BufferGeometry) {
 
 const strength = (bump: number) => bump * 1.5;
 
-/** Dresses a body's material in the 3D view; see-through there is plain opacity. */
-export function applyLook(m: THREE.MeshStandardMaterial, l: Look) {
+const rasters = new Map<string, THREE.CanvasTexture>();
+
+/** A measuring grid as a texture: thick lines every 10 cm (imperial: foot), thin ones every 1 cm (inch), repeating. */
+function rasterMap(kind: 'metric' | 'imperial') {
+  const known = rasters.get(kind);
+  if (known) return known;
+  const { major, minor } = kind === 'metric' ? { major: 100, minor: 10 } : { major: 304.8, minor: 25.4 };
+  const size = 2048;
+  const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size });
+  const g = canvas.getContext('2d')!;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, size, size);
+  const cells = Math.round(major / minor);
+  g.fillStyle = '#9aa0a8';
+  for (let i = 0; i < cells; i++) {
+    const at = (i / cells) * size;
+    g.fillRect(at, 0, 2, size);
+    g.fillRect(0, at, size, 2);
+  }
+  g.fillStyle = '#1c1c1e';
+  g.fillRect(0, 0, 10, size);
+  g.fillRect(0, 0, size, 10);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = 8;
+  map.repeat.setScalar(TILE / major); // texture coordinates count in TILE mm
+  rasters.set(kind, map);
+  return map;
+}
+
+/** Whether a look needs a mesh's texture coordinates (`boxUv`). */
+export const needsUv = (l: Look) => l.bump > 0 || !!l.raster;
+
+/** Dresses a body's material in the 3D view; see-through there is plain opacity. `around`: what a reflecting one mirrors. */
+export function applyLook(m: THREE.MeshStandardMaterial, l: Look, around: THREE.Texture | null = null) {
   m.color.set(l.color);
   m.roughness = l.roughness;
+  m.metalness = l.metalness;
   m.emissive.set(l.glow);
   m.emissiveIntensity = l.glowStrength * 2;
-  const [map, transparent] = [l.bump > 0 ? bumpMap() : null, l.translucency > 0];
-  if (m.normalMap !== map || m.transparent !== transparent) m.needsUpdate = true;
-  m.normalMap = map;
+  const [normal, map, transparent] = [l.bump > 0 ? bumpMap() : null, l.raster ? rasterMap(l.raster) : null, l.translucency > 0];
+  if (m.normalMap !== normal || m.map !== map || m.transparent !== transparent || m.envMap !== around) m.needsUpdate = true;
+  m.normalMap = normal;
+  m.map = map;
+  m.envMap = around;
   m.normalScale.setScalar(strength(l.bump));
   m.transparent = transparent;
   m.opacity = 1 - 0.8 * l.translucency;
@@ -72,10 +109,12 @@ export function renderMaterial(l: Look) {
   return new THREE.MeshPhysicalMaterial({
     color: l.color,
     roughness: l.roughness,
+    metalness: l.metalness,
     emissive: l.glow,
     emissiveIntensity: l.glowStrength * 4,
     transmission: l.translucency,
     ior: 1.5,
+    map: l.raster ? rasterMap(l.raster) : null,
     normalMap: l.bump > 0 ? bumpMap() : null,
     normalScale: new THREE.Vector2(strength(l.bump), strength(l.bump)),
   });

@@ -98,19 +98,18 @@ it('makes groups, bodies and one material; a product used again links', () => {
 
 it('a material is smooth unless its name says rough, and clear if it is glass or acrylic', () => {
   const look = (name: string) => {
-    const { bump, translucency } = objects(readStep(assembly().replace('Glass (Clear)', name))!).materials[0];
-    return [bump, translucency];
+    const { bump, translucency, reflection } = objects(readStep(assembly().replace('Glass (Clear)', name))!).materials[0];
+    return [bump, translucency, reflection];
   };
-  expect(look('Steel - Satin')).toEqual([0, 0]);
-  expect(look('Aluminum - Brushed Radial')).toEqual([0, 0]);
-  expect(look('Paint - Enamel Glossy (Black)')).toEqual([0, 0]);
-  expect(look('Aluminum - Anodized Rough (Red)')).toEqual([0.6, 0]);
-  expect(look('Rugged Plastic')).toEqual([0.6, 0]);
-  expect(look('Fabric (Grey)')).toEqual([0.6, 0]);
-  expect(look('Glass (Clear)')).toEqual([0, 0.85]);
-  expect(look('Acrylic')).toEqual([0, 0.85]);
-  expect(look('Acrylglas')).toEqual([0, 0.85]);
-  expect(look('A Type Bulb - Frosted - 800lm')).toEqual([0, 0.5]);
+  expect(look('ABS (White)')).toEqual([0.2, 0, 0]);
+  expect(look('Paint - Enamel Glossy (Black)')).toEqual([0.2, 0, 0]);
+  expect(look('Steel - Satin')).toEqual([0.2, 0, 0.9]);
+  expect(look('Aluminum - Anodized Rough (Red)')).toEqual([0.75, 0, 0.9]);
+  expect(look('Rugged Plastic')).toEqual([0.75, 0, 0]);
+  expect(look('Fabric (Grey)')).toEqual([0.75, 0, 0]);
+  expect(look('Glass (Clear)')).toEqual([0, 0.85, 0]);
+  expect(look('Acrylic')).toEqual([0, 0.85, 0]);
+  expect(look('A Type Bulb - Frosted - 800lm')).toEqual([0.35, 0.5, 0]);
 });
 
 it('reads back parts cut from a file another program wrote, where they were', async () => {

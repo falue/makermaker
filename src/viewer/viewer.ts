@@ -20,8 +20,9 @@ import { icon } from '../ui/icons';
 import { marks } from './marks';
 import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayout } from './viewlayout';
 import { fastRaycast } from './pick';
-import { DEFAULT_LIGHT, sunDirection, type Look } from '../doc/materials';
-import { applyLook, boxUv, renderMaterial } from './look';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { DEFAULT_LIGHT, plainLook, sunDirection, toLook, type Look } from '../doc/materials';
+import { applyLook, boxUv, needsUv, renderMaterial } from './look';
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { drawSky, SKIES, twoColours } from './sky';
@@ -1659,20 +1660,22 @@ export class Viewer implements ToolView {
     this.owners = new Map(looks.flatMap((l) => (l.owner ? [[l.id, l.owner]] : [])));
     for (const l of looks) {
       this.looks.set(l.id, l.look);
-      applyLook(this.materialOf(l.id), l.look);
+      applyLook(this.materialOf(l.id), l.look, l.look.metalness > 0 ? this.reflected() : null);
       this.dress(l.id);
     }
     this.applySection();
   }
 
-  /** A body's smallest side along its own axes, mm (null: not built). */
-  thinnest(id: string) {
-    const solid = this.bodies.get(id)?.children[0] as THREE.Mesh | undefined;
-    if (!solid) return null;
-    solid.geometry.computeBoundingBox();
-    const size = solid.geometry.boundingBox!.getSize(new THREE.Vector3());
-    return Math.min(size.x, size.y, size.z);
+  /** What metal mirrors in this view: a neutral room, made when first needed. */
+  private reflected() {
+    if (!this.around) {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.around = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      pmrem.dispose();
+    }
+    return this.around;
   }
+  private around: THREE.Texture | null = null;
 
   /** Tool bodies of booleans show (as outlines) only while selected; the rest as their looks say. */
   private rehide() {
@@ -1690,7 +1693,8 @@ export class Viewer implements ToolView {
   private dress(id: string) {
     const [solid, lines] = this.bodies.get(id)?.children ?? [];
     if (!solid) return;
-    if (this.looks.get(id)?.bump) boxUv((solid as THREE.Mesh).geometry);
+    const look = this.looks.get(id);
+    if (look && needsUv(look)) boxUv((solid as THREE.Mesh).geometry);
     const cutter = this.cutters.has(id);
     const dropped = !cutter && this.dropped.has(id);
     const faded = dropped || (!cutter && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id)));
@@ -1974,7 +1978,7 @@ export class Viewer implements ToolView {
     const meshes = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children[0] as THREE.Mesh | undefined;
       if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];
-      const m = new THREE.Mesh(solid.geometry, renderMaterial(this.looks.get(id) ?? { color: '#d8c3a0', roughness: 0.7, bump: 0, translucency: 0, glow: '#000000', glowStrength: 0 }));
+      const m = new THREE.Mesh(solid.geometry, renderMaterial(this.looks.get(id) ?? toLook(plainLook('#d8c3a0'))));
       m.applyMatrix4(g.matrixWorld);
       return [m];
     });
