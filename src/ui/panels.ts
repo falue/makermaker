@@ -38,8 +38,10 @@ export interface UIContext {
   info: { title: string; rows: [string, string, Measure?][] } | null;
   /** Shows a measure of the selection in the view: one box side (axis 0 / 1 / 2) or its position ('at'); null: none. */
   showMeasure(what: Measure | null): void;
-  /** In sketch mode: bodies shown fully (their eye switched them back); the others are see-through. */
+  /** In sketch mode or while a group's objects are selected: bodies shown fully (their eye switched them back); the others are see-through. */
   solid: Set<string>;
+  /** A group's objects selected: that group's contents (the rest fades); else null. */
+  grouped: Set<string> | null;
   setSolid(ids: string[], on: boolean): void;
   paramValue(name: string): string;
   commit(doc: Doc): void;
@@ -740,10 +742,11 @@ function left(ctx: UIContext): Node[] {
     const isolate = (e: MouseEvent) => (e.preventDefault(), ctx.isolate(p.id));
     look.onclick = (e) => (mod(e) || ctx.isolated === p.id ? isolate(e) : eyeClick('objects', p.id, !p.visible, e, setShown));
     if (ctx.isolated === p.id) Object.assign(look, { className: 'icon isolated', title: 'Shown alone: click to show the others again', innerHTML: icon('isolate') });
-    // a sketch group open: shown bodies are see-through; the eye switches one to fully shown and back (V still hides)
-    else if (ctx.sketching && p.visible) {
+    // a sketch group open, or a group's objects selected: the others are see-through; the eye switches one to fully shown and back (V still hides)
+    else if ((ctx.sketching || (ctx.grouped && !ctx.grouped.has(p.id))) && p.visible) {
       const full = ctx.solid.has(p.id);
-      Object.assign(look, { innerHTML: icon(full ? 'eye' : 'eyeFaded'), title: full ? 'Shown fully: click to make it see-through again' : 'See-through while the sketch group is open: click to show it fully', onclick: (e: MouseEvent) => eyeClick('solid', p.id, !full, e, ctx.setSolid) });
+      const when = ctx.sketching ? 'the sketch group is open' : 'its group is selected';
+      Object.assign(look, { innerHTML: icon(full ? 'eye' : 'eyeFaded'), title: full ? 'Shown fully: click to make it see-through again' : `See-through while ${when}: click to show it fully`, onclick: (e: MouseEvent) => eyeClick('solid', p.id, !full, e, ctx.setSolid) });
     }
     // its sketches have their own list: this button draws into the (first) one
     const own = sketchesOf(doc, p.id);

@@ -872,10 +872,17 @@ function showSelection() {
 }
 
 /** Objects of one group selected (not in sketch mode): that group's contents stay, the rest fades; else null. */
-function groupKept(doc: Doc) {
+function groupOf(doc: Doc) {
   const objects = [...doc.bodies, ...doc.sketches].filter((o) => selected.includes(o.id));
   const g = objects[0]?.group;
   return g && !sketching && objects.length === selected.length && objects.every((o) => o.group === g) ? new Set(contents(doc, [g])) : null;
+}
+
+/** What stays solid while a group's objects are selected: its contents and the bodies whose eye showed them fully (they reset when it ends). */
+function groupKept(doc: Doc) {
+  const kept = groupOf(doc);
+  if (!kept && !sketching) solid = new Set();
+  return kept && new Set([...kept, ...solid]);
 }
 
 /** Writes new positions (mm) as plain numbers in the display unit; untouched axes keep their expressions. */
@@ -4425,9 +4432,10 @@ function render() {
     minStep: settings.minStep,
     showMeasure: (what) => (what === 'at' ? viewer.showPoint(info?.at ? new Vector3(...info.at) : null) : viewer.showMeasure(what === null ? null : (info?.box ?? null), what ?? 0)),
     solid,
+    grouped: groupOf(history.current),
     setSolid(ids, on) {
       solid = new Set(on ? [...solid, ...ids] : [...solid].filter((x) => !ids.includes(x)));
-      render();
+      showSelection();
     },
     paramValue(name) {
       try {
