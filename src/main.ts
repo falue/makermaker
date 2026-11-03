@@ -1559,6 +1559,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
       const n = new Vector3(...f.n);
       const g: Frame = { ...f, o: mid.clone().addScaledVector(n, -mid.clone().sub(new Vector3(...f.o)).dot(n)).toArray() }; // the body's middle on the plane
       if (!picking) viewer.showAxis(axisOf(c, f), mid, size * 1.2);
+      angles?.show();
       return viewer.showCut([[at(g, -size, -size), at(g, size, -size), at(g, size, size), at(g, -size, size)]]);
     }
     if (c.kind === 'sphere' || c.kind === 'cylinder') {
@@ -1578,6 +1579,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     viewer.showCut(pts.slice(1).map((p, k) => [lift(pts[k], lo), lift(p, lo), lift(p, hi), lift(pts[k], hi)]));
   };
   const fields: HTMLInputElement[] = [];
+  let angles: ReturnType<typeof angleControl> | null = null;
   const field = (label: string, get: () => string, set: (t: string) => void) => {
     const input = Object.assign(document.createElement('input'), { value: get(), spellcheck: false });
     input.dataset.complete = '';
@@ -1602,6 +1604,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   /** "To object": the next click sets the offset so the cut goes through that point (shown while aiming). */
   const aim = () => {
     const before = values.offset;
+    angles?.disarm();
     picking = true;
     const through = (p?: Vector3) => {
       const c = current();
@@ -1649,6 +1652,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   };
   /** Set axis: the next click on an edge, line or circle is what the plane turns around (shown while hovering). */
   const setAxis = () => {
+    angles?.disarm();
     picking = true;
     toolHint = 'Click what the plane turns around · an edge or line, or a circle (its centre) · [Esc] keeps the axis';
     render();
@@ -1662,8 +1666,8 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
         if (a) axis = { at: unplaced(bodyPlace(body), a.at.toArray()), dir: unplaced(bodyPlace(body), a.dir.toArray(), true) };
         show();
         render();
-        fields[1].focus();
-        fields[1].select();
+        if (a) angles?.arm();
+        else fields[1].focus(), fields[1].select();
       },
       (a) => {
         tips.cursorTip(a ? `${a.what}\nClick: the plane turns around it` : null);
@@ -1688,6 +1692,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   /** Kept: the chunk to be deleted goes, the other (or both) stay and are listed; else everything as it was. */
   const finish = (ok: boolean) => {
     viewer.aiming = null;
+    angles?.end();
     viewer.cancelFacePick(); // a pick under way ends first: it shows the cut once more
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
@@ -1709,10 +1714,33 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     if (picking && pressed(e, 'cancel')) viewer.cancelFacePick();
     else finish(pressed(e, 'confirm'));
   };
+  const offsetField = field('Offset', () => values.offset, (t) => (values.offset = t));
+  const turnField = cutter.kind === 'plane' ? field('Turn °', () => values.turn, (t) => (values.turn = t)) : [];
+  angles =
+    cutter.kind === 'plane'
+      ? angleControl({
+          input: fields[1],
+          idle: () => !picking,
+          axis: () => {
+            const c = current();
+            if (c?.kind !== 'plane' || !whole) return null;
+            // from the plane unturned, on the body's side of the axis
+            const f = placeFrame(bodyPlace(body), cutPlane(resolve({ ...c, turn: ex(0) }, lookup, '', new Map()) as Parameters<typeof cutPlane>[0]));
+            const a = axisOf(c, f);
+            const mid = whole.getCenter(new Vector3());
+            const at = a.at.clone().addScaledVector(a.dir, mid.clone().sub(a.at).dot(a.dir));
+            const zero = new Vector3(...f.n).cross(a.dir);
+            if (zero.lengthSq() < 1e-9) zero.set(...f.x);
+            zero.normalize();
+            if (zero.dot(mid.clone().sub(at)) < 0) zero.negate();
+            return { at, dir: a.dir, zero };
+          },
+        })
+      : null;
   box.append(
-    cell(...field('Offset', () => values.offset, (t) => (values.offset = t)), toObjectButton(aim, 'Click a corner, edge or face: the cut goes through it', measureField)),
+    cell(...offsetField, toObjectButton(aim, 'Click a corner, edge or face: the cut goes through it', measureField)),
     ...(cutter.kind === 'plane'
-      ? [cell(...field('Turn °', () => values.turn, (t) => (values.turn = t))), Object.assign(document.createElement('button'), { className: 'set-axis', textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
+      ? [cell(...turnField, angles!.buttons()), Object.assign(document.createElement('button'), { className: 'set-axis', textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
       : []),
     segmented,
     panelButton('✓', 'Cut (Enter); Esc leaves the body as it was', () => finish(true)),
@@ -1785,22 +1813,199 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
   };
   input.oninput = () => set(input.value || '0');
   const label = Object.assign(document.createElement('span'), { textContent: 'Angle °' });
-  scrub(label, input, () => input.value, 'mm', settings.minStep, set, () => (input.focus(), input.select()));
+  scrub(label, input, () => input.value, 'mm', settings.minStep, (text) => (set(text), angles.show()), () => (input.focus(), input.select()));
+  const angles = angleControl({
+    input,
+    axis: () => {
+      // around the axis, from the shapes' middle
+      const s = viewer.sketches.find((k) => k.id === sketch);
+      if (!s) return null;
+      const [x, y] = [new Vector3(...s.frame.x), new Vector3(...s.frame.y)];
+      const dir = x.multiplyScalar(axis.dir[0]).add(y.multiplyScalar(axis.dir[1])).normalize();
+      const start = new Vector3(...toWorld(s.frame, ...axis.at));
+      const boxes = s.shapes.filter((q) => shapes.includes(q.id)).map(bounds);
+      const mid = new Vector3(...toWorld(s.frame, (Math.min(...boxes.map((b) => b[0])) + Math.max(...boxes.map((b) => b[2]))) / 2, (Math.min(...boxes.map((b) => b[1])) + Math.max(...boxes.map((b) => b[3]))) / 2));
+      const at = start.clone().addScaledVector(dir, mid.clone().sub(start).dot(dir));
+      const zero = mid.sub(at);
+      if (zero.lengthSq() < 1e-9) zero.set(...s.frame.n).cross(dir);
+      return { at, dir, zero: zero.normalize() };
+    },
+  });
+  input.addEventListener('input', () => angles.show());
   const finish = (ok: boolean) => {
+    angles.end();
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
     toolHint = null;
     if (!ok) return undo();
     render();
   };
-  const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
-  box.append(cell(label, input), panelButton('✓', 'Keep it (Enter); Esc leaves nothing', () => finish(true)));
+  const keys = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return; // the view's Esc ending a turn
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    finish(pressed(e, 'confirm'));
+  };
+  box.append(cell(label, input, angles.buttons()), panelButton('✓', 'Keep it (Enter); Esc leaves nothing', () => finish(true)));
   document.body.append(box);
   atTop(box);
-  toolHint = 'Type or scrub the angle · [Enter] keeps it · [Esc] leaves nothing';
+  toolHint = 'Type or scrub the angle, or turn it with its button · [Enter] keeps it · [Esc] leaves nothing';
   render();
+  angles.show();
   setTimeout(() => (input.focus(), input.select()));
   addEventListener('keydown', keys, { capture: true });
+}
+
+/** What angle steps a pointer turn has, for hints. */
+const angleKeys = () => `[Shift] ${SketchTool.angleStep}° steps, [A] / [Shift A] finer / coarser, [Ctrl] ${settings.minAngle}°`;
+
+/**
+ * The one way to change an angle, around `axis` (null: none now; `zero`: where 0° lies, else where the pointer starts):
+ * the orange arc and value, the steps as rays (Shift, a while after A / Shift A), digits into `input` from anywhere,
+ * T: two clicks give the angle. `arm`: the pointer turns it until a click (Esc: back to before; `click` false: the tool
+ * takes the click itself). `change` applies a text (default: as if typed); `idle` false: a pick of the tool's is on.
+ */
+function angleControl(o: { input: HTMLInputElement; axis: () => { at: Vector3; dir: Vector3; zero?: Vector3 } | null; change?: (text: string) => void; idle?: () => boolean; stepped?: () => void; aimed?: () => void }) {
+  const { input } = o;
+  input.dataset.noMeasure = ''; // an angle, not a length
+  const change = o.change ?? ((text: string) => ((input.value = text), input.dispatchEvent(new Event('input', { bubbles: true }))));
+  const read = () => (length(input.value || '0') ?? 0) / UNITS[history.current.units]; // degrees: the number as typed, not a length
+  let [armed, picks, ended, shift, raysUntil] = [false, false, false, false, 0];
+  let turn: { last: number; base: number; total: number; at: Vector3 } | null = null;
+  let [before, stopped, hintBefore] = ['0', null as string | null, null as string | null];
+  const show = () => {
+    const t = !ended && (o.idle?.() ?? true) && o.axis();
+    const from = t && (t.zero ? t.at.clone().addScaledVector(t.zero, 30) : turn?.at);
+    viewer.showTicks(t && from ? { at: t.at, dir: t.dir, from, step: SketchTool.angleStep, angle: read(), rays: shift || performance.now() < raysUntil } : null);
+  };
+  const disarm = () => {
+    armed = false;
+    if (hintBefore !== null) [toolHint, hintBefore] = [hintBefore, null];
+    if (!picks) return;
+    picks = false;
+    viewer.cancelFacePick();
+    render();
+  };
+  const arm = (click = true) => {
+    disarm();
+    [armed, turn, stopped] = [true, null, null];
+    input.blur();
+    input.parentElement?.addEventListener('pointerdown', disarm, { capture: true, once: true });
+    if (!click) return;
+    viewer.cancelFacePick();
+    [picks, before, hintBefore] = [true, input.value, toolHint];
+    toolHint = `Move around the axis to turn · click keeps it · ${angleKeys()} · [Esc] puts it back`;
+    render();
+    viewer.pickFace((face) => {
+      if (!picks) return;
+      picks = armed = false;
+      if (!face) stopped = before; // Esc, if its key says so below
+      if (hintBefore !== null) [toolHint, hintBefore] = [hintBefore, null];
+      render();
+    }, true);
+  };
+  /** Two clicks, where something is now and where it should go: their angle around the axis goes in at the cursor. */
+  const aim = () => {
+    const t = o.axis();
+    if (!t) return;
+    disarm();
+    viewer.cancelFacePick();
+    const picked: Vector3[] = [];
+    const hint = toolHint;
+    const done = () => ((viewer.aiming = null), viewer.aimAt(null), tips.cursorTip(null), (toolHint = hint), o.aimed?.(), render());
+    const next = () => {
+      viewer.aiming = (a) => tips.cursorTip([a?.what, `To object: click where it ${picked.length ? 'goes' : 'is now'}`].filter(Boolean).join('\n'));
+      viewer.aiming(viewer.aimHere());
+      viewer.pickFace((face) => {
+        if (ended) return;
+        if (!face?.snap) return done();
+        picked.push(face.snap);
+        if (picked.length < 2) return next();
+        const [a, b] = picked.map((p) => p.clone().sub(t.at).projectOnPlane(t.dir));
+        const deg = (Math.atan2(a.clone().cross(b).dot(t.dir), a.dot(b)) * 180) / Math.PI;
+        input.focus();
+        input.setRangeText(fmt(deg), input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length, 'end');
+        change(input.value);
+        done();
+      }, true);
+    };
+    toolHint = 'To object: click where it is now, then where it goes · their angle goes into the field · [Esc] cancels';
+    render();
+    next();
+  };
+  // the pointer around the axis, as the line tool turns a line: counter-clockwise on screen is positive seen from the axis' tip
+  const move = (e: PointerEvent) => {
+    const t = armed && !e.buttons && o.axis();
+    if (!t) return;
+    const r = viewer.el.getBoundingClientRect();
+    const [x, y] = viewer.toScreen(t.at);
+    const now = (Math.atan2(-(e.clientY - r.top - y), e.clientX - r.left - x) * 180) / Math.PI;
+    if (!turn) {
+      const at = viewer.pointOnPlane(e, t.at, t.dir);
+      if (!at || at.distanceTo(t.at) < 1e-6) return;
+      turn = { last: now, base: t.zero ? read() : 0, total: 0, at };
+    }
+    const sign = t.dir.dot(viewer.screenDir(1, 0).cross(viewer.screenDir(0, 1))) >= 0 ? 1 : -1;
+    turn.total += ((now - turn.last + 540) % 360 - 180) * sign;
+    turn.last = now;
+    const whole = Math.max(-360, Math.min(360, turn.base + turn.total));
+    turn.total = whole - turn.base;
+    const step = role(e, 'constrain') ? SketchTool.angleStep : role(e, 'precise') ? settings.minAngle : 1;
+    const text = fmt(Math.round(whole / step) * step);
+    if (text !== input.value) change(text);
+    show();
+  };
+  const keys = (e: KeyboardEvent) => {
+    if (e.key === roleKeyName('constrain')) return (shift = e.type === 'keydown'), show();
+    if (e.type !== 'keydown') return;
+    if (e.defaultPrevented) {
+      if (stopped !== null && pressed(e, 'cancel')) change(stopped); // the view's Esc ended the turn
+      stopped = null;
+      return;
+    }
+    stopped = null;
+    const typing = document.activeElement instanceof HTMLInputElement;
+    const stop = () => (e.preventDefault(), e.stopImmediatePropagation());
+    if (o.axis() && (document.activeElement === input ? wantsT(e, input, history.current.params) : !typing && pressed(e, 'toObject'))) return stop(), aim();
+    if (!typing && o.axis() && /^[\d.-]$/.test(e.key) && !e.metaKey && !e.ctrlKey) return disarm(), (input.value = ''), input.focus(); // the key lands there
+    const step = !typing ? (pressed(e, 'moreSnaps') ? 1 : pressed(e, 'fewerSnaps') ? -1 : 0) : 0;
+    if (!step) return;
+    stop();
+    SketchTool.angleStep = ANGLE_STEPS[Math.min(ANGLE_STEPS.length - 1, Math.max(0, ANGLE_STEPS.indexOf(SketchTool.angleStep) + step))];
+    raysUntil = performance.now() + 1500;
+    setTimeout(show, 1600);
+    show();
+    o.stepped?.();
+  };
+  const typed = (e: Event) => e.isTrusted && disarm();
+  input.addEventListener('input', typed);
+  for (const type of ['keydown', 'keyup'] as const) addEventListener(type, keys, { capture: true });
+  viewer.el.addEventListener('pointermove', move);
+  return {
+    show,
+    arm,
+    disarm,
+    aim,
+    armed: () => armed,
+    /** Turning starts afresh at the pointer. */
+    restart: () => (turn = null),
+    end() {
+      stopped = null;
+      disarm();
+      ended = true;
+      input.removeEventListener('input', typed);
+      for (const type of ['keydown', 'keyup'] as const) removeEventListener(type, keys, { capture: true });
+      viewer.el.removeEventListener('pointermove', move);
+      viewer.showTicks(null);
+    },
+    /** T and the pointer turn, in the field's cell. */
+    buttons() {
+      const tools = Object.assign(document.createElement('span'), { className: 'to-tools' });
+      const turning = Object.assign(panelButton('', 'Click: turn it with the pointer', () => arm()), { className: 'to-object', innerHTML: icon('rotate') });
+      tools.append(toObjectButton(aim, 'Click where something is now, then where it should go: their angle goes into the field'), turning);
+      return tools;
+    },
+  };
 }
 
 /**
@@ -1848,7 +2053,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     };
     const label = Object.assign(document.createElement('span'), { innerHTML: axisHtml(f.label) });
     if (f.title) label.title = input.title = f.title;
-    scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()), f.int, undefined, f.step);
+    scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), input.dispatchEvent(new Event('input', { bubbles: true }))), () => (input.focus(), input.select()), f.int, undefined, f.step);
     // To object right after the field it fills; label, field and button wrap together
     const tools = f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field', f.raw ? undefined : measureField)] : f.raw ? [] : [measureButton(measureField)];
     return [cell(label, input, ...tools)];
@@ -2039,7 +2244,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
         tips.cursorTip(null);
         viewer.showAxis(null);
         toolHint = null;
-        if (a) (axis = a), apply();
+        if (a) (axis = a), apply(), angles?.show();
         render();
       },
       (a) => (tips.cursorTip(a ? `${a.what}\nClick: copies go round it` : null), viewer.showAxis(a, a?.at, 60)),
@@ -2059,9 +2264,28 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
           });
           panel.inputs[3].dispatchEvent(new Event('input'));
         })];
-  const panel = valuePanel(fields, change, (ok) => (ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] keeps them · [Esc] leaves nothing' : 'Pattern grid: counts and gaps · along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] keeps them · [Esc] leaves nothing', extra);
+  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] keeps them · [Esc] leaves nothing' : 'Pattern grid: counts and gaps · along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] keeps them · [Esc] leaves nothing', extra);
   texts = fields.map((f) => f.value);
+  // around: the sweep, from the selection's middle; grid: each copy's turn, while it is in use
+  const turnField = panel.inputs[mode === 'around' ? 1 : 6];
+  const angles = angleControl({
+    input: turnField,
+    axis: () => {
+      if (mode === 'grid') return document.activeElement === turnField || (Number(turnField.value) || 0) !== 0 ? { at: box.getCenter(new Vector3()), dir: new Vector3(0, 0, 1), zero: new Vector3(1, 0, 0) } : null;
+      if (!axis) return null;
+      const mid = box.getCenter(new Vector3());
+      const at = axis.at.clone().addScaledVector(axis.dir, mid.clone().sub(axis.at).dot(axis.dir));
+      const zero = mid.sub(at);
+      if (zero.lengthSq() < 1e-9) zero.set(axis.dir.z > 0.9 ? 1 : 0, 0, axis.dir.z > 0.9 ? 0 : 1).cross(axis.dir);
+      return { at, dir: axis.dir, zero: zero.normalize() };
+    },
+  });
+  turnField.parentElement!.append(angles.buttons());
+  turnField.addEventListener('input', angles.show);
+  turnField.addEventListener('focus', angles.show);
+  turnField.addEventListener('blur', angles.show);
   apply();
+  angles.show();
 }
 
 /**
@@ -2298,35 +2522,25 @@ function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
   };
   const setAngle = (e: string, doc = history.current) => setIn(doc, [...path, 'angle'], { e, u: 'mm' });
   let picking = false;
-  // the angle steps show as rays while Shift is held, and a while after A / Shift A
-  let [shift, raysUntil] = [false, 0];
   // the angle at the hinge: from the face as it was, turning inward
-  const ticks = () => {
+  const hinge = () => {
     const f = now();
-    const angle = Number(panel.inputs[0].value);
     const [n, h] = [new Vector3(...inWorld(pl, f.n, true)).normalize(), new Vector3(...inWorld(pl, f.axis.dir, true)).normalize()];
     const at = new Vector3(...inWorld(pl, f.axis.at));
     const d = n.clone().cross(h);
     if (d.dot(new Vector3(...inWorld(pl, f.at)).sub(at)) < 0) d.negate();
-    viewer.showAxis({ at, dir: h, what: '' }, at, 40);
     // turned about the hinge the way that tips the face inward, so the angle reads as typed
     if (h.clone().cross(d).dot(n) > 0) h.negate();
-    viewer.showTicks(Number.isFinite(angle) ? { at, dir: h, from: at.clone().addScaledVector(d, 30), step: SketchTool.angleStep, angle, rays: shift || performance.now() < raysUntil } : null);
+    return { at, dir: h, zero: d };
   };
-  const keys = (e: KeyboardEvent) => {
-    if (e.key === roleKeyName('constrain')) return (shift = e.type === 'keydown'), !picking && ticks();
-    const step = e.type === 'keydown' && document.activeElement !== panel.inputs[0] ? (pressed(e, 'moreSnaps') ? 1 : pressed(e, 'fewerSnaps') ? -1 : 0) : 0;
-    if (!step) return;
-    SketchTool.angleStep = ANGLE_STEPS[Math.min(ANGLE_STEPS.length - 1, Math.max(0, ANGLE_STEPS.indexOf(SketchTool.angleStep) + step))];
-    raysUntil = performance.now() + 1500;
-    setTimeout(() => panel.inputs[0].isConnected && !picking && ticks(), 1600);
-    if (!picking) ticks();
-    e.preventDefault();
-    e.stopImmediatePropagation();
+  const ticks = () => {
+    const { at, dir } = hinge();
+    viewer.showAxis({ at, dir, what: '' }, at, 40);
+    angles.show();
   };
   // a press on the body: dragging up turns the face further, down back (a press elsewhere still turns the view)
   const press = (e: PointerEvent) => {
-    if (e.button !== 0 || picking || !(e.target instanceof HTMLCanvasElement) || viewer.hit(e)?.object.userData.bodyId !== body) return;
+    if (e.button !== 0 || picking || angles.armed() || !(e.target instanceof HTMLCanvasElement) || viewer.hit(e)?.object.userData.bodyId !== body) return;
     e.stopPropagation();
     const field = panel.inputs[0];
     field.blur();
@@ -2350,6 +2564,7 @@ function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
   };
   const setAxis = panelButton('Set axis', 'Click an edge or line: the hinge it turns about (laid into the face)', () => {
     if (picking) return;
+    angles.disarm();
     picking = true;
     const kept = now().angle.e;
     change(setAngle('0'));
@@ -2381,8 +2596,7 @@ function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
     ([t]) => (change(setAngle(t)), !picking && ticks()),
     (ok) => {
       removeEventListener('pointerdown', press, { capture: true });
-      for (const type of ['keydown', 'keyup'] as const) removeEventListener(type, keys, { capture: true });
-      viewer.showTicks(null);
+      angles.end();
       viewer.showAxis(null);
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
@@ -2390,8 +2604,9 @@ function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
     'Draft: drag the body up / down or type the angle (inward; negative: outward) · [Shift] angle steps, [A] / [Shift A] finer / coarser, [Ctrl] precise · Set axis: the hinge it turns about (its bottom side first) · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
     [setAxis],
   );
+  const angles = angleControl({ input: panel.inputs[0], axis: hinge, idle: () => !picking });
+  panel.inputs[0].parentElement!.append(angles.buttons());
   addEventListener('pointerdown', press, { capture: true });
-  for (const type of ['keydown', 'keyup'] as const) addEventListener(type, keys, { capture: true });
   ticks();
 }
 
@@ -2930,6 +3145,7 @@ function planePanel(id: string, fresh = false) {
   // one pick at a time: `take` gets each click (true: picking goes on); the snap a click takes shows while hovering (`lit`: a face or edge lit whole)
   let picking: string | null = null;
   const pick = (what: string, tip: string, take: (p: PickedFace) => boolean, lit = false) => {
+    angles.disarm();
     viewer.cancelFacePick();
     picking = what;
     toolHint = `Work plane: ${tip} · [Esc] stops`;
@@ -2987,6 +3203,7 @@ function planePanel(id: string, fresh = false) {
   const pointsButton = panelButton('Points', 'Click points the plane passes through', () => (picking === 'points' ? viewer.cancelFacePick() : pickPoints()));
   const clear = panelButton('Clear', 'Leave the points out', () => (setPlane({ points: [] }), status()));
   const setAxis = panelButton('Set axis', 'Click an edge or line: it turns around that (then Turn °)', () => {
+    angles.disarm();
     viewer.cancelFacePick();
     viewer.pickAxis(
       (a) => {
@@ -2995,6 +3212,7 @@ function planePanel(id: string, fresh = false) {
         if (a) setPlane({ axis: { at: a.at.toArray(), dir: a.dir.toArray() } });
         status();
         render();
+        if (a) angles.arm();
       },
       (a) => (tips.cursorTip(a ? `${a.what}\nClick: it turns around it` : null), viewer.showAxis(a, a?.at, 60)),
     );
@@ -3012,11 +3230,11 @@ function planePanel(id: string, fresh = false) {
     ([o, t]) => (change(setIn(setIn(history.current, at('offset'), { e: o, u }), at('turn'), { e: t, u: 'mm' })), marks()),
     (ok) => {
       [picking, viewer.aiming] = [null, null];
+      angles.end();
       viewer.cancelFacePick();
       viewer.aimAt(null);
       tips.cursorTip(null);
       viewer.editPlane(null);
-      viewer.showTicks(null);
       viewer.showAxis(null);
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
@@ -3027,6 +3245,20 @@ function planePanel(id: string, fresh = false) {
   const [offsetCell, turnCell] = panel.inputs.map((x) => x.closest('.cell') as HTMLElement);
   // modes, Offset, Set axis, Turn, then the points
   offsetCell.after(setAxis, turnCell, pointsButton, clear);
+  const angles = angleControl({
+    input: panel.inputs[1],
+    // from the plane as made (it shows while Turn does)
+    axis: () => {
+      const p = now();
+      if (!p.axis || turnCell.style.display === 'none') return null;
+      const [dir, o] = [new Vector3(...p.axis.dir).normalize(), new Vector3(...p.o)];
+      const start = new Vector3(...p.axis.at);
+      const zero = new Vector3(...p.n).cross(dir);
+      if (zero.lengthSq() < 1e-9) zero.set(...p.x);
+      return { at: start.addScaledVector(dir, o.clone().sub(start).dot(dir)), dir, zero: zero.normalize() };
+    },
+  });
+  turnCell.append(angles.buttons());
   /** While it is edited: what it was made from marked (the face's outline, the edge, its points; its axis dashed), its sides dragged to size it, and its turn's angle. */
   function marks() {
     const p = now();
@@ -3035,17 +3267,8 @@ function planePanel(id: string, fresh = false) {
     const hull = p.hull.map((h) => new Vector3(...h));
     const lines = hull.length > 2 ? hull.map((h, k): [Vector3, Vector3] => [h, hull[(k + 1) % hull.length]]) : hull.length === 2 ? [[hull[0], hull[1]] as [Vector3, Vector3]] : [];
     viewer.editPlane({ id, lines, points: pts, resize: (rect) => setPlane({ rect }) });
-    const axis = p.axis && { at: new Vector3(...p.axis.at), dir: new Vector3(...p.axis.dir).normalize(), what: '' };
-    const o = new Vector3(...p.o);
-    viewer.showAxis(axis && p.mode === 'face' ? axis : null, o, 60);
-    // the turn: from the plane as made, around its axis (the indicator while Turn shows)
-    const turn = Number(panel.inputs[1].value);
-    if (axis && turnCell.style.display !== 'none' && Number.isFinite(turn)) {
-      const at = axis.at.clone().addScaledVector(axis.dir, o.clone().sub(axis.at).dot(axis.dir));
-      const zero = new Vector3(...p.n).cross(axis.dir);
-      if (zero.lengthSq() < 1e-9) zero.set(...p.x);
-      viewer.showTicks({ at, dir: axis.dir, from: at.clone().addScaledVector(zero.normalize(), 30), step: 15, angle: turn });
-    } else viewer.showTicks(null);
+    viewer.showAxis(p.axis && p.mode === 'face' ? { at: new Vector3(...p.axis.at), dir: new Vector3(...p.axis.dir).normalize(), what: '' } : null, new Vector3(...p.o), 60);
+    angles.show();
   }
   function status() {
     const p = now();
@@ -3192,12 +3415,8 @@ function rotateTool() {
   };
   let angle = 0;
   let typed = false; // a typed angle: the pointer no longer turns it
-  let from: { screen: number; at: Vector3 } | null = null; // where the pointer started turning it
   let mode: 'turn' | 'axis' | 'aim' = 'axis';
   let ended = false;
-  // the angle steps show as rays while Shift is held, and a while after A / Shift A
-  let [shift, raysUntil] = [false, 0];
-  const shiftKey = (e: KeyboardEvent) => e.key === roleKeyName('constrain') && ((shift = e.type === 'keydown'), marks());
   const apply = (a: number) => {
     angle = a;
     input.value = fmt(a);
@@ -3209,7 +3428,7 @@ function rotateTool() {
   const marks = () => {
     viewer.showPoint(pivot);
     viewer.showAxis(pivot && { at: pivot, dir, what: '' }, pivot ?? undefined, 60);
-    viewer.showTicks(pivot && from ? { at: pivot, dir, from: from.at, step: SketchTool.angleStep, angle, rays: shift || performance.now() < raysUntil } : null);
+    angles.show();
     lightAxis();
   };
   /** The axis switch: X / Y / Z when it lies along that world axis, else Set axis (also while picking one). */
@@ -3226,12 +3445,19 @@ function rotateTool() {
     if (v !== null && pivot) apply(v / UNITS[doc0.units]); // degrees: the number as typed, not a length
   };
   input.oninput = () => ((typed = true), fromField(input.value));
+  const angles = angleControl({
+    input,
+    axis: () => pivot && { at: pivot, dir },
+    change: (text) => fromField(text),
+    stepped: () => mode === 'turn' && turnHint(),
+    aimed: () => turnPick(),
+  });
   const label = Object.assign(document.createElement('span'), { textContent: 'Turn °' });
-  scrub(label, input, () => input.value, 'mm', settings.minAngle, (text) => ((typed = true), (input.value = text), fromField(text)), () => (input.focus(), input.select()));
+  scrub(label, input, () => input.value, 'mm', settings.minAngle, (text) => ((typed = true), angles.disarm(), (input.value = text), fromField(text)), () => (input.focus(), input.select()));
   const button = panelButton;
   /** Around world axis `k` through the point (none yet: the selection's middle). */
   const along = (k: number) => {
-    [dir, pivot, from] = [new Vector3().setComponent(k, 1), pivot ?? middle, null];
+    [dir, pivot, typed] = [new Vector3().setComponent(k, 1), pivot ?? middle, false];
     apply(0);
     turnPick();
   };
@@ -3239,8 +3465,8 @@ function rotateTool() {
   const turnPick = () => {
     mode = 'turn';
     lightAxis();
-    toolHint = `Move around the axis to turn, or type degrees · [Shift] ${SketchTool.angleStep}° steps, [A] / [Shift A] finer / coarser, [Ctrl] ${settings.minAngle}°${point ? ' · click its point again: the next axis' : ''} · click or [Enter] keeps it · [Esc] puts it back`;
-    render();
+    if (!typed) angles.arm(false);
+    turnHint();
     viewer.pickFace((face) => {
       if (ended || mode !== 'turn') return;
       const at = viewer.pointer();
@@ -3249,7 +3475,6 @@ function rotateTool() {
       // its point clicked again: Z, then X, then Y through it
       if (face && point && !frame && at && Math.hypot(at.x - r.left - x, at.y - r.top - y) < 14) {
         dir = new Vector3().setComponent((dir.z ? 0 : dir.x ? 1 : 2), 1);
-        from = null;
         typed = false;
         apply(0);
         return turnPick();
@@ -3257,38 +3482,20 @@ function rotateTool() {
       finish(!!face);
     }, true);
   };
-  /** To object: two clicks, where something is now and where it should go; their angle around the axis goes into Turn ° (to calculate on). */
+  const turnHint = () => {
+    toolHint = `Move around the axis to turn, or type degrees · ${angleKeys()}${point ? ' · click its point again: the next axis' : ''} · click or [Enter] keeps it · [Esc] puts it back`;
+    render();
+  };
+  /** To object: two clicks; their angle around the axis goes into Turn ° (to calculate on). */
   const aimAngle = () => {
     if (!pivot) return;
     mode = 'aim'; // before ending the turn's pick: that pick then does nothing
-    viewer.cancelFacePick();
-    const picks: Vector3[] = [];
-    const done = () => ((viewer.aiming = null), viewer.aimAt(null), tips.cursorTip(null));
-    const next = () => {
-      viewer.aiming = (a) => tips.cursorTip([a?.what, `To object: click where it ${picks.length ? 'goes' : 'is now'}`].filter(Boolean).join('\n'));
-      viewer.aiming(viewer.aimHere());
-      viewer.pickFace((face) => {
-        if (ended) return;
-        if (!face?.snap) return done(), turnPick();
-        picks.push(face.snap);
-        if (picks.length < 2) return next();
-        done();
-        const [a, b] = picks.map((p) => p.clone().sub(pivot!).projectOnPlane(dir));
-        const deg = (Math.atan2(a.clone().cross(b).dot(dir), a.dot(b)) * 180) / Math.PI;
-        input.focus();
-        input.setRangeText(fmt(deg), input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length, 'end');
-        typed = true;
-        fromField(input.value);
-        turnPick();
-      }, true);
-    };
-    toolHint = 'To object: click where it is now, then where it goes · their angle goes into Turn ° · [Esc] cancels';
-    render();
-    next();
+    angles.aim();
   };
   /** The next click sets the axis (in a sketch: the point it turns around). */
   const setAxis = () => {
     mode = 'axis'; // before ending the turn's pick: that pick then does nothing
+    angles.disarm();
     viewer.cancelFacePick();
     viewer.showTicks(null);
     lightAxis();
@@ -3306,7 +3513,6 @@ function rotateTool() {
           if (frame) pivot = new Vector3(...toWorld(frame, ...uvOf(frame, a.at)));
           else [pivot, dir] = [a.at.clone().addScaledVector(a.dir, middle.clone().sub(a.at).dot(a.dir)), a.dir.clone()];
           if (point && !frame) pivot = a.at.clone();
-          from = null;
         }
         apply(angle);
         turnPick();
@@ -3321,50 +3527,19 @@ function rotateTool() {
     viewer.cancelFacePick();
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
-    removeEventListener('keydown', shiftKey);
-    removeEventListener('keyup', shiftKey);
-    viewer.el.removeEventListener('pointermove', move);
+    angles.end();
     viewer.showPoint(null);
     viewer.showAxis(null);
-    viewer.showTicks(null);
     tips.cursorTip(null);
     toolHint = null;
     if (!ok && history.current !== doc0) return undo();
     render();
   };
-  // the pointer around the axis, as the line tool turns a line: counter-clockwise on screen is positive seen from the axis' tip
-  const move = (e: PointerEvent) => {
-    if (mode !== 'turn' || typed || e.buttons || !pivot) return;
-    const r = viewer.el.getBoundingClientRect();
-    const [x, y] = viewer.toScreen(pivot);
-    const now = Math.atan2(-(e.clientY - r.top - y), e.clientX - r.left - x);
-    if (!from) {
-      const at = viewer.pointOnPlane(e, pivot, dir);
-      if (!at || at.distanceTo(pivot) < 1e-6) return;
-      from = { screen: now, at };
-    }
-    const sign = dir.dot(viewer.screenDir(1, 0).cross(viewer.screenDir(0, 1))) >= 0 ? 1 : -1;
-    const raw = ((((now - from.screen) * 180) / Math.PI) * sign + 540) % 360 - 180;
-    const step = role(e, 'constrain') ? SketchTool.angleStep : role(e, 'precise') ? settings.minAngle : 1;
-    const a = Math.round(raw / step) * step;
-    if (a !== angle) apply(a);
-    else marks();
-  };
   const keys = (e: KeyboardEvent) => {
     if (e.defaultPrevented) return; // the view's Esc ending a pick
-    if (pivot && mode === 'turn' && (document.activeElement === input ? wantsT(e, input, doc0.params) : pressed(e, 'toObject'))) return e.preventDefault(), e.stopImmediatePropagation(), aimAngle();
-    // typing degrees goes into the field (the key lands there)
-    if (pivot && /^[\d.-]$/.test(e.key) && document.activeElement !== input && !e.metaKey && !e.ctrlKey) return (input.value = ''), input.focus();
     const axis = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
-    const step = pressed(e, 'moreSnaps') ? 1 : pressed(e, 'fewerSnaps') ? -1 : 0;
     if (axis >= 0 && !frame) along(axis);
-    else if (step && document.activeElement !== input) {
-      SketchTool.angleStep = ANGLE_STEPS[Math.min(ANGLE_STEPS.length - 1, Math.max(0, ANGLE_STEPS.indexOf(SketchTool.angleStep) + step))];
-      raysUntil = performance.now() + 1500;
-      setTimeout(() => !ended && marks(), 1600);
-      marks();
-      if (mode === 'turn') turnPick();
-    } else if (pressed(e, 'confirm')) finish(true);
+    else if (pressed(e, 'confirm')) finish(true);
     else if (pressed(e, 'cancel')) (mode === 'turn' || !pivot ? finish(false) : viewer.cancelFacePick());
     else return;
     e.preventDefault();
@@ -3383,9 +3558,6 @@ function rotateTool() {
   document.body.append(box);
   atTop(box);
   addEventListener('keydown', keys, { capture: true });
-  addEventListener('keydown', shiftKey);
-  addEventListener('keyup', shiftKey);
-  viewer.el.addEventListener('pointermove', move);
   setAxis();
 }
 
@@ -4819,7 +4991,49 @@ function syncFocus() {
   });
 }
 
+/** The rotation field in use (focused or scrubbed): its path. */
+let rotationField: string | null = null;
+
+/** The orange indicator for the rotation field in use: its turn, after those that come later in the order X, Y, Z. */
+function showRotationField() {
+  const m = rotationField?.match(/^(bodies|groups)\.(\d+)\.(?:origin\.)?rotation\.r([xyz])$/);
+  const doc = history.current;
+  const owner = m && doc[m[1] as 'bodies' | 'groups'][Number(m[2])];
+  if (!m || !owner) return viewer.showTicks(null);
+  const lookup = paramLookup(doc.params);
+  const r = 'rotation' in owner ? owner.rotation : owner.origin.kind === 'custom' ? owner.origin.rotation : null;
+  if (!r) return viewer.showTicks(null);
+  const [rx, ry, rz] = [r.rx, r.ry, r.rz].map((x) => evalLength(x, lookup) / UNITS[x.u]); // degrees: the numbers as typed
+  if (![rx, ry, rz].every(Number.isFinite)) return viewer.showTicks(null);
+  const rad = Math.PI / 180;
+  const k = 'xyz'.indexOf(m[3]);
+  // while typing: what stands in the field, not yet in the document
+  const typing = document.activeElement instanceof HTMLInputElement && document.activeElement.dataset.path === rotationField ? length(document.activeElement.value) : null;
+  const before = new Quaternion().setFromRotationMatrix(parentPlace(owner.id));
+  if (k < 2) before.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), rz * rad));
+  if (k < 1) before.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), ry * rad));
+  const unit = (i: number) => new Vector3().setComponent(i, 1).applyQuaternion(before);
+  const at = new Vector3().setFromMatrixPosition(bodyPlaces.get(owner.id) ?? groupPlace(owner.id));
+  viewer.showTicks({ at, dir: unit(k), from: at.clone().addScaledVector(unit((k + 1) % 3), 30), step: SketchTool.angleStep, angle: typing === null ? [rx, ry, rz][k] : typing / UNITS[doc.units] });
+}
+
+{
+  const pathOf = (t: EventTarget | null) => (t instanceof Element ? (t.closest('label.field')?.querySelector('input') ?? t.closest('input'))?.dataset.path : undefined);
+  const use = (path: string | undefined) => {
+    const next = path && /\.rotation\.r[xyz]$/.test(path) ? path : null;
+    if (next === rotationField) return;
+    rotationField = next;
+    showRotationField();
+  };
+  addEventListener('focusin', (e) => use(pathOf(e.target)));
+  addEventListener('input', () => rotationField && showRotationField());
+  addEventListener('focusout', () => use(undefined));
+  addEventListener('pointerdown', (e) => pathOf(e.target) && use(pathOf(e.target)), { capture: true });
+  addEventListener('pointerup', () => setTimeout(() => !document.activeElement?.closest('label.field') && use(undefined)));
+}
+
 function render() {
+  if (rotationField) showRotationField();
   viewer.el.classList.toggle('picking', !!pending); // objects to pick: crosshair
   syncFocus();
   const info = infoOf();

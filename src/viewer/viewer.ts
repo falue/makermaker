@@ -3784,9 +3784,10 @@ export class Viewer implements ToolView {
     const world = new THREE.Vector3(...toWorld(f, ...centre(st)));
     if (ed.handle.kind === 'rotate') {
       const deg = angleAt(st, q) - ed.a0;
-      const turn = e && role(e, 'precise') ? 0.1 : e && role(e, 'constrain') ? 15 : 1; // degrees
-      ed.next = rotated(st, Math.round(deg / turn) * turn);
-      this.label(`${(ed.next.kind === 'circle' || ed.next.kind === 'line' ? 0 : ed.next.rot).toFixed(1)}°`, world);
+      const turn = e && role(e, 'precise') ? 0.1 : e && role(e, 'constrain') ? SketchTool.angleStep : 1; // degrees
+      const angle = Math.round(deg / turn) * turn;
+      ed.next = rotated(st, angle);
+      this.showTicks({ at: world, dir: new THREE.Vector3(...f.n), from: new THREE.Vector3(...toWorld(f, ...ed.q0)), step: SketchTool.angleStep, angle, rays: !!e && role(e, 'constrain') });
     } else {
       const typed = ed.typed.map((t) => (t === undefined ? undefined : (this.host.length(t) ?? undefined))) as [number | undefined, number | undefined];
       ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e && role(e, 'centre'), shift: !!e && role(e, 'constrain'), step: this.step(world, e ?? undefined, false), typed });
@@ -3817,6 +3818,7 @@ export class Viewer implements ToolView {
     this.edit = null;
     this.controls.enabled = true;
     this.moveLabel.hidden = true;
+    if (ed?.handle.kind === 'rotate') this.showTicks(null);
     if (!ed) return;
     if (keep && ed.next) {
       const [a, b] = ed.typed;
