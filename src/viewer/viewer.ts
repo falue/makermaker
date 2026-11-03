@@ -1930,12 +1930,6 @@ export class Viewer implements ToolView {
     return box.isEmpty() ? null : box.getCenter(new THREE.Vector3());
   }
 
-  /** Slides the view to `at` (see `centreOn`) if it lies outside the view. */
-  bringIntoView(at: THREE.Vector3) {
-    const p = at.clone().project(this.camera);
-    if (p.z > 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1) this.centreOn(at);
-  }
-
   /** Slides the view (its turn and zoom kept) until `at` lies in its middle. */
   private centreOn(at: THREE.Vector3, ms = 400) {
     const look = this.camera.getWorldDirection(new THREE.Vector3());

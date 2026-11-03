@@ -770,7 +770,10 @@ function left(ctx: UIContext): Node[] {
       : copies.length
         ? [h('button', { className: 'icon linked-mark', innerHTML: icon('link'), title: `Its ${copies.length} linked cop${copies.length === 1 ? 'y shares' : 'ies share'} its steps · click: break the links (each its own object, together in a new group "${p.name}")`, onclick: () => ctx.breakLinks(p.id) })]
         : [];
-    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...sketch, ...bools, ...jointMark(id), tool);
+    // a box joint: its button opens its panel
+    const finger = p.features.find((f) => f.type === 'fingers');
+    const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Box joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];
+    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...joint, ...sketch, ...bools, ...jointMark(id), tool);
     return el;
   });
   // sketches: their own list, each with the body it belongs to
