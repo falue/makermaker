@@ -1032,14 +1032,19 @@ function imagePanel(ctx: UIContext, i: number): Node[] {
   };
   const width = h('input', { value: String(+im.width.toFixed(3)), title: 'Width in mm (Calibrate sets it from two points)' });
   width.onchange = () => +width.value > 0 && ctx.commit(setIn(doc, at('width'), +width.value));
-  const colour = h('input', { type: 'color', value: im.key ?? '#ffffff', title: 'This colour is shown transparent' });
+  const colour = h('input', { type: 'color', value: im.key ?? '#ffffff', title: 'This colour is shown transparent', className: 'color' });
   colour.onchange = () => ctx.commit(setIn(doc, at('key'), colour.value));
   return [
     h('div', { className: 'head' }, input(`images.${i}.name`, im.name, (name) => ctx.commit(setIn(doc, at('name'), name))), button('Delete', () => ctx.commit({ ...doc, images: doc.images.filter((x) => x !== im) }), 'Delete the image')),
     h('div', { className: 'row' }, h('label', { className: 'field' }, h('span', {}, 'Width mm'), width), button('Calibrate', () => ctx.calibrate(im.id), 'Click two points on the picture, then type their real distance')),
+    h('div', { className: 'row' }, ...[0, 1, 2].map((k) => {
+      const el = h('input', { value: String(+im.frame.o[k].toFixed(3)), title: `Its middle along ${'XYZ'[k]}, mm` });
+      el.onchange = () => Number.isFinite(+el.value) && ctx.commit(setIn(doc, ['images', String(i), 'frame', 'o', String(k)], +el.value));
+      return h('label', { className: 'field' }, h('span', { innerHTML: axisHtml('XYZ'[k]) }), el);
+    }), button('Turn', ctx.rotateTool, 'Turn it around its middle')),
     h('div', { className: 'row' }, h('span', {}, 'Opacity'), slider('opacity', 'How much it hides what lies behind it')),
     h('div', { className: 'row' }, h('span', {}, 'Transparent'), colour, ...(im.key ? [slider('tolerance', 'How far off the colour still turns transparent'), button('×', () => ctx.commit(setIn(doc, at('key'), null)), 'No colour transparent')] : [])),
-    h('p', { className: 'hint' }, 'A picture to draw over, on the plane it was dropped on; a PNG keeps its own transparency. Calibrate: two points on it and their real distance.'),
+    h('p', { className: 'hint' }, 'A picture to draw over, on the plane it was dropped on; a PNG keeps its own transparency. Drag it to move it, a corner to resize it. Calibrate: two points on it and their real distance.'),
   ];
 }
 

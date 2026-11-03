@@ -43,6 +43,8 @@ export interface ViewerHost {
   select(id: string | null, add: boolean): void;
   /** Bodies were dragged to new positions (mm). */
   move(moves: { id: string; position: Vec3 }[]): void;
+  /** An image was dragged to a new middle (world, mm) or corner-dragged to a new width too. */
+  placeImage(id: string, o: Vec3, width?: number): void;
   /** A sketch shape was clicked; `add`: Shift or ⌘ / Ctrl, toggles it in the selection. */
   pickShape(sketch: string, shape: string, add: boolean): void;
   /** Shapes of a sketch were moved, resized or turned (mm, degrees); sizes typed as text are kept as expressions. */
@@ -875,8 +877,99 @@ export class Viewer implements ToolView {
         o.matrix.copy(place);
         this.imageMark.add(o);
       }
+      if (im.selected) this.imageMark.add(Object.assign(marks(corners.map((c) => c.clone().applyMatrix4(place)), 0x2f80ed, 9), { renderOrder: 1e6 }));
     }
     this.render();
+  }
+
+  /** A press on a selected image: its corner resizes it, the picture moves it on its plane. True: it took the press. */
+  private startImageEdit(e: PointerEvent, ray: THREE.Ray, hit?: THREE.Intersection) {
+    const selected = this.imageList.filter((im) => im.selected);
+    const r = this.el.getBoundingClientRect();
+    for (const im of selected) {
+      const shown = this.images.find((x) => x.id === im.id);
+      if (!shown) continue;
+      const [fx, fy, o] = [new THREE.Vector3(...im.frame.x), new THREE.Vector3(...im.frame.y), new THREE.Vector3(...im.frame.o)];
+      const corner = [[-1, -1], [1, -1], [1, 1], [-1, 1]].find(([u, v]) => {
+        const [x, y] = this.toScreen(o.clone().addScaledVector(fx, (u * shown.w) / 2).addScaledVector(fy, (v * shown.h) / 2));
+        return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 9;
+      });
+      if (corner) return this.startImageScale(e, im.id, corner, shown.h / shown.w), true;
+    }
+    const at = this.imageAt(e, hit);
+    const im = at && selected.find((x) => x.id === at.id);
+    if (!im) return false;
+    const [fx, fy, from] = [new THREE.Vector3(...im.frame.x), new THREE.Vector3(...im.frame.y), new THREE.Vector3(...im.frame.o)];
+    const start = planeHit(ray, im.frame) ?? from.clone();
+    const strongest = (v: THREE.Vector3) => [v.x, v.y, v.z].map(Math.abs).reduce((best, c, k, a) => (c > a[best] ? k : best), 0);
+    const placed = (by: THREE.Vector3) => from.clone().addScaledVector(fx, by.dot(fx)).addScaledVector(fy, by.dot(fy));
+    this.startDrag(e, ray, start, {
+      axes: [strongest(fx), strongest(fy)],
+      lead: from,
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(...im.frame.n), start),
+      only: null,
+      apply: (by) => this.showImageAt(im.id, placed(by)),
+      end: (by) => {
+        if (by) return this.host.placeImage(im.id, placed(by).toArray());
+        this.showImageAt(im.id, from);
+      },
+    });
+    return true;
+  }
+
+  /** An image shown elsewhere and at another width, for the moment (the document's comes back with `setImages`). */
+  private showImageAt(id: string, o: THREE.Vector3, width?: number) {
+    this.imageList = this.imageList.map((im) => (im.id === id ? { ...im, width: width ?? im.width, frame: { ...im.frame, o: o.toArray() } } : im));
+    this.drawImages();
+  }
+
+  /** Drags corner `corner` (±1, ±1) of an image: the opposite one stays, its proportions too. */
+  private startImageScale(down: PointerEvent, id: string, [u, v]: number[], ratio: number) {
+    const im = this.imageList.find((x) => x.id === id)!;
+    const [fx, fy, o] = [new THREE.Vector3(...im.frame.x), new THREE.Vector3(...im.frame.y), new THREE.Vector3(...im.frame.o)];
+    const n = new THREE.Vector3(...im.frame.n);
+    const fixed = o.clone().addScaledVector(fx, (-u * im.width) / 2).addScaledVector(fy, (-v * im.width * ratio) / 2);
+    const canvas = this.renderer.domElement;
+    canvas.setPointerCapture(down.pointerId);
+    this.controls.enabled = false;
+    const placed = (e: PointerEvent) => {
+      const p = this.pointOnPlane(e, fixed, n) ?? fixed;
+      const width = Math.max(1, p.clone().sub(fixed).dot(fx) * u);
+      return { width, o: fixed.clone().addScaledVector(fx, (u * width) / 2).addScaledVector(fy, (v * width * ratio) / 2) };
+    };
+    const moved = (e: PointerEvent) => {
+      const now = placed(e);
+      this.showImageAt(id, now.o, now.width);
+    };
+    const up = (e: PointerEvent) => {
+      canvas.removeEventListener('pointermove', moved);
+      canvas.removeEventListener('pointerup', up);
+      this.controls.enabled = true;
+      const now = placed(e);
+      this.host.placeImage(id, now.o.toArray(), now.width);
+    };
+    canvas.addEventListener('pointermove', moved);
+    canvas.addEventListener('pointerup', up);
+  }
+
+  /** Dashed guide lines along `x` and `y` through a point (none: gone). */
+  showCrossGuides(at: THREE.Vector3 | null, x?: THREE.Vector3, y?: THREE.Vector3, reach = 1e5) {
+    for (const o of this.crossGuides.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
+    this.crossGuides.clear();
+    if (!this.crossGuides.parent) this.overlay.add(this.crossGuides);
+    for (const d of at ? [x!, y!] : []) {
+      const m = new LineMaterial({ color: 0xc14bd6, linewidth: 1, depthTest: false, dashed: true, transparent: true });
+      m.resolution.set(this.el.clientWidth, this.el.clientHeight);
+      const ends = [at!.clone().addScaledVector(d, -reach), at!.clone().addScaledVector(d, reach)];
+      this.crossGuides.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(ends.flatMap((v) => v.toArray())), m).computeLineDistances(), { renderOrder: 1e6 }));
+    }
+    this.render();
+  }
+  private crossGuides = new THREE.Group();
+
+  /** How far `px` screen pixels reach at world point `at`, in mm. */
+  reachAt(at: THREE.Vector3, px = 8) {
+    return px / this.pixelsPerMm(at);
   }
 
   /** Reads an image's picture into a texture (its colour key made transparent), then draws the images again. */
@@ -1975,13 +2068,21 @@ export class Viewer implements ToolView {
 
   /** A path traced picture (`samples` passes) from a saved camera: shown bodies only, cutters and overlays left out. */
   async renderNice(camera: CameraState, background: Backdrop, light: Light, samples: number, watch: RenderWatch) {
-    const meshes = [...this.bodies].flatMap(([id, g]) => {
+    const meshes: THREE.Mesh[] = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children[0] as THREE.Mesh | undefined;
       if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];
       const m = new THREE.Mesh(solid.geometry, renderMaterial(this.looks.get(id) ?? toLook(plainLook('#d8c3a0'))));
       m.applyMatrix4(g.matrixWorld);
       return [m];
     });
+    // images as they lie, lit like the rest
+    for (const o of this.imageMark.children) {
+      if (!(o instanceof THREE.Mesh)) continue;
+      const { map, opacity } = o.material as THREE.MeshBasicMaterial;
+      const m = new THREE.Mesh(o.geometry, new THREE.MeshStandardMaterial({ map, opacity, transparent: true, roughness: 1, side: THREE.DoubleSide }));
+      m.applyMatrix4(o.matrix);
+      meshes.push(m);
+    }
     const url = background.photo && this.photos.get(background.photo.id);
     const photo = url ? { image: await loadImage(url), turn: background.photo!.turn } : null;
     return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, light, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
@@ -3481,6 +3582,10 @@ export class Viewer implements ToolView {
     const shape = this.shapeAt(ray.ray, hit?.distance);
     this.downOnPart = !!hit || !!shape;
     if (this.downOnPart) this.host.touched();
+    if (!toggles(e) && this.startImageEdit(e, ray.ray, hit)) {
+      this.downOnPart = true;
+      return;
+    }
     if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0) {
       this.lastFace = { point: hit.point.clone(), normal: hit.face.normal.clone().negate(), body: hit.object.userData.bodyId };
       this.lastHit = hit;

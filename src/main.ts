@@ -245,8 +245,27 @@ function number(text: string) {
   }
 }
 
+/** What was picked in the 3D view shows in the left column: its groups open, its row scrolled to, smoothly. */
+function revealInList(id: string | null) {
+  const doc = history.current;
+  const object = id ? (doc.bodies.find((b) => b.id === id) ?? doc.sketches.find((x) => x.id === id)) : undefined;
+  if (!object) return;
+  for (let g = doc.groups.find((x) => x.id === object.group); g; g = doc.groups.find((x) => x.id === g!.parent)) folded.delete(g.id);
+  render();
+  document.querySelector(`#left [data-id="${CSS.escape(id!)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 const viewer = new Viewer(document.getElementById('viewport')!, {
-  select,
+  select(id, add) {
+    select(id, add);
+    if (id && selected.includes(id)) revealInList(id);
+  },
+  placeImage(id, o, width) {
+    const i = history.current.images.findIndex((im) => im.id === id);
+    if (i < 0) return;
+    const im = history.current.images[i];
+    commit(setIn(history.current, ['images', String(i)], { ...im, width: width ?? im.width, frame: { ...im.frame, o } }));
+  },
   move: place,
   pickShape,
   setShapes,
@@ -935,6 +954,7 @@ function withPlaces(doc: Doc, moves: { id: string; position: Vec3 }[]) {
 }
 
 function nudge(by: Vec3) {
+  if (selectedImages().length) commit({ ...history.current, images: history.current.images.map((im) => (selected.includes(im.id) ? { ...im, frame: { ...im.frame, o: im.frame.o.map((v, k) => v + by[k]) as Vec3 } } : im)) });
   place(selected.flatMap((id) => {
     const p = positions.get(id);
     return p ? [{ id, position: p.map((v, k) => v + by[k]) as Vec3 }] : [];
@@ -1067,6 +1087,7 @@ function toggleVisible() {
  * typing replaces them). Copy: the selection stays (shown whole, not as a ghost) and a copy of it moves.
  */
 function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: { sources: string[]; copies: string[] }) {
+  if (selected.length && selectedImages().length === selected.length) return moveImages();
   if (!selected.length) {
     // tool first: a click picks what moves and opens the field; Shift / ⌘ clicks collect several, Enter then
     pending = {
@@ -3089,6 +3110,7 @@ function loftTool() {
  * X / Y / Z (that world axis through the point), Set axis. Enter or ✓ keeps it (one undo step), Esc puts it back.
  */
 function rotateTool() {
+  if (selected.length && selectedImages().length === selected.length) return turnImages();
   if (!selected.length) {
     pending = { tool: 'move', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), rotateTool()) };
     toolHint = 'Rotate: click what to turn · [Esc] cancels';
@@ -5349,19 +5371,41 @@ function calibrate(id: string) {
   };
   const pts: Vector3[] = [];
   const u = doc0.units;
+  const [fx, fy] = [new Vector3(...im.frame.x), new Vector3(...im.frame.y)];
+  // on the guide lines through the first point when near them
+  const snapped = (p: Vector3 | null | undefined) => {
+    if (!p || !pts[0]) return p;
+    const by = p.clone().sub(pts[0]);
+    const reach = viewer.reachAt(p);
+    const [dx, dy] = [by.dot(fx), by.dot(fy)];
+    return pts[0].clone().addScaledVector(fx, Math.abs(dx) < reach ? 0 : dx).addScaledVector(fy, Math.abs(dy) < reach ? 0 : dy);
+  };
   const end = () => {
     viewer.aiming = null;
     viewer.cancelFacePick();
     viewer.showMeasureLine(null);
+    viewer.showCrossGuides(null);
     tips.cursorTip(null);
+    removeEventListener('keydown', skip, { capture: true });
   };
+  // Enter: this step is done, the picture stays as it is
+  const skip = (e: KeyboardEvent) => {
+    if (!pressed(e, 'confirm')) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    end();
+    toolHint = null;
+    render();
+  };
+  addEventListener('keydown', skip, { capture: true });
   const pick = () =>
     viewer.pickFace((face) => {
-      const p = face && onPicture();
+      const p = face && snapped(onPicture());
       if (!face) return end(), (toolHint = null), render();
       if (!p) return pick();
       pts.push(p);
       viewer.showMeasureLine(pts[0], pts[1] ?? null);
+      if (pts.length === 1) viewer.showCrossGuides(p, fx, fy);
       if (pts.length < 2) return pick();
       end();
       // the distance as it is now; typing the real one scales the image about the first point
@@ -5384,13 +5428,65 @@ function calibrate(id: string) {
     }, true);
   viewer.aiming = () => {
     viewer.aimAt(null);
-    const p = onPicture();
+    const p = snapped(onPicture());
     viewer.showMeasureLine(pts[0] ?? p, pts[0] ? p : null);
     tips.cursorTip(pts.length ? 'Click the second point' : 'Click a point on the picture whose distance to another you know');
   };
-  toolHint = 'Calibrate: click two points on the picture whose distance you know · then type it · [Esc] skips';
+  toolHint = 'Calibrate: click two points on the picture whose distance you know · then type it · [Enter] skips, it stays as it is';
   render();
   pick();
+}
+
+const selectedImages = () => history.current.images.filter((im) => selected.includes(im.id));
+
+/** The selected images, each changed from how it was at the start of a tool, one undo step; Esc puts them back. */
+function imagePanel(fields: Parameters<typeof valuePanel>[0], change: (im: ImageRef, values: string[]) => ImageRef | null, hint: string, done = () => {}) {
+  const doc0 = history.current;
+  valuePanel(
+    fields,
+    (values) => {
+      const doc = { ...doc0, images: doc0.images.map((im) => (selected.includes(im.id) ? (change(im, values) ?? im) : im)) };
+      if (history.current === doc0) history.push(doc);
+      else history.replace(doc);
+      update();
+    },
+    (ok) => (done(), ok ? render() : history.current !== doc0 ? undo() : render()),
+    hint,
+  );
+}
+
+/** Move on images: X / Y / Z distances, live. */
+function moveImages() {
+  const u = history.current.units;
+  const label = (k: number) => 'XYZ'[k];
+  imagePanel(
+    [0, 1, 2].map((k) => ({ label: label(k), value: '0', title: `How far along ${label(k)}, in ${u}` })),
+    (im, values) => {
+      const by = values.map((t) => length(t));
+      return by.every((v) => v !== null) ? { ...im, frame: { ...im.frame, o: im.frame.o.map((v, k) => v + by[k]!) as Vec3 } } : null;
+    },
+    'Move the picture: X, Y, Z · [Enter] keeps it · [Esc] puts it back · or drag it in the view',
+  );
+}
+
+/** Rotate on images: each turns about its middle, in its plane, the angle shown as for a line. */
+function turnImages() {
+  const [first] = selectedImages();
+  const [at, n, x] = [new Vector3(...first.frame.o), new Vector3(...first.frame.n), new Vector3(...first.frame.x)];
+  imagePanel(
+    [{ label: 'Turn °', value: '0', raw: true, title: 'Degrees, around its middle' }],
+    (im, [t]) => {
+      const angle = Number(t);
+      if (!Number.isFinite(angle)) return null;
+      const rad = (angle * Math.PI) / 180;
+      const axis = new Vector3(...im.frame.n);
+      const turned = (v: Vec3) => new Vector3(...v).applyAxisAngle(axis, rad).toArray() as Vec3;
+      if (im === first) viewer.showTicks({ at, dir: n, from: at.clone().addScaledVector(x, first.width / 2), step: SketchTool.angleStep, angle });
+      return { ...im, frame: { ...im.frame, x: turned(im.frame.x), y: turned(im.frame.y) } };
+    },
+    'Turn the picture around its middle · [Enter] keeps it · [Esc] puts it back',
+    () => viewer.showTicks(null),
+  );
 }
 
 /** Asks for a file to import. */
@@ -5542,7 +5638,8 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'duplicate')) shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate);
   else if (pressed(e, 'copy')) copy(false);
   else if (pressed(e, 'cut')) copy(true);
-  else if (pressed(e, 'paste')) paste();
+  // a file in the clipboard goes to the 'paste' event; it comes right after this key if there is one
+  else if (pressed(e, 'paste')) pasteSoon = window.setTimeout(paste, 40);
   else if (pressed(e, 'ungroup')) sketching && shapeSel.length ? groupShapes(true) : ungroup();
   else if (pressed(e, 'group')) sketching && shapeSel.length ? groupShapes() : groupTool();
   else return;
@@ -5573,6 +5670,17 @@ const cad = {
   redo: () => undo(true),
 };
 (window as unknown as { makermaker: typeof cad }).makermaker = cad;
+
+let pasteSoon = 0;
+// ⌘V with a file in the clipboard (a picture copied elsewhere): imported where the pointer is
+addEventListener('paste', (e) => {
+  const f = e.clipboardData?.files[0];
+  if (!f || (e.target as HTMLElement).closest?.('input, textarea')) return;
+  clearTimeout(pasteSoon);
+  e.preventDefault();
+  const name = f.name.includes('.') ? f : new File([f], `pasted.${f.type.split('/')[1] ?? 'png'}`, { type: f.type });
+  if (!importFile(name, viewer.pointer() ?? undefined)) fail(`${f.name} is not a file that can be imported`);
+});
 
 addEventListener('dragover', (e) => e.preventDefault());
 addEventListener('drop', (e) => {
