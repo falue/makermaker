@@ -153,6 +153,12 @@ export type FingersFeature = { id: string; type: 'fingers'; body: string; count:
 /** Any flat face (body point `at` on it, outward normal `n`, body-local) pushed or pulled `distance` along `n`: the face extruded and joined, or cut in. */
 export type PushFeature = { id: string; type: 'push'; at: [number, number, number]; n: [number, number, number]; distance: Expr };
 
+/**
+ * A flat face (body point `at` on it, outward normal `n`, body-local) drafted: turned `angle` degrees about its hinge
+ * (a line in its plane from `axis.at` along `axis.dir`), its far side inward (negative: outward).
+ */
+export type DraftFeature = { id: string; type: 'draft'; at: [number, number, number]; n: [number, number, number]; axis: { at: [number, number, number]; dir: [number, number, number] }; angle: Expr };
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   /** `back`: how far it also reaches behind its sketch plane (none: 0). */
@@ -171,6 +177,7 @@ export type Feature =
   | ThreadFeature
   | BulgeFeature
   | PushFeature
+  | DraftFeature
   | FingersFeature;
 
 /**
@@ -218,7 +225,7 @@ export type LoftIn = { id: string; type: 'loft'; sections: { frame: Omit<FramePl
 export type SweepIn = { id: string; type: 'sweep'; profile: Profile; path: { frame: Omit<FramePlane, 'kind'>; profile: Profile } };
 /** A bulge with sketch shapes on their frame (body-local), as the kernel builds it. */
 export type BulgeIn = Omit<BulgeFeature, 'on'> & { on: Exclude<BulgeFeature['on'], { kind: 'sketch' }> | { kind: 'frame'; frame: Omit<FramePlane, 'kind'>; profiles: Profile[] } };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | MirrorFeature | ThreadFeature | BulgeIn | PushFeature;
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | MirrorFeature | ThreadFeature | BulgeIn | PushFeature | DraftFeature;
 
 export interface Body {
   id: string;
@@ -347,7 +354,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 24;
+  schema: 25;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

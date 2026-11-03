@@ -116,6 +116,9 @@ export interface UIContext {
   loftTool(): void;
   /** Bulge: a face or closed sketch shapes domed (see main's bulgeTool). */
   bulgeTool(): void;
+  /** Draft: a flat face turned about its hinge (see main's draftTool). */
+  draftTool(): void;
+  editDraft(body: string, feature: string): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
   /** Moves objects before or after another one (into its group), or into a group. */
@@ -505,6 +508,7 @@ function editbar(ctx: UIContext): Node[] {
     tool('sweep', 'Sweep: a line or shape outline clicked (the path), then the outline of a closed sketch shape to run along it (the profile)', ctx.sweepTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
     tool('bulge', 'Bulge: a face swells out smoothly, its rim kept (flat: a dome, round: a vase), or closed sketch shapes become a dome; amount, curve and peak in a panel', ctx.bulgeTool),
+    tool('draft', 'Draft: a flat face (Alt-picked, or clicked next) turns about its bottom side, 5° inward (Set axis: any edge as the hinge)', ctx.draftTool),
     h('hr'),
     h(
       'div',
@@ -1355,6 +1359,13 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         h('p', { className: 'hint' }, other ? `With ${other.name}${lead ? ` (fingers set there)` : ''}; a finger length above 0 replaces the count (exact, from the low end or a point: ✎)` : 'Its partner was deleted: it does nothing'),
       );
     }
+    case 'draft':
+      return h(
+        'section',
+        {},
+        h('h4', {}, 'Draft', button('✎', () => ctx.editDraft(body.id, feature.id), 'Edit it in its panel (Set axis: its hinge)'), remove),
+        h('div', { className: 'row' }, exprField(ctx, `${at}.angle`, 'Angle °', true), h('span', { className: 'hint' }, 'a flat face turned about its hinge, inward (negative: outward)')),
+      );
     case 'push':
       return h('section', {}, h('h4', {}, 'Push / pull', remove), h('div', { className: 'row' }, f('distance', 'Distance'), h('span', { className: 'hint' }, 'a flat face, out (negative: in)')));
     case 'mirror':

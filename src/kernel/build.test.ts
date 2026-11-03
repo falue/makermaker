@@ -183,6 +183,18 @@ describe('buildBody', () => {
     centred.delete();
   });
 
+  it('drafts a flat face about its hinge', async () => {
+    const { measureVolume } = await import('replicad');
+    // the plate's x 30 side (60 × 4 tall), hinged at its bottom: 5° in takes a wedge 4 tall, 4 tan 5° deep
+    const draft = (angle: number) => ({ id: 'd', type: 'draft', at: [30, 0, 2], n: [1, 0, 0], axis: { at: [30, -30, 0], dir: [0, 1, 0] }, angle }) as BuildFeature;
+    const wedge = 0.5 * 4 * 4 * Math.tan((5 * Math.PI) / 180) * 60;
+    for (const [angle, sign] of [[5, -1], [-5, 1]]) {
+      const drafted = buildBody([base(60), draft(angle)]);
+      expect(measureVolume(drafted)).toBeCloseTo(60 * 60 * 4 + sign * wedge, 1);
+      drafted.delete();
+    }
+  });
+
   it('pushes and pulls any flat face', () => {
     const push = (distance: number) => ({ id: 'p', type: 'push', at: [30, 0, 2], n: [1, 0, 0], distance }) as BuildFeature;
     const out = built([base(60), push(5)]);

@@ -18,7 +18,7 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, BulgeFeature, FingersFeature, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -2197,6 +2197,103 @@ function bulgeTool() {
     false,
     true,
   );
+}
+
+/**
+ * Draft: a flat face (Alt-picked, or clicked next) turned about its hinge (its bottom side first), its far side
+ * inward; then its panel (see `draftPanel`).
+ */
+function draftTool() {
+  const last = viewer.lastFaceItem();
+  const face = viewer.pickedFaceItems()[0] ?? (last && selected.includes(last.body) ? last : null);
+  if (face) return viewer.dropPicked(), draftOn(face);
+  toolHint = 'Draft: click the face to draft (a flat one) · [Esc] cancels';
+  render();
+  viewer.pickFace((picked) => {
+    toolHint = null;
+    if (picked?.item) return draftOn(picked.item);
+    render();
+  });
+}
+
+/** A new draft on a flat face, 5° about its lowest side, then its panel. */
+function draftOn(face: FaceItem) {
+  const { corners } = viewer.faceSize(face);
+  if (!corners) return fail('Only flat faces can be drafted');
+  // the hinge: the side of its smallest rectangle lowest down (world)
+  const sides = corners.map((c, k): [Vector3, Vector3] => [c, corners[(k + 1) % 4]]);
+  const [a, b] = sides.reduce((low, s) => (s[0].z + s[1].z < low[0].z + low[1].z - 1e-6 ? s : low));
+  const doc = history.current;
+  const pl = bodyPlace(face.body);
+  const i = stepsOf(doc, face.body);
+  const feature: Feature = { id: newId(), type: 'draft', at: unplaced(pl, face.point.toArray()), n: unplaced(pl, face.n.toArray(), true), axis: { at: unplaced(pl, a.toArray()), dir: unplaced(pl, b.clone().sub(a).toArray(), true) }, angle: ex('5') };
+  [selected, shapeSel] = [[face.body], []];
+  commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
+  draftPanel(doc.bodies[i].id, feature.id, true);
+}
+
+/**
+ * A draft's panel: Angle ° (the orange indicator at its hinge) and Set axis (an edge or line: the hinge, laid into the
+ * face's plane). Live; `fresh`: Esc leaves nothing, else Esc puts it back.
+ */
+function draftPanel(body: string, id: string, fresh = false) {
+  const doc0 = history.current;
+  const i = doc0.bodies.findIndex((b) => b.id === body);
+  const j = doc0.bodies[i]?.features.findIndex((f) => f.id === id) ?? -1;
+  if (doc0.bodies[i]?.features[j]?.type !== 'draft') return;
+  const path = ['bodies', String(i), 'features', String(j)];
+  const now = () => getIn(history.current, path) as DraftFeature;
+  const pl = bodyPlace(body);
+  const change = (next: Doc) => {
+    if (fresh || history.current !== doc0) history.replace(next);
+    else history.push(next);
+    update();
+  };
+  // the angle at the hinge: from the face as it was, turning inward
+  const ticks = () => {
+    const f = now();
+    const angle = Number(panel.inputs[0].value);
+    const [n, h] = [new Vector3(...inWorld(pl, f.n, true)).normalize(), new Vector3(...inWorld(pl, f.axis.dir, true)).normalize()];
+    const at = new Vector3(...inWorld(pl, f.axis.at));
+    const d = n.clone().cross(h);
+    if (d.dot(new Vector3(...inWorld(pl, f.at)).sub(at)) < 0) d.negate();
+    viewer.showAxis({ at, dir: h, what: '' }, at, 40);
+    // turned about the hinge the way that tips the face inward, so the angle reads as typed
+    if (h.clone().cross(d).dot(n) > 0) h.negate();
+    viewer.showTicks(Number.isFinite(angle) ? { at, dir: h, from: at.clone().addScaledVector(d, 30), step: 5, angle } : null);
+  };
+  const setAxis = panelButton('Set axis', 'Click an edge or line: the hinge it turns about (laid into the face)', () => {
+    viewer.pickAxis(
+      (a) => {
+        tips.cursorTip(null);
+        const f = now();
+        if (a) {
+          // laid into the face's plane
+          const n = new Vector3(...f.n).normalize();
+          const [p, d] = [new Vector3(...unplaced(pl, a.at.toArray())), new Vector3(...unplaced(pl, a.dir.toArray(), true))];
+          p.addScaledVector(n, -p.clone().sub(new Vector3(...f.at)).dot(n));
+          d.addScaledVector(n, -d.dot(n));
+          if (d.lengthSq() < 1e-6) fail('That stands square to the face: pick one along it');
+          else change(setIn(history.current, [...path, 'axis'], { at: p.toArray(), dir: d.normalize().toArray() }));
+        }
+        ticks();
+      },
+      (a) => (tips.cursorTip(a ? `${a.what}\nClick: the draft turns about it` : null), viewer.showAxis(a, a?.at, 60)),
+    );
+  });
+  const panel = valuePanel(
+    [{ label: 'Angle °', value: now().angle.e, raw: true, step: 0.1, title: 'Angle °: how far the face turns about its hinge, inward (negative: outward)' }],
+    ([t]) => (change(setIn(history.current, [...path, 'angle'], { e: t, u: 'mm' })), ticks()),
+    (ok) => {
+      viewer.showTicks(null);
+      viewer.showAxis(null);
+      if (ok || !(fresh || history.current !== doc0)) render();
+      else undo();
+    },
+    'Draft: the angle (inward; negative: outward) · Set axis: the hinge it turns about (its bottom side first) · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    [setAxis],
+  );
+  ticks();
 }
 
 /** Bulges a face or sketch shapes (see `bulgeTool`): a new bulge, its peak 10 mm out (a round face: half its radius), then its panel. */
@@ -4636,6 +4733,8 @@ function render() {
     },
     loftTool,
     bulgeTool,
+    draftTool,
+    editDraft: draftPanel,
     groupSelected: selected.length === 1 && doc.groups.some((g) => g.id === selected[0]),
     arrange,
     select,
@@ -4715,7 +4814,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 24, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 25, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

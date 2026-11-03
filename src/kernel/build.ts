@@ -91,6 +91,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'thread') apply(s.id, (cur) => thread(cur, s));
       if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
       if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
+      if (s.type === 'draft') apply(s.id, (cur) => draft(cur, s));
       if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
@@ -541,6 +542,35 @@ function push(shape: Shape3D | null, s: Of<'push'>): Shape3D {
     return s.distance > 0 ? shape.fuse(tool, { optimisation: 'commonFace' }) : shape.cut(tool, { optimisation: 'commonFace' });
   } finally {
     tool.delete();
+  }
+}
+
+/**
+ * A flat face drafted (OpenCascade's taper): turned `angle` degrees about its hinge, matter taken away on the side
+ * away from the hinge (negative: added).
+ */
+function draft(shape: Shape3D | null, s: Of<'draft'>): Shape3D {
+  if (!shape) throw new Error('nothing to draft yet');
+  if (!s.angle) throw new Error('the angle must not be 0');
+  const oc = getOC();
+  const face = new FaceFinder().containsPoint(s.at).find(shape).find((f) => f.geomType === 'PLANE' && dot(f.normalAt(s.at).toTuple() as V3, s.n) > 0.99);
+  if (!face) throw new Error('its face is gone, or no longer flat');
+  // the pull direction: in the face, square to the hinge, from it towards the face
+  let d = norm(cross(norm(s.n), norm(s.axis.dir)));
+  if (dot(sub(s.at, s.axis.at), d) < 0) d = scale(d, -1);
+  const dir = new oc.gp_Dir(...d);
+  const plane = new oc.gp_Pln(new oc.gp_Pnt(...s.axis.at), dir);
+  const algo = new oc.BRepOffsetAPI_DraftAngle(shape.wrapped);
+  try {
+    algo.Add(face.wrapped, dir, (s.angle * Math.PI) / 180, plane, true);
+    if (!algo.AddDone()) throw new Error('the draft could not be made there (angle too large?)');
+    algo.Build(new oc.Message_ProgressRange());
+    if (!algo.IsDone()) throw new Error('the draft could not be made there (angle too large?)');
+    return cast(algo.Shape()) as Shape3D;
+  } finally {
+    algo.delete();
+    plane.delete();
+    dir.delete();
   }
 }
 
