@@ -2293,28 +2293,33 @@ function offsetTool() {
     toolHint = 'Offset: select sketch shapes first · or click a body to hollow it (shell) · [Esc] cancels';
     return render();
   }
+  // the shell shows at once (closed, 2 mm walls); each face clicked opens live; one undo step
+  const doc0 = history.current;
+  const i = stepsOf(doc0, body);
+  const path = ['bodies', String(i), 'features', String(doc0.bodies[i].features.length)];
   const open: [number, number, number][] = [];
+  commit(setIn(doc0, ['bodies', String(i), 'features'], [...doc0.bodies[i].features, { id: newId(), type: 'shell' as const, thickness: len(2), open }]));
   let ended = false;
   const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), walls());
   const stop = () => ((ended = true), removeEventListener('keydown', keys, { capture: true }), viewer.cancelFacePick());
   const next = () => {
-    toolHint = `Shell: click the faces to leave open · ${open.length} so far; none: closed, hollow inside · [Enter] then the wall thickness · [Esc] cancels`;
+    toolHint = `Shell: click the faces to leave open · ${open.length} so far; none: closed, hollow inside · [Enter] then the wall thickness · [Esc] leaves nothing`;
     render();
     viewer.pickFace((face) => {
       if (ended) return;
-      if (!face) return stop(), (toolHint = null), render();
-      if (face.body === body) open.push(unplaced(bodyPlace(body), face.point.toArray()));
+      if (!face) return stop(), (toolHint = null), undo();
+      if (face.body === body) {
+        open.push(unplaced(bodyPlace(body), face.point.toArray()));
+        history.replace(setIn(history.current, [...path, 'open'], [...open]));
+        update();
+      }
       next();
     });
   };
   const walls = () => {
     stop();
-    const doc = history.current;
-    const i = stepsOf(doc, body);
-    const feature = { id: newId(), type: 'shell' as const, thickness: len(2), open };
-    commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
-    const j = history.current.bodies[i].features.length - 1;
-    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[doc.units]) }], ([t]) => (history.replace(setIn(history.current, ['bodies', String(i), 'features', String(j), 'thickness'], { e: t, u: doc.units })), update()), (ok) => (ok ? render() : undo()), 'Shell: the wall thickness · type or scrub it · [Enter] keeps it · [Esc] leaves nothing');
+    const u = history.current.units;
+    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[u]) }], ([t]) => (history.replace(setIn(history.current, [...path, 'thickness'], { e: t, u })), update()), (ok) => (ok ? render() : undo()), 'Shell: the wall thickness · type or scrub it · [Enter] keeps it · [Esc] leaves nothing');
   };
   addEventListener('keydown', keys, { capture: true });
   next();
