@@ -106,6 +106,8 @@ export interface ToolView {
   unlockPointer(): void;
   /** Lights the whole face of a hit (none: clears it). */
   markFace(hit?: THREE.Intersection): void;
+  /** Lights a work plane (null: none). */
+  lightPlane(id: string | null): void;
   /** Body corners in the world, to snap to. */
   corners(): THREE.Vector3[];
   /** Body edges in the world (each as segments), to snap to. */
@@ -1172,6 +1174,17 @@ export class SketchTool implements Tool {
       }
       if (profile.kind === 'circle' && ph.kind === 'shape') {
         const tangent = this.drawMode(ph)?.id === 'tangent'; // sized by its radius
+        // the line its middle rides on, from where the lines cross past the middle
+        const b = tangent && ph.lines.length > 1 && bisector(ph.lines[0], ph.lines[1], ph.cur);
+        if (b) {
+          const start = v3(toWorld(f, ...b.o));
+          const l = Math.hypot(...b.v);
+          const reach = Math.max(2 * Math.hypot(profile.x - b.o[0], profile.y - b.o[1]), 200 / this.view.pixelsPerMm(start));
+          const m = new LineMaterial({ color: GUIDE_COLOR, linewidth: 1, depthTest: false, dashed: true, dashSize: 1.5, gapSize: 1.5 });
+          m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
+          const end = v3(toWorld(f, b.o[0] + (b.v[0] / l) * reach, b.o[1] + (b.v[1] / l) * reach));
+          this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions([...start.toArray(), ...end.toArray()]), m).computeLineDistances());
+        }
         label(tangent ? 'R' : 'Ø', ph.typed[0], tangent ? profile.d / 2 : profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), true);
       }
       if (profile.kind === 'ngon' && ph.kind === 'shape') {
@@ -1331,7 +1344,16 @@ function circleThrough([ax, ay]: UV, [bx, by]: UV, [cx, cy]: UV): DrawnProfile |
  * The circle touching two lines (plane coordinates) in the corner between them where `p` is, its middle as near `p`
  * as its size lets (`radius`: that size); null: the lines are parallel.
  */
-function tangentCircle([a1, b1]: [UV, UV], [a2, b2]: [UV, UV], p: UV, radius?: number): DrawnProfile | null {
+function tangentCircle(l1: [UV, UV], l2: [UV, UV], p: UV, radius?: number): DrawnProfile | null {
+  const b = bisector(l1, l2, p);
+  if (!b) return null;
+  const { o, v } = b;
+  const r = radius ?? Math.max(0, ((p[0] - o[0]) * v[0] + (p[1] - o[1]) * v[1]) / (v[0] * v[0] + v[1] * v[1]));
+  return { kind: 'circle', x: o[0] + v[0] * r, y: o[1] + v[1] * r, d: 2 * r };
+}
+
+/** Where two lines cross (`o`) and the bisector of their angle on `p`'s side: a tangent circle's middle is `o` + `v` × its radius. Null: parallel. */
+function bisector([a1, b1]: [UV, UV], [a2, b2]: [UV, UV], p: UV): { o: UV; v: UV } | null {
   const dir = ([a, b]: [UV, UV]): UV => {
     const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
     return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
@@ -1349,9 +1371,7 @@ function tangentCircle([a1, b1]: [UV, UV], [a2, b2]: [UV, UV], p: UV, radius?: n
   };
   const [n1, n2] = [normal(d1), normal(d2)];
   const det = n1[0] * n2[1] - n1[1] * n2[0];
-  const v: UV = [(n2[1] - n1[1]) / det, (n1[0] - n2[0]) / det]; // solves n1·v = 1, n2·v = 1
-  const r = radius ?? Math.max(0, ((p[0] - o[0]) * v[0] + (p[1] - o[1]) * v[1]) / (v[0] * v[0] + v[1] * v[1]));
-  return { kind: 'circle', x: o[0] + v[0] * r, y: o[1] + v[1] * r, d: 2 * r };
+  return { o, v: [(n2[1] - n1[1]) / det, (n1[0] - n2[0]) / det] }; // solves n1·v = 1, n2·v = 1
 }
 const LINE_HINT = 'Click the end point, or type a length · [Tab] the angle, [Enter] · turns in 1° steps, [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it · [Esc] cancels';
 /** An angle (radians) in degrees, the short way: -180 to 180. */
