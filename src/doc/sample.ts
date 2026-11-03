@@ -1,4 +1,4 @@
-import type { Doc, Expr, Body, Group, Joint, Profile, Sketch, Feature, Unit, Material } from './types';
+import type { Doc, Expr, Body, Group, Joint, Profile, Sketch, Feature, Unit, Material, WorkPlane } from './types';
 
 export const ex = (e: string | number, u: Unit = 'mm'): Expr => ({ e: String(e), u });
 
@@ -127,11 +127,17 @@ function fingerTests(): Body[] {
   return [solid('Joint board A', '#d8c3a5', [120, 132, 0], [rect(60, 4)], 40), solid('Joint board B', '#c4b08f', [148, 150, 0], [rect(4, 40)], 40)];
 }
 
+/** A test piece for work planes: one along a 60 mm edge, turned 30° around it, free of the other pieces. */
+function slantedPlane(): WorkPlane {
+  const at: [number, number, number] = [-130, 150, 20];
+  return { id: newId(), name: 'Slanted plane', o: at, x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1], offset: ex(0), turn: ex(30), axis: { at, dir: [1, 0, 0] }, points: [], mode: 'edge', hull: [at, [-70, 150, 20]], rect: null, visible: true };
+}
+
 /**
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
  * corner (both in a group), a hex nut sunk into the disc, a free sketch on the front plane that no body uses yet, and
- * test pieces for newer features (finishes, booleans, cuts, loft and revolve, joints).
+ * test pieces for newer features (finishes, booleans, cuts, loft and revolve, joints, a slanted work plane).
  */
 export function sampleDoc(): Doc {
   const split = splitTest();
@@ -222,7 +228,7 @@ export function sampleDoc(): Doc {
     groups: [corner, ...hinged.groups],
     sections: [],
     joints: hinged.joints,
-    planes: [],
+    planes: [slantedPlane()],
     images: [],
     materials: [frosted, glowing, rough],
     photos: [],
