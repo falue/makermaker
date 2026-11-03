@@ -727,7 +727,7 @@ export class Viewer implements ToolView {
           this.renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { clientX, clientY, bubbles: true }));
           return e.preventDefault(), e.stopPropagation();
         }
-        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
         // the Esc that freed a locked pointer was already handled
         if (pressed(e, 'cancel') && performance.now() - this.escFreed < 300) return e.preventDefault(), e.stopPropagation();
         const used = this.drag?.moved

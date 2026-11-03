@@ -35,6 +35,7 @@ import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
 import { measureButton, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
+import { pythonTerminal } from './ui/terminal';
 import { MAC, pressed, role, roleKeyName, type Action } from './ui/keys';
 import { installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
@@ -5264,6 +5265,7 @@ function render() {
     },
     renderImage: () => run(snapshot),
     openSettings: () => settingsDialog(),
+    terminal: { toggle: () => terminal.toggle(), open: terminal.isOpen() },
     openRenderLight: () => settingsDialog('light-render'),
     photos: allPhotos,
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
@@ -5916,7 +5918,8 @@ addEventListener('keydown', (e) => {
   const axis = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
   if (pressed(e, 'save')) run(save);
   else if (pressed(e, 'open')) run(openDesign);
-  else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+  else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
+  else if (pressed(e, 'terminal')) terminal.toggle();
   else if (pending && pressed(e, 'confirm')) pending.apply?.();
   else if (pending && pressed(e, 'cancel')) cancelPending(), render();
   else if (pressed(e, 'undo')) undo();
@@ -5960,26 +5963,60 @@ addEventListener('keydown', (e) => {
  * The command API at work in the app (see src/api/commands.ts): each command one undo step, and what it made
  * selected. `window.makermaker` in the browser console (scripts and LLM tools will go through it).
  */
+/** The document while a script runs: its commands gather here. */
+let scripted: Doc | null = null;
+
 const cad = {
   /** Every command: its name, what it does, its parameters. */
   commands: describeCommands,
   /** Runs a command; its result (a new object's id, or what `list` tells). */
   run(name: string, args: Args = {}) {
-    const { doc, result } = runCommand(history.current, name, args);
-    if (doc === history.current) return result;
+    const from = scripted ?? history.current;
+    const { doc, result } = runCommand(from, name, args);
+    if (doc === from) return result;
     if (typeof result === 'string' && [...doc.bodies, ...doc.sketches, ...doc.groups].some((o) => o.id === result)) [selected, shapeSel] = [[result], []];
-    commit(doc);
+    if (scripted) scripted = doc;
+    else commit(doc);
     return result;
   },
   select(ids: string[]) {
     [selected, shapeSel] = [ids, []];
-    showSelection();
+    if (!scripted) showSelection();
+  },
+  /** Runs `step`: what its commands did is one undo step and one build; it returns false: dropped (the result: dropped anything). */
+  batch(step: () => boolean): boolean {
+    const before = selected;
+    scripted = history.current;
+    let [ok, dropped] = [false, false];
+    try {
+      ok = step();
+    } finally {
+      const doc = scripted;
+      scripted = null;
+      if (ok && doc !== history.current) commit(doc);
+      if (!ok) selected = before;
+      showSelection();
+      render();
+      dropped = !ok && doc !== history.current;
+    }
+    return dropped;
   },
   selection: () => [...selected],
-  undo: () => undo(),
-  redo: () => undo(true),
+  // in a script: what it did so far is kept first
+  undo() {
+    if (scripted && scripted !== history.current) commit(scripted);
+    undo();
+    if (scripted) scripted = history.current;
+  },
+  redo() {
+    if (scripted && scripted !== history.current) commit(scripted);
+    undo(true);
+    if (scripted) scripted = history.current;
+  },
 };
 (window as unknown as { makermaker: typeof cad }).makermaker = cad;
+
+const terminal = pythonTerminal(document.querySelector<HTMLElement>('#stage')!, cad, () => render());
 
 let pasteSoon = 0;
 // ⌘V with a file in the clipboard (a picture copied elsewhere): imported where the pointer is

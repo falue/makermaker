@@ -2292,3 +2292,68 @@ section > h4 .segmented button {
   padding: 1px 8px;
   font-size: 11px;
 }
+
+/* the Python terminal, over the bottom of the view */
+.terminal {
+  position: absolute;
+  z-index: 30;
+  inset: auto 0 0;
+  height: 40%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.terminal[hidden] {
+  display: none;
+}
+.terminal-grip {
+  flex: none;
+  height: 5px;
+  cursor: ns-resize;
+}
+.terminal-grip:hover {
+  background: var(--accent);
+}
+.terminal-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 10px 8px;
+  font: 12px/1.5 var(--mono, ui-monospace, Menlo, monospace);
+  cursor: text;
+}
+.terminal-out {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.terminal-echo {
+  color: var(--muted);
+}
+.terminal-note {
+  color: var(--accent);
+}
+.terminal-error {
+  color: var(--error);
+}
+.terminal-line {
+  display: flex;
+  gap: 1ch;
+}
+.terminal-prompt {
+  flex: none;
+  color: var(--muted);
+}
+.terminal-line textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
