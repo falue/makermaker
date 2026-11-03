@@ -34,31 +34,37 @@ it('every file has the standard materials', () => {
   expect(STANDARD_MATERIALS.map((m) => m.name)).toEqual(['Metal', 'Plastic, white', 'Plastic, red', 'Plastic, yellow', 'Plastic, black', 'Plastic, dark grey', 'Wood', 'Glass', 'Glass frosted', 'Lamp', 'Grid 10 × 10 cm', 'Grid 1 × 1 ft']);
 });
 
-it('changing a look makes a material of the file named after the object, from how it looked', () => {
+it('changing a standard material makes a copy in the file, under its name; the standard one stays', () => {
   const d = doc([], [{ ...body({ material: 'std-wood' }), name: 'Pin' }]);
   const next = changeLook(d, ['b'], { color: '#010203' }, 'new');
-  expect(next.materials.at(-1)).toMatchObject({ id: 'new', name: 'Pin', color: '#010203', bump: 0.65 });
+  expect(next.materials.at(-1)).toMatchObject({ id: 'new', name: 'Wood copy', color: '#010203', bump: 0.65 });
   expect(next.bodies[0].material).toBe('new');
   expect(findMaterial(next, 'std-wood')?.color).toBe('#a9773f');
+  const again = changeLook({ ...next, bodies: [{ ...next.bodies[0], material: 'std-wood' }] }, ['b'], { color: '#040506' }, 'newer');
+  expect(again.materials.at(-1)?.name).toBe('Wood copy 2');
 });
 
-it('a material only they use changes; one others use too is copied for them', () => {
-  const start = doc([], [{ ...body({ material: 'a' }), name: 'Pin' }, body({ id: 'c', material: 'b' })]);
-  const alone = changeLook(start, ['b'], { color: '#010203' }, 'new');
-  expect(alone.materials).toHaveLength(2);
-  expect(alone.materials[0].color).toBe('#010203');
+it('a material of the file is changed, not copied, everywhere it is used', () => {
   const shared = doc([], [{ ...body({ material: 'a' }), name: 'Pin' }, body({ id: 'c', material: 'a' })]);
-  const copied = changeLook(shared, ['b'], { color: '#010203' }, 'new');
-  expect(copied.materials[0].color).toBe('#112233');
-  expect(copied.bodies.map((x) => x.material)).toEqual(['new', 'a']);
+  const next = changeLook(shared, ['b'], { color: '#010203' }, 'new');
+  expect(next.materials).toHaveLength(2);
+  expect(next.materials[0].color).toBe('#010203');
+  expect(next.bodies.map((x) => x.material)).toEqual(['a', 'a']);
 });
 
-it('several objects without a shared material get one together; names stay apart', () => {
+it('without a material of its own: a new one named after the object, for all selected', () => {
   const start = doc([], [{ ...body({}), name: 'Pin' }, { ...body({ id: 'c' }), name: 'Nut' }]);
   const next = changeLook(start, ['b', 'c'], { color: '#010203' }, 'new');
   expect(next.bodies.map((x) => x.material)).toEqual(['new', 'new']);
   expect(next.materials.at(-1)?.name).toBe('Pin');
-  expect(newMaterialFor(next, ['b'], 'newer').materials.at(-1)?.name).toBe('Pin 2');
+});
+
+it('objects with different materials get a new one together', () => {
+  const start = doc([], [body({ material: 'a' }), body({ id: 'c', material: 'b' })]);
+  const next = changeLook(start, ['b', 'c'], { color: '#010203' }, 'new');
+  expect(next.materials.map((m) => m.color)).toEqual(['#112233', '#112233', '#010203']);
+  expect(next.bodies.map((x) => x.material)).toEqual(['new', 'new']);
+  expect(newMaterialFor(next, ['b'], 'newer').materials.at(-1)?.name).toBe(`${next.materials.at(-1)?.name} copy`);
 });
 
 it('picking a material; none takes it away', () => {

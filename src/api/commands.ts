@@ -271,7 +271,7 @@ export const COMMANDS: Record<string, Command> = {
     },
   },
   look: {
-    doc: 'Changes the look of bodies or groups and nothing else: a material only they use changes, else they get a new one of the file. Each value 0 to 1; colours #rrggbb. Returns the material.',
+    doc: 'Changes the look of bodies or groups: a material of the file they share changes, everywhere it is used; else they get a new one of the file. Each value 0 to 1; colours #rrggbb. Returns the material.',
     params: [
       { name: 'ids', type: 'ids', doc: 'the bodies and groups' },
       { name: 'color', type: 'string', doc: '#rrggbb', optional: true },

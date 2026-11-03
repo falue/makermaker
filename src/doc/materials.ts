@@ -93,27 +93,28 @@ export const assignMaterial = (doc: Doc, ids: string[], material?: string) => wi
 /** A name for a new material of the file, not taken yet. */
 function freeName(doc: Doc, name: string) {
   const taken = new Set(doc.materials.map((m) => m.name));
-  for (let n = 2; ; n++) if (!taken.has(n === 2 ? name : `${name} ${n - 1}`)) return n === 2 ? name : `${name} ${n - 1}`;
+  if (!taken.has(name)) return name;
+  for (let n = 2; ; n++) if (!taken.has(`${name} ${n}`)) return `${name} ${n}`;
 }
 
-/** How the first of `ids` looks now, changed by `patch`, as a new material of the file named after it, which they then use. */
+/**
+ * How the first of `ids` looks now, changed by `patch`, as a new material of the file, which they then use: "<its
+ * material> copy" if it has one of its own, else named after it.
+ */
 export function newMaterialFor(doc: Doc, ids: string[], id: string, patch: Partial<MaterialLook> = {}): Doc {
   const first = [...doc.bodies, ...doc.groups].find((x) => ids.includes(x.id));
   if (!first) return doc;
   const { color, bump, reflection, translucency, glow, glowStrength, overlay } = setLook(doc, first) ?? plainLook('color' in first ? first.color : '#d8c3a0');
-  const material: Material = { color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}), ...patch, id, name: freeName(doc, first.name) };
+  const source = findMaterial(doc, first.material);
+  const material: Material = { color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}), ...patch, id, name: freeName(doc, source ? `${source.name} copy` : first.name) };
   return assignMaterial({ ...doc, materials: [...doc.materials, material] }, ids, id);
 }
 
-/**
- * Changes how `ids` look, and nothing else: a material of the file only they use changes; else they get a new one
- * (`id`) with the change.
- */
+/** Changes how `ids` look: a material of the file they share changes, everywhere it is used; else they get a new one (`id`). */
 export function changeLook(doc: Doc, ids: string[], patch: Partial<MaterialLook>, id: string): Doc {
   const mine = [...doc.bodies, ...doc.groups].filter((x) => ids.includes(x.id));
   const material = mine[0]?.material;
-  const others = [...doc.bodies, ...doc.groups].some((x) => x.material === material && !ids.includes(x.id));
-  if (!material || others || mine.some((x) => x.material !== material) || !doc.materials.some((m) => m.id === material)) return newMaterialFor(doc, ids, id, patch);
+  if (!doc.materials.some((m) => m.id === material) || mine.some((x) => x.material !== material)) return newMaterialFor(doc, ids, id, patch);
   return { ...doc, materials: doc.materials.map((m) => (m.id === material ? { ...m, ...patch } : m)) };
 }
 

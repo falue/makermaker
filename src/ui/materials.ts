@@ -48,8 +48,8 @@ function thumbnails() {
 
 /**
  * The materials dialog: the list on the left (a click gives it to what is selected), on the right the teapot and
- * the sliders. These change the selection alone (the first move makes it a material of the file, named after it);
- * ✎ on a material of the file edits that one, for everything using it. All live; × or Esc closes.
+ * the sliders. On a standard material the first move makes a copy in the file; a material of the file changes,
+ * everywhere it is used. ✎ edits a material of the file without selecting it. All live; × or Esc closes.
  */
 export function openMaterials(host: MaterialsHost, startEditing?: string) {
   const make = (tag: string, props: object = {}, ...children: (Node | string)[]) => {
@@ -145,7 +145,6 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       return [head, ...(open ? rows : [])];
     };
     list.replaceChildren(
-      ...STANDARD_SECTIONS.flatMap(([name, materials]) => section(name, materials.filter(matches).map((m) => row(m)))),
       ...section('In this file', saved.filter(matches).map((m) =>
         row(m, [
           button('✎', 'Edit this material, for everything using it', () => {
@@ -159,6 +158,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
           }),
         ]),
       )),
+      ...STANDARD_SECTIONS.flatMap(([name, materials]) => section(name, materials.filter(matches).map((m) => row(m)))),
       make(
         'div',
         { className: 'mat-actions' },
