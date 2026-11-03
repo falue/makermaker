@@ -235,10 +235,21 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
       },
     ],
   ];
-  let open = 0;
+  // the chapter open and how far each is scrolled, remembered per browser
+  const seen = 'makermaker.settings.seen';
+  const last = JSON.parse(localStorage.getItem(seen) ?? '{}') as { open?: string; scrolled?: Record<string, number> };
+  const scrolled = last.scrolled ?? {};
+  let open = Math.max(0, chapters.findIndex(([name]) => name === last.open));
+  const remember = () => localStorage.setItem(seen, JSON.stringify({ open: chapters[open][0], scrolled }));
+  const restore = () => (body.scrollTop = scrolled[chapters[open][0]] ?? 0);
+  body.onscroll = () => {
+    scrolled[chapters[open][0]] = body.scrollTop;
+    remember();
+  };
   const draw = () => {
-    nav.replaceChildren(...chapters.map(([name], i) => make('button', { className: `chapter${i === open ? ' on' : ''}`, textContent: name, onclick: () => ((open = i), draw()) })));
+    nav.replaceChildren(...chapters.map(([name], i) => make('button', { className: `chapter${i === open ? ' on' : ''}`, textContent: name, onclick: () => ((open = i), remember(), draw()) })));
     body.replaceChildren(...chapters[open][1]());
+    restore();
   };
   draw();
   const close = () => {
@@ -259,4 +270,5 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   );
   addEventListener('keydown', esc, { capture: true });
   document.body.append(dialog);
+  restore();
 }
