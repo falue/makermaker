@@ -1596,3 +1596,19 @@ input + .set-axis {
   border-color: rgba(255, 255, 255, 0.6);
   background: rgba(255, 255, 255, 0.15);
 }
+
+/* what T does, in the size label it fills */
+.size-label small {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* a message that does something when clicked (save with autosave) */
+#topbar .status.offer {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}

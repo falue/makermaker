@@ -1053,13 +1053,13 @@ export class SketchTool implements Tool {
       this.dwell = { seg, point, timer: guide ? window.setTimeout(guide, SketchTool.guideMs) : 0 };
     }
     this.clearPreview();
-    const labels: [string, THREE.Vector3, boolean][] = []; // text, where, typed into
+    const labels: [string, THREE.Vector3, boolean, boolean?][] = []; // text, where, typed into, T reaches for it
     let angle: Parameters<SketchTool['angleLabel']>[0] | null = null; // the open side's angle: placed last, around the others
     let sideLength: string | null = null;
     const ph = this.phase;
     const fmt = (mm: number) => mm.toFixed(2);
-    const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean) =>
-      labels.push([`${name} ${typed === undefined ? fmt(mm) : `${typed}▏`}`, at, active]);
+    const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean, t = false) =>
+      labels.push([`${name} ${typed === undefined ? fmt(mm) : `${typed}▏`}`, at, active, t]);
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
       const pts: UV[] = ph.kind === 'polygon' ? [...ph.pts, ph.cur] : [];
@@ -1115,8 +1115,8 @@ export class SketchTool implements Tool {
     const fix = guide ? `Press ${comboText(KEYS.fixGuide.default[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
     const base = ph.kind === 'polygon' && this.hoveredLine(ph.target.frame) !== null ? `Press ${comboText(KEYS.baseline.default[0])} to measure the angle from this line` : null;
     const angles = ph.kind === 'polygon' && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(KEYS.moreSnaps.default[0])} finer, ${comboText(KEYS.fewerSnaps.default[0])} coarser` : null;
-    // pulling: what T does, or while aiming what the pointer reaches
-    const pulling = ph.kind === 'pull' && (this.reaching ? [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n') : TO_OBJECT);
+    // pulling: while aiming what the pointer reaches (what T does is in the size label)
+    const pulling = ph.kind === 'pull' && this.reaching && [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n');
     // at the pointer what it measures and is on; other keys with the tool's hint
     this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, this.snapWhat].filter(Boolean).join('\n') || null, [more, fix, base, angles, chain].filter(Boolean).join(' · ') || null);
     if (ph.kind === 'polygon' && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
@@ -1125,10 +1125,10 @@ export class SketchTool implements Tool {
       const { depth, back } = pulled(ph, (t) => this.host.length(t));
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
       if (depth || back) this.solid(ph.shapes, f, depth, back);
-      label(pullName(f.n), ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side);
-      if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side);
+      label(pullName(f.n), ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
+      if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side, !!ph.side && !this.reaching);
     }
-    const els = labels.map(([text, , active]) => Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text }));
+    const els = labels.map(([text, , active, t]) => sizeLabel(text, active, t));
     this.labels.replaceChildren(...els);
     labels.forEach(([, at], i) => keepInside(els[i], ...this.view.toScreen(at)));
     if (angle) this.angleLabel(angle, els);
@@ -1203,7 +1203,12 @@ const LINE_HINT = 'Click the end point, or type a length · [Tab] the angle, [En
 /** An angle (radians) in degrees, the short way: -180 to 180. */
 const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;
 /** The pointer's note while pulling (before typing a depth). */
-export const TO_OBJECT = 'T: to object';
+/** A size label (`active`: typed into); `t`: it says T reaches to an object for it. */
+export function sizeLabel(text: string, active: boolean, t = false) {
+  const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text });
+  if (t) el.append(Object.assign(document.createElement('small'), { textContent: 'T: to object' }));
+  return el;
+}
 /** Radius (px) of the arc showing what a side's angle is measured from. */
 const ARC_PX = 36;
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */

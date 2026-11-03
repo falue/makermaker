@@ -188,6 +188,11 @@ let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; sa
 };
 let status = '';
 let statusError = false;
+/** What a click on the top bar's message does (null: nothing). */
+let statusAction: (() => void) | null = null;
+/** An unsaved design offers once to be saved with autosave on, after this many undo steps. */
+const OFFER_AFTER = 10;
+let offered = false;
 /** Bodies whose STEP files the kernel reads now (shown with a progress bar), and the STEP features read already. */
 const reading = new Map<string, { name: string; steps: string[] }>();
 const readSteps = new Set<string>();
@@ -204,7 +209,8 @@ let extruding: ExtrudeTool | null = null;
 let extrudeRun = 0;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
 let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut' | 'joint' | 'shell'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
-let autosave = localStorage.getItem('makermaker.autosave') === 'on';
+/** On only for a design saved to a file (a new one starts with it off; an opened one as last switched). */
+let autosave = false;
 let autosaveTimer = 0;
 /** The body shown alone, and what was visible before (bodies and sketches by id). */
 let isolated: { body: string; before: Map<string, boolean> } | null = null;
@@ -602,6 +608,7 @@ function update() {
   }
   kernel.build(builds);
   scheduleAutosave();
+  offerAutosave();
   render();
 }
 
@@ -2319,6 +2326,9 @@ function rotateTool() {
   let from: { screen: number; at: Vector3 } | null = null; // where the pointer started turning it
   let mode: 'turn' | 'axis' | 'aim' = 'axis';
   let ended = false;
+  // the angle steps show as rays while Shift is held, and a while after A / Shift A
+  let [shift, raysUntil] = [false, 0];
+  const shiftKey = (e: KeyboardEvent) => e.key === 'Shift' && ((shift = e.type === 'keydown'), marks());
   const apply = (a: number) => {
     angle = a;
     input.value = fmt(a);
@@ -2330,7 +2340,7 @@ function rotateTool() {
   const marks = () => {
     viewer.showPoint(pivot);
     viewer.showAxis(pivot && { at: pivot, dir, what: '' }, pivot ?? undefined, 60);
-    viewer.showTicks(pivot && from ? { at: pivot, dir, from: from.at, step: SketchTool.angleStep, angle } : null);
+    viewer.showTicks(pivot && from ? { at: pivot, dir, from: from.at, step: SketchTool.angleStep, angle, rays: shift || performance.now() < raysUntil } : null);
   };
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const input = Object.assign(document.createElement('input'), { value: '0', spellcheck: false });
@@ -2434,6 +2444,8 @@ function rotateTool() {
     viewer.cancelFacePick();
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
+    removeEventListener('keydown', shiftKey);
+    removeEventListener('keyup', shiftKey);
     viewer.el.removeEventListener('pointermove', move);
     viewer.showPoint(null);
     viewer.showAxis(null);
@@ -2471,6 +2483,8 @@ function rotateTool() {
     if (axis >= 0 && !frame) along(axis);
     else if (step && document.activeElement !== input) {
       SketchTool.angleStep = ANGLE_STEPS[Math.min(ANGLE_STEPS.length - 1, Math.max(0, ANGLE_STEPS.indexOf(SketchTool.angleStep) + step))];
+      raysUntil = performance.now() + 1500;
+      setTimeout(() => !ended && marks(), 1600);
       marks();
       if (mode === 'turn') turnPick();
     } else if (pressed(e, 'confirm')) finish(true);
@@ -2491,6 +2505,8 @@ function rotateTool() {
   document.body.append(box);
   atTop(box);
   addEventListener('keydown', keys, { capture: true });
+  addEventListener('keydown', shiftKey);
+  addEventListener('keyup', shiftKey);
   viewer.el.addEventListener('pointermove', move);
   setAxis();
 }
@@ -3600,6 +3616,13 @@ function scheduleAutosave(delay = 1500) {
   );
 }
 
+/** Once per unsaved design, after some undo steps: a click on the note saves it and turns autosave on. */
+function offerAutosave() {
+  if (offered || autosave || file.handle || history.steps < OFFER_AFTER) return;
+  offered = true;
+  notify('Save this design and turn autosave on? Click here', false, () => ((status = ''), (statusAction = null), void toggleAutosave()));
+}
+
 async function toggleAutosave() {
   autosave = !autosave;
   if (autosave && !window.showSaveFilePicker) {
@@ -4141,10 +4164,11 @@ function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** A note in the top bar (`error`: something was refused or failed, shown in red). */
-function notify(message: string, error = false) {
+/** A note in the top bar (`error`: something was refused or failed, shown in red; `action`: what a click on it does). */
+function notify(message: string, error = false, action: (() => void) | null = null) {
   status = message;
   statusError = error;
+  statusAction = action;
   render();
   // an error shows a while, then the tool's note again
   if (error) setTimeout(() => status === message && statusError && ((statusError = false), (status = ''), render()), 5000);
@@ -4161,7 +4185,9 @@ function showNote() {
   const [text, kind] = statusError && status ? [status, 'error'] : note ? [note, 'note'] : [status, ''];
   const html = (t: string) => axisHtml(t).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   const [head, ...rest] = kind === 'note' ? text.split(' · ') : [text];
-  el.className = `status${kind ? ` ${kind}` : ''}`;
+  const action = !kind && statusAction;
+  el.className = `status${kind ? ` ${kind}` : action ? ' offer' : ''}`;
+  el.onclick = action || null;
   el.title = text.replaceAll(' · ', '\n'); // cut short when long: all of it on hover
   el.innerHTML = rest.length ? `<b>${html(head)}</b><small>${html(rest.join(' · '))}</small>` : html(head);
 }
@@ -4179,8 +4205,11 @@ async function run(task: () => Promise<unknown>) {
 function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   history.reset(doc);
   file = { ...f, saved: doc };
+  autosave = !!f.handle && localStorage.getItem('makermaker.autosave') === 'on';
+  offered = false;
   selected = [];
   status = '';
+  statusAction = null;
   sketching = null;
   isolated = null;
   stopTool();

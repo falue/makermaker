@@ -3,7 +3,7 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, planeHit, pullName, pullBy, pulled, pullKey, reachInto, TO_OBJECT, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, planeHit, pullName, pullBy, pulled, pullKey, reachInto, sizeLabel, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -357,8 +357,8 @@ export class ExtrudeTool implements Tool {
     }
     // pulled faces show in the model itself
     this.view.markFaces(p ? [] : this.faces, hover && 'face' in hover ? hover.face : null);
-    // pulling: what T does, or while aiming what the pointer reaches
-    const pulling = p && (this.reaching ? [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n') : TO_OBJECT);
+    // pulling: while aiming what the pointer reaches (what T does is in the size label)
+    const pulling = p && this.reaching && [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n');
     this.host.cursorTip(p ? pulling || null : this.count() ? 'Hit Enter to start extruding' : null);
     this.labels.replaceChildren();
     if (p) {
@@ -368,7 +368,7 @@ export class ExtrudeTool implements Tool {
       const shown: [string, string | undefined, number, number, boolean][] = [[pullName(frame.n), p.typed, depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
-        const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: `${name} ${typed === undefined ? mm.toFixed(2) : `${typed}▏`}` });
+        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : `${typed}▏`}`, active, active && !this.reaching);
         this.labels.append(el);
         keepInside(el, ...this.view.toScreen(at.clone().addScaledVector(n, along)));
       }

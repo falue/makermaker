@@ -16,6 +16,11 @@ export class History<T> {
     this.current = next;
   }
 
+  /** How many steps undo can go back. */
+  get steps() {
+    return this.past.length;
+  }
+
   /** Replaces the current state without a new undo step (live edits such as scrubbing). */
   replace(next: T) {
     this.current = next;

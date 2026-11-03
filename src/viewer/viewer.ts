@@ -617,8 +617,8 @@ export class Viewer implements ToolView {
     return hit && this.selection.includes(hit.object.userData.bodyId) ? this.placeOn(hit) : null;
   }
 
-  /** Pushes or pulls a face along its outward normal `n` from `at` (E on a face). */
-  startFacePull(host: ToolHost, n: Vec3, at: THREE.Vector3, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void, look?: PullLook) {
+  /** Drags a value along `n` from `at` (a finish's size). */
+  startFacePull(host: ToolHost, n: Vec3, at: THREE.Vector3, onPull: (mm: number, phase: 'live' | 'done' | 'cancel') => void, look: PullLook) {
     this.stopTool();
     this.tool = new FacePullTool(this, host, n, at, onPull, look);
     this.toolButtons(true);
@@ -1033,23 +1033,33 @@ export class Viewer implements ToolView {
   private tickLabel = Object.assign(document.createElement('div'), { className: 'size-label', hidden: true });
 
   /**
-   * A turn's angle steps: ticks every `step` degrees around `at` (square to `dir`), from the ray towards `from` at
-   * radius |from − at|, the ray turned to `angle` degrees, and the angle written between them (as a drawn line's) (null: gone).
+   * A turn's angle as the line tool draws one: the ray towards `from` and the ray turned `angle` degrees around `at`
+   * (square to `dir`), an arc `arcPx` out between them and the angle written there; `rays`: the `step`s as orange rays
+   * `px` long (fine steps only near the turn), the nearest one longer (null: gone).
    */
-  showTicks(t: { at: THREE.Vector3; dir: THREE.Vector3; from: THREE.Vector3; step: number; angle: number } | null) {
-    for (const o of this.ticks.children) ((o as THREE.LineSegments).geometry.dispose(), ((o as THREE.LineSegments).material as THREE.Material).dispose());
+  showTicks(t: { at: THREE.Vector3; dir: THREE.Vector3; from: THREE.Vector3; step: number; angle: number; rays?: boolean } | null, px = 46, arcPx = 36) {
+    for (const o of this.ticks.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
     this.ticks.clear();
     if (!this.tickLabel.isConnected) this.el.append(this.tickLabel);
     this.tickLabel.hidden = !t;
     if (t) {
-      const ray = t.from.clone().sub(t.at);
-      const along = (deg: number, k: number) => t.at.clone().add(ray.clone().applyAxisAngle(t.dir, (deg * Math.PI) / 180).multiplyScalar(k));
-      const n = Math.min(360, Math.round(360 / t.step));
-      const marks = Array.from({ length: n }, (_, i) => [along(i * t.step, 0.88), along(i * t.step, 1)]).flat();
-      const look = (color: number) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true });
-      this.ticks.add(Object.assign(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(marks), look(0x8a8f98)), { renderOrder: 1e6 }));
-      this.ticks.add(Object.assign(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([t.at, along(0, 1), t.at, along(t.angle, 1.1)]), look(0xff8c1a)), { renderOrder: 1e6 }));
-      const [x, y] = this.toScreen(along(t.angle / 2, 0.7));
+      const mm = 1 / this.pixelsPerMm(t.at);
+      const unit = t.from.clone().sub(t.at).normalize();
+      const along = (deg: number, r: number) => t.at.clone().add(unit.clone().applyAxisAngle(t.dir, (deg * Math.PI) / 180).multiplyScalar(r));
+      const lines = (pts: THREE.Vector3[], width: number, opacity: number) => {
+        const m = new LineMaterial({ color: 0xff8c1a, linewidth: width, depthTest: false, transparent: true, opacity });
+        m.resolution.set(this.el.clientWidth, this.el.clientHeight);
+        this.ticks.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(pts.flatMap((v) => v.toArray())), m), { renderOrder: 1e6 }));
+      };
+      const reach = Math.max(t.from.distanceTo(t.at), 2 * arcPx * mm);
+      const arc = Array.from({ length: 25 }, (_, k) => along((t.angle * k) / 24, arcPx * mm));
+      lines([t.at, along(0, reach), t.at, along(t.angle, reach), ...arc.slice(1).flatMap((p, k) => [arc[k], p])], 1, 0.7);
+      if (t.rays) {
+        const angles = Array.from({ length: Math.round(360 / t.step) }, (_, k) => k * t.step).filter((a) => t.step >= 5 || Math.abs(((a - t.angle + 540) % 360) - 180) < 12);
+        lines(angles.flatMap((a) => [t.at, along(a, px * mm)]), 1, 0.45);
+        lines([t.at, along(Math.round(t.angle / t.step) * t.step, 1.6 * px * mm)], 2.5, 0.9);
+      }
+      const [x, y] = this.toScreen(along(t.angle / 2, 1.8 * arcPx * mm));
       this.tickLabel.textContent = `∠ ${+t.angle.toFixed(2)}°`;
       keepInside(this.tickLabel, x, y);
     }
