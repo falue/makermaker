@@ -29,6 +29,8 @@ export interface BodyMesh {
   finishFaces: Int32Array;
   /** Edges unbaked finishes worked on: the feature and a point on the edge (its middle; `skip` takes these). */
   finishes: { feature: string; mid: V3 }[];
+  /** By finish: how many of its picked edges could not be found any more. */
+  lostEdges: Record<string, number>;
 }
 
 type V3 = [number, number, number];
@@ -37,6 +39,8 @@ type V3 = [number, number, number];
 export interface Finishing {
   base: Shape3D | null;
   edges: { feature: string; size: number; mid: V3; pts: V3[] }[];
+  /** By finish: how many of its picked edges could not be found any more. */
+  lost?: Record<string, number>;
 }
 
 export class FeatureError extends Error {
@@ -93,7 +97,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
       if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
       if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
-      if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
+      if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles, undefined, finishing));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
     if (finishing && !finishing.base) finishing.base = (shape as Shape3D).clone();
@@ -169,6 +173,7 @@ export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05
     finishEdges,
     finishFaces,
     finishes: finishing?.edges.map(({ feature, mid }) => ({ feature, mid })) ?? [],
+    lostEdges: finishing?.lost ?? {},
   };
 }
 
@@ -840,16 +845,59 @@ function leftOf(pts: [number, number][], far: number): Drawing {
   return ring.slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(ring[0])).close();
 }
 
-function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finishing?: Finishing): Shape3D {
+/**
+ * What picked edges are now, as polylines. One stays where it was while an edge lies on it between a face it knew;
+ * else it takes the edge that looks like it (straight or curved as it was, along the same way, between faces facing
+ * the same ways), if that one is clearly the nearest. `lost`: how many are neither. Left out ones (`skip`) are dropped.
+ */
+function pickedNow(shape: Shape3D, rule: Exclude<EdgeRule, string>, skip: V3[], tol = 0.05) {
+  const edges = shape.edges;
+  const faces = new Map<number, Shape3D['faces']>();
+  // the faces meeting at each edge: known only once an edge has to be told apart
+  const facesOf = (e: Edge) => {
+    if (!faces.size) for (const f of shape.faces) for (const g of f.edges) faces.set(g.hashCode, [...(faces.get(g.hashCode) ?? []), f]);
+    return faces.get(e.hashCode) ?? [];
+  };
+  const point = (e: Edge, t: number) => e.pointAt(t).toTuple() as V3;
+  const normalsOf = (e: Edge) => facesOf(e).map((f) => f.normalAt(e.pointAt(0.5)).toTuple() as V3);
+  const straight = (pts: V3[]) => pts.every((p) => Math.hypot(...cross(sub(p, pts[0]), norm(sub(pts.at(-1)!, pts[0])))) < tol);
+  const facing = (a: V3, b: V3) => dot(norm(a), norm(b)) > 0.995;
+  const lengthOf = (pts: V3[]) => pts.slice(1).reduce((sum, p, k) => sum + Math.hypot(...sub(p, pts[k])), 0);
+  const lines: V3[][] = [];
+  let lost = 0;
+  rule.pts.forEach((pts, k) => {
+    const line = pts.flat();
+    if (skip.some((p) => toLine(p, line, false) < tol)) return;
+    const on = edges.filter((e) => [0, 0.5, 1].every((t) => toLine(point(e, t), line, false) < tol));
+    const want = rule.normals?.[k] ?? [];
+    if (!want.length || on.some((e) => normalsOf(e).some((n) => want.some((w) => facing(n, w))))) return on.length ? void lines.push(pts) : void lost++;
+    const [mid, along, curved, long] = [pts[pts.length >> 1], norm(sub(pts.at(-1)!, pts[0])), !straight(pts), lengthOf(pts)];
+    const like = edges.flatMap((e) => {
+      const sampled = Array.from({ length: 9 }, (_, i) => point(e, i / 8));
+      if (!straight(sampled) !== curved || (!curved && Math.abs(dot(along, norm(sub(sampled[8], sampled[0])))) < 0.995)) return [];
+      const normals = normalsOf(e);
+      if (!want.every((w) => normals.some((n) => facing(n, w)))) return [];
+      return [{ sampled, far: Math.hypot(...sub(sampled[4], mid)) + Math.abs(lengthOf(sampled) - long) }];
+    }).sort((a, b) => a.far - b.far);
+    if (like.length && (like.length < 2 || like[1].far > like[0].far * 1.5 + 0.01)) lines.push(like[0].sampled);
+    else if (on.length) lines.push(pts);
+    else lost++;
+  });
+  return { lines, lost };
+}
+
+function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finishing?: Finishing, lostIn = finishing): Shape3D {
   if (!shape) throw new Error('nothing to finish yet');
   positive(s.size, s.mode === 'fillet' ? 'radius' : 'distance');
   const [[, , bottom], [, , top]] = shape.boundingBox.bounds;
-  const rule = edgeRule(s.edges, bottom, top, circles);
+  const now = typeof s.edges === 'object' ? pickedNow(shape, s.edges, s.skip) : null;
+  if (now?.lost && lostIn) lostIn.lost = { ...lostIn.lost, [s.id]: now.lost };
+  const rule = edgeRule(now ? { pts: now.lines } : s.edges, bottom, top, circles);
   const at = (e: Edge, t: number): V3 => e.pointAt(t).toTuple() as V3;
   const pick = (e: Edge) => rule(e) && !s.skip.some((p) => Math.hypot(...at(e, 0.5).map((v, k) => v - p[k])) < 0.01);
   const picked = shape.edges.filter(pick);
   const count = picked.length;
-  if (!count) throw new Error(typeof s.edges === 'object' ? 'the picked edges are gone' : `no edges match "${s.edges}"`);
+  if (!count) throw new Error(now ? 'the picked edges are gone' : `no edges match "${s.edges}"`);
   for (const e of picked) finishing?.edges.push({ feature: s.id, size: s.size, mid: at(e, 0.5), pts: Array.from({ length: 9 }, (_, i) => at(e, i / 8)) });
   const sized = (v: number) => (s.mode === 'fillet' ? shape.fillet((e) => (pick(e) ? v : null)) : shape.chamfer((e) => (pick(e) ? v : null)));
   try {

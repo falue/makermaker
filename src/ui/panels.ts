@@ -19,6 +19,7 @@ export interface UIContext {
   selected: string[];
   exprErrors: Map<string, string>;
   kernelErrors: Map<string, { featureId: string; error: string }>;
+  lostEdges: (body: string, feature: string) => number;
   title: string;
   dirty: boolean;
   status: string;
@@ -1518,6 +1519,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       // picked edges (dragged on the body) keep their pick; a rule can replace it
       const rules = { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' };
       const picked = typeof feature.edges === 'object' ? feature.edges.pts.length : 0;
+      const lost = ctx.lostEdges(body.id, feature.id);
       const edges =
         typeof feature.edges === 'object'
           ? select<keyof typeof rules | 'picked'>('picked', { picked: `Picked edges (${picked})`, ...rules }, (r) => r !== 'picked' && setFeature({ ...feature, edges: r }))
@@ -1542,6 +1544,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         h('h4', {}, enabled, mode, bake, remove),
         h('div', { className: 'row' }, f('size', feature.mode === 'fillet' ? 'Radius' : 'Distance'), edges),
         ...skipped,
+        ...(lost ? [h('p', { className: 'error' }, `${lost} of ${picked} picked edges ${lost > 1 ? 'are' : 'is'} gone: an edit changed ${lost > 1 ? 'them' : 'it'} too much. Pick ${lost > 1 ? 'them' : 'it'} again.`)] : []),
       );
     }
   }

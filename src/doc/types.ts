@@ -61,7 +61,8 @@ export interface Sketch {
 }
 
 /** Which edges a finish takes: by rule, or picked ones (`pts`: per edge, points along it in body coordinates). */
-export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical' | { pts: [number, number, number][][] };
+/** Picked edges: polylines where they were picked and, per polyline, the normals of the faces that met there: they find the edge again when an edit moves it. */
+export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical' | { pts: [number, number, number][][]; normals?: [number, number, number][][] };
 
 /**
  * An area of a sketch: inside all `in` shapes and outside all `out` shapes (shape ids); with `at`: the face that lines

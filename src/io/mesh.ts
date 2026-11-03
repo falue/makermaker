@@ -73,5 +73,6 @@ export function meshBody(vertices: string, triangles: string, scale: number): Bo
     finishEdges: new Uint8Array(segments),
     finishFaces: new Int32Array(1).fill(-1),
     finishes: [],
+    lostEdges: {},
   };
 }

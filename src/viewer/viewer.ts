@@ -2882,6 +2882,30 @@ export class Viewer implements ToolView {
   private measured = new Map<string, { key: string; box: THREE.Box3; volume: number; area: number }>();
 
   /** A body's box in the world, volume (mm³) and surface area (mm²) from its triangles (null: not built yet); kept until its mesh or place changes. */
+  /** The normals (world) of a body's B-rep faces touching point `p`: those meeting at an edge, at a point on it. */
+  facesAt(id: string, p: THREE.Vector3, tol = 0.02) {
+    const solid = this.bodies.get(id)?.children[0] as THREE.Mesh | undefined;
+    const index = solid?.geometry.index;
+    const groups = solid?.userData.faces as Uint32Array | undefined;
+    if (!solid || !index || !groups) return [];
+    const local = solid.worldToLocal(p.clone());
+    const pos = solid.geometry.attributes.position;
+    const tri = new THREE.Triangle();
+    const [near, n] = [new THREE.Vector3(), new THREE.Vector3()];
+    const normals: THREE.Vector3[] = [];
+    for (let f = 0; f < groups.length / 2; f++) {
+      for (let i = groups[f * 2]; i < groups[f * 2] + groups[f * 2 + 1]; i += 3) {
+        tri.setFromAttributeAndIndices(pos, index.getX(i), index.getX(i + 1), index.getX(i + 2));
+        if (tri.closestPointToPoint(local, near).distanceTo(local) > tol) continue;
+        tri.getNormal(n);
+        if (n.lengthSq() < 0.5) continue; // too thin to tell
+        normals.push(n.clone().transformDirection(solid.matrixWorld));
+        break;
+      }
+    }
+    return normals;
+  }
+
   measure(id: string) {
     const g = this.bodies.get(id);
     const solid = g?.children[0] as THREE.Mesh | undefined;

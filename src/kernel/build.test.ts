@@ -441,4 +441,57 @@ describe('picked edges', () => {
     const gone = one('fillet', edge(99, 99));
     expect(() => buildBody([base(40), gone])).toThrow('picked edges are gone');
   });
+
+  describe('after an edit', () => {
+    const at = (x: number, z: number) => [[x, -30, z], [x, 0, z], [x, 30, z]] as [number, number, number][];
+    // the edge along the block's right top, picked on the first block
+    const right = (x: number, z: number): BuildFeature => ({ id: 'p', type: 'finish', mode: 'chamfer', size: 1, edges: { pts: [at(x, z)], normals: [[[1, 0, 0], [0, 0, 1]]] }, enabled: true, baked: false, skip: [] });
+    const finishedAt = (features: BuildFeature[]) => {
+      const finishing: Finishing = { base: null, edges: [] };
+      const shape = buildBody(features, finishing);
+      const m = meshBody(shape, finishing);
+      shape.delete();
+      finishing.base?.delete();
+      return { mids: finishing.edges.map((e) => e.mid.map((v) => +v.toFixed(3))), lost: m.lostEdges, faces: m.faces.length / 2 };
+    };
+
+    it('a taller block: the edge is found where it went', () => {
+      const r = finishedAt([base(40, 10), right(20, 4)]);
+      expect(r.mids).toEqual([[20, 0, 10]]);
+      expect(r.lost).toEqual({});
+      expect(r.faces).toBe(7);
+    });
+
+    it('a wider block: the edge is found where it went', () => {
+      expect(finishedAt([base(70, 4), right(20, 4)]).mids).toEqual([[35, 0, 4]]);
+    });
+
+    it('a longer block: the edge is found though its length changed', () => {
+      const longer: BuildFeature = { ...base(40), profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 40, h: 100, r: 0, rot: 0 }] } as BuildFeature;
+      expect(finishedAt([longer, right(20, 4)]).mids).toEqual([[20, 0, 4]]);
+    });
+
+    it('an edge that stayed stays, a face behind it may change', () => {
+      const r = finishedAt([base(40), right(20, 4)]);
+      expect(r.mids).toEqual([[20, 0, 4]]);
+    });
+
+    it('two edges just as near: it says so instead of guessing', () => {
+      // a slot through the top leaves edges looking the same on both sides of where the picked one was
+      const slot: BuildFeature = { id: 's', type: 'extrude', plane: { kind: 'base', axis: 'xy', offset: 0 }, profiles: [{ id: 'q', kind: 'rect', x: 0, y: 0, w: 10, h: 70, r: 0, rot: 0 }], depth: 0, mode: 'cut', through: true } as BuildFeature;
+      expect(() => buildBody([base(40), slot, right(7.5, 4)])).toThrow('picked edges are gone'); // x -5 and x 20 look like it, 12.5 away each
+    });
+
+    it('one of several lost: the others are finished, the lost one counted', () => {
+      const two = { ...right(20, 4), edges: { pts: [at(20, 4), at(99, 99)], normals: [[[1, 0, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1]]] } } as BuildFeature;
+      // the second: along y between faces no edge along y has
+      const r = finishedAt([base(40), two]);
+      expect(r.mids).toEqual([[20, 0, 4]]);
+      expect(r.lost).toEqual({ p: 1 });
+    });
+
+    it('a left out edge stays out when picked again by the same line', () => {
+      expect(() => buildBody([base(40), { ...right(20, 4), skip: [[20, 0, 4]] } as BuildFeature])).toThrow('picked edges are gone');
+    });
+  });
 });

@@ -68,6 +68,8 @@ installCompletion(
   },
 );
 let settings = loadSettings();
+/** By body and finish: how many picked edges its last build could not find. */
+const lostEdges = new Map<string, Record<string, number>>();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 const history = new History<Doc>(sampleDoc());
@@ -291,10 +293,14 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     // the edges in body coordinates (the finish runs there), as polylines
     const pl = bodyPlace(body);
     const pts = edges.map((segs) => [segs[0][0], ...segs.map((s) => s[1])].map((v) => unplaced(pl, v.toArray()).map((x) => +x.toFixed(4)) as [number, number, number]));
+    const normals = edges.map((segs) => {
+      const [a, b] = segs[segs.length >> 1];
+      return viewer.facesAt(body, a.clone().lerp(b, 0.5)).map((n) => unplaced(pl, n.toArray(), true).map((x) => +x.toFixed(4)) as [number, number, number]);
+    });
     const id = newId();
     // sizes stop at the largest the kernel found to fit (learnt while dragging)
     const apply = (mm: number) =>
-      setIn(before, ['bodies', String(i), 'features'], [...before.bodies[i].features, { id, type: 'finish', mode: mm >= 0 ? 'fillet' : 'chamfer', size: len(Math.max(Math.abs(clamped(id, mm)), 0.1)), edges: { pts }, enabled: true, baked: false, skip: [] } satisfies Feature]);
+      setIn(before, ['bodies', String(i), 'features'], [...before.bodies[i].features, { id, type: 'finish', mode: mm >= 0 ? 'fillet' : 'chamfer', size: len(Math.max(Math.abs(clamped(id, mm)), 0.1)), edges: { pts, normals }, enabled: true, baked: false, skip: [] } satisfies Feature]);
     const [a, b] = edges[0][Math.floor(edges[0].length / 2)];
     let pushed = false;
     viewer.startFacePull(
@@ -371,6 +377,7 @@ const kernel = new Kernel((results, done) => {
     if (!here.has(r.id)) continue; // deleted while it was built
     if ('mesh' in r) {
       kernelErrors.delete(r.id);
+      lostEdges.set(r.id, r.mesh.lostEdges);
       viewer.setBody(r.id, r.mesh);
     } else {
       kernelErrors.set(r.id, r); // the viewer keeps the last valid geometry
@@ -4560,7 +4567,7 @@ function movedEdges(doc: Doc, i: number, at: V3, n: V3, mm: number, tol = 0.01):
     const [a, b] = [move(pts[0]), move(pts.at(-1)!)];
     return straight(pts) ? pts.map((_, k) => add(a, scale(sub(b, a), k / (pts.length - 1 || 1)))) : pts.map(move);
   };
-  const features = doc.bodies[i].features.map((f) => (f.type === 'finish' && typeof f.edges === 'object' ? { ...f, edges: { pts: f.edges.pts.map(line) }, skip: f.skip.map(move) } : f));
+  const features = doc.bodies[i].features.map((f) => (f.type === 'finish' && typeof f.edges === 'object' ? { ...f, edges: { ...f.edges, pts: f.edges.pts.map(line) }, skip: f.skip.map(move) } : f));
   return setIn(doc, ['bodies', String(i), 'features'], features);
 }
 
@@ -5045,6 +5052,7 @@ function render() {
     selected,
     exprErrors,
     kernelErrors: new Map([...kernelErrors, ...linkErrors]),
+    lostEdges: (body, feature) => lostEdges.get(body)?.[feature] ?? 0,
     title: file.name,
     dirty: doc !== file.saved,
     status,
