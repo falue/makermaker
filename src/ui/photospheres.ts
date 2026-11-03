@@ -3,6 +3,7 @@ const files = import.meta.glob<string>('./photospheres/*.png', { query: '?url', 
 /** The photo spheres that come with the app: in every document, not saved in any. */
 export const BUILT_IN_PHOTOS = Object.entries(files)
   .filter(([path]) => !path.endsWith('_thumb.png'))
+  .reverse() // in Settings: Misty blue pano first
   .map(([path, data]) => {
     const file = path.slice('./photospheres/'.length, -'.png'.length);
     const name = file.replaceAll('_', ' ');
