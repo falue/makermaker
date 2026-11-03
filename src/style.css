@@ -236,11 +236,25 @@ body {
   height: 1px;
 }
 #stage .view-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
   background: var(--panel);
+}
+#stage .view-bar .segmented {
+  justify-self: start;
+}
+#stage .view-bar .middle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+#stage .view-bar .read-only {
+  justify-self: end;
+  color: var(--muted);
+  white-space: nowrap;
 }
 /* as wide as what it shows */
 #stage .view-bar select {

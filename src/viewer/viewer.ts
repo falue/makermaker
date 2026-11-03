@@ -3244,8 +3244,8 @@ export class Viewer implements ToolView {
 
   /**
    * A new view: `kind` looks from that side (3D: from the front right, above), 'face': along `look.n` at `look.at`;
-   * fitted to everything shown (`saved`: as it was instead). Its bar: the side, Ortho | Persp, ⇄ (swap it with this
-   * view, to edit there), ×.
+   * fitted to everything shown (`saved`: as it was instead). Its bar: Ortho | Persp; the side, ⇄ (swap it with this
+   * view, to edit there), ×; a read only note.
    */
   addView(kind: ViewKind, look?: { n: THREE.Vector3; at: THREE.Vector3 }, saved?: SavedView) {
     const stage = this.el.parentElement!;
@@ -3280,9 +3280,9 @@ export class Viewer implements ToolView {
     projection.append(button('Ortho', 'Orthographic', () => pick(true)), button('Persp', 'Perspective', () => pick(false)));
     projection.firstElementChild!.classList.add('on');
     const bar = Object.assign(document.createElement('div'), { className: 'view-bar' });
-    bar.append(
+    const middle = Object.assign(document.createElement('span'), { className: 'middle' });
+    middle.append(
       side,
-      projection,
       button('⇄', 'Edit here: this view and the main one swap cameras', () => this.swapView(view)),
       button('×', 'Close this view', () => {
         this.views = this.views.filter((v) => v !== view);
@@ -3293,6 +3293,7 @@ export class Viewer implements ToolView {
         this.saveViews();
       }),
     );
+    bar.append(projection, middle, Object.assign(document.createElement('span'), { className: 'read-only', textContent: 'read only', title: 'Editing happens in the main view: ⇄ brings this view there' }));
     el.append(bar, renderer.domElement);
     stage.append(el);
     this.views.push(view);
