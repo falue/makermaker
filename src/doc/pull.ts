@@ -21,7 +21,7 @@ const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
  * too. The last feature that made such a face wins. `eps`: mm, the mesh is that far off curved faces.
  */
 export function faceAt(features: BuildFeature[], p: V3, out: V3, eps = 0.05): PulledFace | null {
-  const plan = frames(features.filter((f) => f.type !== 'boolean'));
+  const plan = frames(features.filter((f) => f.type !== 'boolean' && f.type !== 'fingers'));
   let found: PulledFace | null = null;
   for (const s of features) {
     if (s.type === 'boolean') found = faceAt(s.features, unplaced(s.place, p), unplaced(s.place, out, true), eps) ?? found;
@@ -61,7 +61,7 @@ function extrudeFace(s: Resolved<ExtrudeIn>, f: Frame, p: V3, out: V3, eps: numb
  */
 export function sideFrame(features: BuildFeature[], feature: string, shape: string, edge: number, flip = false): Frame | undefined {
   const s = features.find((f) => f.id === feature);
-  const f = frames(features.filter((t) => t.type !== 'boolean')).get(feature);
+  const f = frames(features.filter((t) => t.type !== 'boolean' && t.type !== 'fingers')).get(feature);
   const p = s?.type === 'extrude' ? s.profiles.find((q) => q.id === shape) : undefined;
   if (!f || !p || p.kind === 'circle') return undefined;
   const pts = corners(p);

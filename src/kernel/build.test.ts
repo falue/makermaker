@@ -154,6 +154,20 @@ describe('buildBody', () => {
     own.done();
   }, 60000);
 
+  it('cuts two overlapping bodies into interlocking fingers', async () => {
+    const { measureVolume } = await import('replicad');
+    // an upright sheet 4 thick over the plate's end (x 46..50): their overlap 60 long along y, 7 fingers
+    const sheet: BuildFeature = { id: 's', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'rect', x: 48, y: 0, w: 4, h: 60, r: 0, rot: 0 }], depth: 40, mode: 'add', through: false };
+    const fingers = (features: BuildFeature[], first: boolean) => ({ id: 'f', type: 'fingers', features, place: { offset: [0, 0, 0], axis: [0, 0, 1], angle: 0 }, count: 7, width: 0, first }) as BuildFeature;
+    const slice = (60 / 7) * 4 * 4;
+    const plate = buildBody([base(100), fingers([sheet], true)]);
+    expect(measureVolume(plate)).toBeCloseTo(100 * 60 * 4 - 3 * slice, 0); // fingers 2, 4, 6 given up
+    plate.delete();
+    const upright = buildBody([sheet, fingers([base(100)], false)]);
+    expect(measureVolume(upright)).toBeCloseTo(4 * 60 * 40 - 4 * slice, 0); // fingers 1, 3, 5, 7 given up
+    upright.delete();
+  });
+
   it('pushes and pulls any flat face', () => {
     const push = (distance: number) => ({ id: 'p', type: 'push', at: [30, 0, 2], n: [1, 0, 0], distance }) as BuildFeature;
     const out = built([base(60), push(5)]);

@@ -1,4 +1,4 @@
-import { assembleWire, basicFaceExtrusion, cast, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
+import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import { beside, centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
@@ -7,7 +7,9 @@ import type { Area, BooleanOp, BuildIn, EdgeRule, Profile } from '../doc/types';
 
 /** A boolean with its tool body's features at hand, placed as the tool body sits in this body's coordinates. */
 export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place };
-export type BuildFeature = Resolved<BuildIn> | BooleanBuild;
+/** A box joint as the kernel builds it: the other body's features (without its box joint) where it sits, the finger count or width, which fingers stay. */
+export type FingersBuild = { id: string; type: 'fingers'; features: BuildFeature[]; place: Place; count: number; width: number; first: boolean };
+export type BuildFeature = Resolved<BuildIn> | BooleanBuild | FingersBuild;
 type Of<T extends BuildFeature['type']> = Extract<BuildFeature, { type: T }>;
 
 export interface BodyMesh {
@@ -58,7 +60,7 @@ const EPS = 1e-3;
  * mirrors after them, so finishes keep their picked edges). A baked finish stays in place: a later boolean cuts through it. `finishing` gets what the unbaked ones did.
  */
 export function buildBody(features: BuildFeature[], finishing?: Finishing): Shape3D {
-  const plan = frames(features.filter((f) => f.type !== 'boolean'));
+  const plan = frames(features.filter((f) => f.type !== 'boolean' && f.type !== 'fingers'));
   const circles: Circle[] = [];
   let shape: Shape3D | null = null;
   const apply = (id: string, fn: (s: Shape3D | null) => Shape3D) => {
@@ -89,6 +91,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'thread') apply(s.id, (cur) => thread(cur, s));
       if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
       if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
+      if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -483,6 +486,40 @@ export const rise = (t: number, k: number) => 1 - Math.pow(1 - t, k >= 0 ? 1 + k
 
 /** A bulge's fullness, kept between -4 and 4. */
 const fullness = (k: number) => Math.max(-4, Math.min(4, k));
+
+/**
+ * A box joint: where the body and the other overlap, sliced across the overlap's longest side into fingers (`width`
+ * above 0: as many as fit, else `count`), every other one cut from the body (the first kept if `first`).
+ */
+function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
+  if (!shape) throw new Error('nothing to joint yet');
+  const other = placeShape(buildBody(s.features), s.place);
+  const overlap = shape.clone().intersect(other);
+  other.delete();
+  try {
+    const box = overlap.boundingBox;
+    const [lo, hi] = box.bounds;
+    const k = [0, 1, 2].reduce((best, a) => (hi[a] - lo[a] > hi[best] - lo[best] ? a : best), 0);
+    const length = hi[k] - lo[k];
+    if (!(length > 1e-6)) throw new Error('the two bodies do not overlap');
+    const n = Math.max(1, s.width > 0 ? Math.round(length / s.width) : Math.round(s.count));
+    // the slices this body gives up: a box across the overlap for each
+    const pad = 1;
+    let cut: Shape3D | null = null;
+    for (let i = s.first ? 1 : 0; i < n; i += 2) {
+      const [a, b] = [lo.map((v) => v - pad) as V3, hi.map((v) => v + pad) as V3];
+      [a[k], b[k]] = [lo[k] + (length * i) / n, lo[k] + (length * (i + 1)) / n];
+      const slab = makeBox(a, b) as unknown as Shape3D;
+      cut = joined(cut, slab, 'add');
+    }
+    if (!cut) return shape.clone();
+    const away = overlap.clone().intersect(cut);
+    cut.delete();
+    return joined(shape.clone(), away, 'cut');
+  } finally {
+    overlap.delete();
+  }
+}
 
 /** A flat face pushed or pulled: the face extruded along its normal, joined (out, glued along the face) or cut (in). */
 function push(shape: Shape3D | null, s: Of<'push'>): Shape3D {

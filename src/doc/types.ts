@@ -142,6 +142,13 @@ export type BulgeFeature = {
   peak: [Expr, Expr, Expr];
 };
 
+/**
+ * A box joint with another body: where the two overlap is cut into `count` fingers across its longest side (`width`
+ * set above 0: as many as fit that long), every other one taken from each body, so they interlock. Both bodies have
+ * one; the `first` keeps the first finger, and its count and width count for both.
+ */
+export type FingersFeature = { id: string; type: 'fingers'; body: string; count: Expr; width: Expr; first: boolean };
+
 /** Any flat face (body point `at` on it, outward normal `n`, body-local) pushed or pulled `distance` along `n`: the face extruded and joined, or cut in. */
 export type PushFeature = { id: string; type: 'push'; at: [number, number, number]; n: [number, number, number]; distance: Expr };
 
@@ -162,7 +169,8 @@ export type Feature =
   | MirrorFeature
   | ThreadFeature
   | BulgeFeature
-  | PushFeature;
+  | PushFeature
+  | FingersFeature;
 
 /**
  * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the

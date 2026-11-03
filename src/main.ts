@@ -457,7 +457,7 @@ function update() {
       };
       const built = new Map<string, BuildFeature>();
       for (const s of resolved) {
-        if (s.type === 'boolean' || s.type === 'mesh') continue; // meshes are shown as they are
+        if (s.type === 'boolean' || s.type === 'fingers' || s.type === 'mesh') continue; // meshes are shown as they are; booleans and box joints take other bodies (below)
         const b = toBuild(s, id, sketches, faceOf, cutterFrame);
         if (b === null) return true; // wait for the other body
         if (typeof b === 'string') return (progress = true), linkErrors.set(id, { featureId: s.id, error: `Cannot build: ${b}` }), false;
@@ -465,7 +465,7 @@ function update() {
       }
       progress = true;
       own.set(id, built);
-      const list = [...built.values()].filter((f) => f.type !== 'boolean');
+      const list = [...built.values()].filter((f) => f.type !== 'boolean' && f.type !== 'fingers');
       const plan = frames(list);
       for (const s of list) {
         const f = plan.get(s.id);
@@ -478,15 +478,26 @@ function update() {
   // 2: booleans take their tool bodies' full features, placed as the tool sits in the body's coordinates
   built.clear();
   const full = new Map<string, BuildFeature[] | string>();
-  const fullOf = (id: string, path: string[] = []): BuildFeature[] | string => {
-    const done = full.get(id);
+  // `bare`: without its box joints (what a box joint with it takes: they would need each other)
+  const fullOf = (id: string, path: string[] = [], bare = false): BuildFeature[] | string => {
+    const done = full.get(bare ? `${id} bare` : id);
     if (done) return done;
     if (path.includes(id)) return 'bodies cut or join each other in a circle';
     const parts = own.get(id);
     if (!parts) return 'its tool body cannot be built';
     const out: BuildFeature[] = [];
     for (const s of resolvedOf.get(id)!) {
-      if (s.type === 'mesh') continue;
+      if (s.type === 'mesh' || (bare && s.type === 'fingers')) continue;
+      if (s.type === 'fingers') {
+        // the other body as it sits by this one; the first's count and width count for both
+        if (!doc.bodies.some((b) => b.id === s.body)) continue; // its partner was deleted
+        const other = fullOf(s.body, [...path, id], true);
+        if (typeof other === 'string') return other;
+        const lead = s.first ? s : (resolvedOf.get(s.body)?.find((f) => f.type === 'fingers' && f.body === id) as typeof s | undefined) ?? s;
+        const relative = (bodyPlaces.get(id) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
+        out.push({ id: s.id, type: 'fingers', features: other, place: toPlace(relative), count: lead.count, width: lead.width, first: s.first });
+        continue;
+      }
       if (s.type !== 'boolean') {
         out.push(parts.get(s.id)!);
         continue;
@@ -500,7 +511,7 @@ function update() {
       const relative = (bodyPlaces.get(owner) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
       out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative) });
     }
-    full.set(id, out);
+    full.set(bare ? `${id} bare` : id, out);
     return out;
   };
   for (const id of own.keys()) {
@@ -2324,6 +2335,47 @@ function offsetShapes(sketch: string) {
 }
 
 /**
+ * Box joint: two overlapping bodies (selected, or clicked next) cut each other into interlocking fingers across the
+ * overlap's longest side, for gluing sheets. A panel: Fingers (7 first) or a Finger length (above 0: it counts
+ * instead). Live, one undo step; Esc leaves nothing.
+ */
+function boxJoint() {
+  const doc = history.current;
+  const ids = selected.filter((id) => doc.bodies.some((b) => b.id === id));
+  if (ids.length !== 2) {
+    const picked: string[] = ids.slice(0, 1);
+    pending = {
+      tool: 'boolean',
+      pick(id) {
+        picked.splice(0, picked.length, ...(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]));
+        selected = [...picked];
+        showSelection();
+        if (picked.length === 2) cancelPending(), boxJoint();
+      },
+    };
+    toolHint = 'Box joint: click the two bodies that overlap · [Esc] cancels';
+    return render();
+  }
+  const [a, b] = ids;
+  const [fa, fb] = [newId(), newId()];
+  const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex('7'), width: len(0), first });
+  commit({ ...doc, bodies: doc.bodies.map((x) => (x.id === a ? { ...x, features: [...x.features, step(b, true, fa)] } : x.id === b ? { ...x, features: [...x.features, step(a, false, fb)] } : x)) });
+  // the first body's step holds the count and width for both
+  const i = history.current.bodies.findIndex((x) => x.id === a);
+  const path = ['bodies', String(i), 'features', String(history.current.bodies[i].features.length - 1)];
+  const u = doc.units;
+  valuePanel(
+    [
+      { label: 'Fingers', value: '7', raw: true, int: true, title: 'Fingers: how many across the overlap' },
+      { label: 'Finger length', value: '0', title: 'Finger length: above 0, as many fingers as fit (the count then is ignored)' },
+    ],
+    ([n, w]) => (history.replace(setIn(setIn(history.current, [...path, 'count'], ex(n)), [...path, 'width'], { e: w, u })), update()),
+    (ok) => (ok ? render() : undo()),
+    'Box joint: how many fingers · or a finger length (above 0: it counts) · [Enter] keeps it · [Esc] leaves nothing',
+  );
+}
+
+/**
  * Measure: click an edge (its length) or two points (how far apart along X / Y / Z, and straight), shown in a panel at
  * the top of the view with an orange line between the points; a click on a value copies it. Goes on until Esc.
  */
@@ -3341,7 +3393,7 @@ function remove() {
   const gone = new Set([...selected, ...contents(doc, selected)]);
   for (const id of gone) for (const [tool, o] of owner) if (o === id) gone.add(tool);
   const kept = unlinkedFrom(doc, gone); // linked copies of what goes take over its steps
-  const bodies = kept.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => f.type !== 'boolean' || !gone.has(f.body)) }));
+  const bodies = kept.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => (f.type !== 'boolean' && f.type !== 'fingers') || !gone.has(f.body)) }));
   commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)) });
 }
 
@@ -4196,6 +4248,7 @@ function render() {
     lightSketch: (id) => viewer.lightSketch(id),
     editPlane: (id) => planePanel(id),
     measureTool,
+    boxJoint,
     editBulge: bulgePanel,
     lightBodies: (ids) => viewer.lightBodies(ids ? contents(history.current, ids) : []),
     breakLinks,

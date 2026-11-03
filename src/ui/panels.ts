@@ -86,6 +86,8 @@ export interface UIContext {
   editPlane(id: string): void;
   /** Measure: an edge's length or two points' distances (see main's measureTool). */
   measureTool(): void;
+  /** Box joint: two overlapping bodies cut into interlocking fingers (see main's boxJoint). */
+  boxJoint(): void;
   /** Outlines objects orange in the view, a temporary mark (hovered in the list; groups: their contents; null: none). */
   lightBodies(ids: string[] | null): void;
   /** A body's linked copies become their own objects, together with it in a new group of its name. */
@@ -570,7 +572,10 @@ function booleanMenu(ctx: UIContext) {
     ['subtract', 'Cut', 'The others cut the first'],
     ['intersect', 'Intersect', 'Only where all of them overlap'],
   ];
-  return ops.map(([op, label, title]) => menuItem(op, label, title, () => ctx.boolean(op)));
+  return [
+    ...ops.map(([op, label, title]) => menuItem(op, label, title, () => ctx.boolean(op))),
+    menuItem('fingers', 'Box joint', 'Two overlapping bodies cut into interlocking fingers (7 first, or a finger length): for gluing sheets together', ctx.boxJoint),
+  ];
 }
 
 function booleanTools(ctx: UIContext, picked = () => {}) {
@@ -1317,6 +1322,19 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         h('h4', {}, 'Bulge', button('✎', () => ctx.editBulge(body.id, feature.id), 'Edit it in its panel (T: the peak to a point)'), remove),
         h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => f(`peak.${k}`, l)), exprField(ctx, `${at}.fullness`, 'Fullness', true)),
         h('p', { className: 'hint' }, `On ${where}: X / Y / Z, its peak from the middle (across the face: its height); Fullness -4 pointy to 4 flat topped`),
+      );
+    }
+    case 'fingers': {
+      const other = ctx.doc.bodies.find((b) => b.id === feature.body);
+      const lead = feature.first ? null : other?.features.find((f) => f.type === 'fingers' && f.body === body.id);
+      return h(
+        'section',
+        {},
+        h('h4', {}, 'Box joint', remove),
+        ...(feature.first
+          ? [h('div', { className: 'row' }, exprField(ctx, `${at}.count`, 'Fingers', true), f('width', 'Finger length'))]
+          : []),
+        h('p', { className: 'hint' }, other ? `With ${other.name}${lead ? ` (fingers set there)` : ''}; a finger length above 0 replaces the count` : 'Its partner was deleted: it does nothing'),
       );
     }
     case 'push':
