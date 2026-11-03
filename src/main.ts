@@ -1406,7 +1406,7 @@ function cutTool() {
   }
   [selected, shapeSel] = [[body], []];
   showSelection();
-  toolHint = 'Click where to cut · a face or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Esc] cancels';
+  toolHint = 'Click where to cut · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Esc] cancels';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
@@ -1435,7 +1435,7 @@ function cutTool() {
     if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
     x.normalize();
     cutPanel(body, { kind: 'plane', o: unplaced(pl, face.point.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), turn: ex(0), axis: null, offset: len(0) });
-  }, false, true);
+  }, false, true, null, true);
 }
 
 /** While a cut is set up: its chunk B, not listed until the cut is kept. */
@@ -2576,7 +2576,7 @@ function measureTool() {
 }
 
 /** What a click on a work plane's first pick makes, by what it lands on. */
-const planeAim = (what: string) => (what === 'on face' ? 'a plane on this face' : alongEdge(what) ? 'a plane along this edge (a straight one)' : 'a plane through this point and two more');
+const planeAim = (what: string) => (what === 'on face' || what === 'on work plane' ? 'a plane on this face' : alongEdge(what) ? 'a plane along this edge (a straight one)' : 'a plane through this point and two more');
 
 /**
  * Work plane: the first thing picked sets how it is made (selected before, or clicked after; hovering marks the snap
@@ -2599,6 +2599,7 @@ function planeTool() {
     viewer.aimAt(null);
     tips.cursorTip(null);
     if (!p) return render();
+    if (p.plane) return onPlane(p.plane);
     if (p.what && alongEdge(p.what) && p.line) return edgePlane(p.line.at, p.line.to);
     if (p.what === 'on face' && p.item) return facePlane(p.item);
     if (p.snap) return pointsPlane(p.snap);
@@ -2607,7 +2608,15 @@ function planeTool() {
     const k = [0, 1, 2].reduce((best, c) => (Math.abs(look.getComponent(c)) > Math.abs(look.getComponent(best)) ? c : best), 0);
     const n = new Vector3().setComponent(k, -Math.sign(look.getComponent(k)) || 1);
     newPlane(frameOn(new Vector3(), n), 'face', []);
-  }, true, false, 'lit');
+  }, true, false, 'lit', true);
+}
+
+/** A work plane on another one: its frame as it lies now, covering its rectangle. */
+function onPlane(id: string) {
+  const w = viewer.workPlanes.find((x) => x.id === id);
+  if (!w) return;
+  const [u0, v0, u1, v1] = w.rect;
+  newPlane({ ...w.frame }, 'face', [toWorld(w.frame, u0, v0), toWorld(w.frame, u1, v1)]);
 }
 
 /** A frame at `o` with normal `n`, its x level (square to Z; looking along Z: X). */

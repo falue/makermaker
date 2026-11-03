@@ -97,6 +97,8 @@ export interface PickedFace {
   round?: { at: THREE.Vector3; dir: THREE.Vector3; length: number; r: number; shaft: boolean };
   /** The face of a body clicked, whole (see `FaceItem`). */
   item?: FaceItem;
+  /** A work plane clicked (picks that take them, in front of any body): its id; `point` on it, `normal` its own, away from the camera. */
+  plane?: string;
   /** A quiet pick taking parts, Alt-clicked: the edge (its segments, world) or the face there; `adds`: Shift held too. */
   part?: { edge: [THREE.Vector3, THREE.Vector3][] } | { face: FaceItem };
   adds?: boolean;
@@ -421,6 +423,8 @@ export class Viewer implements ToolView {
   private pickOutlines = false;
   /** A quiet pick's parts: 'alt': Alt previews and picks an edge or face (see `PickedFace.part`); 'lit': the face or edge a click lands on lit instead of its point (a point along an edge, its middle say, counts as the edge: see `alongEdge`). */
   private pickParts: 'alt' | 'lit' | null = null;
+  /** A pick takes work planes too, as faces (see `PickedFace.plane`). */
+  private pickPlanes = false;
   private sketchMark = new THREE.Group();
   /** A sketch hovered in the list: its shapes lit. */
   private sketchHover = new THREE.Group();
@@ -602,6 +606,15 @@ export class Viewer implements ToolView {
       if (this.planeDrag) return this.dragSide(e);
       if (this.planeEdit) canvas.style.cursor = this.planeSide(e) >= 0 ? 'grab' : '';
       if (this.facePick && !this.drag) {
+        // a work plane in front: lit orange
+        const plane = this.pickPlanes ? this.workPlaneAt(e) : null;
+        if ((plane?.id ?? null) !== this.hotPlane) this.lightPlane(plane?.id ?? null);
+        if (plane) {
+          this.aimAt(null);
+          this.markEdge();
+          this.markFace();
+          return void this.aiming?.({ at: plane.point, what: 'on work plane' });
+        }
         if (this.quietPick && this.pickParts === 'lit') {
           // a face or edge lit whole; a snap point as usual
           const a = this.aimAt(e);
@@ -1126,11 +1139,12 @@ export class Viewer implements ToolView {
 
   /** The next click on a body picks a face (null: Esc). */
   /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too; `parts`: see `pickParts`. */
-  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines = false, parts: Viewer['pickParts'] = null) {
+  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines = false, parts: Viewer['pickParts'] = null, planes = false) {
     this.facePick = done;
     this.quietPick = quiet;
     this.pickOutlines = outlines;
     this.pickParts = parts;
+    this.pickPlanes = planes;
     if (!quiet) this.renderer.domElement.classList.add('drawing');
   }
 
@@ -1942,19 +1956,26 @@ export class Viewer implements ToolView {
   onHover: ((id: string | null) => void) | null = null;
   private hovering: string | null = null;
 
+  /** The nearest work plane under the pointer within its rectangle, in front of any body (`hit`: the body face there); null: none. */
+  private workPlaneAt(e: MouseEvent, hit = this.frontHit(e)) {
+    const ray = this.ray(e);
+    let best: { id: string; frame: Frame; point: THREE.Vector3; d: number } | null = null;
+    for (const w of this.workPlanes) {
+      const p = planeHit(ray, w.frame);
+      const d = p?.distanceTo(ray.origin) ?? Infinity;
+      if (!p || (hit && d > hit.distance) || (best && d >= best.d)) continue;
+      const [u, v] = uvOf(w.frame, p);
+      if (u >= w.rect[0] && u <= w.rect[2] && v >= w.rect[1] && v <= w.rect[3]) best = { id: w.id, frame: w.frame, point: p, d };
+    }
+    return best;
+  }
+
   private hoverRow(e: MouseEvent) {
     const hit = this.frontHit(e);
     const ray = this.ray(e);
     const s = this.shapeAt(ray, hit?.distance);
-    const plane = () =>
-      this.workPlanes.find((w) => {
-        const p = planeHit(ray, w.frame);
-        if (!p || (hit && p.distanceTo(ray.origin) > hit.distance)) return false;
-        const [u, v] = uvOf(w.frame, p);
-        return u >= w.rect[0] && u <= w.rect[2] && v >= w.rect[1] && v <= w.rect[3];
-      })?.id;
     // a plane counts only in front of the body hit
-    const id = (s && s.edge < Infinity ? s.sketch : null) ?? plane() ?? (hit?.object.userData.bodyId as string | undefined) ?? null;
+    const id = (s && s.edge < Infinity ? s.sketch : null) ?? this.workPlaneAt(e, hit)?.id ?? (hit?.object.userData.bodyId as string | undefined) ?? null;
     if (id !== this.hovering) this.onHover?.((this.hovering = id));
   }
 
@@ -2640,6 +2661,12 @@ export class Viewer implements ToolView {
   /** A face under the pointer, else the base plane facing the camera through the origin; the normal points away from the camera. */
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
+    const plane = this.pickPlanes ? this.workPlaneAt(e) : null;
+    if (plane) {
+      const n = new THREE.Vector3(...plane.frame.n);
+      if (n.dot(this.camera.getWorldDirection(new THREE.Vector3())) < 0) n.negate();
+      return this.endFacePick({ point: plane.point, normal: n, plane: plane.id, what: 'on work plane' });
+    }
     if (this.quietPick && this.pickParts === 'alt' && picksFace(e)) {
       const edge = this.edgeAt(e);
       this.markEdge();
@@ -2766,6 +2793,7 @@ export class Viewer implements ToolView {
     this.markSketch(null);
     this.markFace();
     if (this.pickParts) this.markEdge();
+    if (this.pickPlanes) this.lightPlane(null);
     if (!this.tool) this.renderer.domElement.classList.remove('drawing');
     done?.(face);
   }
