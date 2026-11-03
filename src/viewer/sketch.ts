@@ -344,6 +344,7 @@ export class SketchTool implements Tool {
     SketchTool.guides = SketchTool.guides.filter((g) => g.fixed);
     this.view.unlockPointer();
     this.view.markFace();
+    this.litPlane(null);
     this.clearPreview();
     this.labels.remove();
     this.host.cursorTip(null);
@@ -391,6 +392,7 @@ export class SketchTool implements Tool {
       const at = this.point(e, target);
       if (!at) return true;
       this.view.markFace();
+      this.litPlane(null);
       if (this.kind === 'line' && SketchTool.lineEnd && mod(e)) {
         this.phase = { kind: 'polygon', target, pts: [uvOf(target.frame, SketchTool.lineEnd), at], cur: at, typed: [], axis: 0, base: 0 };
         this.finishLine();
@@ -425,6 +427,12 @@ export class SketchTool implements Tool {
     return true;
   }
 
+  /** The work plane lit as hovered. */
+  private lit: string | null = null;
+  private litPlane(id: string | null) {
+    if (id !== this.lit) this.view.lightPlane((this.lit = id));
+  }
+
   move(e: PointerEvent) {
     const ph = this.phase;
     this.snapWhat = this.snapKey = null;
@@ -433,6 +441,7 @@ export class SketchTool implements Tool {
       if (!this.kind && this.mode?.kind !== 'plane') return;
       const target = this.target(e);
       this.view.markFace(target?.body && !target.sketch ? this.view.hit(e) : undefined);
+      this.litPlane(target?.placement.kind === 'work' ? target.placement.plane : null);
       this.host.hint(target ? this.hoverHint(target) : 'Only top faces of extrusions take sketches · [Esc] stops');
       if (target) this.point(e, target); // shows a snap dot
       return this.update();

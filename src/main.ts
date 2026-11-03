@@ -4476,7 +4476,7 @@ function newSection() {
       enabled: true,
     };
     commit({ ...doc, sections: [...doc.sections, section] });
-  });
+  }, false, false, null, true);
 }
 
 function setMaterialOf(ids: string[], material: string | undefined, added?: Material) {
