@@ -11,8 +11,8 @@ const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click a face or sketch to extrude · [Shift]-click: more (again: drops it) · double-click: everything inside a shape · a sketch in the list: all of it · [Enter] pulls them · [Esc] stops';
 const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] back to picking';
 
-/** A face of a body to pull: where it was clicked, its outward normal (world), and which face of which mesh. */
-export type FaceItem = { body: string; point: THREE.Vector3; n: THREE.Vector3; mesh: THREE.Mesh; index: number };
+/** A face of a body to pull: where it was clicked, its outward normal (world), which face of which mesh, and the finish (fillet / chamfer) it belongs to. */
+export type FaceItem = { body: string; point: THREE.Vector3; n: THREE.Vector3; mesh: THREE.Mesh; index: number; finish?: string };
 
 /** A shown sketch's areas (where shapes overlap, each piece is one) and which of them are picked. */
 export type AreaGroup = { target: Target; areas: AreaMesh[]; picked: Set<number> };
@@ -36,6 +36,8 @@ export interface ExtrudeHost {
   cancel(): void;
   /** Pulled (null: the tool stops). */
   done(r: ExtrudeResult | null): void;
+  /** A fillet or chamfer clicked: its size is dragged instead. */
+  resize(face: FaceItem): void;
 }
 
 export interface ExtrudeView extends ToolView {
@@ -72,7 +74,6 @@ export class ExtrudeTool implements Tool {
   ) {
     view.el.append(this.labels);
     host.hint(PICK_HINT);
-    if (this.count()) this.startPull();
     this.update();
   }
 
@@ -96,11 +97,18 @@ export class ExtrudeTool implements Tool {
     return this.faces.length + this.groups.reduce((n, g) => n + g.picked.size, 0);
   }
 
-  /** All areas of a sketch picked, or dropped if they all were (false: it has none). */
-  pickSketch(id: string) {
+  /**
+   * A sketch's areas picked, or dropped if they all were (false: it has none): inside its `shapes` (none: all its
+   * shapes) an odd number of times, so shapes inside others are holes; with no shapes given, the faces lines enclose too.
+   */
+  pickSketch(id: string, shapes: string[] = []) {
     const g = this.groups.find((k) => k.target.sketch === id);
-    if (!g?.areas.length) return false;
-    this.toggle({ group: g, idx: g.areas.map((_, i) => i) });
+    const idx = g?.areas.flatMap((a, i) => {
+      const n = shapes.length ? a.in.filter((s) => shapes.includes(s)).length : a.in.length;
+      return n % 2 || (!shapes.length && !a.in.length) ? [i] : [];
+    });
+    if (!g || !idx?.length) return false;
+    this.toggle({ group: g, idx });
     this.update();
     return true;
   }
@@ -122,6 +130,7 @@ export class ExtrudeTool implements Tool {
       // empty space: with nothing picked the tool ends
       if (!hit) return this.count() || this.x.done(null), true;
       const first = !this.count() && !(e.shiftKey || e.ctrlKey || e.metaKey);
+      if (first && 'face' in hit && hit.face.finish) return this.x.resize(hit.face), true;
       this.toggle(hit);
       if (first && this.count()) this.startPull();
       this.update();

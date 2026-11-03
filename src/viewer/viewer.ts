@@ -22,7 +22,7 @@ import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
 import type { Settings } from '../ui/settings';
-import { outline, planeHit, shape2d, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
+import { divideMore, linePoints, outline, planeHit, shape2d, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 import { picksFace, pressed, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -69,9 +69,10 @@ export type FinishPick = { body: string; feature: string; mid: Vec3 | null };
 
 /** A face picked for a section: a point on it and the normal pointing away from the camera; `body`: whose face (none: a base plane). */
 /** What a click reaches ("to object"): where, and what it is ('corner', 'centre', '1/2', 'on edge', 'on face'). */
-export type Aim = { at: THREE.Vector3; what: string };
+/** What a click reaches ("to object"): where, what it is, and the line or circle A / Shift A splits finer or coarser there. */
+export type Aim = { at: THREE.Vector3; what: string; key?: string };
 
-/** A sketch shape under the pointer for Extrude (`onLine`: on its outline), or a face its lines enclose there. */
+/** A sketch shape whose outline is under the pointer. */
 type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number] };
 
 /**
@@ -303,6 +304,8 @@ export class Viewer implements ToolView {
   /** Picking a face for Extrude: closed sketch shapes count too, and what a click on one pulls is lit here. */
   private pickOutlines = false;
   private sketchMark = new THREE.Group();
+  /** A sketch hovered in the list: its shapes lit. */
+  private sketchHover = new THREE.Group();
   private aimMark = new THREE.Group();
   /** The cut tool's cutting surfaces. */
   private cutMark = new THREE.Group();
@@ -409,7 +412,7 @@ export class Viewer implements ToolView {
 
     const sun = new THREE.DirectionalLight(0xffffff, 2);
     sun.position.set(1, -2, 3);
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.aimMark, this.cutMark, this.axisMark, this.ticks, this.workMark);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x888880, 2), sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.aimMark, this.cutMark, this.axisMark, this.ticks, this.workMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -529,6 +532,14 @@ export class Viewer implements ToolView {
     addEventListener(
       'keydown',
       (e) => {
+        // aiming "to object" on a line or circle: A / Shift A split it finer or coarser, the aim follows (also from a field)
+        const more = pressed(e, 'moreSnaps');
+        if (this.aimKey && this.hover && (more || pressed(e, 'fewerSnaps'))) {
+          divideMore(this.aimKey, more);
+          const { clientX, clientY } = this.hover;
+          this.renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { clientX, clientY, bubbles: true }));
+          return e.preventDefault(), e.stopPropagation();
+        }
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
         // the Esc that freed a locked pointer was already handled
         if (pressed(e, 'cancel') && performance.now() - this.escFreed < 300) return e.preventDefault(), e.stopPropagation();
@@ -552,11 +563,11 @@ export class Viewer implements ToolView {
     return this.tool?.kind ?? null;
   }
 
-  /** A drawing tool (`kind`; none: picking a plane); `mode`: sketch mode, pulling or plane picking. */
+  /** A drawing tool (`kind`; none: picking a plane); `mode`: sketch mode or plane picking. */
   startTool(kind: ToolKind | null, host: ToolHost, mode?: ToolMode) {
     this.stopTool();
     this.tool = new SketchTool(kind, this, host, mode);
-    if (mode?.kind !== 'pull') this.renderer.domElement.classList.add('drawing');
+    this.renderer.domElement.classList.add('drawing');
     this.toolButtons(true);
     this.renderSketches(); // no handles while a tool runs
   }
@@ -571,9 +582,10 @@ export class Viewer implements ToolView {
   /** The last face clicked on a body (front side), for tools picked after it. */
   lastFace: PickedFace | null = null;
   /** Faces picked with Alt-click (one body), lit until it is no longer selected. */
-  private pickedFaces: { mesh: THREE.Mesh; faces: number[] } | null = null;
+  /** Faces picked with Alt-click, per body mesh (Shift-Alt: on several bodies). */
+  private pickedFaces: { mesh: THREE.Mesh; faces: number[] }[] = [];
   /** Picked faces and edges: lit in the accent blue (an Alt-hover previews in orange). */
-  private pickedMark: THREE.Mesh | null = null;
+  private pickedMarks: THREE.Mesh[] = [];
   private pickedEdgeMark = new THREE.Group();
   /** Edges picked with Alt-click (world segments per edge), lit until their body is no longer selected. */
   private pickedEdge: { body: string; edges: [THREE.Vector3, THREE.Vector3][][] } | null = null;
@@ -624,10 +636,6 @@ export class Viewer implements ToolView {
     this.toolButtons(true);
   }
 
-  /** Pulls existing shapes of a sketch into an extrusion (E). */
-  startPull(host: ToolHost, target: Target, ids: string[]) {
-    this.startTool(null, host, { kind: 'pull', target, ids });
-  }
 
   /** Extrude (E): picks faces and sketch areas, then pulls them (`faces` or areas picked already: at once). */
   startExtrude(host: ToolHost, x: ExtrudeHost, groups: AreaGroup[], faces: FaceItem[], focus?: string) {
@@ -649,7 +657,7 @@ export class Viewer implements ToolView {
   /** The face of a body hit, to pull. */
   faceItem(hit: THREE.Intersection): FaceItem {
     const mesh = hit.object as THREE.Mesh;
-    return { body: mesh.userData.bodyId, point: hit.point.clone(), n: hit.face!.normal.clone().transformDirection(mesh.matrixWorld), mesh, index: faceOf(hit) };
+    return { body: mesh.userData.bodyId, point: hit.point.clone(), n: hit.face!.normal.clone().transformDirection(mesh.matrixWorld), mesh, index: faceOf(hit), finish: this.finishAt(hit)?.feature };
   }
 
   /** The face last clicked (null: none). */
@@ -659,17 +667,16 @@ export class Viewer implements ToolView {
 
   /** The faces picked with Alt-click, to pull. */
   pickedFaceItems(): FaceItem[] {
-    const p = this.pickedFaces;
-    if (!p) return [];
-    const { mesh, faces } = p;
-    const groups = mesh.userData.faces as Uint32Array;
-    const index = mesh.geometry.index!.array;
-    const pos = mesh.geometry.attributes.position;
-    return faces.map((k) => {
+    return this.pickedFaces.flatMap(({ mesh, faces }) => {
+      const groups = mesh.userData.faces as Uint32Array;
+      const index = mesh.geometry.index!.array;
+      const pos = mesh.geometry.attributes.position;
+      return faces.map((k): FaceItem => {
       // its first triangle: a point and the outward normal (counter-clockwise from outside)
-      const [a, b, c] = [0, 1, 2].map((o) => new THREE.Vector3().fromBufferAttribute(pos, index[groups[k * 2] + o]).applyMatrix4(mesh.matrixWorld));
-      const n = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
-      return { body: mesh.userData.bodyId, point: a.add(b).add(c).divideScalar(3), n, mesh, index: k };
+        const [a, b, c] = [0, 1, 2].map((o) => new THREE.Vector3().fromBufferAttribute(pos, index[groups[k * 2] + o]).applyMatrix4(mesh.matrixWorld));
+        const n = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+        return { body: mesh.userData.bodyId, point: a.add(b).add(c).divideScalar(3), n, mesh, index: k };
+      });
     });
   }
 
@@ -839,6 +846,16 @@ export class Viewer implements ToolView {
     return sketch && q ? { sketch, q } : null;
   }
 
+  /** Lights all shapes of a sketch in orange, a temporary mark (hovering it in the list; null: none). */
+  lightSketch(id: string | null) {
+    for (const o of this.sketchHover.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
+    this.sketchHover.clear();
+    const s = id ? this.sketches.find((k) => k.id === id) : undefined;
+    for (const q of s?.shapes ?? []) this.sketchHover.add(outline(q, s!.frame, 0xff8c1a, 0, 1.5, 3));
+    this.sketchHover.traverse((o) => (o.renderOrder = 1e6));
+    this.render();
+  }
+
   /** Lights the sketch shape a click there picks: its outline, and inside it (a line: only its outline). */
   private markSketch(at: SketchHit | null) {
     for (const o of this.sketchMark.children) {
@@ -934,18 +951,25 @@ export class Viewer implements ToolView {
   }
 
   /**
-   * What a click points at (world) and what it is: a body corner or sphere centre within `px`, else on the edge
-   * within 6 px its middle (within `px` of it) or the nearest point, else the face point; null: empty space.
+   * What a click points at (world) and what it is: the nearest point within `px` (a body corner, a sphere's or round
+   * edge's centre, a sketch's snap point or one along a straight edge, see `linePoints`), else on the edge within 6 px
+   * its middle (within `px` of it) or the nearest point, else the face point; null: empty space.
    */
   private snapAt(e: MouseEvent, px = 10): Aim | null {
     const r = this.el.getBoundingClientRect();
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
-    const near = (p: THREE.Vector3) => {
+    const dist = (p: THREE.Vector3) => {
       const [x, y] = this.toScreen(p);
-      return Math.hypot(mx - x, my - y) < px;
+      return Math.hypot(mx - x, my - y);
     };
-    const corner = this.corners().find(near);
-    if (corner) return { at: corner, what: this.balls.some((b) => b.center.equals(corner)) ? 'centre' : 'corner' };
+    const near = (p: THREE.Vector3) => dist(p) < px;
+    const points: Aim[] = [
+      ...this.corners().map((at) => ({ at, what: this.balls.some((b) => b.center.equals(at)) ? 'centre' : 'corner' })),
+      ...this.edgeCentres().map((at) => ({ at, what: 'centre' })),
+      ...linePoints(snapLines(this.sketches, this.edges())).map(({ at, what, key }) => ({ at, what, key })),
+    ];
+    const point = points.reduce<[Aim | null, number]>((best, p) => (dist(p.at) < best[1] ? [p, dist(p.at)] : best), [null, px])[0];
+    if (point) return point;
     const edge = this.edgeAt(e);
     if (edge) {
       // an open edge's middle, else the edge point nearest the pointer's ray
@@ -971,11 +995,15 @@ export class Viewer implements ToolView {
   /** Waiting for "to object" (the move fields): told what a click at the pointer would reach (see `aimAt`). */
   aiming: ((s: Aim | null) => void) | null = null;
 
+  /** The line or circle the aimed point lies on (A / Shift A split it finer or coarser while aiming). */
+  private aimKey: string | null = null;
+
   /** Marks what a click at the pointer reaches ("to object") and returns it (where, and what: 'corner', '1/2' …); null: clears. */
   aimAt(e: MouseEvent | null): Aim | null {
     for (const o of this.aimMark.children) ((o as THREE.Points).geometry.dispose(), ((o as THREE.Points).material as THREE.Material).dispose());
     this.aimMark.clear();
     const s = e && this.snapAt(e);
+    this.aimKey = s?.key ?? null;
     if (s) this.aimMark.add(Object.assign(marks([s.at], 0xff8c1a, s.what.startsWith('on ') ? 8 : 12), { renderOrder: 1e6 }));
     this.render();
     return s;
@@ -1206,8 +1234,8 @@ export class Viewer implements ToolView {
   select(ids: string[]) {
     this.selection = ids;
     this.rehide();
-    const body = this.pickedFaces?.mesh.userData.bodyId ?? this.pickedEdge?.body;
-    if (body && !ids.includes(body)) this.dropPicked();
+    const bodies = [...this.pickedFaces.map((p) => p.mesh.userData.bodyId as string), ...(this.pickedEdge ? [this.pickedEdge.body] : [])];
+    if (bodies.some((b) => !ids.includes(b))) this.dropPicked();
     for (const id of this.bodies.keys()) this.dress(id);
     this.markCentres();
     this.applySection();
@@ -1443,7 +1471,7 @@ export class Viewer implements ToolView {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
     const cutters = [...this.cutters].flatMap((id) => this.bodies.get(id) ?? []);
-    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, this.pickedMark, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
+    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, ...this.pickedMarks, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
     const selection = this.selection;
     helpers.forEach((o) => (o.visible = false));
     this.select([]);
@@ -1873,6 +1901,37 @@ export class Viewer implements ToolView {
   }
 
   /** The edges of the shown bodies (world segments), with their body; cut outlines of the section too (`cut`). */
+  /** Centres of round body edges (world), per edge lines: kept while their geometry and place stay. */
+  private roundCentres = new WeakMap<THREE.Object3D, { key: string; pts: THREE.Vector3[] }>();
+
+  private edgeCentres() {
+    const out: THREE.Vector3[] = [];
+    for (const [id, g] of this.bodies)
+      for (const c of this.hidden.has(id) ? [] : g.children) {
+        const groups = c.userData.edgeGroups as Uint32Array | undefined;
+        if (!groups) continue;
+        const pos = (c as THREE.LineSegments).geometry.attributes.position;
+        const key = `${(c as THREE.LineSegments).geometry.id} ${g.matrix.elements.join()}`;
+        let kept = this.roundCentres.get(c);
+        if (kept?.key !== key) {
+          const pts: THREE.Vector3[] = [];
+          for (let k = 0; k < groups.length; k += 2) {
+            // segment starts and middles: a rectangle's corners alone lie on a circle
+            const ring: THREE.Vector3[] = [];
+            for (let i = groups[k]; i + 1 < groups[k] + groups[k + 1]; i += 2) {
+              const [a, b] = [i, i + 1].map((j) => new THREE.Vector3().fromBufferAttribute(pos, j).applyMatrix4(g.matrix));
+              ring.push(a, a.clone().lerp(b, 0.5));
+            }
+            const circle = circleOf(ring);
+            if (circle) pts.push(circle.centre);
+          }
+          this.roundCentres.set(c, (kept = { key, pts }));
+        }
+        out.push(...kept.pts);
+      }
+    return out;
+  }
+
   private bodyEdges() {
     const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true }[] = [...this.cutEdges().lines];
     for (const [id, g] of this.bodies)
@@ -1944,27 +2003,29 @@ export class Viewer implements ToolView {
 
   /** Clears the picked faces and edges. */
   dropPicked() {
-    this.pickedEdge = this.pickedFaces = null;
-    this.pickedMark = this.replaceMark(this.pickedMark, undefined, [], 0);
+    this.pickedEdge = null;
+    this.pickFaces([]);
     this.markEdge(undefined, this.pickedEdgeMark);
     this.host.pickedPart(null);
   }
 
-  /** Picked faces of one body: lit, their area reported (none: cleared). */
-  private pickFaces(mesh: THREE.Mesh, faces: number[]) {
-    if (!faces.length) return this.dropPicked();
+  /** Picked faces (per body mesh): lit, their area reported (none: cleared). */
+  private pickFaces(picked: { mesh: THREE.Mesh; faces: number[] }[]) {
+    for (const m of this.pickedMarks) this.replaceMark(m, undefined, [], 0);
+    this.pickedFaces = picked.filter((p) => p.faces.length);
+    this.pickedMarks = this.pickedFaces.map(({ mesh, faces }) => this.replaceMark(null, mesh, faces, PICKED)!);
+    if (!this.pickedFaces.length) return this.host.pickedPart(null);
     this.pickedEdge = null;
     this.markEdge(undefined, this.pickedEdgeMark);
-    this.pickedFaces = { mesh, faces };
-    this.pickedMark = this.replaceMark(this.pickedMark, mesh, faces, PICKED);
-    this.host.pickedPart({ kind: 'face', body: mesh.userData.bodyId, size: faces.reduce((n, k) => n + faceArea(mesh, k), 0), count: faces.length });
+    const count = this.pickedFaces.reduce((n, p) => n + p.faces.length, 0);
+    const size = this.pickedFaces.reduce((n, { mesh, faces }) => faces.reduce((m, k) => m + faceArea(mesh, k), n), 0);
+    this.host.pickedPart({ kind: 'face', body: this.pickedFaces[0].mesh.userData.bodyId, size, count });
   }
 
   private pickEdges(picked: { body: string; edges: [THREE.Vector3, THREE.Vector3][][] }) {
     if (!picked.edges.length) return this.dropPicked();
+    this.pickFaces([]);
     this.pickedEdge = picked;
-    this.pickedFaces = null;
-    this.pickedMark = this.replaceMark(this.pickedMark, undefined, [], 0);
     this.markEdge(picked.edges.flat(), this.pickedEdgeMark, PICKED);
     const size = picked.edges.flat().reduce((n, [a, b]) => n + a.distanceTo(b), 0);
     // one circle, maybe in parts (segment middles too: a rectangle's corners alone lie on a circle)
@@ -2256,7 +2317,10 @@ export class Viewer implements ToolView {
    * the cut area in the stencil buffer, then a plane fills it. `rebound`: measure the bodies again (not while dragging).
    * Planes sit `eps` inside the shown range, so a face lying exactly on a cut is cut away cleanly instead of flickering.
    */
-  private applySection(rebound = true, cap = 1e4 /* mm, cap plane size */, hatchMm = 4, shade = 0.6, eps = 1e-3) {
+  /** The bodies in the object list's order (top first): in a section, a body higher up covers those below where they overlap. */
+  listOrder: string[] = [];
+
+  private applySection(rebound = true, cap = 1e4 /* mm, cap plane size */, hatchMm = 4, shade = 0.6, eps = 1e-3, line = 0x1d1f24) {
     this.sectionView.traverse((o) => {
       if (!(o instanceof THREE.Mesh || o instanceof THREE.LineSegments)) return;
       (o.material as THREE.Material).dispose();
@@ -2288,11 +2352,18 @@ export class Viewer implements ToolView {
       });
       planes.push(...this.custom.map((c) => new THREE.Plane(c.normal.clone(), c.constant - eps)));
       this.cutPlanes.push(planes);
+      // per plane each body's cut face in its colour, hatched: the list's last first, so one higher up covers it
+      const rank = (id: string) => (this.listOrder.indexOf(id) + 1 || Infinity);
+      const shown = [...this.bodies]
+        .flatMap(([id, g]) => {
+          const solid = g.children.find((c) => c instanceof THREE.Mesh) as THREE.Mesh | undefined;
+          return solid && !this.hidden.has(id) && !this.cutters.has(id) ? [{ id, g, solid }] : [];
+        })
+        .sort((a, b) => rank(b.id) - rank(a.id));
       for (const plane of planes) {
-        order++;
-        for (const [id, g] of this.bodies) {
-          const solid = g.children.find((c) => c instanceof THREE.Mesh);
-          if (!solid || this.hidden.has(id) || this.cutters.has(id)) continue;
+        const outlines: [THREE.Vector3, THREE.Vector3][][][] = []; // per body (as drawn), its cut loops
+        for (const { g, solid } of shown) {
+          order++;
           for (const side of [THREE.BackSide, THREE.FrontSide]) {
             const op = side === THREE.BackSide ? THREE.IncrementWrapStencilOp : THREE.DecrementWrapStencilOp;
             const mark = new THREE.Mesh(
@@ -2315,28 +2386,55 @@ export class Viewer implements ToolView {
             mark.renderOrder = order;
             this.sectionView.add(mark);
           }
+          const face = new THREE.Mesh(
+            new THREE.PlaneGeometry(cap, cap),
+            new THREE.MeshStandardMaterial({
+              color: (solid.material as THREE.MeshStandardMaterial).color.clone().multiplyScalar(shade),
+              map: this.hatch,
+              roughness: 0.9,
+              clippingPlanes: planes.filter((p) => p !== plane),
+              stencilWrite: true,
+              stencilRef: 0,
+              stencilFunc: THREE.NotEqualStencilFunc,
+              stencilFail: THREE.ReplaceStencilOp,
+              stencilZFail: THREE.ReplaceStencilOp,
+              stencilZPass: THREE.ReplaceStencilOp,
+            }),
+          );
+          face.userData.cap = true;
+          plane.coplanarPoint(face.position);
+          face.lookAt(face.position.clone().sub(plane.normal));
+          face.onAfterRender = (r) => r.clearStencil();
+          face.renderOrder = order + 0.5;
+          this.sectionView.add(face);
+          g.updateMatrix();
+          outlines.push(planeCut(solid.geometry, g.matrix, plane, planes.filter((p) => p !== plane)));
         }
-        const face = new THREE.Mesh(
-          new THREE.PlaneGeometry(cap, cap),
-          new THREE.MeshStandardMaterial({
-            color: new THREE.Color(0xd8c3a0).multiplyScalar(shade),
-            map: this.hatch,
-            roughness: 0.9,
-            clippingPlanes: planes.filter((p) => p !== plane),
-            stencilWrite: true,
-            stencilRef: 0,
-            stencilFunc: THREE.NotEqualStencilFunc,
-            stencilFail: THREE.ReplaceStencilOp,
-            stencilZFail: THREE.ReplaceStencilOp,
-            stencilZPass: THREE.ReplaceStencilOp,
-          }),
+        // the cut outlines, a line where bodies meet: without the parts a body drawn later (higher up) covers
+        const [u, v] = [new THREE.Vector3(), new THREE.Vector3()];
+        u.copy(Math.abs(plane.normal.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).cross(plane.normal).normalize();
+        v.crossVectors(plane.normal, u);
+        const inside = (p: THREE.Vector3, loops: [THREE.Vector3, THREE.Vector3][][]) => {
+          const [x, y] = [p.dot(u), p.dot(v)];
+          let odd = false;
+          for (const [a, b] of loops.flat()) {
+            const [ay, by] = [a.dot(v), b.dot(v)];
+            if (ay > y !== by > y && x < a.dot(u) + ((y - ay) / (by - ay)) * (b.dot(u) - a.dot(u))) odd = !odd;
+          }
+          return odd;
+        };
+        const lift = plane.normal.clone().multiplyScalar(-0.02); // towards the viewer, off the cap
+        const segs = outlines.flatMap((loops, k) =>
+          loops.flat().filter(([a, b]) => !outlines.slice(k + 1).some((above) => inside(a.clone().lerp(b, 0.5), above))),
         );
-        face.userData.cap = true;
-        plane.coplanarPoint(face.position);
-        face.lookAt(face.position.clone().sub(plane.normal));
-        face.onAfterRender = (r) => r.clearStencil();
-        face.renderOrder = order + 0.5;
-        this.sectionView.add(face);
+        if (segs.length) {
+          const m = new LineMaterial({ color: line, linewidth: 1.5, clippingPlanes: planes.filter((p) => p !== plane) });
+          m.resolution.set(this.el.clientWidth, this.el.clientHeight);
+          const lines = new LineSegments2(new LineSegmentsGeometry().setPositions(segs.flatMap(([a, b]) => [...a.clone().add(lift).toArray(), ...b.clone().add(lift).toArray()])), m);
+          lines.userData.cap = true;
+          lines.renderOrder = order + 0.75;
+          this.sectionView.add(lines);
+        }
       }
       // the bodies clipped to this box, drawn after the caps
       for (const [id, g] of this.bodies)
@@ -2466,21 +2564,24 @@ export class Viewer implements ToolView {
       const loop = this.twice('pick', e) ? this.edgeLoop(e) : null;
       if (loop) return this.host.select(loop.body, false), this.pickEdges(loop);
       // an edge near the pointer, else the face: its body selected and the part picked (a face: E pulls it, S sketches on it);
-      // Shift adds it to (or takes it from) the parts picked on that body
+      // Shift adds it to (or takes it from) the parts picked: edges on that body, faces on any body (all selected)
       const edge = this.edgeAt(e);
       if (!edge && !hit) return;
       const body = edge?.body ?? (hit!.object.userData.bodyId as string);
       // what is picked already (selecting below starts over)
-      const [edges, faces] = [this.pickedEdge?.body === body ? this.pickedEdge.edges : [], this.pickedFaces?.mesh === hit?.object ? this.pickedFaces!.faces : []];
-      this.host.select(body, false);
+      const [edges, faces] = [this.pickedEdge?.body === body ? this.pickedEdge.edges : [], this.pickedFaces];
+      if (edge || !e.shiftKey || !faces.length) this.host.select(body, false);
+      else if (!this.selection.includes(body)) this.host.select(body, true);
       if (edge) {
         const had = e.shiftKey ? edges : [];
         const same = (segs: [THREE.Vector3, THREE.Vector3][]) => segs.length === edge.segs.length && segs[0][0].distanceTo(edge.segs[0][0]) < 1e-6;
         return this.pickEdges({ body, edges: had.some(same) ? had.filter((x) => !same(x)) : [...had, edge.segs] });
       }
-      const k = faceOf(hit!);
+      const [mesh, k] = [hit!.object as THREE.Mesh, faceOf(hit!)];
       const had = e.shiftKey ? faces : [];
-      return this.pickFaces(hit!.object as THREE.Mesh, had.includes(k) ? had.filter((x) => x !== k) : [...had, k]);
+      const on = had.find((p) => p.mesh === mesh);
+      if (!on) return this.pickFaces([...had, { mesh, faces: [k] }]);
+      return this.pickFaces(had.map((p) => (p === on ? { mesh, faces: on.faces.includes(k) ? on.faces.filter((x) => x !== k) : [...on.faces, k] } : p)));
     }
     // pressing a picked edge drags a fillet (up) or chamfer (down) onto the picked edges
     const near = this.pickedEdge && !toggles(e) ? this.edgeAt(e) : null; // a section's cut outline only measures: no finish from it

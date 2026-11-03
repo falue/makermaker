@@ -256,51 +256,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     render();
   },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
-  dragFinish(body, feature, at) {
-    const before = history.current;
-    const i = before.bodies.findIndex((b) => b.id === body);
-    const j = before.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
-    const f = before.bodies[i]?.features[j];
-    if (f?.type !== 'finish') return;
-    // fillets count up from 0, chamfers down: dragging past 0 turns one into the other
-    const mm = evalLength(f.size, paramLookup(before.params));
-    const start = f.mode === 'fillet' ? mm : -mm;
-    for (const kind of ['fillet', 'chamfer']) finishMax.delete(`${feature} ${kind}`); // learnt again while dragging
-    const apply = (d: number) => {
-      const v = clamped(feature, start + d);
-      const mode = v >= 0 ? 'fillet' : 'chamfer';
-      const size = mode === f.mode ? plus(f.size, mm, Math.max(Math.abs(v), 0.1) - mm) : len(Math.max(Math.abs(v), 0.1)); // same kind: the expression stays
-      return setIn(before, ['bodies', String(i), 'features', String(j)], { ...f, mode, size });
-    };
-    let pushed = false;
-    viewer.startFacePull(
-      toolHost,
-      viewer.screenDir(0, 1).toArray(),
-      at,
-      (d, phase) => {
-        if (phase === 'cancel') {
-          if (pushed) history.undo();
-          stopTool();
-          return update();
-        }
-        if (pushed || Math.abs(d) >= 0.1) {
-          if (pushed) history.replace(apply(d));
-          else history.push(apply(d));
-          pushed = true;
-          update();
-        }
-        if (phase === 'done') stopTool(), render();
-      },
-      {
-        hint: 'Drag up: bigger, down: smaller · past 0 a fillet turns into a chamfer and back · [Shift] coarse · [Ctrl] precise · type a change · release or [Enter]: done · [Esc] puts it back',
-        label: (d, typed) => {
-          const v = clamped(feature, start + d);
-          return `${v >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(v).toFixed(2) : `${typed}▏`}`;
-        },
-        endOnUp: true,
-      },
-    );
-  },
+  dragFinish,
   dragEdges(body, edges) {
     const before = history.current;
     const i = before.bodies.findIndex((b) => b.id === body);
@@ -606,6 +562,7 @@ function update() {
     const fresh = stepsOf(b.features).filter((s) => !readSteps.has(s.id));
     if (fresh.length) reading.set(b.id, { name: fresh.map((s) => s.source).join(', '), steps: fresh.map((s) => s.id) });
   }
+  viewer.listOrder = tree(doc, new Set()).flatMap((r) => (r.kind === 'body' ? [r.id] : []));
   kernel.build(builds);
   scheduleAutosave();
   offerAutosave();
@@ -703,16 +660,12 @@ function picks(id: string) {
  */
 function select(id: string | null, how: Pick = false) {
   rendersOpen = false; // choosing something shows it, not the renders
+  viewer.lightSketch(null); // a list row's hover light: the row may be redrawn before the pointer leaves it
   viewer.dropPicked(); // picked faces and edges start over
   if (finishSel) viewer.setFinishMark((finishSel = null));
   if (id && picks(id)) return pending!.pick(id, how);
-  // Extrude picking: a sketch chosen in the list adds all its areas (or drops them); with nothing picked it pulls all its shapes
-  if (extruding?.picking() && id && history.current.sketches.some((s) => s.id === id)) {
-    if (how || extruding.count()) return void (extruding.pickSketch(id) || fail('Nothing to extrude in that sketch'));
-    if (sketching) exitSketch();
-    [selected, shapeSel] = [[id], []];
-    return extrude();
-  }
+  // Extrude picking: a sketch chosen in the list adds its shapes (inner ones holes), or drops them
+  if (extruding?.picking() && id && history.current.sketches.some((s) => s.id === id)) return void (extruding.pickSketch(id) || fail('Nothing to extrude in that sketch'));
   if (sketching && id !== sketching) exitSketch();
   const doc = history.current;
   // ranges run within the object list or within the sketch list
@@ -2341,6 +2294,12 @@ function rotateTool() {
     viewer.showPoint(pivot);
     viewer.showAxis(pivot && { at: pivot, dir, what: '' }, pivot ?? undefined, 60);
     viewer.showTicks(pivot && from ? { at: pivot, dir, from: from.at, step: SketchTool.angleStep, angle, rays: shift || performance.now() < raysUntil } : null);
+    lightAxis();
+  };
+  /** The axis switch: X / Y / Z when it lies along that world axis, else Set axis (also while picking one). */
+  const lightAxis = () => {
+    const k = mode === 'axis' || !pivot ? -1 : [0, 1, 2].findIndex((i) => Math.abs(dir.getComponent(i)) > 0.9999);
+    axisSwitch.forEach((b, i) => b.classList.toggle('on', i - 1 === k));
   };
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const input = Object.assign(document.createElement('input'), { value: '0', spellcheck: false });
@@ -2363,6 +2322,7 @@ function rotateTool() {
   /** Turning: waits for the click that keeps it (a drag turns the view; a click on its point takes the next axis); Esc puts it back. */
   const turnPick = () => {
     mode = 'turn';
+    lightAxis();
     toolHint = `Move around the axis to turn, or type degrees · [Shift] ${SketchTool.angleStep}° steps, [A] / [Shift A] finer / coarser, [Ctrl] ${settings.minAngle}°${point ? ' · click its point again: the next axis' : ''} · click or [Enter] keeps it · [Esc] puts it back`;
     render();
     viewer.pickFace((face) => {
@@ -2415,6 +2375,7 @@ function rotateTool() {
     mode = 'axis'; // before ending the turn's pick: that pick then does nothing
     viewer.cancelFacePick();
     viewer.showTicks(null);
+    lightAxis();
     toolHint = frame
       ? 'Rotate: click the point it turns around · a corner, a circle: its centre · [Esc] ' + (pivot ? 'keeps the axis' : 'cancels')
       : 'Rotate: click the axis · an edge or line, a circle (its centre), or a point (Z through it; again: X, then Y) · [Esc] ' + (pivot ? 'keeps the axis' : 'cancels');
@@ -2494,12 +2455,15 @@ function rotateTool() {
     e.stopImmediatePropagation();
   };
   const axisButton = (a: number) => Object.assign(button('', `Around the world ${'XYZ'[a]} axis through its point (${'XYZ'[a]})`, () => along(a)), { innerHTML: axisHtml('XYZ'[a]) });
+  // one of them is the axis: Set axis (one picked) or X / Y / Z
+  const axisSwitch = [button('Set axis', 'Click an edge or line, a circle (its centre) or a point (Z through it; again: X, then Y)', setAxis), ...(frame ? [] : [0, 1, 2].map(axisButton))];
+  const switcher = Object.assign(document.createElement('span'), { className: 'segmented' });
+  switcher.append(...axisSwitch);
   box.append(
     label,
     input,
     toObjectButton(aimAngle, 'Click where something is now, then where it should go: their angle goes into Turn °'),
-    Object.assign(button('Set axis', 'Click an edge or line, a circle (its centre) or a point (Z through it; again: X, then Y)', setAxis), { className: 'set-axis' }),
-    ...(frame ? [] : [0, 1, 2].map(axisButton)),
+    switcher,
     button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
   );
   document.body.append(box);
@@ -3402,6 +3366,53 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
 /** The reference point is the stored centre: X / Y fields then edit the stored expressions. */
 const centred = (p: DrawnProfile, ref: [number, number]) => !ref[0] && !ref[1] && p.kind !== 'polygon' && p.kind !== 'line';
 
+/** Drags a finish's size from `at` (up: bigger; past 0 a fillet turns into a chamfer and back); release or a click ends it. */
+function dragFinish(body: string, feature: string, at: Vector3) {
+  const before = history.current;
+  const i = before.bodies.findIndex((b) => b.id === body);
+  const j = before.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
+  const f = before.bodies[i]?.features[j];
+  if (f?.type !== 'finish') return;
+  // fillets count up from 0, chamfers down: dragging past 0 turns one into the other
+  const mm = evalLength(f.size, paramLookup(before.params));
+  const start = f.mode === 'fillet' ? mm : -mm;
+  for (const kind of ['fillet', 'chamfer']) finishMax.delete(`${feature} ${kind}`); // learnt again while dragging
+  const apply = (d: number) => {
+    const v = clamped(feature, start + d);
+    const mode = v >= 0 ? 'fillet' : 'chamfer';
+    const size = mode === f.mode ? plus(f.size, mm, Math.max(Math.abs(v), 0.1) - mm) : len(Math.max(Math.abs(v), 0.1)); // same kind: the expression stays
+    return setIn(before, ['bodies', String(i), 'features', String(j)], { ...f, mode, size });
+  };
+  let pushed = false;
+  viewer.startFacePull(
+    toolHost,
+    viewer.screenDir(0, 1).toArray(),
+    at,
+    (d, phase) => {
+      if (phase === 'cancel') {
+        if (pushed) history.undo();
+        stopTool();
+        return update();
+      }
+      if (pushed || Math.abs(d) >= 0.1) {
+        if (pushed) history.replace(apply(d));
+        else history.push(apply(d));
+        pushed = true;
+        update();
+      }
+      if (phase === 'done') stopTool(), render();
+    },
+    {
+      hint: 'Drag up: bigger, down: smaller · past 0 a fillet turns into a chamfer and back · [Shift] coarse · [Ctrl] precise · type a change · release or [Enter]: done · [Esc] puts it back',
+      label: (d, typed) => {
+        const v = clamped(feature, start + d);
+        return `${v >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(v).toFixed(2) : `${typed}▏`}`;
+      },
+      endOnUp: true,
+    },
+  );
+}
+
 /**
  * How a face pushes or pulls `doc` by `mm` along its outward normal: an end face changes its extrusion's depth, a side
  * moves that side of its shape (in the sketch, if linked); values keep their expressions. Null: no extrusion made it.
@@ -3455,13 +3466,11 @@ const targetOf = (s: ViewSketch, name = 'the sketch'): Target => ({ sketch: s.id
  * step): each sketch's areas become new bodies, each face pushes or pulls its extrusion. `faces`, or `sketch` (all its
  * areas), are picked already and pull at once; `focus`: the sketch in sketch mode. The tool stays on until Esc.
  */
-async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; focus?: string } = {}) {
+async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; shapes?: string[]; focus?: string } = {}) {
   stopTool();
   const run = extrudeRun;
   const groups = await Promise.all(viewer.sketches.map(async (s) => ({ target: targetOf(s), areas: await areasOf(s), picked: new Set<number>() })));
   if (run !== extrudeRun) return; // another tool started meanwhile
-  const all = groups.find((g) => g.target.sketch === start.sketch);
-  all?.areas.forEach((_, i) => all.picked.add(i));
   const notPulled = 'Only faces made by extrusions can be pushed or pulled so far';
   const accept = (f: FaceItem) => !!facePull(history.current, f) || (fail(notPulled), false);
   // the faces pull live: from the document before, as built then
@@ -3486,6 +3495,7 @@ async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; focus?
         update();
       },
       cancel: undoLive,
+      resize: (f) => (stopTool(), dragFinish(f.body, f.finish!, f.point)),
       done(r) {
         if (!r) return stopTool(), render();
         let doc = r.faces.length ? pulledFaces(r.faces, r.depth) : history.current;
@@ -3506,6 +3516,7 @@ async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; focus?
     (start.faces ?? []).filter(accept),
     start.focus,
   );
+  if (start.sketch && !extruding.pickSketch(start.sketch, start.shapes)) fail('Nothing to extrude there: closed shapes or faces lines enclose');
   toolMode = 'pull';
   render();
 }
@@ -3552,30 +3563,19 @@ function newSketch(t: Target) {
 }
 
 /**
- * E: pulls what is selected at once: faces picked with Alt-click, a sketch's selected shapes (or all of them), the face
- * last clicked on a selected body. Else (in sketch mode with no shapes selected too) picks faces and areas to pull.
+ * E: picks what is selected, to pull on Enter (more can be picked first): faces picked with Alt-click, a sketch's
+ * selected shapes or all of them (inner ones holes; in sketch mode the view turns from flat at once), the face last
+ * clicked on a selected body. With nothing selected it waits for picks.
  */
 function extrude() {
   const faces = viewer.pickedFaceItems();
-  if (faces.length) return viewer.dropPicked(), void startExtrude({ faces });
-  const focus = sketching && !shapeSel.length ? viewer.sketches.find((v) => v.id === sketching) : undefined;
-  // in sketch mode the view turns from flat at once, to pick in
-  if (focus) return viewer.unflatten(new Vector3(...focus.frame.n)), void startExtrude({ focus: focus.id });
+  if (faces.length) viewer.dropPicked();
   const id = activeSketch();
-  if (!id) {
-    const last = viewer.lastFaceItem();
-    return void startExtrude(last && selected.includes(last.body) ? { faces: [last] } : {});
-  }
-  const s = viewer.sketches.find((v) => v.id === id);
-  if (!s) return fail('Show the sketch to extrude it');
-  // lines in it: what they enclose are areas, all of them pulled
-  if (!shapeSel.length && s.shapes.some((q) => q.kind === 'line' && !q.construction)) return void startExtrude({ sketch: s.id });
-  const target = targetOf(s, 'its sketch');
-  const ids = (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction && q.kind !== 'line').map((q) => q.id);
-  if (!ids.length) return fail('Construction lines and open lines are not extruded: pick other shapes');
-  viewer.startPull(toolHost, target, ids);
-  toolMode = 'pull';
-  render();
+  const s = id ? viewer.sketches.find((v) => v.id === id) : undefined;
+  if (id && !s) return fail('Show the sketch to extrude it');
+  if (s && sketching) viewer.unflatten(new Vector3(...s.frame.n));
+  const last = id || faces.length ? null : viewer.lastFaceItem();
+  void startExtrude({ faces: faces.length ? faces : last && selected.includes(last.body) ? [last] : [], sketch: s?.id, shapes: shapeSel, focus: sketching ?? undefined });
 }
 
 /** Picks a face; a section lies on it, removing the side towards the camera. */
@@ -3849,6 +3849,7 @@ function render() {
       return true;
     },
     jointRange: rangeText,
+    lightSketch: (id) => viewer.lightSketch(id),
     showJoint(id) {
       const j = history.current.joints.find((x) => x.id === id);
       if (j) viewer.select(contents(history.current, j.children));

@@ -174,6 +174,12 @@ Later goals (2026-11-02, from the design talks; STATUS.md → "CAD goals" lists 
 - [ ] **Flatten:** a body's whole recipe becomes one fixed solid (lossy, explicit), so booleans' tool bodies can be removed.
 - [ ] **Cut by any body:** planes, sketch shapes, balls and cylinders work; boxes, imported solids and any other body still to come.
 
+Later goals (2026-11-03):
+
+- [ ] **Work planes through points:** an angle setting like the Cut tool's, and planes built through snap points: with a plane selected, the first point clicked tilts it towards that point, the second through that one too, the third fixes it through all three (it leaves its first place); a fourth drops the first, and so on. The points can be picked again and edited; edges may help too. The panel shows only what is needed at the moment.
+- [ ] **Hovering objects in the list:** an object or group hovered in the list is outlined orange for the moment, like a hovered sketch group.
+- [ ] **Off-screen hint:** an object, group or sketch group hovered in the list that lies outside the view gets a small orange arrow at the view's edge, pointing where it is.
+
 ## Performance and sample files
 
 Two representative workloads are required; neither is a guaranteed supported maximum before measurement:

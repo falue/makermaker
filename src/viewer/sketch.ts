@@ -115,7 +115,7 @@ export interface ToolView {
 }
 
 /** draw: flat shapes into a fixed sketch (sketch mode); pull: existing shapes; plane: pick a plane for a new sketch. */
-export type ToolMode = { kind: 'draw'; target: Target } | { kind: 'pull'; target: Target; ids: string[] } | { kind: 'plane' };
+export type ToolMode = { kind: 'draw'; target: Target } | { kind: 'plane' };
 
 /** A tool that takes the pointer and keys in the viewport. */
 export interface Tool {
@@ -232,7 +232,7 @@ type Phase =
    * coordinates) its angle counts from: the previous line's (going straight on is 0°), else the plane's x axis, or a line picked with B.
    */
   | { kind: 'polygon'; target: Target; pts: UV[]; cur: UV; typed: (string | undefined)[]; axis: number; base: number; chained?: boolean }
-  | ({ kind: 'pull'; target: Target; drawn?: Drawn; shapes: DrawnProfile[]; ids?: string[] } & Pulling);
+  | ({ kind: 'pull'; target: Target; drawn: Drawn; shapes: DrawnProfile[] } & Pulling);
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 /**
@@ -290,7 +290,7 @@ export class SketchTool implements Tool {
   private shiftHeld = false;
   private raysUntil = 0;
   /** Snap points along a line (by its key, see `sideKey`): evenly spaced inside a side, or around a circle. Kept across tool restarts. */
-  private static divisions = new Map<string, number>();
+  static divisions = new Map<string, number>();
   /** The line the pointer snapped to or along (its key), for A / Shift A. */
   private snapKey: string | null = null;
   /** The line whose snap points were just changed: all its points show while the pointer stays on it. */
@@ -329,10 +329,7 @@ export class SketchTool implements Tool {
   ) {
     view.el.append(this.labels);
     addEventListener('keyup', this.shiftUp);
-    if (mode?.kind === 'pull') {
-      const sketch = view.sketches.find((s) => s.id === mode.target.sketch);
-      this.enterPull(mode.target, sketch?.shapes.filter((s) => mode.ids.includes(s.id)) ?? [], undefined, mode.ids);
-    } else this.host.hint(this.hoverHint());
+    this.host.hint(this.hoverHint());
     this.update();
   }
 
@@ -509,8 +506,7 @@ export class SketchTool implements Tool {
     }
     else if (free && (more || pressed(e, 'fewerSnaps')) && this.snapKey && this.lastPoint) {
       const k = this.snapKey;
-      const circle = k.startsWith('circle:');
-      SketchTool.divisions.set(k, Math.max(circle ? 2 : 1, (SketchTool.divisions.get(k) ?? (circle ? 4 : 1)) + (more ? 1 : -1)));
+      divideMore(k, more);
       this.showing = k;
       const at = ph.kind === 'polygon' ? this.sideEnd(this.lastPoint[0], ph) : this.point(...this.lastPoint);
       if (at && (ph.kind === 'shape' || ph.kind === 'polygon')) ph.cur = at;
@@ -628,46 +624,14 @@ export class SketchTool implements Tool {
   private snapPoints(t: Target, lines: SnapLine[]): SnapPoint[] {
     const pts: SnapPoint[] = [{ at: [0, 0], what: 'origin' }];
     const add = (v: THREE.Vector3, o: Omit<SnapPoint, 'at'>) => inPlane(t.frame, v) && pts.push({ at: uvOf(t.frame, v), ...o });
-    // evenly spaced points inside a side, each with the lengths on both sides of it
-    const divide = ([a, b]: Segment) => {
-      const key = sideKey(a, b);
-      const m = SketchTool.divisions.get(key) ?? 1;
-      const len = a.distanceTo(b);
-      for (let i = 1; i <= m; i++) add(a.clone().lerp(b, i / (m + 1)), { what: fraction(i, m + 1), line: [[a, b]], key, parts: [(len * i) / (m + 1), len - (len * i) / (m + 1)] });
-    };
-    for (const { segs, shape, guide } of lines) {
-      if (guide) continue;
-      if (!shape) {
-        if (segs.length === 1) divide(segs[0]);
-        continue;
-      }
-      const { p, sketch } = shape;
-      const cs = corners(p);
-      const sides = p.kind === 'line' ? cs.slice(1).map((b, i) => [cs[i], b]) : cs.map((a, i) => [a, cs[(i + 1) % cs.length]]);
-      const world = ([a, b]: UV[]): Segment => [v3(toWorld(sketch.frame, ...a)), v3(toWorld(sketch.frame, ...b))];
-      const at = (q: UV) => v3(toWorld(sketch.frame, ...q));
-      // centres and circle points light the whole shape, a point along a side that side, a corner the two sides meeting there
-      if (p.kind !== 'line') add(at(centre(p)), { what: 'centre', line: segs });
-      cs.forEach((q, i) => add(at(q), { what: p.kind === 'line' ? 'end' : 'corner', line: [p.kind === 'line' ? sides[i - 1] : sides.at(i - 1), sides[i]].filter((x) => x).map((x) => world(x!)) }));
-      sides.forEach((x) => divide(world(x)));
-      if (p.kind === 'circle') {
-        const key = `circle:${p.id}`;
-        const m = SketchTool.divisions.get(key) ?? 4;
-        for (let i = 0; i < m; i++) {
-          const a = (2 * Math.PI * i) / m;
-          add(at([p.x + (Math.cos(a) * p.d) / 2, p.y + (Math.sin(a) * p.d) / 2]), { what: m === 4 ? 'quadrant' : `${+((360 * i) / m).toFixed(1)}°`, line: segs, key });
-        }
-      }
-    }
+    for (const { at, ...o } of linePoints(lines)) add(at, o);
     for (const c of this.view.corners()) add(c, { what: 'corner', corner: c });
     return pts;
   }
 
   /** Lines to snap to, each as segments (world): outlines of every visible sketch's shapes (with the shape), and body edges. */
   private snapLines(): SnapLine[] {
-    const outlines = this.view.sketches.flatMap((sketch) => sketch.shapes.map((p) => ({ segs: outlineSegs(p, sketch.frame), what: 'on line', shape: { p, sketch } })));
-    const guides = SketchTool.guides.map((guide) => ({ segs: [guideSeg(guide)], what: 'on guide', guide }));
-    return [...outlines, ...this.view.edges().map((segs) => ({ segs, what: 'on edge' })), ...guides];
+    return [...snapLines(this.view.sketches, this.view.edges()), ...SketchTool.guides.map((guide) => ({ segs: [guideSeg(guide)], what: 'on guide', guide }))];
   }
 
   /**
@@ -994,12 +958,11 @@ export class SketchTool implements Tool {
     this.host.done({ target, drawn, depth: 0, mode: 'add' });
   }
 
-  private enterPull(target: Target, shapes: DrawnProfile[], drawn?: Drawn, ids?: string[]) {
-    this.phase = { kind: 'pull', target, drawn, shapes, ids, raw: 0, depth: 0, typed: undefined };
+  private enterPull(target: Target, shapes: DrawnProfile[], drawn: Drawn) {
+    this.phase = { kind: 'pull', target, drawn, shapes, raw: 0, depth: 0, typed: undefined };
     this.view.unflatten(v3(target.frame.n));
     this.view.lockPointer();
-    const keep = drawn ? ' · click without pulling or [Esc]: keep it flat' : ' · [Esc] cancels';
-    this.host.hint(PULL_HINT + keep);
+    this.host.hint(PULL_HINT + ' · click without pulling or [Esc]: keep it flat');
   }
 
   /** Centre of the pulled shapes, on the sketch plane (world). */
@@ -1016,11 +979,9 @@ export class SketchTool implements Tool {
     this.phase = { kind: 'hover' };
     this.view.unlockPointer();
     if (this.kind) this.host.hint(this.hoverHint()); // before done: the host may replace this tool
-    if (!ph.drawn && !depth && !back) return this.host.done(null);
     this.host.done({
       target: ph.target,
       drawn: ph.drawn,
-      shapes: ph.ids,
       depth,
       depthTyped: flat || this.typed(ph.typed) === undefined ? undefined : ph.typed,
       back,
@@ -1217,6 +1178,58 @@ const POLYGON_HINT = 'Click corners, or type a length · [Tab] the angle, [Enter
 const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */
+/** Lines to snap to (world): outlines of the sketches' shapes (with the shape), and body edges. */
+export function snapLines(sketches: ViewSketch[], edges: Segment[][]): SnapLine[] {
+  return [...sketches.flatMap((sketch) => sketch.shapes.map((p) => ({ segs: outlineSegs(p, sketch.frame), what: 'on line', shape: { p, sketch } }))), ...edges.map((segs) => ({ segs, what: 'on edge' }))];
+}
+
+/**
+ * The points on `lines` (world), each with what it is and the outline it belongs to (lit while snapped): centres,
+ * corners (line ends), points along sides (the middle, or as many as set with A) and around circles (quadrants, or
+ * as set) of the shapes; the same along straight body edges.
+ */
+export function linePoints(lines: SnapLine[]): (Omit<SnapPoint, 'at'> & { at: THREE.Vector3 })[] {
+  const pts: (Omit<SnapPoint, 'at'> & { at: THREE.Vector3 })[] = [];
+  // evenly spaced points inside a side, each with the lengths on both sides of it
+  const divide = ([a, b]: Segment) => {
+    const key = sideKey(a, b);
+    const m = SketchTool.divisions.get(key) ?? 1;
+    const len = a.distanceTo(b);
+    for (let i = 1; i <= m; i++) pts.push({ at: a.clone().lerp(b, i / (m + 1)), what: fraction(i, m + 1), line: [[a, b]], key, parts: [(len * i) / (m + 1), len - (len * i) / (m + 1)] });
+  };
+  for (const { segs, shape, guide } of lines) {
+    if (guide) continue;
+    if (!shape) {
+      if (segs.length === 1) divide(segs[0]);
+      continue;
+    }
+    const { p, sketch } = shape;
+    const cs = corners(p);
+    const sides = p.kind === 'line' ? cs.slice(1).map((b, i) => [cs[i], b]) : cs.map((a, i) => [a, cs[(i + 1) % cs.length]]);
+    const world = ([a, b]: UV[]): Segment => [v3(toWorld(sketch.frame, ...a)), v3(toWorld(sketch.frame, ...b))];
+    const at = (q: UV) => v3(toWorld(sketch.frame, ...q));
+    // centres and circle points light the whole shape, a point along a side that side, a corner the two sides meeting there
+    if (p.kind !== 'line') pts.push({ at: at(centre(p)), what: 'centre', line: segs });
+    cs.forEach((q, i) => pts.push({ at: at(q), what: p.kind === 'line' ? 'end' : 'corner', line: [p.kind === 'line' ? sides[i - 1] : sides.at(i - 1), sides[i]].filter((x) => x).map((x) => world(x!)) }));
+    sides.forEach((x) => divide(world(x)));
+    if (p.kind === 'circle') {
+      const key = `circle:${p.id}`;
+      const m = SketchTool.divisions.get(key) ?? 4;
+      for (let i = 0; i < m; i++) {
+        const a = (2 * Math.PI * i) / m;
+        pts.push({ at: at([p.x + (Math.cos(a) * p.d) / 2, p.y + (Math.sin(a) * p.d) / 2]), what: m === 4 ? 'quadrant' : `${+((360 * i) / m).toFixed(1)}°`, line: segs, key });
+      }
+    }
+  }
+  return pts;
+}
+
+/** A finer or coarser split of the line or circle `key` (A / Shift A): at least the middle, a circle at least halves. */
+export function divideMore(key: string, more: boolean) {
+  const circle = key.startsWith('circle:');
+  SketchTool.divisions.set(key, Math.max(circle ? 2 : 1, (SketchTool.divisions.get(key) ?? (circle ? 4 : 1)) + (more ? 1 : -1)));
+}
+
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {
   const pts = (p.kind === 'line' ? p.pts.map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)));
   return (p.kind === 'line' ? pts.slice(0, -1) : pts).map((a, i): Segment => [a, pts[(i + 1) % pts.length]]);

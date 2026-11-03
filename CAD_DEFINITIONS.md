@@ -102,3 +102,10 @@ Imported meshes remain bodies, but are not automatically converted to editable C
 3. Keep features and construction history separate from the main organizational tree.
 4. Preserve explicit references, cutting targets, and editable parameters when saving and reopening.
 5. Report unresolved references, invalid operations, and conflicting joints clearly; never silently change their meaning.
+
+## Visual language
+
+- **Orange: temporary.** What the pointer is on, what is picked for a tool before it runs, hover previews (a sketch hovered in the list, the edge or face a click would take), snap points and helpers (angle rays, arcs, aim marks).
+- **Blue / cyan: chosen.** The selection and parts picked with Alt-click.
+- **Green: done.** The ✓ that keeps a change, the tool's note in the top bar.
+- **Red: refused or removed.** Errors, the cutting surface, what a cut deletes.

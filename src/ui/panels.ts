@@ -78,6 +78,8 @@ export interface UIContext {
   jointTool(): void;
   /** Lights a joint's moving objects (null: the selection again). */
   showJoint(joint: string | null): void;
+  /** Lights a sketch's shapes in the view (hovered in the list; null: none). */
+  lightSketch(id: string | null): void;
   /**
    * To object for the value at `path`: the next click's value (in the display unit) is handed to `insert`, to go into
    * the field where the cursor is; false: that value has none.
@@ -456,14 +458,14 @@ function editbar(ctx: UIContext): Node[] {
   const on = (name: string) => ctx.active === name;
   if (ctx.sketching)
     return [
-      tool('extrude', 'Extrude (E): pull the selected shapes, or the whole sketch', ctx.extrude, on('extrude')),
+      tool('extrude', 'Extrude (E): the selected shapes, or the whole sketch, picked; click more, Enter pulls them', ctx.extrude, on('extrude')),
       tool('mirror', 'Mirror: the selected shapes across a line or edge clicked next: mirrored copies', ctx.mirrorTool),
       tool('offset', 'Offset: the selected shapes get outlines a distance outside (negative: inside; a line moves to its left)', ctx.offsetTool),
       h('hr'),
-      tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch),
+      Object.assign(tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch), { className: 'tool ok' }),
     ];
   return [
-    tool('extrude', 'Extrude (E): pull the selected shapes or the whole selected sketch; else push or pull a face (clicked before or after)', ctx.extrude, on('extrude')),
+    tool('extrude', 'Extrude (E): what is selected (shapes, a sketch, faces) is picked, Enter pulls it; or click a face or sketch shape (Shift-click: more, then Enter)', ctx.extrude, on('extrude')),
     tool('revolve', 'Revolve (U): closed sketch shapes (selected, or the outline clicked next) turned around a line or edge in their plane', ctx.revolveTool),
     tool('sweep', 'Sweep: a line or shape outline clicked (the path), then the outline of a closed sketch shape to run along it (the profile)', ctx.sweepTool),
     tool('loft', 'Loft (K): a body through closed sketch shapes of several sketches, their outlines clicked in order (Enter)', ctx.loftTool),
@@ -727,6 +729,8 @@ function left(ctx: UIContext): Node[] {
     // a plain click draws into it: sketch mode, looking at its plane
     const item = listItem(sk.id, selectedClass(sk.id), (how) => (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']));
     item.title = `${whose(doc, sk.id)} · click to draw into it`;
+    item.onmouseenter = () => ctx.lightSketch(sk.id);
+    item.onmouseleave = () => ctx.lightSketch(null);
     // its body, like a body's sketch button: a click selects it
     const body = owner
       ? h('button', { className: 'icon', innerHTML: icon('body'), title: `Object derived: ${owner.name}`, onclick: () => ctx.select(owner.id) })
