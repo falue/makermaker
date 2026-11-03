@@ -1121,8 +1121,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
       input.onkeydown = (e) => keys(e, input);
       const next = fields.slice(k + 1).find(Boolean);
       const letter = Object.assign(document.createElement('span'), { className: `axis-${name.toLowerCase()}`, textContent: name });
-      box.insertBefore(letter, next?.previousSibling ?? toObject); // in X Y Z order, the button last
-      box.insertBefore(input, next?.previousSibling ?? toObject);
+      box.insertBefore(cell(letter, input), next?.parentElement ?? toObject); // in X Y Z order, the button last
       fields[k] = input;
     }
     fields[k]!.focus();
@@ -1616,10 +1615,9 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     else finish(pressed(e, 'confirm'));
   };
   box.append(
-    ...field('Offset', () => values.offset, (t) => (values.offset = t)),
-    toObjectButton(aim, 'Click a corner, edge or face: the cut goes through it'),
+    cell(...field('Offset', () => values.offset, (t) => (values.offset = t)), toObjectButton(aim, 'Click a corner, edge or face: the cut goes through it')),
     ...(cutter.kind === 'plane'
-      ? [...field('Turn °', () => values.turn, (t) => (values.turn = t)), Object.assign(document.createElement('button'), { className: 'set-axis', textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
+      ? [cell(...field('Turn °', () => values.turn, (t) => (values.turn = t))), Object.assign(document.createElement('button'), { className: 'set-axis', textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
       : []),
     segmented,
     panelButton('✓', 'Cut (Enter); Esc leaves the body as it was', () => finish(true)),
@@ -1701,7 +1699,7 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
     render();
   };
   const keys = (e: KeyboardEvent) => (pressed(e, 'confirm') || pressed(e, 'cancel')) && (e.stopImmediatePropagation(), e.preventDefault(), finish(pressed(e, 'confirm')));
-  box.append(label, input, panelButton('✓', 'Keep it (Enter); Esc leaves nothing', () => finish(true)));
+  box.append(cell(label, input), panelButton('✓', 'Keep it (Enter); Esc leaves nothing', () => finish(true)));
   document.body.append(box);
   atTop(box);
   toolHint = 'Type or scrub the angle · [Enter] keeps it · [Esc] leaves nothing';
@@ -1756,9 +1754,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     if (f.title) label.title = input.title = f.title;
     scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()), f.int);
     // To object right after the field it fills; label, field and button wrap together
-    const cell = Object.assign(document.createElement('span'), { className: 'cell' });
-    cell.append(label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field')] : []));
-    return [cell];
+    return [cell(label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field')] : []))];
   });
   const end = (ok: boolean) => {
     viewer.aiming = null;
@@ -1800,6 +1796,13 @@ function atTop(box: HTMLElement, cube = 120) {
   const [from, to] = [r.left + 8, r.right - cube];
   box.style.maxWidth = `${to - from}px`;
   keepInside(box, from + (to - from - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+}
+
+/** A panel field's parts (label, input, To object button) as one box: the label inside, the button joined. */
+function cell(...parts: HTMLElement[]) {
+  const el = Object.assign(document.createElement('span'), { className: 'cell' });
+  el.append(...parts);
+  return el;
 }
 
 /** A panel button; ✓ (keep it) is filled green. */
@@ -2626,9 +2629,7 @@ function rotateTool() {
   const switcher = Object.assign(document.createElement('span'), { className: 'segmented' });
   switcher.append(...axisSwitch);
   box.append(
-    label,
-    input,
-    toObjectButton(aimAngle, 'Click where something is now, then where it should go: their angle goes into Turn °'),
+    cell(label, input, toObjectButton(aimAngle, 'Click where something is now, then where it should go: their angle goes into Turn °')),
     switcher,
     button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
   );
@@ -2942,13 +2943,9 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
   const button = panelButton;
   box.append(
     segmented,
-    minLabel,
-    minInput,
-    maxLabel,
-    maxInput,
-    toObjectButton(aim, 'Click a point: the min or max (the last one typed in) points the moving part at it, or reaches it (T)'),
-    speedLabel,
-    speedInput,
+    cell(minLabel, minInput),
+    cell(maxLabel, maxInput, toObjectButton(aim, 'Click a point: the min or max (the last one typed in) points the moving part at it, or reaches it (T)')),
+    cell(speedLabel, speedInput),
     button('⇄ Invert', 'Turn or move the other way round', () => write({ axis: { ...now().axis, dir: now().axis.dir.map((v) => -v) as [number, number, number] } })),
     button('▶ Play', 'Play it once from its min to its max to see it (where it is now stays)', () => start(id, false)),
     button('✓', 'Keep the changes (Enter); Esc drops them', () => finish(true)),

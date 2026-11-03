@@ -267,10 +267,56 @@ input.invalid {
   white-space: nowrap;
 }
 
-.field > span {
-  display: block;
-  font-size: 11px;
+/* a field: its label inside the input's box, on the left (the To object button joined on the right) */
+.field,
+.axis-move .cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--field);
+}
+.field > span,
+.axis-move .cell > span {
+  flex: none;
+  padding: 0 2px 0 6px;
+  white-space: nowrap;
+  cursor: ew-resize;
+}
+/* words muted; an axis letter keeps its colour */
+.field > span:not([class*='axis-']),
+.axis-move .cell > span:not([class*='axis-']) {
   color: var(--muted);
+}
+.field > input:not([type]),
+.axis-move .cell > input {
+  border: none;
+  background: transparent;
+}
+.field:focus-within,
+.axis-move .cell:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.field > input:focus,
+.axis-move .cell > input:focus {
+  outline: none;
+}
+.field:has(> input.invalid),
+.axis-move .cell:has(> input.invalid) {
+  border-color: var(--error);
+  background: var(--field-invalid);
+}
+.axis-move .cell > .to-object {
+  align-self: stretch;
+  aspect-ratio: 1;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-left: 1px solid var(--line);
+  border-radius: 0 3px 3px 0;
 }
 .row {
   display: flex;
@@ -1229,11 +1275,6 @@ button.primary.wide {
 }
 .axis-move label[hidden] {
   display: none;
-}
-.axis-move .cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 .axis-move > span {
   white-space: nowrap;
