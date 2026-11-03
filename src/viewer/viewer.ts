@@ -1149,16 +1149,16 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** An axis drawn dashed in the cut's red, `half` mm both ways from the point on it nearest `mid` (null: gone). */
+  /** An axis drawn dashed in the cut's red (dashes kept on screen at any zoom), `half` mm both ways from the point on it nearest `mid` (null: gone). */
   showAxis(a: TurnAxis | null, mid = new THREE.Vector3(), half = 50) {
-    for (const o of this.axisMark.children) ((o as THREE.Line).geometry.dispose(), ((o as THREE.Line).material as THREE.Material).dispose());
+    for (const o of this.axisMark.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
     this.axisMark.clear();
     if (a) {
       const c = a.at.clone().addScaledVector(a.dir, mid.clone().sub(a.at).dot(a.dir));
-      const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([c.clone().addScaledVector(a.dir, -half), c.clone().addScaledVector(a.dir, half)]), new THREE.LineDashedMaterial({ color: 0xe5484d, dashSize: half / 20, gapSize: half / 30, depthTest: false }));
-      l.computeLineDistances();
-      l.renderOrder = 1e6;
-      this.axisMark.add(l);
+      const m = new LineMaterial({ color: 0xe5484d, linewidth: 1.4, depthTest: false, dashed: true });
+      m.resolution.set(this.el.clientWidth, this.el.clientHeight);
+      const ends = [c.clone().addScaledVector(a.dir, -half), c.clone().addScaledVector(a.dir, half)];
+      this.axisMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(ends.flatMap((v) => v.toArray())), m).computeLineDistances(), { renderOrder: 1e6 }));
     }
     this.render();
   }
@@ -1801,10 +1801,10 @@ export class Viewer implements ToolView {
     r.autoClear = autoClear;
   }
 
-  /** Dashed lines (construction lines, guides) keep `px` long dashes and gaps on screen at any zoom. */
+  /** Dashed lines (construction lines, guides, axes) keep `px` long dashes and gaps on screen at any zoom. */
   private scaleDashes(px = 5) {
     const mm = px / this.pixelsPerMm(this.controls.target);
-    for (const g of [this.sketchView, this.overlay])
+    for (const g of [this.sketchView, this.overlay, this.axisMark])
       g.traverse((o) => {
         const m = (o as LineSegments2).material;
         if (m instanceof LineMaterial && m.dashed) m.dashSize = m.gapSize = mm;
