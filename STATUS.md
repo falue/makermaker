@@ -149,6 +149,7 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Imports**: 3MF / GLB as mesh bodies (STEP, STL, OBJ, SVG, DXF and pictures work); meshes in booleans and exports; DXF blocks (INSERT) and SVG text. Maybe use [cadmpeg](https://github.com/cadmpeg/cadmpeg)
 - **Materials, further**: thickness as a value expressions can use (a material change resizes linked geometry), commands in the Command API, shadows from the sun in the 3D view.
 - **Recovery copy**: a copy in the browser's storage a moment after each change, offered when the app starts after a crash or power cut (the close warning only covers closing and reloading).
+- **GUI through the commands**: a tool's final step (when the user confirms) calls its command in src/api/commands.ts; hover, picking, previews and live scrubbing stay in the UI. New features from the start, old tools when reworked anyway, all before LLM or Python control. Materials, photo spheres and light have no commands yet.
 - **Restore versions**: a list of the versions saved in the file (`history/`), to look at and restore one; they are stored, but nothing shows them yet.
 - **Import options panel**: the unit dialog is not styled or placed like the other floating panels.
 - **Joints, further**: a fixed joint, limits enforced while dragging, joints solved against each other (now each joint only places its own children).
