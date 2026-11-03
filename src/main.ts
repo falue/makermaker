@@ -21,7 +21,7 @@ import type { Area, Body, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource,
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
-import type { BuildFeature } from './kernel/build';
+import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
@@ -32,6 +32,7 @@ import { installTooltips } from './ui/tooltip';
 import { keepInside } from './ui/inside';
 import { ANGLE_STEPS, SketchTool, uvOf, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
+import type { ExtrudeTool, FaceItem } from './viewer/extrude';
 import { Viewer, type FinishPick, type PickedFace, type PickedPart, type TurnAxis, type Vec3 } from './viewer/viewer';
 
 // over the 3D view, the pointer's note stays inside it
@@ -197,8 +198,10 @@ const busy = new Set<string>();
 let toolHint: string | null = null;
 /** The selected part of a fillet / chamfer (Del leaves that edge out; the whole finish: deletes it). */
 let finishSel: FinishPick | null = null;
-/** A face pick running for the extrude tool (E, then a face). */
-let extrudePick = false;
+/** The extrude tool while it runs (picking faces and sketch areas, or pulling them). */
+let extruding: ExtrudeTool | null = null;
+/** Counts tool starts: an extrude tool still loading its areas sees whether another tool started meanwhile. */
+let extrudeRun = 0;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
 let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut' | 'joint' | 'shell'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
 let autosave = localStorage.getItem('makermaker.autosave') === 'on';
@@ -696,14 +699,9 @@ function select(id: string | null, how: Pick = false) {
   viewer.dropPicked(); // picked faces and edges start over
   if (finishSel) viewer.setFinishMark((finishSel = null));
   if (id && picks(id)) return pending!.pick(id, how);
-  // while picking areas, a sketch chosen in the list gets all its areas picked
-  if (toolMode === 'pull' && sketching && id && history.current.sketches.some((s) => s.id === id)) {
-    if (id !== sketching) enterSketch(id);
-    return void extrudeAreas(true);
-  }
-  // Extrude waiting for a face: a sketch chosen instead pulls its shapes
-  if (extrudePick && id && history.current.sketches.some((s) => s.id === id)) {
-    viewer.cancelFacePick();
+  // Extrude picking: a sketch chosen in the list adds all its areas (or drops them); with nothing picked it pulls all its shapes
+  if (extruding?.picking() && id && history.current.sketches.some((s) => s.id === id)) {
+    if (how || extruding.count()) return void (extruding.pickSketch(id) || fail('Nothing to extrude in that sketch'));
     if (sketching) exitSketch();
     [selected, shapeSel] = [[id], []];
     return extrude();
@@ -1403,7 +1401,7 @@ function cutTool() {
     if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
     x.normalize();
     cutPanel(body, { kind: 'plane', o: unplaced(pl, face.point.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), turn: ex(0), axis: null, offset: len(0) });
-  }, false, 'outlines');
+  }, false, true);
 }
 
 /** While a cut is set up: its chunk B, not listed until the cut is kept. */
@@ -1664,7 +1662,7 @@ function revolveTool() {
       [selected, shapeSel] = [[face.sketch.id], [face.sketch.shape]];
       showSelection();
       revolveTool();
-    }, false, 'outlines');
+    }, false, true);
   }
   toolHint = "Revolve: click the axis · a sketch line or a body edge in the shapes' plane · [Esc] cancels";
   render();
@@ -2203,7 +2201,7 @@ function sweepTool() {
       const q = face?.sketch?.shape;
       if (!face?.sketch || !q) return render();
       done({ sketch: face.sketch.id, shape: q });
-    }, false, 'outlines');
+    }, false, true);
   };
   pick('Sweep: click the path · the line or shape outline it runs along · [Esc] cancels', (path) =>
     pick('Sweep: click the profile · the outline of a closed shape to sweep along the path · [Esc] cancels', (profile) => {
@@ -2252,7 +2250,7 @@ function loftTool() {
       const at = face.sketch;
       if (at?.shape && !picked.some((q) => q.sketch === at.id)) picked.push({ sketch: at.id, shape: at.shape }), show();
       next();
-    }, false, 'outlines');
+    }, false, true);
   };
   const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), finish(picked.length > 1));
   addEventListener('keydown', keys, { capture: true });
@@ -3160,7 +3158,15 @@ function groupSelection() {
  * from them (linked). One undo step.
  */
 function sketched(r: SketchResult): string {
-  const doc = history.current;
+  const { doc, id, ids, made } = withSketched(history.current, r);
+  if (made) [selected, shapeSel] = [made, []];
+  else [selected, shapeSel] = [[id], ids];
+  commit(doc);
+  return id;
+}
+
+/** `doc` with a drawn shape added to its sketch (a new one if needed) or pulled shapes and areas: the sketch, the shapes, the bodies made (null: none pulled). */
+function withSketched(doc: Doc, r: SketchResult): { doc: Doc; id: string; ids: string[]; made: string[] | null } {
   const t = r.target;
   let sketches = doc.sketches;
   let bodies = doc.bodies;
@@ -3212,11 +3218,9 @@ function sketched(r: SketchResult): string {
     if (joint) joints = doc.joints.map((j) => (j === joint ? { ...j, children: [...j.children, ...made.map((b) => b.id)] } : j));
     else if (host?.group && doc.joints.some((j) => j.children.some((c) => within(doc, c).has(host.group!)))) made.forEach((b) => (b.group = host.group));
     bodies = [...bodies, ...made];
-    selected = made.map((b) => b.id);
-    shapeSel = [];
-  } else [selected, shapeSel] = [[id], ids];
-  commit({ ...doc, sketches, bodies, joints });
-  return id;
+    return { doc: { ...doc, sketches, bodies, joints }, id, ids, made: made.map((b) => b.id) };
+  }
+  return { doc: { ...doc, sketches, bodies, joints }, id, ids, made: null };
 }
 
 function profileOf(drawn: Drawn): Profile {
@@ -3235,6 +3239,8 @@ function shapeOf({ profile: p, typed: t }: Drawn): Profile {
 
 function stopTool() {
   viewer.stopTool();
+  extruding = null;
+  extrudeRun++;
   toolMode = null;
   toolHint = null;
 }
@@ -3265,7 +3271,7 @@ const toolHost: ToolHost = {
     if (was === 'direct' && !result.depth && !result.back) return enterSketch(id, kind);
     if (sketching) exitSketch(); // an extrusion finishes the sketch
     if (was === 'direct' && kind) startTool(kind);
-    else pickFaceToPull();
+    else void startExtrude();
   },
   hint(text) {
     toolHint = text;
@@ -3312,7 +3318,7 @@ function addSphere({ center, d, typed }: NonNullable<SketchResult['sphere']>) {
 function startTool(kind: ToolKind) {
   if (kind === 'sphere' && sketching) exitSketch();
   const s = viewer.sketches.find((v) => v.id === sketching);
-  if (s) viewer.startTool(kind, toolHost, { kind: 'draw', target: { sketch: s.id, placement: s.placement, frame: s.frame, body: null, name: 'the sketch' } });
+  if (s) viewer.startTool(kind, toolHost, { kind: 'draw', target: { ...targetOf(s), body: null } });
   else viewer.startTool(kind, toolHost);
   toolMode = s ? 'draw' : 'direct';
   render();
@@ -3381,79 +3387,109 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
 const centred = (p: DrawnProfile, ref: [number, number]) => !ref[0] && !ref[1] && p.kind !== 'polygon' && p.kind !== 'line';
 
 /**
- * Pushes or pulls a face live (one undo step): an end face changes its extrusion's depth, a side moves that side of
- * its shape (in the sketch, if linked). Values keep their expressions.
+ * How a face pushes or pulls `doc` by `mm` along its outward normal: an end face changes its extrusion's depth, a side
+ * moves that side of its shape (in the sketch, if linked); values keep their expressions. Null: no extrusion made it.
  */
-function pullFace(face: PickedFace) {
-  const features = built.get(face.body ?? '');
-  const pl = bodyPlace(face.body ?? '');
-  const hit = features && faceAt(features, unplaced(pl, face.point.toArray()), unplaced(pl, face.normal.clone().negate().toArray(), true));
-  if (!hit) return fail('Only faces made by extrusions can be pushed or pulled so far');
-  const before = history.current;
-  const bi = before.bodies.findIndex((b) => b.features.some((f) => f.id === hit.feature));
-  const fi = before.bodies[bi]?.features.findIndex((f) => f.id === hit.feature) ?? -1;
-  const feature = before.bodies[bi]?.features[fi];
-  if (feature?.type !== 'extrude') return;
-  const lookup = paramLookup(before.params);
+function facePull(doc: Doc, face: FaceItem): ((d: Doc, mm: number) => Doc) | null {
+  const features = built.get(face.body);
+  const pl = bodyPlace(face.body);
+  const hit = features && faceAt(features, unplaced(pl, face.point.toArray()), unplaced(pl, face.n.toArray(), true));
+  if (!hit) return null;
+  const bi = doc.bodies.findIndex((b) => b.features.some((f) => f.id === hit.feature));
+  const fi = doc.bodies[bi]?.features.findIndex((f) => f.id === hit.feature) ?? -1;
+  const feature = doc.bodies[bi]?.features[fi];
+  if (feature?.type !== 'extrude') return null;
+  const lookup = paramLookup(doc.params);
   const featurePath = ['bodies', String(bi), 'features', String(fi)];
-  let apply: (mm: number) => Doc;
   if (hit.kind === 'cap') {
     // the end face changes the depth, the face behind the plane how far it reaches back
     const key = hit.back ? 'back' : 'depth';
     const value = feature[key] ?? len(0);
     const mm0 = resolve(value, lookup, '', new Map()) as number;
-    apply = (mm) => setIn(before, [...featurePath, key], plus(value, mm0, mm * hit.rate));
-  } else {
-    const src = feature.source;
-    const k = src.kind === 'sketch' ? before.sketches.findIndex((s) => s.id === src.sketch) : -1;
-    const list = src.kind === 'sketch' ? (before.sketches[k]?.shapes ?? []) : src.profiles;
-    const j = list.findIndex((q) => q.id === hit.shape);
-    if (j < 0) return;
-    const path = src.kind === 'sketch' ? ['sketches', String(k), 'shapes', String(j)] : [...featurePath, 'source', 'profiles', String(j)];
-    const old = resolve(list[j], lookup, '', new Map()) as DrawnProfile;
-    apply = (mm) => setIn(before, path, rewrite(list[j], old, pushed(old, hit.edge, mm * hit.rate)));
+    return (d, mm) => setIn(d, [...featurePath, key], plus(value, mm0, mm * hit.rate));
   }
-  let pushedOnce = false;
-  viewer.startFacePull(toolHost, face.normal.clone().negate().toArray(), face.point, (mm, phase) => {
-    if (phase === 'cancel') {
-      if (pushedOnce) history.undo();
-      stopTool();
-      update();
-      return pickFaceToPull(); // the tool stays on: Esc again stops it
-    }
-    if (pushedOnce) history.replace(apply(mm));
-    else history.push(apply(mm));
-    pushedOnce = true;
-    update();
-    if (phase === 'done') (stopTool(), pickFaceToPull());
-  });
-  toolMode = 'pull';
-  render();
+  const src = feature.source;
+  const k = src.kind === 'sketch' ? doc.sketches.findIndex((s) => s.id === src.sketch) : -1;
+  const list = src.kind === 'sketch' ? (doc.sketches[k]?.shapes ?? []) : src.profiles;
+  const j = list.findIndex((q) => q.id === hit.shape);
+  if (j < 0) return null;
+  const path = src.kind === 'sketch' ? ['sketches', String(k), 'shapes', String(j)] : [...featurePath, 'source', 'profiles', String(j)];
+  const old = resolve(list[j], lookup, '', new Map()) as DrawnProfile;
+  return (d, mm) => setIn(d, path, rewrite(list[j], old, pushed(old, hit.edge, mm * hit.rate)));
 }
 
-/** The extrude tool waiting for a face of an extrusion to push or pull (Esc stops it). */
-function pickFaceToPull() {
-  toolHint = 'Click a face or sketch to extrude · a face: push or pull it · a sketch area: pull it ([Shift]-click: more) · a sketch in the list: all its shapes · [Esc] stops';
-  extrudePick = true;
-  render();
-  viewer.pickFace((face) => {
-    toolHint = null;
-    extrudePick = false;
-    // a sketch's area clicked: its areas to pick, that one picked already (as the sketch first, then E)
-    if (face?.sketch) return enterSketch(face.sketch.id), void extrudeAreas(false, face.sketch);
-    if (face?.body) pullFace(face);
-    else render(); // empty space: the tool just ends
-  }, false, 'areas');
+/** Areas of the shown sketches by id, kept while their shapes stay the same. */
+const areaCache = new Map<string, { key: string; areas: AreaMesh[] }>();
+
+async function areasOf(s: ViewSketch) {
+  const shapes = s.shapes.filter((q) => !q.construction);
+  const key = JSON.stringify(shapes);
+  const kept = areaCache.get(s.id);
+  if (kept?.key === key) return kept.areas;
+  const areas = shapes.length ? await kernel.areas(shapes) : [];
+  areaCache.set(s.id, { key, areas });
+  return areas;
 }
 
-/** Picks areas of the sketch in sketch mode to pull; `all`: all of them picked already, `first`: a click whose area (or shape) is. */
-async function extrudeAreas(all = false, first?: { at: MouseEvent; shape?: string }) {
-  const s = viewer.sketches.find((v) => v.id === sketching);
-  if (!s) return;
+/** A shown sketch as the place to draw or pull on. */
+const targetOf = (s: ViewSketch, name = 'the sketch'): Target => ({ sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name });
+
+/**
+ * Extrude: picks faces of extrusions and areas of the shown sketches, then pulls them all by one distance (one undo
+ * step): each sketch's areas become new bodies, each face pushes or pulls its extrusion. `faces`, or `sketch` (all its
+ * areas), are picked already and pull at once; `focus`: the sketch in sketch mode. The tool stays on until Esc.
+ */
+async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; focus?: string } = {}) {
   stopTool();
-  const areas = await kernel.areas(s.shapes.filter((q) => !q.construction));
-  if (!areas.length) return fail('Nothing to extrude yet: draw a shape first');
-  viewer.startAreas(toolHost, { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'the sketch' }, areas, all, first);
+  const run = extrudeRun;
+  const groups = await Promise.all(viewer.sketches.map(async (s) => ({ target: targetOf(s), areas: await areasOf(s), picked: new Set<number>() })));
+  if (run !== extrudeRun) return; // another tool started meanwhile
+  const all = groups.find((g) => g.target.sketch === start.sketch);
+  all?.areas.forEach((_, i) => all.picked.add(i));
+  const notPulled = 'Only faces made by extrusions can be pushed or pulled so far';
+  const accept = (f: FaceItem) => !!facePull(history.current, f) || (fail(notPulled), false);
+  // the faces pull live: from the document before, as built then
+  let pulls: { before: Doc; by: ((d: Doc, mm: number) => Doc)[] } | null = null;
+  const pulledFaces = (faces: FaceItem[], mm: number) => {
+    pulls ??= { before: history.current, by: faces.map((f) => facePull(history.current, f)!) };
+    return pulls.by.reduce((d, by) => by(d, mm), pulls.before);
+  };
+  const undoLive = () => {
+    if (pulls && history.current !== pulls.before) (history.undo(), update());
+    pulls = null;
+  };
+  extruding = viewer.startExtrude(
+    toolHost,
+    {
+      accept,
+      live(faces, mm) {
+        const was = pulls;
+        const next = pulledFaces(faces, mm);
+        if (was) history.replace(next);
+        else history.push(next);
+        update();
+      },
+      cancel: undoLive,
+      done(r) {
+        if (!r) return stopTool(), render();
+        let doc = r.faces.length ? pulledFaces(r.faces, r.depth) : history.current;
+        undoLive(); // the faces' live step: replaced by the whole pull
+        const made: string[] = [];
+        for (const g of r.groups) {
+          const out = withSketched(doc, { ...g, depth: r.depth, depthTyped: r.depthTyped, back: r.back, backTyped: r.backTyped, mode: 'add' });
+          doc = out.doc;
+          made.push(...(out.made ?? []));
+        }
+        if (made.length) [selected, shapeSel] = [made, []];
+        commit(doc);
+        if (sketching) exitSketch(); // an extrusion finishes the sketch
+        void startExtrude();
+      },
+    },
+    groups.filter((g) => g.areas.length),
+    (start.faces ?? []).filter(accept),
+    start.focus,
+  );
   toolMode = 'pull';
   render();
 }
@@ -3500,22 +3536,25 @@ function newSketch(t: Target) {
 }
 
 /**
- * E: in sketch mode picks areas of the sketch to pull; with a sketch selected pulls its selected shapes (or all);
- * else pulls an extrusion's end face: the face last clicked on the selected body, or one clicked next.
+ * E: pulls what is selected at once: faces picked with Alt-click, a sketch's selected shapes (or all of them), the face
+ * last clicked on a selected body. Else (in sketch mode with no shapes selected too) picks faces and areas to pull.
  */
 function extrude() {
-  if (sketching) return void extrudeAreas();
-  if (!activeSketch()) {
-    const last = viewer.lastFace;
-    if (last?.body && selected.includes(last.body)) return pullFace(last);
-    return pickFaceToPull();
-  }
+  const faces = viewer.pickedFaceItems();
+  if (faces.length) return viewer.dropPicked(), void startExtrude({ faces });
+  const focus = sketching && !shapeSel.length ? viewer.sketches.find((v) => v.id === sketching) : undefined;
+  // in sketch mode the view turns from flat at once, to pick in
+  if (focus) return viewer.unflatten(new Vector3(...focus.frame.n)), void startExtrude({ focus: focus.id });
   const id = activeSketch();
+  if (!id) {
+    const last = viewer.lastFaceItem();
+    return void startExtrude(last && selected.includes(last.body) ? { faces: [last] } : {});
+  }
   const s = viewer.sketches.find((v) => v.id === id);
-  if (!s) return fail(id ? 'Show the sketch to extrude it' : 'Select a sketch or some of its shapes to extrude');
-  // lines in it: what they enclose are areas, all of them picked to pull
-  if (!shapeSel.length && s.shapes.some((q) => q.kind === 'line' && !q.construction)) return enterSketch(s.id), void extrudeAreas(true);
-  const target: Target = { sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name: 'its sketch' };
+  if (!s) return fail('Show the sketch to extrude it');
+  // lines in it: what they enclose are areas, all of them pulled
+  if (!shapeSel.length && s.shapes.some((q) => q.kind === 'line' && !q.construction)) return void startExtrude({ sketch: s.id });
+  const target = targetOf(s, 'its sketch');
   const ids = (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction && q.kind !== 'line').map((q) => q.id);
   if (!ids.length) return fail('Construction lines and open lines are not extruded: pick other shapes');
   viewer.startPull(toolHost, target, ids);
@@ -3674,7 +3713,7 @@ function render() {
     status,
     busy: [...[...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => `Reading ${r.name}`), ...busy],
     shapes: shapeSel,
-    active: pending?.tool ?? (extrudePick || (toolMode === 'pull' && !viewer.activeTool) ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
+    active: pending?.tool ?? (toolMode === 'pull' && !viewer.activeTool ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
     // the tool's own notes show in the top bar (see showNote); the footer has the hints for what is selected
     hint:
       (finishSel
@@ -3804,7 +3843,7 @@ function render() {
     sketching,
     newSketch: startNewSketch,
     editSketch(id) {
-      const pulling = extrudePick; // Extrude first: the sketch gets pulled instead
+      const pulling = extruding?.picking(); // Extrude first: the sketch gets pulled instead
       const picked = picks(id); // a waiting tool takes it
       select(id);
       if (!pulling && !picked) enterSketch(id, null, true);

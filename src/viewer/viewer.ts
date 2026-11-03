@@ -13,10 +13,8 @@ import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { area, bounds, centre, corners, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
-import { lineFaceAt, type Face } from '../doc/arrangement';
 import { anchorAt, angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
-import type { AreaMesh } from '../kernel/build';
-import { AreaTool } from './areas';
+import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
 import { FacePullTool, type PullLook } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
@@ -74,7 +72,7 @@ export type FinishPick = { body: string; feature: string; mid: Vec3 | null };
 export type Aim = { at: THREE.Vector3; what: string };
 
 /** A sketch shape under the pointer for Extrude (`onLine`: on its outline), or a face its lines enclose there. */
-type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number]; onLine: boolean } | { sketch: ViewSketch; face: Face };
+type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number] };
 
 /**
  * A line to turn around (world): through `at` along unit `dir`; `what` it was taken from, `length`: the edge's or
@@ -88,8 +86,8 @@ export interface PickedFace {
   body?: string;
   /** A quiet pick: the corner, edge point or face point clicked (none: empty space). */
   snap?: THREE.Vector3;
-  /** A closed shape of a visible sketch clicked in front of any face: that sketch, the click, and the shape if its outline was clicked. */
-  sketch?: { id: string; at: MouseEvent; shape?: string };
+  /** Picking outlines: the shape of a visible sketch whose outline was clicked, in front of any face. */
+  sketch?: { id: string; shape: string };
   /** A round (cylindrical) face clicked (world): its axis from `at` along `dir` for `length`, radius `r`; `shaft`: material inside it (else a hole). */
   round?: { at: THREE.Vector3; dir: THREE.Vector3; length: number; r: number; shaft: boolean };
 }
@@ -303,7 +301,7 @@ export class Viewer implements ToolView {
   private clickAt: { x: number; y: number } | null = null;
   private faceMark: THREE.Mesh | null = null;
   /** Picking a face for Extrude: closed sketch shapes count too, and what a click on one pulls is lit here. */
-  private pickSketches: false | 'areas' | 'outlines' = false;
+  private pickOutlines = false;
   private sketchMark = new THREE.Group();
   private aimMark = new THREE.Group();
   /** The cut tool's cutting surfaces. */
@@ -631,13 +629,59 @@ export class Viewer implements ToolView {
     this.startTool(null, host, { kind: 'pull', target, ids });
   }
 
-  /** Picks areas of a sketch and pulls them (E in sketch mode). */
-  /** `all`: everything picked already (a sketch chosen from the list). */
-  startAreas(host: ToolHost, target: Target, areas: AreaMesh[], all = false, first?: { at: MouseEvent; shape?: string }) {
+  /** Extrude (E): picks faces and sketch areas, then pulls them (`faces` or areas picked already: at once). */
+  startExtrude(host: ToolHost, x: ExtrudeHost, groups: AreaGroup[], faces: FaceItem[], focus?: string) {
     this.stopTool();
-    this.tool = new AreaTool(this, host, target, areas, all, first);
+    const tool = new ExtrudeTool(this, host, x, groups, faces, focus);
+    this.tool = tool;
     this.toolButtons(true);
     this.renderSketches();
+    return tool;
+  }
+
+  /** The closed sketch shape whose outline is under the pointer, in front of any body; null: none. */
+  outlineAt(e: MouseEvent) {
+    const s = this.shapeAt(this.ray(e), this.frontHit(e)?.distance);
+    const q = s && s.edge < Infinity ? this.sketches.find((k) => k.id === s.sketch)?.shapes.find((x) => x.id === s.shape) : undefined;
+    return q && !q.construction && q.kind !== 'line' ? { sketch: s!.sketch, shape: q.id } : null;
+  }
+
+  /** The face of a body hit, to pull. */
+  faceItem(hit: THREE.Intersection): FaceItem {
+    const mesh = hit.object as THREE.Mesh;
+    return { body: mesh.userData.bodyId, point: hit.point.clone(), n: hit.face!.normal.clone().transformDirection(mesh.matrixWorld), mesh, index: faceOf(hit) };
+  }
+
+  /** The face last clicked (null: none). */
+  lastFaceItem() {
+    return this.lastHit && this.faceItem(this.lastHit);
+  }
+
+  /** The faces picked with Alt-click, to pull. */
+  pickedFaceItems(): FaceItem[] {
+    const p = this.pickedFaces;
+    if (!p) return [];
+    const { mesh, faces } = p;
+    const groups = mesh.userData.faces as Uint32Array;
+    const index = mesh.geometry.index!.array;
+    const pos = mesh.geometry.attributes.position;
+    return faces.map((k) => {
+      // its first triangle: a point and the outward normal (counter-clockwise from outside)
+      const [a, b, c] = [0, 1, 2].map((o) => new THREE.Vector3().fromBufferAttribute(pos, index[groups[k * 2] + o]).applyMatrix4(mesh.matrixWorld));
+      const n = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+      return { body: mesh.userData.bodyId, point: a.add(b).add(c).divideScalar(3), n, mesh, index: k };
+    });
+  }
+
+  private faceMarks: THREE.Mesh[] = [];
+
+  /** Lights picked faces (orange) and the hovered one (blue); faces of meshes gone meanwhile are left out. */
+  markFaces(picked: FaceItem[], hover: FaceItem | null = null) {
+    for (const m of this.faceMarks) this.replaceMark(m, undefined, [], 0);
+    const by = new Map<THREE.Mesh, number[]>();
+    for (const f of picked) if (f.mesh.parent) by.set(f.mesh, [...(by.get(f.mesh) ?? []), f.index]);
+    this.faceMarks = [...by].map(([mesh, faces]) => this.replaceMark(null, mesh, faces, 0xff8c1a)!);
+    if (hover?.mesh.parent && !picked.some((f) => f.mesh === hover.mesh && f.index === hover.index)) this.faceMarks.push(this.replaceMark(null, hover.mesh, [hover.index], 0x3b6fd8)!);
   }
 
   /** The sketch in sketch mode gets a grid on its plane (null: none). */
@@ -786,30 +830,16 @@ export class Viewer implements ToolView {
     return best;
   }
 
-  /**
-   * Picking with sketches, in front of any face: a closed sketch shape's outline under the pointer (all of it), else the
-   * face lines enclose there (see `lineFaceAt`), else the closed shape the pointer is in; null: none.
-   */
+  /** Picking outlines: the sketch shape (lines too) whose outline is under the pointer, in front of any face; null: none. */
   private sketchShapeAt(e: MouseEvent, hit: THREE.Intersection | undefined): SketchHit | null {
-    if (!this.pickSketches) return null;
-    const ray = this.ray(e);
-    const s = this.shapeAt(ray, hit?.distance);
-    const sketch = s && this.sketches.find((k) => k.id === s.sketch);
+    if (!this.pickOutlines) return null;
+    const s = this.shapeAt(this.ray(e), hit?.distance);
+    const sketch = s && s.edge < Infinity ? this.sketches.find((k) => k.id === s.sketch) : undefined;
     const q = sketch?.shapes.find((x) => x.id === s!.shape);
-    if (this.pickSketches === 'outlines') return sketch && q && s!.edge < Infinity ? { sketch, q, onLine: true } : null; // any shape, lines too
-    const closed = q && !q.construction && q.kind !== 'line' ? q : null;
-    if (sketch && closed && s!.edge < Infinity) return { sketch, q: closed, onLine: true };
-    // inside lines' faces: the nearest sketch with lines that close a face around the pointer
-    for (const k of this.sketches.filter((x) => x.shapes.some((p) => p.kind === 'line' && !p.construction))) {
-      const p = planeHit(ray, k.frame);
-      if (!p || p.distanceTo(ray.origin) > (hit?.distance ?? Infinity) + 1e-3) continue;
-      const face = lineFaceAt(k.shapes.filter((x) => !x.construction), uvOf(k.frame, p));
-      if (face) return { sketch: k, face };
-    }
-    return sketch && closed ? { sketch, q: closed, onLine: false } : null;
+    return sketch && q ? { sketch, q } : null;
   }
 
-  /** Lights what a click there pulls: on a shape's outline all of it (the outline too), inside it the piece without the shapes inside it, or a lines' face. */
+  /** Lights the sketch shape a click there picks: its outline, and inside it (a line: only its outline). */
   private markSketch(at: SketchHit | null) {
     for (const o of this.sketchMark.children) {
       (o as THREE.Mesh).geometry.dispose();
@@ -818,19 +848,11 @@ export class Viewer implements ToolView {
     this.sketchMark.clear();
     if (at) {
       const f = at.sketch.frame;
-      const poly = (pts: [number, number][]) => new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
-      let shape: THREE.Shape;
-      if ('face' in at) (shape = poly(at.face.outer)).holes = at.face.holes.map(poly);
-      else if (at.q.kind === 'line') shape = new THREE.Shape(); // a line: only its outline lights
-      else {
-        const { sketch, q, onLine } = at;
-        shape = shape2d(q);
-        if (!onLine) shape.holes = sketch.shapes.filter((o) => o !== q && !o.construction && o.kind !== 'line' && area(o) < area(q) && inside(q, ...centre(o))).map(shape2d);
-      }
+      const shape = at.q.kind === 'line' ? new THREE.Shape() : shape2d(at.q);
       const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape, 32), new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.35, depthTest: false, side: THREE.DoubleSide }));
       fill.matrixAutoUpdate = false;
       fill.matrix.makeBasis(new THREE.Vector3(...f.x), new THREE.Vector3(...f.y), new THREE.Vector3(...f.n)).setPosition(...f.o);
-      this.sketchMark.add(fill, ...('q' in at && at.onLine ? [outline(at.q, f, 0xff8c1a, 0, 1.5, 4)] : []));
+      this.sketchMark.add(fill, outline(at.q, f, 0xff8c1a, 0, 1.5, 4));
       this.sketchMark.traverse((o) => (o.renderOrder = 1e6));
     }
     this.render();
@@ -898,11 +920,11 @@ export class Viewer implements ToolView {
   }
 
   /** The next click on a body picks a face (null: Esc). */
-  /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view). */
-  pickFace(done: (face: PickedFace | null) => void, quiet = false, sketches: false | 'areas' | 'outlines' = false) {
+  /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too. */
+  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines = false) {
     this.facePick = done;
     this.quietPick = quiet;
-    this.pickSketches = sketches;
+    this.pickOutlines = outlines;
     if (!quiet) this.renderer.domElement.classList.add('drawing');
   }
 
@@ -2119,7 +2141,7 @@ export class Viewer implements ToolView {
     const hit = this.frontHit(e);
     if (this.quietPick) return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined });
     const s = this.sketchShapeAt(e, hit);
-    const sketch = s ? { sketch: { id: s.sketch.id, at: e, shape: 'q' in s && s.onLine ? s.q.id : undefined } } : {};
+    const sketch = s ? { sketch: { id: s.sketch.id, shape: s.q.id } } : {};
     if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), ...sketch });
     // a body cut open by a section: its cut face (only back faces are hit through it)
     const behind = this.intersect(this.raycaster(e))[0];
