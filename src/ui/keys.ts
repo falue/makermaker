@@ -76,6 +76,7 @@ export const KEYS = {
   baseline: { chapter: 'Drawing aids', name: 'Measure angle from', order: 78, default: [{ key: 'b' }], hint: 'Drawing a line or polygon side, pointer on a straight line or edge: its angle counts from that line (again, or off a line: from the X axis)' },
   fixGuide: { chapter: 'Drawing aids', name: 'Fix guide line', order: 77, default: [{ key: 'g' }], hint: 'Drawing, pointer on a guide line (or the line it extends): it stays until G again or sketch mode ends' },
   toObject: { chapter: 'Shape', name: 'To object', order: 78, default: [{ key: 't' }], hint: 'Pulling (before typing a size): click a corner, edge or face, the pull reaches it' },
+  measureValue: { chapter: 'Shape', name: 'Measure a value', order: 78.5, default: [{ key: ' ' }], hint: 'In a value field (empty or all selected) or while typing a size: the Measure tool; its Use puts the value measured in there' },
   pullPicked: { chapter: 'Shape', name: 'Pull picked areas', order: 74, default: [{ key: 'e' }], hint: 'Picking areas: pull the picked ones (as Confirm does)' },
 } satisfies Record<string, Binding>;
 

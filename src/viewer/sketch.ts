@@ -172,6 +172,12 @@ export function aimInto(p: Pulling, at: THREE.Vector3, frame: { o: V3; n: V3 }) 
   if (!p.side && p.typed === undefined) p.depth = at.clone().sub(v3(frame.o)).dot(v3(frame.n));
 }
 
+/** A length measured goes into what is being typed while pulling (depth or back). */
+export function typeInto(p: Pulling, text: string) {
+  const k = p.side ? 'typedBack' : 'typed';
+  p[k] = (p[k] ?? '') + text;
+}
+
 /** A pull's depth and how far it reaches back (mm): typed, else as pulled; Alt: back as far as the depth (both ways from the plane). */
 export function pulled(p: Pulling, length: (text: string) => number | null) {
   const typed = (t: string | undefined) => (t === undefined ? null : length(t));
@@ -205,6 +211,8 @@ export function pullBy(view: ToolView, e: PointerEvent, normal: V3, middle: THRE
 }
 
 export interface ToolHost {
+  /** The Measure tool, this one waiting: `use` gets the length taken, `done` runs when it ends either way. */
+  measure(use: (mm: number) => void, done: () => void): void;
   /** A typed size in mm (expressions and units allowed), or null if invalid. */
   length(text: string): number | null;
   /** A typed plain number (expressions allowed), or null if invalid or a length. */
@@ -284,6 +292,8 @@ export class SketchTool implements Tool {
   private static lineDir: THREE.Vector3 | null = null;
   /** Pulling: waiting for the click that sets how far ("to object"); what the pointer would reach meanwhile. */
   private reaching = false;
+  /** The Measure tool is on, this one waits for it. */
+  private measuring = false;
   /** A To object click just went into a shape's size: its release does not end the shape. */
   private reached = false;
   private aimed: string | null = null;
@@ -439,6 +449,7 @@ export class SketchTool implements Tool {
   }
 
   move(e: PointerEvent) {
+    if (this.measuring) return;
     const ph = this.phase;
     this.snapWhat = this.snapKey = null;
     this.snapSeg = this.onGuide = null;
@@ -592,6 +603,27 @@ export class SketchTool implements Tool {
     const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined); // not while typing a size
     const guide = this.hoveredGuide();
     const modKey = MAC ? 'Meta' : 'Control';
+    // Measure while a size is typed: this tool waits, the value goes in (not a polygon's sides)
+    if ((ph.kind === 'shape' && !(this.kind === 'ngon' && ph.axis === 1)) || ph.kind === 'pull') {
+      if (pressed(e, 'measureValue')) {
+        this.measuring = true;
+        this.view.unlockPointer();
+        this.host.measure(
+          (mm) => {
+            if (this.phase !== ph) return;
+            const text = this.host.lengthText(mm);
+            if (ph.kind === 'pull') typeInto(ph, text);
+            else {
+              const axis = ph.typed[ph.axis] ?? '';
+              ph.typed[ph.axis] = axis + text;
+            }
+            this.update();
+          },
+          () => (this.measuring = false),
+        );
+        return true;
+      }
+    }
     // To object while drawing a shape: the next click's distance goes into the size being typed (not a polygon's sides)
     if (ph.kind === 'shape' && pressed(e, 'toObject') && !(this.kind === 'ngon' && ph.axis === 1) && !/[A-Za-z_]$/.test(ph.typed[ph.axis] ?? '')) {
       this.reaching = true;

@@ -432,8 +432,12 @@ export function wantsT(e: KeyboardEvent, input: HTMLInputElement, params: Record
 }
 
 /** The To object button, the same everywhere: its icon and words (T does the same where it is offered). */
-export function toObjectButton(onclick: () => void, title: string) {
-  return h('button', { className: 'to-object', innerHTML: icon('target'), title: `T: to object · ${title}`, onclick });
+export function toObjectButton(onclick: () => void, title: string, measure?: () => void) {
+  const target = h('button', { className: 'to-object', innerHTML: icon('target'), title: `T: to object · ${title}`, onclick });
+  if (!measure) return target;
+  // keeps the focus in the field the value goes to
+  const measuring = h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'Space: Measure · its Use puts the value measured in this field', onmousedown: (e: Event) => e.preventDefault(), onclick: measure });
+  return h('span', { className: 'to-tools' }, target, measuring);
 }
 
 /** A one-character label (×, ⇄, ✎) makes an icon button: no outline. */

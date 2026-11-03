@@ -1239,7 +1239,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
     box.classList.add('targeting');
     last?.focus();
     viewer.aiming(viewer.aimHere());
-  }, 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it');
+  }, 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it', measureField);
   const copy = Object.assign(document.createElement('input'), { type: 'checkbox', onchange: () => ((linkedLabel.hidden = !copy.checked), show(), last?.focus()) });
   const copyLabel = Object.assign(document.createElement('label'), { title: 'Leave the selection where it is and move a copy of it' });
   copyLabel.append(copy, 'Copy');
@@ -1706,7 +1706,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     else finish(pressed(e, 'confirm'));
   };
   box.append(
-    cell(...field('Offset', () => values.offset, (t) => (values.offset = t)), toObjectButton(aim, 'Click a corner, edge or face: the cut goes through it')),
+    cell(...field('Offset', () => values.offset, (t) => (values.offset = t)), toObjectButton(aim, 'Click a corner, edge or face: the cut goes through it', measureField)),
     ...(cutter.kind === 'plane'
       ? [cell(...field('Turn °', () => values.turn, (t) => (values.turn = t))), Object.assign(document.createElement('button'), { className: 'set-axis', textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
       : []),
@@ -1835,6 +1835,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
   const cells = fields.flatMap((f, k) => {
     const input = inputs[k];
     input.dataset.complete = '';
+    if (f.raw) input.dataset.noMeasure = ''; // an angle, not a length
     input.oninput = () => (input.classList.toggle('invalid', !valid(k)), emit());
     input.onfocus = () => (last = input);
     if (f.int) input.onblur = () => input.value !== '' && valid(k) && String(Math.round(Number(input.value))) !== input.value && ((input.value = String(Math.round(Number(input.value)))), emit());
@@ -1845,7 +1846,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     if (f.title) label.title = input.title = f.title;
     scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()), f.int, undefined, f.step);
     // To object right after the field it fills; label, field and button wrap together
-    return [cell(label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field')] : []))];
+    return [cell(label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field', f.raw ? undefined : measureField)] : []))];
   });
   const end = (ok: boolean) => {
     viewer.aiming = null;
@@ -2680,12 +2681,17 @@ function fingersPanel(body: string, id: string, fresh = false) {
  * its sides too), Shift Alt adds or drops more of that kind (their total). Hovering marks what a click takes. The
  * values in a panel at the top of the view; a click on one copies it. Goes on until Esc.
  */
-function measureTool() {
+/**
+ * Measure. With `use` another tool or field waits for it: every length measured gets a Use button, which hands it over (mm)
+ * and ends this tool.
+ */
+function measureTool(use?: (mm: number) => void, done?: () => void) {
   const u = history.current.units;
   let last: Vector3 | null = null;
   let edges: [Vector3, Vector3][][] = [];
   let faces: FaceItem[] = [];
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel measure' });
+  box.onmousedown = (e) => e.preventDefault(); // the field waiting for the value keeps the focus
   // [label, mm (an area: mm²)]
   const show = (items: [string, number, boolean?][], note = '') =>
     box.replaceChildren(
@@ -2696,7 +2702,13 @@ function measureTool() {
         // copied: the button says so for a moment (the top bar shows the tool's hint)
         const b = panelButton('', 'Click: copied', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
         b.innerHTML = shown;
-        return b;
+        if (!use || area) return b;
+        const take = panelButton('Use', `Puts ${text} in the field and goes back`, () => (close(), use(mm)));
+        take.classList.add('use');
+        const both = document.createElement('span');
+        both.className = 'cell';
+        both.append(b, take);
+        return both;
       }),
     );
   const long = (segs: [Vector3, Vector3][]) => segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
@@ -2714,6 +2726,7 @@ function measureTool() {
     viewer.showMeasureLine(null);
     viewer.showMeasured([], []);
     toolHint = null;
+    done?.();
     render();
   };
   const pick = () =>
@@ -2756,7 +2769,7 @@ function measureTool() {
       false,
       'alt',
     );
-  toolHint = 'Measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · click a value: copied · [Esc] stops';
+  toolHint = `Measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · ${use ? 'Use: the value goes in, back to where you were' : 'click a value: copied'} · [Esc] ${use ? 'goes back' : 'stops'}`;
   viewer.aiming = (a) => tips.cursorTip(a?.what ?? null);
   show([], 'Click a point, or Alt-click an edge or face');
   document.body.append(box);
@@ -3692,7 +3705,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
   box.append(
     segmented,
     cell(minLabel, minInput),
-    cell(maxLabel, maxInput, toObjectButton(aim, 'Click a point: the min or max (the last one typed in) points the moving part at it, or reaches it (T)')),
+    cell(maxLabel, maxInput, toObjectButton(aim, 'Click a point: the min or max (the last one typed in) points the moving part at it, or reaches it (T)', measureField)),
     cell(speedLabel, speedInput),
     button('⇄ Invert', 'Turn or move the other way round', () => write({ axis: { ...now().axis, dir: now().axis.dir.map((v) => -v) as [number, number, number] } })),
     button('▶ Play', 'Play it once from its min to its max to see it (where it is now stays)', () => start(id, false)),
@@ -4141,6 +4154,7 @@ function stopTool() {
 }
 
 const toolHost: ToolHost = {
+  measure: (use, done) => measureTool(use, done),
   length,
   number,
   lengthText: (mm) => `${+(mm / UNITS[history.current.units]).toFixed(2)}${history.current.units}`,
@@ -4883,7 +4897,7 @@ function render() {
     lightImage: (id) => viewer.lightImage(id),
     calibrate,
     editPlane: (id) => planePanel(id),
-    measureTool,
+    measureTool: () => measureTool(),
     boxJoint,
     editBulge: bulgePanel,
     editFingers: fingersPanel,
@@ -5301,6 +5315,39 @@ function importStep(name: string, data: string) {
 }
 
 const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+/** A field's value measured instead of typed (Space, or the button by To object): goes in at the cursor. */
+function measureInto(field: HTMLInputElement) {
+  const hintBefore = toolHint;
+  measureTool((mm) => {
+    toolHint = hintBefore;
+    field.focus();
+    field.setRangeText(fmt(+(mm / UNITS[history.current.units]).toFixed(4)), field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, 'end');
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    render();
+  });
+}
+
+/** The value field last in use, for the Measure button beside To object. */
+let lastField: HTMLInputElement | null = null;
+addEventListener('focusin', (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.closest('.axis-move:not(.measure)')) lastField = e.target;
+});
+const measureField = () => lastField?.isConnected && measureInto(lastField);
+
+// Space in a value field that is empty or all selected (else a space may be meant): measure it
+addEventListener(
+  'keydown',
+  (e) => {
+    const field = e.target;
+    if (!(field instanceof HTMLInputElement) || !pressed(e, 'measureValue') || field.dataset.noMeasure !== undefined || !('complete' in field.dataset)) return;
+    if (field.value && (field.selectionStart !== 0 || field.selectionEnd !== field.value.length)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    measureInto(field);
+  },
+  { capture: true },
+);
+
 const IMPORTS = ['.step', '.stp', '.stl', '.obj', '.svg', '.dxf', ...PICTURES];
 
 /**

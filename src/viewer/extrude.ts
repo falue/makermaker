@@ -3,7 +3,7 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, planeHit, pullName, pullBy, pulled, pullKey, reachInto, sizeLabel, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, planeHit, pullName, pullBy, pulled, pullKey, reachInto, sizeLabel, typeInto, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -64,6 +64,8 @@ export class ExtrudeTool implements Tool {
   private pull: Pulling | null = null;
   /** Pulling: waiting for the click that sets how far ("to object"); what the pointer would reach meanwhile. */
   private reaching = false;
+  /** The Measure tool is on, this one waits for it. */
+  private measuring = false;
   private aimed: string | null = null;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
@@ -142,6 +144,7 @@ export class ExtrudeTool implements Tool {
   }
 
   move(e: PointerEvent) {
+    if (this.measuring) return;
     if (this.reaching) return this.aim(this.view.aimAt(e)); // aiming at what to reach
     if (this.pull) {
       const { frame, at } = this.ref();
@@ -182,6 +185,19 @@ export class ExtrudeTool implements Tool {
     if (p) {
       if (pressed(e, 'cancel')) return this.drop(), true;
       if (pressed(e, 'confirm')) return this.commit(), true;
+      if (pressed(e, 'measureValue')) {
+        this.measuring = true;
+        this.view.unlockPointer();
+        const pull = this.pull!;
+        this.host.measure(
+          (mm) => {
+            typeInto(pull, this.host.lengthText(mm));
+            this.changed();
+          },
+          () => (this.measuring = false),
+        );
+        return true;
+      }
       if (pressed(e, 'toObject')) {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
