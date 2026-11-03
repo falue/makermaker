@@ -107,34 +107,40 @@ describe('buildBody', () => {
   }, 60000);
 
   it('bulges a flat face, a shaft and sketch shapes', () => {
-    const bulge = (on: object, amount: number, fullness = 2, peak = [0, 0, 0]) => ({ id: 'b', type: 'bulge', on, amount, fullness, peak }) as BuildFeature;
+    const bulge = (on: object, peak: number[], fullness = 1) => ({ id: 'b', type: 'bulge', on, fullness, peak }) as unknown as BuildFeature;
     // the plate's top (z 4) domed 10 mm: its rim stays, the peak reaches 14
-    const domed = built([base(60), bulge({ kind: 'face', at: [0, 0, 4] }, 10)]);
+    const domed = built([base(60), bulge({ kind: 'face', at: [0, 0, 4] }, [0, 0, 10])]);
     expect(domed.faces).toBe(6);
     expect(domed.box.bounds[1][2]).toBeCloseTo(14, 0);
     expect(domed.box.width).toBeCloseTo(60, 3);
     domed.done();
-    const dented = built([base(60, 20), bulge({ kind: 'face', at: [0, 0, 20] }, -5)]);
+    // pointy (-4: the smooth surface rounds its tip a little) and flat topped (4) reach about the same peak
+    for (const k of [-4, 4]) {
+      const shaped = built([base(60), bulge({ kind: 'face', at: [0, 0, 4] }, [0, 0, 10], k)]);
+      expect(Math.abs(shaped.box.bounds[1][2] - 14)).toBeLessThan(1);
+      shaped.done();
+    }
+    const dented = built([base(60, 20), bulge({ kind: 'face', at: [0, 0, 20] }, [0, 0, -5])]);
     expect(dented.box.bounds[1][2]).toBeCloseTo(20, 3); // the rim stays at the top
     dented.done();
     // a shaft Ø 10, 20 long, swelling 3 mm in its middle
     const shaft = { id: 'c', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false } as BuildFeature;
-    const vase = built([shaft, bulge({ kind: 'round', at: [0, 0, 0], dir: [0, 0, 1], r: 5, length: 20, shaft: true }, 3)]);
+    const vase = built([shaft, bulge({ kind: 'round', at: [0, 0, 0], dir: [0, 0, 1], r: 5, length: 20, shaft: true }, [8, 0, 0])]);
     expect(vase.box.width).toBeCloseTo(16, 0);
     expect(vase.faces).toBe(3); // one smooth side: quick to mesh
     // a face with a hole: the dome joined, the hole drilled on through it (bottom, 4 sides, dome, the hole's wall)
-    const holed = built([...plate(100), bulge({ kind: 'face', at: [0, 0, 4] }, 10)]);
+    const holed = built([...plate(100), bulge({ kind: 'face', at: [0, 0, 4] }, [0, 0, 10])]);
     expect(holed.faces).toBe(7);
     expect(holed.box.bounds[1][2]).toBeCloseTo(14, 0);
     holed.done();
     expect(vase.box.bounds[1][2]).toBeCloseTo(20, 3);
     vase.done();
-    const down = built([shaft, bulge({ kind: 'round', at: [0, 0, 20], dir: [0, 0, -1], r: 5, length: 20, shaft: true }, 3)]);
+    const down = built([shaft, bulge({ kind: 'round', at: [0, 0, 20], dir: [0, 0, -1], r: 5, length: 20, shaft: true }, [8, 0, 0])]);
     expect(down.box.width).toBeCloseTo(16, 0);
     down.done();
     // a sketch circle Ø 30 on the ground: a dome 8 high of its own
     const frame = { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] };
-    const own = built([bulge({ kind: 'frame', frame, profiles: [{ id: 'k', kind: 'circle', x: 0, y: 0, d: 30 }] }, 8)]);
+    const own = built([bulge({ kind: 'frame', frame, profiles: [{ id: 'k', kind: 'circle', x: 0, y: 0, d: 30 }] }, [0, 0, 8])]);
     expect(own.box.bounds.map((b) => +b[2].toFixed(1))).toEqual([0, 8]);
     expect(own.box.width).toBeCloseTo(30, 0);
     own.done();
@@ -156,6 +162,19 @@ describe('buildBody', () => {
     expect(closed.box.width).toBeCloseTo(100, 3);
     closed.done();
   });
+
+  it('hollows a chamfered body with its chamfers inside too, and a bulged one', () => {
+    const chamfer = { id: 'c', type: 'finish', mode: 'chamfer', size: 6, edges: 'vertical', enabled: true, baked: false, skip: [] } as BuildFeature;
+    const shell = { id: 'h', type: 'shell', thickness: 2, open: [[0, 0, 20]] } as BuildFeature;
+    const box = built([base(100, 20), chamfer, shell]);
+    expect(box.faces).toBe(11 + 8); // 4 chamfers outside, 4 inside
+    box.done();
+    // a domed top, hollowed (closed) and joined with a box
+    const dome = { id: 'b', type: 'bulge', on: { kind: 'face', at: [0, 0, 20], mid: [0, 0, 20] }, fullness: 1, peak: [0, 0, 10] } as unknown as BuildFeature;
+    const hollow = built([base(100, 20), dome, { id: 'h', type: 'shell', thickness: 2, open: [[0, 0, 0]] } as BuildFeature]);
+    expect(hollow.box.bounds[1][2]).toBeCloseTo(30, 0);
+    hollow.done();
+  }, 60000);
 
   it('sweeps a circle along a bent line', () => {
     const ground = { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] };

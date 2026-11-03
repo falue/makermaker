@@ -11,6 +11,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { comboText, KEYS, MAC, mod, pressed } from '../ui/keys';
 import { keepInside } from '../ui/inside';
+import { icon } from '../ui/icons';
 
 export type ToolKind = 'rect' | 'circle' | 'ngon' | 'polygon' | 'line' | 'sphere';
 export type { DrawnProfile };
@@ -1167,7 +1168,7 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** A size label (`active`: typed into); `t`: it says T reaches to an object for it. */
 export function sizeLabel(text: string, active: boolean, t = false) {
   const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text });
-  if (t) el.append(Object.assign(document.createElement('small'), { textContent: 'T: to object' }));
+  if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }));
   return el;
 }
 /** Radius (px) of the arc showing what a side's angle is measured from. */

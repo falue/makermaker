@@ -66,8 +66,17 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
     shape?.delete();
     shape = next;
   };
+  // finishes run last (their edges picked on the body before them), except those before a shell: it hollows them too
+  const early = new Set<string>();
   try {
-    for (const s of features) {
+    for (const [n, s] of features.entries()) {
+      if (s.type === 'shell')
+        for (const f of features.slice(0, n))
+          if (f.type === 'finish' && f.enabled && !f.baked && !early.has(f.id)) {
+            if (finishing && !finishing.base) finishing.base = shape!.clone();
+            apply(f.id, (cur) => finish(cur, f, circles, finishing));
+            early.add(f.id);
+          }
       if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
       if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
       if (s.type === 'step') apply(s.id, (cur) => step(cur, s));
@@ -82,8 +91,8 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
-    if (finishing) finishing.base = (shape as Shape3D).clone();
-    for (const s of features) if (s.type === 'finish' && s.enabled && !s.baked) apply(s.id, (cur) => finish(cur, s, circles, finishing));
+    if (finishing && !finishing.base) finishing.base = (shape as Shape3D).clone();
+    for (const s of features) if (s.type === 'finish' && s.enabled && !s.baked && !early.has(s.id)) apply(s.id, (cur) => finish(cur, s, circles, finishing));
     // mirrors last: finishes keep working on the edges they were picked on
     for (const s of features)
       if (s.type === 'mirror') {
@@ -466,20 +475,20 @@ function thread(shape: Shape3D | null, s: Of<'thread'>, steps = 36): Shape3D {
 
 /** A bulge's height (0 to 1) from its rim (`t` 0) to its peak (1) for fullness `k`: 0 soft, 1 straight, 2 a quarter ellipse, more flatter topped. */
 /**
- * A bulge's height (0 to 1) from `t` (0 at the rim, 1 at the peak) for fullness `k`: 0 soft (flat at both ends), 1 as
- * it comes, 2 a dome, more flatter topped (steeper at the rim); never vertical, so the surface stays smooth.
+ * A bulge's height (0 to 1) from `t` (0 at the rim, 1 at the peak) for fullness `k` (-4 to 4): 0 as it comes (a
+ * pillow), above that fuller (1 a dome, 4 flat topped, steeper at the rim), below it pointier (-4: a cone).
  */
-export const rise = (t: number, k: number) => (k < 1 ? (1 - k) * t * t * (3 - 2 * t) + k * t : 1 - Math.pow(1 - t, k));
+export const rise = (t: number, k: number) => 1 - Math.pow(1 - t, k >= 0 ? 1 + k : 1 / (1 - k / 4));
+
+/** A bulge's fullness, kept between -4 and 4. */
+const fullness = (k: number) => Math.max(-4, Math.min(4, k));
 
 /**
- * A face bulged out (`amount` mm at its peak, negative: in), its rim kept. A flat face is replaced by a smooth surface
- * over its outer edges (OpenCascade's filling through points on `dirs` lines from the rim to the peak, `rings` per
- * line, at the curve's heights) and the solid sewn again; a round one is turned again around its axis with a bulging
+ * A face bulged out (its peak above it; below: a dent), its rim kept. A flat face is replaced by a smooth surface over
+ * its outer edges (see `dome`) and the solid sewn again; a round one is turned again around its axis with a bulging
  * profile; sketch shapes get a solid of their own: their face and a dome over it.
  */
 function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
-  if (!s.amount) throw new Error('the amount must not be 0');
-  if (!(s.fullness >= 0)) throw new Error('the fullness must be 0 or more');
   const on = s.on;
   if (on.kind === 'round') return bulgeRound(shape, s, on);
   if (on.kind === 'frame') {
@@ -498,14 +507,15 @@ function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
   const face = faces[i];
   const n = face.normalAt(on.at).toTuple();
   const holes = (face.clone() as BRepFace).innerWires();
-  if (!holes.length) return makeSolid([...faces.filter((_, j) => j !== i), dome(face, n, s)]) as unknown as Shape3D;
+  if (!holes.length) return makeSolid([...faces.filter((_, j) => j !== i), dome(face, n, s, on.mid)]) as unknown as Shape3D;
   // with holes: a dome over its outline joined (a dent: cut), then the holes drilled through it again
-  const lid = makeSolid([dome(face.clone() as BRepFace, n, s), makeFace((face.clone() as BRepFace).outerWire())]) as unknown as Shape3D;
+  const lid = makeSolid([dome(face.clone() as BRepFace, n, s, on.mid), makeFace((face.clone() as BRepFace).outerWire())]) as unknown as Shape3D;
   // the lid lies on the face: glued along it (OpenCascade's common-face boolean)
-  let out = s.amount > 0 ? shape.fuse(lid, { optimisation: 'commonFace' }) : shape.cut(lid, { optimisation: 'commonFace' });
+  const height = dot(s.peak, n);
+  let out = height > 0 ? shape.fuse(lid, { optimisation: 'commonFace' }) : shape.cut(lid, { optimisation: 'commonFace' });
   lid.delete();
   for (const w of holes) {
-    const drill = basicFaceExtrusion(makeFace(w), new Vector(scale(n, Math.abs(s.amount) + 1))) as Shape3D;
+    const drill = basicFaceExtrusion(makeFace(w), new Vector(scale(n, Math.abs(height) + 1))) as Shape3D;
     const next = joined(out, drill, 'cut');
     out.delete();
     out = next;
@@ -519,10 +529,12 @@ function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
  * no creases), its top shifted to the peak (each point reads the field nearer the middle, the more the higher it is),
  * then shaped by the curve. OpenCascade's filling passes through those heights on `dirs` lines from the rim to the peak.
  */
-function dome(face: BRepFace, n: V3, s: Of<'bulge'>, cells = 60, dirs = 32, rings = 6): BRepFace {
+function dome(face: BRepFace, n: V3, s: Of<'bulge'>, mid?: V3, cells = 60, dirs = 48, rings = 6): BRepFace {
   const oc = getOC();
-  // the face's plane: u, v around its middle (read before its wire: that frees the face)
-  const c = face.center.toTuple() as V3;
+  // the peak's height above the face; the face's plane: u, v around its middle (read before its wire: that frees the face)
+  const amount = dot(s.peak, n);
+  if (Math.abs(amount) < 1e-6) throw new Error('the peak lies on the face: it needs a height');
+  const c = mid ?? (face.center.toTuple() as V3);
   const edges = face.outerWire().edges;
   const u = Math.abs(n[2]) < 0.9 ? norm(cross([0, 0, 1], n)) : norm(cross([0, 1, 0], n));
   const v = cross(n, u);
@@ -567,12 +579,12 @@ function dome(face: BRepFace, n: V3, s: Of<'bulge'>, cells = 60, dirs = 32, ring
     return ((1 - a) * (1 - b) * f[k] + a * (1 - b) * f[k + 1] + (1 - a) * b * f[k + nx] + a * b * f[k + nx + 1]) / fmax;
   };
   // the top moved to the peak: a point reads the field `shift` nearer its own top, the more the higher it is (the rim stays)
-  const [px, py] = uv(add(c, s.peak));
+  const [px, py] = uv(add(c, s.peak)); // in the face's plane
   const shift = [px - X(top % nx), py - Y(Math.floor(top / nx))];
   const height = (x: number, y: number) => {
     let t = field(x, y);
     for (let k = 0; k < 6; k++) t = field(x - shift[0] * t, y - shift[1] * t);
-    return s.amount * rise(Math.max(0, Math.min(1, t)), s.fullness);
+    return amount * rise(Math.max(0, Math.min(1, t)), fullness(s.fullness));
   };
   // the filling's points: on `dirs` lines from the rim to the top, `rings` along each, and the top
   const fill = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 0.01, 0.1, 8, 9);
@@ -588,19 +600,24 @@ function dome(face: BRepFace, n: V3, s: Of<'bulge'>, cells = 60, dirs = 32, ring
   fill.Add(new oc.gp_Pnt(...at(px, py, height(px, py))));
   fill.Build(new oc.Message_ProgressRange());
   if (!fill.IsDone()) throw new Error('the bulge surface could not be made');
-  const out = cast(fill.Shape()) as BRepFace;
-  return out;
+  return cast(fill.Shape()) as BRepFace;
 }
 
-/** A round face bulged: its radius grows by the curve along its axis (peak: `peak` along it from the middle), turned around the axis. */
+/**
+ * A round face bulged, turned again around its axis: the peak's part along the axis (from the face's middle) is where
+ * it bulges most, its distance from the axis less the radius how far (out: the radius grows, a hole widens).
+ */
 function bulgeRound(shape: Shape3D | null, s: Of<'bulge'>, on: Extract<Of<'bulge'>['on'], { kind: 'round' }>, steps = 40): Shape3D {
   if (!shape) throw new Error('nothing to bulge yet');
-  const dir = scale(on.dir, 1 / Math.hypot(...on.dir));
-  const mid = Math.max(0.01 * on.length, Math.min(0.99 * on.length, on.length / 2 + s.peak[0] * dir[0] + s.peak[1] * dir[1] + s.peak[2] * dir[2]));
-  // the radius along the axis (z from `at`): a shaft grows outward, a hole closes in
-  const radius = (z: number) => on.r + (on.shaft ? 1 : -1) * s.amount * rise(z < mid ? z / mid : (on.length - z) / (on.length - mid), s.fullness);
+  const dir = norm(on.dir);
+  const along = dot(s.peak, dir);
+  const amount = Math.hypot(...sub(s.peak, scale(dir, along))) - on.r;
+  if (Math.abs(amount) < 1e-6) throw new Error('the peak lies on the face: it needs a height');
+  const mid = Math.max(0.01 * on.length, Math.min(0.99 * on.length, on.length / 2 + along));
+  // the radius along the axis (z from `at`)
+  const radius = (z: number) => on.r + amount * rise(z < mid ? z / mid : (on.length - z) / (on.length - mid), fullness(s.fullness));
   const pts = Array.from({ length: steps + 1 }, (_, i) => (i / steps) * on.length).map((z): V3 => [radius(z), 0, z]);
-  if (pts.some(([r]) => r <= 0)) throw new Error('the hole would close up');
+  if (pts.some(([r]) => r <= 0)) throw new Error('the radius would reach 0');
   // the half outline in the XZ plane, its bulging side one smooth curve through the points (one face when turned)
   const side = makeBSplineApproximation(pts, { tolerance: 1e-3, degMax: 3 });
   const [top, bottom] = [pts[steps], pts[0]];

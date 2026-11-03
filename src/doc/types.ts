@@ -126,16 +126,17 @@ export type MirrorFeature = { id: string; type: 'mirror'; o: [number, number, nu
 export type ThreadFeature = { id: string; type: 'thread'; at: [number, number, number]; dir: [number, number, number]; r: number; inside: boolean; size: string; d: Expr; pitch: Expr; length: Expr };
 
 /**
- * A face bulged out smoothly (a negative `amount`: dented in), its rim kept: a flat face through body point `at`, a
+ * A face bulged out smoothly (or dented in), its rim kept: a flat face through body point `at` (`mid`: its middle), a
  * round one (body-local axis from `at` along `dir`, radius `r`, `length` long; `shaft`: material inside, else a hole),
- * or closed sketch shapes (a solid of its own on their plane). The high point lies `peak` (x, y, z) from the face's
- * middle (a round face: along its axis only); `fullness` sets the curve: 0 soft, 1 round (a pillow), 2 dome, 4 and up flat topped.
+ * or closed sketch shapes (a solid of its own on their plane). `peak` is the high point (x, y, z) from the face's
+ * middle (body-local): its part along the face's normal is the height (negative: a dent), the rest moves it across the
+ * face (a round face: along its axis; its distance from the axis, less the radius, is the height). `fullness` sets the
+ * curve, -4 (pointy) to 4 (flat topped): 0 a pillow, 1 a dome.
  */
 export type BulgeFeature = {
   id: string;
   type: 'bulge';
-  on: { kind: 'face'; at: [number, number, number] } | { kind: 'round'; at: [number, number, number]; dir: [number, number, number]; r: number; length: number; shaft: boolean } | { kind: 'sketch'; sketch: string; shapes: string[] };
-  amount: Expr;
+  on: { kind: 'face'; at: [number, number, number]; mid: [number, number, number] } | { kind: 'round'; at: [number, number, number]; dir: [number, number, number]; r: number; length: number; shaft: boolean } | { kind: 'sketch'; sketch: string; shapes: string[] };
   fullness: Expr;
   peak: [Expr, Expr, Expr];
 };
@@ -318,7 +319,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 17;
+  schema: 18;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

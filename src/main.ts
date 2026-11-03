@@ -23,7 +23,7 @@ import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
-import { BULGE_SHAPES, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, type Action } from './ui/keys';
@@ -1259,13 +1259,14 @@ function stepsOf(doc: Doc, body: string) {
 }
 
 /**
- * Breaks a body's links: its linked copies in its group get all its steps and go, with it, into a new group of its
+ * Breaks a body's links (asked first): its linked copies in its group get all its steps and go, with it, into a new group of its
  * name (in its place in the list); copies elsewhere just get their steps. One undo step.
  */
 function breakLinks(source: string) {
   const doc = history.current;
   const src = doc.bodies.find((b) => b.id === source);
-  if (!src) return;
+  const count = doc.bodies.filter((b) => b.link === source).length;
+  if (!src || !confirm(`Break the links of "${src.name}"? Its ${count} linked cop${count === 1 ? 'y gets' : 'ies get'} their own steps (editing one no longer edits the others); they go with it into a new group "${src.name}".`)) return;
   const group: Group = { id: newId(), name: src.name, parent: src.group, visible: true, origin: { kind: 'parent' }, ...(src.order !== undefined ? { order: src.order } : {}) };
   const bodies = doc.bodies.map((b) => {
     if (b.id !== source && b.link !== source) return b;
@@ -1712,15 +1713,16 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
 /**
  * A panel at the top middle of the view with value fields, each scrubbed by its label; T or To object: a click's value
  * (`reach`, in mm, or degrees when `raw`) goes in where the cursor is, to calculate on with it (several values: they
- * replace this field's and those before it, a point's X / Y / Z, say); `int`: whole numbers only (scrubbed in 1s).
+ * replace this field's and those before it, a point's X / Y / Z, say); `int`: whole numbers (scrubbed in 1s; typed
+ * decimals go when the field is left); `title`: what label and field say on hover.
  * `change` gets the texts as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
  */
-function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
   const u = history.current.units;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
   let last = inputs[0];
-  const valid = (k: number) => (fields[k].int ? Number.isInteger(Number(inputs[k].value || '0')) : length(inputs[k].value || '0') !== null);
+  const valid = (k: number) => (fields[k].int ? Number.isFinite(Number(inputs[k].value || '0')) : length(inputs[k].value || '0') !== null);
   const emit = () => inputs.every((_, k) => valid(k)) && change(inputs.map((i) => i.value || '0'));
   const aim = (k = inputs.indexOf(last)) => {
     const f = fields[k];
@@ -1746,13 +1748,17 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     input.dataset.complete = '';
     input.oninput = () => (input.classList.toggle('invalid', !valid(k)), emit());
     input.onfocus = () => (last = input);
+    if (f.int) input.onblur = () => valid(k) && String(Math.round(Number(input.value || '0'))) !== input.value && ((input.value = String(Math.round(Number(input.value || '0')))), emit());
     input.onkeydown = (e) => {
       if (f.reach && wantsT(e, input, history.current.params)) e.preventDefault(), aim(k);
     };
     const label = Object.assign(document.createElement('span'), { innerHTML: axisHtml(f.label) });
+    if (f.title) label.title = input.title = f.title;
     scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()), f.int);
-    // To object right after the field it fills
-    return [label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field')] : [])];
+    // To object right after the field it fills; label, field and button wrap together
+    const cell = Object.assign(document.createElement('span'), { className: 'cell' });
+    cell.append(label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field')] : []));
+    return [cell];
   });
   const end = (ok: boolean) => {
     viewer.aiming = null;
@@ -1787,12 +1793,13 @@ function placementIn(parent: Matrix4, world: Matrix4) {
   return { position: at.toArray().map((v) => len(v)) as [Expr, Expr, Expr], rotation: { rx: deg(e.x), ry: deg(e.y), rz: deg(e.z) } };
 }
 
-/** A panel (cut, rotate, joint, values, move) centred at the top of the view, below its switches; below the view cube where it would reach it. */
-function atTop(box: HTMLElement) {
+/** A panel (cut, rotate, joint, values, move) at the top of the view, below its switches, centred left of the view cube (`cube` px); its contents wrap rather than reach under it. */
+function atTop(box: HTMLElement, cube = 120) {
   const r = viewer.el.getBoundingClientRect();
-  const w = box.offsetWidth;
-  const left = r.left + (r.width - w) / 2;
-  keepInside(box, left, r.top + (left + w > r.right - 110 ? 150 : 44), false, [r.left, r.top, r.right, r.bottom]);
+  // between the view's left edge and the view cube; too wide, its contents wrap
+  const [from, to] = [r.left + 8, r.right - cube];
+  box.style.maxWidth = `${to - from}px`;
+  keepInside(box, from + (to - from - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
 }
 
 /** A panel button; ✓ (keep it) is filled green. */
@@ -1875,8 +1882,8 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
       }
       return out;
     }
-    const counts = v.slice(0, 3).map((n) => Math.max(1, Math.round(n)));
-    const steps = [0, 1, 2].map((k) => (overall ? (v[3 + k] - size.getComponent(k)) / Math.max(1, counts[k] - 1) : size.getComponent(k) + v[3 + k]));
+    const counts = [0, 1, 2].map(pcs);
+    const steps = [0, 1, 2].map((k) => way(k) * (overall ? (v[3 + k] - size.getComponent(k)) / Math.max(1, counts[k] - 1) : size.getComponent(k) + v[3 + k]));
     let index = 0;
     for (let z = 0; z < counts[2]; z++)
       for (let y = 0; y < counts[1]; y++)
@@ -1906,18 +1913,20 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
     const b = Object.assign(document.createElement('button'), { textContent: k === 'grid' ? 'Grid' : 'Around', className: k === mode ? 'on' : '', onclick: () => k !== mode && (panel.end(false), patternTool(k)) });
     switcher.append(b);
   });
-  const pcs = (k: number) => Math.max(1, Math.round(Number(texts[k]) || 1));
+  /** How many along axis `k`, and which way (negative: the other way). */
+  const pcs = (k: number) => Math.max(1, Math.abs(Math.round(Number(texts[k]) || 1)));
+  const way = (k: number) => (Math.round(Number(texts[k]) || 1) < 0 ? -1 : 1);
   /** How far from the selection's start a point lies along axis `k` (mm): the gap, or overall, that ends the last copy there. */
   const reach = (k: number) => (p: Vector3) => {
-    const d = p.getComponent(k) - box.min.getComponent(k);
+    const d = way(k) > 0 ? p.getComponent(k) - box.min.getComponent(k) : box.max.getComponent(k) - p.getComponent(k);
     return [overall ? d : pcs(k) > 1 ? (d - pcs(k) * size.getComponent(k)) / (pcs(k) - 1) : 0]; // replaces the field's value
   };
   const fields =
     mode === 'around'
       ? [{ label: 'Count', value: '6', raw: true, int: true }, { label: 'Angle °', value: '360', raw: true }]
       : [
-          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} pcs`, value: k ? '1' : '3', raw: true, int: true })),
-          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} gap`, value: fmt(5 / u), reach: reach(k) })),
+          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} pcs`, value: k ? '1' : '3', raw: true, int: true, title: `${a} pcs: how many along ${a} (negative: the other way)` })),
+          ...['X', 'Y', 'Z'].map((a, k) => ({ label: a, value: fmt(5 / u), reach: reach(k), title: `${a} gap: between the copies` })),
           { label: 'Turn °', value: '0', raw: true },
         ];
   const link = checkbox('Linked', 'The copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => ((linkedCopies = on), apply()));
@@ -1943,7 +1952,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
           overall = on;
           panel.inputs.slice(3, 6).forEach((input, k) => {
             const label = input.previousElementSibling as HTMLElement;
-            label.innerHTML = axisHtml(`${'XYZ'[k]} ${on ? 'overall' : 'gap'}`);
+            label.title = input.title = `${'XYZ'[k]} ${on ? "overall: from the first copy's start to the last one's end" : 'gap: between the copies'}`;
             // the same spacing, written the other way: overall = pcs × size + (pcs − 1) × gap
             const [n, s, v] = [pcs(k), size.getComponent(k), length(input.value || '0') ?? 0];
             input.value = fmt((on ? n * s + (n - 1) * v : n > 1 ? (v - n * s) / (n - 1) : 0) / u);
@@ -2136,25 +2145,17 @@ function bulgeTool() {
   );
 }
 
-/** Bulges a face or sketch shapes (see `bulgeTool`). */
+/** Bulges a face or sketch shapes (see `bulgeTool`): a new bulge, its peak 10 mm out (a round face: half its radius), then its panel. */
 function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
   const doc = history.current;
-  const u = doc.units;
+  const base = { id: newId(), type: 'bulge' as const, fullness: ex('1') };
+  const peak = (v: Vector3 | number[]) => (Array.isArray(v) ? v : v.toArray()).map((x) => len(x)) as BulgeFeature['peak'];
   let i: number;
-  let feature: BulgeFeature;
-  /** The face's middle (world), from which the peak counts, and how far a point lies above the face. */
-  let middle: Vector3;
-  let above: (p: Vector3) => number;
-  const base = { id: newId(), type: 'bulge' as const, fullness: ex('2'), peak: [len(0), len(0), len(0)] as BulgeFeature['peak'] };
-  let toLocal = (v: Vector3) => v.toArray();
   if ('sketch' in on) {
     const s = viewer.sketches.find((v) => v.id === on.sketch);
     const shapes = s?.shapes.filter((q) => on.shapes.includes(q.id) && !q.construction && q.kind !== 'line') ?? [];
     if (!s || !shapes.length) return fail('Bulge needs closed sketch shapes');
-    const f = s.frame;
-    middle = shapes.reduce((sum, q) => sum.add(new Vector3(...toWorld(f, ...centre(q)))), new Vector3()).divideScalar(shapes.length);
-    above = (p) => p.clone().sub(new Vector3(...f.o)).dot(new Vector3(...f.n));
-    feature = { ...base, on: { kind: 'sketch', sketch: s.id, shapes: shapes.map((q) => q.id) }, amount: len(10) };
+    const feature: BulgeFeature = { ...base, on: { kind: 'sketch', sketch: s.id, shapes: shapes.map((q) => q.id) }, peak: peak(new Vector3(...s.frame.n).multiplyScalar(10)) };
     const sk = doc.sketches.find((k) => k.id === s.id)!;
     const body = newBody(doc.bodies.length, [feature], sk.plane.kind === 'base' ? sk.group : null);
     body.name = `Bulge ${doc.bodies.filter((b) => b.features.some((x) => x.type === 'bulge')).length + 1}`;
@@ -2164,44 +2165,58 @@ function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
   } else {
     if (on.finish) return fail('Bulge works on flat and round faces, not on fillets or chamfers');
     const pl = bodyPlace(on.body);
-    toLocal = (v) => unplaced(pl, v.toArray(), true);
     const r = on.round;
+    let feature: BulgeFeature;
     if (r) {
-      middle = r.at.clone().addScaledVector(r.dir, r.length / 2);
-      above = (p) => (r.shaft ? 1 : -1) * (p.clone().sub(r.at).cross(r.dir).length() - r.r);
-      feature = { ...base, on: { kind: 'round', at: unplaced(pl, r.at.toArray()), dir: unplaced(pl, r.dir.toArray(), true), r: r.r, length: r.length, shaft: r.shaft }, amount: len(Math.min(5, r.r / 2)) };
-    } else {
-      middle = viewer.faceCentre(on);
-      above = (p) => p.clone().sub(on.point).dot(on.n);
-      feature = { ...base, on: { kind: 'face', at: unplaced(pl, on.point.toArray()) }, amount: len(10) };
-    }
+      // out towards where it was clicked: a shaft swells, a hole narrows
+      const w = on.point.clone().sub(r.at);
+      const out = w.sub(r.dir.clone().multiplyScalar(w.dot(r.dir))).normalize();
+      feature = { ...base, on: { kind: 'round', at: unplaced(pl, r.at.toArray()), dir: unplaced(pl, r.dir.toArray(), true), r: r.r, length: r.length, shaft: r.shaft }, peak: peak(unplaced(pl, out.multiplyScalar(r.r * (r.shaft ? 1.5 : 0.5)).toArray(), true)) };
+    } else feature = { ...base, on: { kind: 'face', at: unplaced(pl, on.point.toArray()), mid: unplaced(pl, viewer.faceCentre(on).toArray()) }, peak: peak(unplaced(pl, on.n.clone().multiplyScalar(10).toArray(), true)) };
     i = stepsOf(doc, on.body);
     [selected, shapeSel] = [[on.body], []];
     commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
   }
-  const path = ['bodies', String(i), 'features', String(history.current.bodies[i].features.length - 1)];
-  const write = ([amount, fullness, ...peak]: string[]) => {
-    const f = getIn(history.current, path) as BulgeFeature;
-    shape.value = BULGE_SHAPES.find(([, v]) => v === fullness.trim())?.[1] ?? 'custom';
-    history.replace(setIn(history.current, path, { ...f, amount: { e: amount, u }, fullness: { e: fullness, u: 'mm' }, peak: peak.map((e) => ({ e, u })) as BulgeFeature['peak'] }));
+  bulgePanel(history.current.bodies[i].id, history.current.bodies[i].features.at(-1)!.id, true);
+}
+
+/**
+ * A bulge's panel: its peak X / Y / Z from the face's middle (T: a clicked point, all three) and Fullness (-4 pointy,
+ * 0 a pillow, 1 a dome, 4 flat topped). Live; `fresh` (just made): Esc leaves nothing, else Esc puts it back.
+ */
+function bulgePanel(body: string, id: string, fresh = false) {
+  const doc0 = history.current;
+  const i = doc0.bodies.findIndex((b) => b.id === body);
+  const j = doc0.bodies[i]?.features.findIndex((f) => f.id === id) ?? -1;
+  const feature = doc0.bodies[i]?.features[j];
+  if (feature?.type !== 'bulge') return;
+  const path = ['bodies', String(i), 'features', String(j)];
+  const u = doc0.units;
+  const pl = bodyPlace(body);
+  // the face's middle (world), from which the peak counts
+  const on = resolve(feature.on, paramLookup(doc0.params), '', new Map()) as BulgeFeature['on'];
+  let middle: Vector3;
+  if (on.kind === 'face') middle = new Vector3(...inWorld(pl, on.mid));
+  else if (on.kind === 'round') middle = new Vector3(...inWorld(pl, on.at)).addScaledVector(new Vector3(...unplaced(pl, on.dir, true)).normalize(), on.length / 2);
+  else {
+    const s = viewer.sketches.find((v) => v.id === on.sketch);
+    const shapes = s?.shapes.filter((q) => on.shapes.includes(q.id)) ?? [];
+    middle = shapes.reduce((sum, q) => sum.add(new Vector3(...toWorld(s!.frame, ...centre(q)))), new Vector3()).divideScalar(Math.max(1, shapes.length));
+  }
+  const write = ([x, y, z, k]: string[]) => {
+    const next = setIn(history.current, path, { ...(getIn(history.current, path) as BulgeFeature), peak: [x, y, z].map((e) => ({ e, u })) as BulgeFeature['peak'], fullness: { e: k, u: 'mm' } });
+    if (fresh || history.current !== doc0) history.replace(next);
+    else history.push(next);
     update();
   };
-  // a preset sets Fullness
-  const shape = Object.assign(document.createElement('select'), { title: 'The curve: soft (flat at the rim and top), round (a pillow), dome, flat topped; Fullness in between' });
-  shape.append(...[...BULGE_SHAPES, ['Custom', 'custom']].map(([name, v]) => Object.assign(document.createElement('option'), { value: v, textContent: name, selected: v === '2' })));
-  shape.onchange = () => shape.value !== 'custom' && ((panel.inputs[1].value = shape.value), panel.inputs[1].dispatchEvent(new Event('input')));
-  const panel = valuePanel(
+  valuePanel(
     [
-      { label: 'Amount', value: feature.amount.e, reach: above },
-      { label: 'Fullness', value: '2', raw: true },
-      { label: 'Peak X', value: '0' },
-      { label: 'Peak Y', value: '0' },
-      { label: 'Peak Z', value: '0', reach: (p) => toLocal(p.clone().sub(middle)) },
+      ...(['X', 'Y', 'Z'] as const).map((a, k) => ({ label: a, value: feature.peak[k].e, title: `Peak ${a}: the high point from the face's middle (across the face: its height)`, ...(k === 2 ? { reach: (p: Vector3) => unplaced(pl, p.clone().sub(middle).toArray(), true) } : {}) })),
+      { label: 'Fullness', value: feature.fullness.e, raw: true, title: 'Fullness: -4 pointy, 0 a pillow, 1 a dome, 4 flat topped' },
     ],
     write,
-    (ok) => (ok ? render() : undo()),
-    'Bulge: its amount, curve and peak · Amount: how high (negative: a dent; T: to a point) · Fullness: 0 soft, 1 round, 2 dome, 4 flat top · Peak X / Y / Z from the middle (T: to a point) · [Enter] keeps it · [Esc] leaves nothing',
-    [shape],
+    (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
+    'Bulge: where its peak is · X / Y / Z from the middle; across the face: its height (negative: a dent) · T: a point, all three · Fullness: -4 pointy, 0 pillow, 1 dome, 4 flat top · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
   );
 }
 
@@ -3897,7 +3912,7 @@ function render() {
       (finishSel
         ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · drag it to resize (past 0: the other kind) · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
         : pickedPart?.kind === 'edge'
-          ? 'Drag a picked edge up: fillet, down: chamfer · [Alt]-click another edge ([Shift]: more), double right-click: its loop · [Esc] deselect'
+          ? 'Drag a picked edge up: fillet, down: chamfer · [Alt]-click another edge ([Shift]: more), double-click: its tangent chain (a circle, a rounded outline) · [Esc] deselect'
           : null),
     autosave,
     notify: fail,
@@ -4005,6 +4020,7 @@ function render() {
     },
     jointRange: rangeText,
     lightSketch: (id) => viewer.lightSketch(id),
+    editBulge: bulgePanel,
     lightBodies: (ids) => (ids ? viewer.select(ids) : showSelection()),
     breakLinks,
     showJoint(id) {
@@ -4093,7 +4109,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 17, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 18, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

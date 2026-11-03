@@ -80,6 +80,8 @@ export interface UIContext {
   showJoint(joint: string | null): void;
   /** Lights a sketch's shapes in the view (hovered in the list; null: none). */
   lightSketch(id: string | null): void;
+  /** Opens a bulge's panel (`body` holds it). */
+  editBulge(body: string, feature: string): void;
   /** Lights bodies in the view (a body with linked copies hovered in the list; null: the selection again). */
   lightBodies(ids: string[] | null): void;
   /** A body's linked copies become their own objects, together with it in a new group of its name. */
@@ -397,7 +399,7 @@ export function wantsT(e: KeyboardEvent, input: HTMLInputElement, params: Record
 
 /** The To object button, the same everywhere: its icon and words (T does the same where it is offered). */
 export function toObjectButton(onclick: () => void, title: string) {
-  return h('button', { className: 'to-object', innerHTML: `${icon('target')}<span>To object</span>`, title: `${title} (T)`, onclick });
+  return h('button', { className: 'to-object', innerHTML: icon('target'), title: `T: to object · ${title}`, onclick });
 }
 
 /** A one-character label (×, ⇄, ✎) makes an icon button: no outline. */
@@ -1172,14 +1174,6 @@ function refGrid(ctx: UIContext, shape: string) {
   return h('div', { className: 'ref-grid', title: 'Reference diamond: X / Y measure this point of the shape; changing size or turn keeps it in place' }, ...cells);
 }
 
-/** A bulge's curve presets: name and fullness (0 soft, 1 round as a pillow, 2 dome, 4 flat topped). */
-export const BULGE_SHAPES = [
-  ['Soft', '0'],
-  ['Round', '1'],
-  ['Dome', '2'],
-  ['Flat top', '4'],
-] as const;
-
 function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, setBody: (p: Body) => void) {
   const setFeature = (next: Feature) => setBody({ ...body, features: body.features.map((s) => (s === feature ? next : s)) });
   const remove = button('×', () => setBody({ ...body, features: body.features.filter((s) => s !== feature) }), 'Remove');
@@ -1293,16 +1287,13 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, units, size), h('div', { className: 'row' }, f('d', 'Ø'), f('pitch', 'Pitch'), f('length', 'Length')), h('p', { className: 'hint' }, `On a round face Ø ${fmt(feature.r * 2)} mm`));
     }
     case 'bulge': {
-      // a preset sets the fullness; a typed one in between shows as Custom
-      const shape = select(BULGE_SHAPES.find(([, v]) => v === feature.fullness.e)?.[1] ?? 'custom', Object.fromEntries([...BULGE_SHAPES.map(([n, v]) => [v, n]), ['custom', 'Custom']]), (v) => v !== 'custom' && setFeature({ ...feature, fullness: { e: v, u: 'mm' } }));
       const where = feature.on.kind === 'sketch' ? 'sketch shapes' : feature.on.kind === 'round' ? (feature.on.shaft ? 'a round shaft' : 'a round hole') : 'a flat face';
       return h(
         'section',
         {},
-        h('h4', {}, 'Bulge', remove),
-        h('div', { className: 'row' }, f('amount', 'Amount'), shape, exprField(ctx, `${at}.fullness`, 'Fullness', true)),
-        h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => f(`peak.${k}`, `Peak ${l}`))),
-        h('p', { className: 'hint' }, `On ${where}; the peak counts from its middle`),
+        h('h4', {}, 'Bulge', button('✎', () => ctx.editBulge(body.id, feature.id), 'Edit it in its panel (T: the peak to a point)'), remove),
+        h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => f(`peak.${k}`, l)), exprField(ctx, `${at}.fullness`, 'Fullness', true)),
+        h('p', { className: 'hint' }, `On ${where}: X / Y / Z, its peak from the middle (across the face: its height); Fullness -4 pointy to 4 flat topped`),
       );
     }
     case 'mirror':

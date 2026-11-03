@@ -1196,6 +1196,7 @@ button.primary.wide {
   position: fixed;
   z-index: 30;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
@@ -1211,6 +1212,11 @@ button.primary.wide {
 }
 .axis-move label[hidden] {
   display: none;
+}
+.axis-move .cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .axis-move > span {
   white-space: nowrap;
@@ -1412,11 +1418,23 @@ button.icon.tool-op {
   color: var(--accent);
 }
 
-/* To object: its icon and words, the same on every button and in the pointer's note */
+/* To object: its icon, the same on every button, in size labels with a T */
 button.to-object {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.size-label small {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.size-label small svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
 }
 button.to-object svg,
 .tooltip.follow svg {

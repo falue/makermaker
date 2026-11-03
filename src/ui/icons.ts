@@ -21,7 +21,7 @@ const ICONS = {
   step: '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
   plane: '<path d="M3 16 9 8h12l-6 8z"/><path d="M12 4v8" stroke-dasharray="2 1.6"/>',
   mirror: '<path d="M12 3v18" stroke-dasharray="2 1.6"/><path d="M9 7 3 17h6zM15 7l6 10h-6z"/>',
-  offset: '<rect x="3" y="3" width="18" height="18" rx="3"/><rect x="8" y="8" width="8" height="8" rx="1" stroke-dasharray="2 1.6"/>',
+  offset: '<path d="M3 6v15h18V6h-4v11H7V6z"/><path class="faint" d="M7 3h10"/>',
   sweep: '<path d="M4 18c4 0 5-12 10-12h6" stroke-dasharray="2 1.6"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="6" r="2.5"/>',
   align: '<path d="M4 3v18"/><rect x="7" y="6" width="12" height="4" rx="1"/><rect x="7" y="14" width="7" height="4" rx="1"/>',
   joint: '<path d="M6.2 15.5 7.3 3M8.5 18H21"/><circle cx="6" cy="18" r="2"/><path class="faint" d="M9.1 9.5A9 9 0 0 1 14.2 14.2M14.6 11.7l-.4 2.5-2.2-1.3"/>',
