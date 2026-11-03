@@ -2396,18 +2396,23 @@ function boxJoint() {
 }
 
 /**
- * Measure: click an edge (its length) or two points (how far apart along X / Y / Z, and straight), shown in a panel at
- * the top of the view with an orange line between the points; a click on a value copies it. Goes on until Esc.
+ * Measure: each point clicked is measured from the one before (along X / Y / Z, and straight; the first on an edge:
+ * that edge's length), an orange line between them; Alt-click marks an edge (its length) or a face (its area; flat:
+ * its sides too), Shift Alt adds or drops more of that kind (their total). Hovering marks what a click takes. The
+ * values in a panel at the top of the view; a click on one copies it. Goes on until Esc.
  */
 function measureTool() {
   const u = history.current.units;
-  let first: Vector3 | null = null;
+  let last: Vector3 | null = null;
+  let edges: [Vector3, Vector3][][] = [];
+  let faces: FaceItem[] = [];
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel measure' });
-  const show = (items: [string, number][]) =>
+  // [label, mm (an area: mm²)]
+  const show = (items: [string, number, boolean?][], note = '') =>
     box.replaceChildren(
-      ...(items.length ? [] : [Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Click a second point' })]),
-      ...items.map(([label, mm]) => {
-        const text = `${fmt(+(mm / UNITS[u]).toFixed(4))} ${u}`;
+      ...(note ? [Object.assign(document.createElement('span'), { className: 'hint', textContent: note })] : []),
+      ...items.map(([label, mm, area]) => {
+        const text = area ? `${fmt(+(mm / UNITS[u] ** 2).toFixed(4))} ${u}²` : `${fmt(+(mm / UNITS[u]).toFixed(4))} ${u}`;
         const shown = axisHtml(`${label} ${text}`);
         // copied: the button says so for a moment (the top bar shows the tool's hint)
         const b = panelButton('', 'Click: copied', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
@@ -2415,33 +2420,66 @@ function measureTool() {
         return b;
       }),
     );
+  const long = (segs: [Vector3, Vector3][]) => segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
+  const showParts = () => {
+    if (edges.length) return show(edges.length > 1 ? [[`${edges.length} edges`, edges.reduce((n, e) => n + long(e), 0)]] : [['Edge', long(edges[0])]]);
+    if (faces.length > 1) return show([[`${faces.length} faces`, faces.reduce((n, f) => n + viewer.faceSize(f).area, 0), true]]);
+    const { area, sides } = viewer.faceSize(faces[0]);
+    show([['Area', area, true], ...(sides ? ([['L', sides[0]], ['B', sides[1]]] as [string, number][]) : [])]);
+  };
   const close = () => {
     box.remove();
+    viewer.aiming = null;
+    viewer.aimAt(null);
+    tips.cursorTip(null);
     viewer.showMeasureLine(null);
+    viewer.showMeasured([], []);
     toolHint = null;
     render();
   };
   const pick = () =>
-    viewer.pickFace((face) => {
-      if (!face) return close();
-      const p = face.snap;
-      if (!p) return pick(); // empty space
-      if (!first) {
-        first = p;
-        viewer.showMeasureLine(p);
-        show(face.edge ? [['Edge', face.edge.length]] : []);
-      } else {
-        const d = p.clone().sub(first);
-        show([['X', d.x], ['Y', d.y], ['Z', d.z], ['L', d.length()]]);
-        viewer.showMeasureLine(first, p);
-        first = null;
-      }
-      atTop(box);
-      pick();
-    }, true);
-  toolHint = 'Measure: click an edge (its length) or two points (how far apart) · click a value: copied · [Esc] stops';
-  show([]);
-  box.firstElementChild!.textContent = 'Click an edge or a point';
+    viewer.pickFace(
+      (face) => {
+        if (!face) return close();
+        const part = face.part;
+        if (part) {
+          // a part marked: the points start over; Shift adds (or drops) one of the same kind
+          [last, faces] = [null, 'edge' in part ? [] : faces];
+          if ('edge' in part) {
+            const same = (x: [Vector3, Vector3][]) => x.length === part.edge.length && x[0][0].distanceTo(part.edge[0][0]) < 1e-6;
+            edges = !face.adds ? [part.edge] : edges.some(same) ? edges.filter((x) => !same(x)) : [...edges, part.edge];
+          } else {
+            const same = (f: FaceItem) => f.mesh === part.face.mesh && f.index === part.face.index;
+            edges = [];
+            faces = !face.adds ? [part.face] : faces.some(same) ? faces.filter((f) => !same(f)) : [...faces, part.face];
+          }
+          viewer.showMeasureLine(null);
+          viewer.showMeasured(edges, faces);
+          if (edges.length || faces.length) showParts();
+          else show([], 'Click a point, or Alt-click an edge or face');
+        } else if (face.snap) {
+          const p = face.snap;
+          if (edges.length || faces.length) [edges, faces] = [[], []], viewer.showMeasured([], []);
+          if (last) {
+            const d = p.clone().sub(last);
+            show([['X', d.x], ['Y', d.y], ['Z', d.z], ['L', d.length()]]);
+            viewer.showMeasureLine(last, p);
+          } else {
+            viewer.showMeasureLine(p);
+            show(face.edge ? [['Edge', face.edge.length]] : [], 'Click the next point');
+          }
+          last = p;
+        }
+        atTop(box);
+        pick();
+      },
+      true,
+      false,
+      true,
+    );
+  toolHint = 'Measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · click a value: copied · [Esc] stops';
+  viewer.aiming = (a) => tips.cursorTip(a?.what ?? null);
+  show([], 'Click a point, or Alt-click an edge or face');
   document.body.append(box);
   atTop(box);
   render();

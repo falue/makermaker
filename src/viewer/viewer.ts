@@ -95,6 +95,9 @@ export interface PickedFace {
   round?: { at: THREE.Vector3; dir: THREE.Vector3; length: number; r: number; shaft: boolean };
   /** The face of a body clicked, whole (see `FaceItem`). */
   item?: FaceItem;
+  /** A quiet pick taking parts, Alt-clicked: the edge (its segments, world) or the face there; `adds`: Shift held too. */
+  part?: { edge: [THREE.Vector3, THREE.Vector3][] } | { face: FaceItem };
+  adds?: boolean;
 }
 
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
@@ -307,6 +310,8 @@ export class Viewer implements ToolView {
   private faceMark: THREE.Mesh | null = null;
   /** Picking a face for Extrude: closed sketch shapes count too, and what a click on one pulls is lit here. */
   private pickOutlines = false;
+  /** A quiet pick takes edges and faces too (Alt: previewed, then picked; see `PickedFace.part`). */
+  private pickParts = false;
   private sketchMark = new THREE.Group();
   /** A sketch hovered in the list: its shapes lit. */
   private sketchHover = new THREE.Group();
@@ -478,6 +483,14 @@ export class Viewer implements ToolView {
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
       if (this.facePick && !this.drag) {
+        if (this.quietPick && this.pickParts && picksFace(e)) {
+          // Alt: the edge, else the face a click would take
+          const edge = this.edgeAt(e);
+          this.aiming?.(this.aimAt(null));
+          this.markEdge(edge?.segs);
+          return this.markFace(edge ? undefined : this.frontHit(e));
+        }
+        if (this.pickParts) this.markEdge(), this.markFace();
         if (this.quietPick) return void (this.axisHover ? this.axisHover(this.axisAt(e)) : this.aiming?.(this.aimAt(e))); // a gizmo drag moves on
         const hit = this.frontHit(e);
         const s = this.sketchShapeAt(e, hit);
@@ -978,11 +991,12 @@ export class Viewer implements ToolView {
   }
 
   /** The next click on a body picks a face (null: Esc). */
-  /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too. */
-  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines = false) {
+  /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too; `parts`: quiet, Alt picks an edge or face. */
+  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines = false, parts = false) {
     this.facePick = done;
     this.quietPick = quiet;
     this.pickOutlines = outlines;
+    this.pickParts = parts;
     if (!quiet) this.renderer.domElement.classList.add('drawing');
   }
 
@@ -1145,6 +1159,47 @@ export class Viewer implements ToolView {
     if (a) this.measureLine.add(Object.assign(marks(b ? [a, b] : [a], 0xff8c1a, 9), { renderOrder: 1e6 }));
     if (a && b) this.measureLine.add(Object.assign(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), new THREE.LineBasicMaterial({ color: 0xff8c1a, depthTest: false })), { renderOrder: 1e6 }));
     this.render();
+  }
+
+  private partMarks: THREE.Mesh[] = [];
+  private partEdges = new THREE.Group();
+
+  /** Measured parts lit orange: edges (segments, world) and faces; none: cleared. */
+  showMeasured(edges: [THREE.Vector3, THREE.Vector3][][], faces: FaceItem[]) {
+    for (const m of this.partMarks) this.replaceMark(m, undefined, [], 0);
+    this.partMarks = faces.flatMap((f) => this.replaceMark(null, f.mesh, [f.index], 0xff8c1a) ?? []);
+    if (!this.partEdges.parent) this.scene.add(this.partEdges);
+    this.markEdge(edges.length ? edges.flat() : undefined, this.partEdges);
+  }
+
+  /** A face's area (mm²) and, when flat, its sides: the smallest rectangle around it along one of its mesh edges (long, short). */
+  faceSize(f: FaceItem) {
+    const groups = f.mesh.userData.faces as Uint32Array;
+    const index = f.mesh.geometry.index!.array;
+    const pos = f.mesh.geometry.attributes.position;
+    const at = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, index[i]).applyMatrix4(f.mesh.matrixWorld);
+    const pts: THREE.Vector3[] = [];
+    for (let i = groups[f.index * 2]; i < groups[f.index * 2] + groups[f.index * 2 + 1]; i++) pts.push(at(i));
+    let area = 0;
+    const normals: THREE.Vector3[] = [];
+    for (let i = 0; i + 2 < pts.length; i += 3) {
+      const c = pts[i + 1].clone().sub(pts[i]).cross(pts[i + 2].clone().sub(pts[i]));
+      area += c.length() / 2;
+      if (c.lengthSq() > 1e-12) normals.push(c.normalize());
+    }
+    const n = normals[0];
+    if (!n || normals.some((m) => m.dot(n) < 0.9999)) return { area };
+    let best: [number, number] | null = null;
+    for (let i = 0; i + 1 < pts.length && i < 600; i++) {
+      const u = pts[i + 1].clone().sub(pts[i]);
+      if (u.lengthSq() < 1e-9) continue;
+      u.normalize();
+      const v = n.clone().cross(u);
+      const [us, vs] = [pts.map((p) => p.dot(u)), pts.map((p) => p.dot(v))];
+      const sides: [number, number] = [Math.max(...us) - Math.min(...us), Math.max(...vs) - Math.min(...vs)];
+      if (!best || sides[0] * sides[1] < best[0] * best[1] - 1e-9) best = sides;
+    }
+    return { area, sides: best && ([Math.max(...best), Math.min(...best)] as [number, number]) };
   }
 
   /** An axis drawn dashed in the cut's red (dashes kept on screen at any zoom), `half` mm both ways from the point on it nearest `mid` (null: gone). */
@@ -2343,6 +2398,12 @@ export class Viewer implements ToolView {
   /** A face under the pointer, else the base plane facing the camera through the origin; the normal points away from the camera. */
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
+    if (this.quietPick && this.pickParts && picksFace(e)) {
+      const edge = this.edgeAt(e);
+      this.markEdge();
+      if (edge) return this.endFacePick({ point: edge.segs[0][0].clone(), normal: new THREE.Vector3(), part: { edge: edge.segs }, adds: e.shiftKey });
+      return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), ...(hit ? { part: { face: this.faceItem(hit) }, adds: e.shiftKey } : {}) });
+    }
     if (this.quietPick) {
       const edge = this.edgeAt(e);
       return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined, ...(edge ? { edge: { length: edge.segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0) } } : {}) });
