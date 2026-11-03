@@ -2221,3 +2221,74 @@ input + .set-axis {
   position: absolute;
   z-index: 30;
 }
+
+/* the side panel's values: aligned columns, one height */
+.placing {
+  display: grid;
+  grid-template-columns: 50px repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+  margin-top: 14px;
+}
+.placing > span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.trio {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.trio + .trio {
+  margin-top: 6px;
+}
+/* width and height's link sits on the gap between them */
+.trio > .tool {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: calc((100% - 12px) / 3 + 3px);
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--panel);
+}
+.trio > .tool svg {
+  width: 10px;
+  height: 10px;
+}
+section .profile {
+  padding-left: 0;
+  border-left: none;
+}
+section + .row {
+  margin-top: 8px;
+}
+.shape-fields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+section .shape-fields,
+section .row.reach {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+section .row.reach {
+  margin-bottom: 0;
+}
+section > h4 {
+  margin-bottom: 8px;
+}
+section > h4 .segmented button {
+  padding: 1px 8px;
+  font-size: 11px;
+}

@@ -1123,11 +1123,7 @@ function selectionPanel(ctx: UIContext): Node[] {
     ...freeing,
     ...linkedNote(ctx, body),
     ...materialRows(ctx, [body.id], inheritedLabel(ctx, body)),
-    h('h3', {}, 'Position'),
-    h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `${at}.position.${k}`, l))),
-    h('h3', {}, 'Rotation'),
-    // degrees: shown as typed, never unit-converted
-    h('div', { className: 'row' }, ...(['rx', 'ry', 'rz'] as const).map((k) => exprField(ctx, `${at}.rotation.${k}`, `${k[1].toUpperCase()}°`, true))),
+    placing(ctx, at),
     ...sharedCards(ctx, body),
     ...body.features.map((feature, j) => {
       const card = featureCard(ctx, body, feature, `${at}.features.${j}`, setBody);
@@ -1200,9 +1196,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
     h('div', { className: 'row' }, origin),
     ...(g.origin.kind === 'custom'
       ? [
-          h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `groups.${i}.origin.position.${k}`, l))),
-          // degrees: shown as typed, never unit-converted
-          h('div', { className: 'row' }, ...(['rx', 'ry', 'rz'] as const).map((k) => exprField(ctx, `groups.${i}.origin.rotation.${k}`, `${k[1].toUpperCase()}°`, true))),
+          placing(ctx, `groups.${i}.origin`),
           h('p', { className: 'hint' }, 'Its contents count from this point and turn with it (degrees around X, then Y, then Z); inside, they are edited unturned.'),
         ]
       : [h('p', { className: 'hint' }, "Its contents count from the parent's origin.")]),
@@ -1320,15 +1314,16 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   const tf = (field: ShapeField, label: string, value: Expr, raw = false) =>
     exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
   const pf = (key: string, label: string, raw = false) => exprField(ctx, `${path}.${key}`, label, raw);
-  const row = (...cells: HTMLElement[]) => h('div', { className: 'row' }, ...cells);
-  const pos = [refGrid(ctx, p.id), tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
-  if (p.kind === 'circle') return [row(...pos, tf('d', 'Ø', stored('d')))];
+  const row = (...cells: HTMLElement[]) => h('div', { className: 'trio' }, ...cells);
+  const shape = (...rows: HTMLElement[]) => [h('div', { className: 'shape-fields' }, refGrid(ctx, p.id), h('div', {}, ...rows))];
+  const pos = [tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
+  if (p.kind === 'circle') return shape(row(...pos, tf('d', 'Ø', stored('d'))));
   const link = tool('link', ctx.linkSize(p.id) ? 'Width and height change together: click to unlink' : 'Link width and height: they change together', () => ctx.toggleLinkSize(p.id), ctx.linkSize(p.id));
   const [w, hh] = p.kind === 'rect' ? [stored('w'), stored('h')] : [mm(m.w), mm(m.h)];
-  if (p.kind === 'line') return [row(...pos), row(tf('w', 'W', w), link, tf('h', 'H', hh))]; // no corners to round, no turn of its own
+  if (p.kind === 'line') return shape(row(...pos), row(tf('w', 'W', w), link, tf('h', 'H', hh))); // no corners to round, no turn of its own
   const rot = tf('rot', 'Turn °', stored('rot'), true); // degrees: shown as typed, never unit-converted
-  if (p.kind === 'ngon') return [row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true))];
-  return [row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), pf('r', 'R'))];
+  if (p.kind === 'ngon') return shape(row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true)));
+  return shape(row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), pf('r', 'R')));
 }
 
 /** Illustrator's reference point locator for one shape: which point of its box X / Y give, and which point stays when sizing or turning. */
@@ -1336,6 +1331,24 @@ function refGrid(ctx: UIContext, shape: string) {
   const [rx, ry] = ctx.shapeRef(shape);
   const cells = [1, 0, -1].flatMap((sy) => [-1, 0, 1].map((sx) => h('button', { className: `cell${rx === sx && ry === sy ? ' on' : ''}`, onclick: () => ctx.setShapeRef(shape, [sx, sy]) })));
   return h('div', { className: 'ref-grid', title: 'Reference diamond: X / Y measure this point of the shape; changing size or turn keeps it in place' }, ...cells);
+}
+
+/** Position and Rotation under `at`: one block, three aligned columns. */
+function placing(ctx: UIContext, at: string) {
+  return h(
+    'div',
+    { className: 'placing' },
+    h('span', {}, 'Position'),
+    ...['X', 'Y', 'Z'].map((l, k) => exprField(ctx, `${at}.position.${k}`, l)),
+    h('span', {}, 'Rotation'),
+    // degrees: shown as typed, never unit-converted
+    ...(['rx', 'ry', 'rz'] as const).map((k) => exprField(ctx, `${at}.rotation.${k}`, `${k[1].toUpperCase()}°`, true)),
+  );
+}
+
+/** One of a few choices, all in sight: one click. */
+function segmented<T extends string>(value: T, options: Record<T, string>, onChange: (v: T) => void) {
+  return h('span', { className: 'segmented' }, ...(Object.entries(options) as [T, string][]).map(([v, label]) => h('button', { className: v === value ? 'on' : '', onclick: () => v !== value && onChange(v) }, label)));
 }
 
 function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, setBody: (p: Body) => void) {
@@ -1347,7 +1360,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
     case 'extrude': {
       const extrudes = body.features.filter((t) => t.type === 'extrude');
       const name = (t: (typeof extrudes)[number]) => `Extrude ${extrudes.indexOf(t) + 1}`;
-      const mode = select(feature.mode, { add: 'Add', cut: 'Cut' }, (m) => setFeature({ ...feature, mode: m, through: m === 'cut' && feature.through }));
+      const mode = segmented(feature.mode, { add: 'Add', cut: 'Cut' }, (m) => setFeature({ ...feature, mode: m, through: m === 'cut' && feature.through }));
       const through = h('input', { type: 'checkbox', checked: feature.through });
       through.onchange = () => setFeature({ ...feature, through: through.checked });
       // how far it reaches behind its sketch plane (left out: 0)
@@ -1372,7 +1385,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
               ...(plane ? [tool('unlink', 'Unlink: copy the shapes into this feature, so the sketch no longer changes it', unlink)] : []),
             ]
           : [h('span', { className: 'error' }, 'its sketch was deleted')];
-        return h('section', {}, h('h4', {}, name(feature), mode, remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'From'), ...link), h('div', { className: 'row' }, ...reach));
+        return h('section', {}, h('h4', {}, name(feature), mode, remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'From'), ...link), h('div', { className: 'row reach' }, ...reach));
       }
       const planes: Record<string, string> = { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' };
       for (const t of extrudes.slice(0, extrudes.indexOf(feature))) if (!t.through) planes[`cap:${t.id}`] = `On top of ${name(t)}`;
@@ -1393,7 +1406,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         h('h4', {}, name(feature), mode, remove),
         h('div', { className: 'row' }, plane, ...(src.plane.kind === 'base' ? [f('source.plane.offset', 'Offset')] : [])),
         ...profiles,
-        h('div', { className: 'row' }, ...reach),
+        h('div', { className: 'row reach' }, ...reach),
       );
     }
     case 'boolean': {
