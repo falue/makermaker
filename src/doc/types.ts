@@ -129,7 +129,7 @@ export type ThreadFeature = { id: string; type: 'thread'; at: [number, number, n
  * A face bulged out smoothly (a negative `amount`: dented in), its rim kept: a flat face through body point `at`, a
  * round one (body-local axis from `at` along `dir`, radius `r`, `length` long; `shaft`: material inside, else a hole),
  * or closed sketch shapes (a solid of its own on their plane). The high point lies `peak` (x, y, z) from the face's
- * middle (a round face: along its axis only); `fullness` sets the curve: 0 soft, 1 tent, 2 dome, 4 and up flat topped.
+ * middle (a round face: along its axis only); `fullness` sets the curve: 0 soft, 1 round (a pillow), 2 dome, 4 and up flat topped.
  */
 export type BulgeFeature = {
   id: string;

@@ -1,5 +1,5 @@
 import { assembleWire, basicFaceExtrusion, cast, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
-import { add, cutPlane, extent, frames, scale, toWorld, type Frame, type Place } from '../doc/frames';
+import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import { beside, centre, corners, nesting } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
 import type { Resolved } from '../doc/resolve';
@@ -465,7 +465,11 @@ function thread(shape: Shape3D | null, s: Of<'thread'>, steps = 36): Shape3D {
 }
 
 /** A bulge's height (0 to 1) from its rim (`t` 0) to its peak (1) for fullness `k`: 0 soft, 1 straight, 2 a quarter ellipse, more flatter topped. */
-export const rise = (t: number, k: number) => (k < 1 ? ((1 - k) * (1 - Math.cos(Math.PI * t))) / 2 + k * t : Math.pow(1 - Math.pow(1 - t, k), 1 / k));
+/**
+ * A bulge's height (0 to 1) from `t` (0 at the rim, 1 at the peak) for fullness `k`: 0 soft (flat at both ends), 1 as
+ * it comes, 2 a dome, more flatter topped (steeper at the rim); never vertical, so the surface stays smooth.
+ */
+export const rise = (t: number, k: number) => (k < 1 ? (1 - k) * t * t * (3 - 2 * t) + k * t : 1 - Math.pow(1 - t, k));
 
 /**
  * A face bulged out (`amount` mm at its peak, negative: in), its rim kept. A flat face is replaced by a smooth surface
@@ -497,7 +501,9 @@ function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
   if (!holes.length) return makeSolid([...faces.filter((_, j) => j !== i), dome(face, n, s)]) as unknown as Shape3D;
   // with holes: a dome over its outline joined (a dent: cut), then the holes drilled through it again
   const lid = makeSolid([dome(face.clone() as BRepFace, n, s), makeFace((face.clone() as BRepFace).outerWire())]) as unknown as Shape3D;
-  let out = joined(shape.clone(), lid, s.amount > 0 ? 'add' : 'cut');
+  // the lid lies on the face: glued along it (OpenCascade's common-face boolean)
+  let out = s.amount > 0 ? shape.fuse(lid, { optimisation: 'commonFace' }) : shape.cut(lid, { optimisation: 'commonFace' });
+  lid.delete();
   for (const w of holes) {
     const drill = basicFaceExtrusion(makeFace(w), new Vector(scale(n, Math.abs(s.amount) + 1))) as Shape3D;
     const next = joined(out, drill, 'cut');
@@ -507,34 +513,83 @@ function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
   return out;
 }
 
-/** The smooth surface over a flat face's outer edges, rising along `n` (see `bulge`). */
-function dome(face: BRepFace, n: V3, s: Of<'bulge'>, dirs = 32, rings = 6): BRepFace {
+/**
+ * The smooth surface over a flat face's outer edges, rising along `n` (see `bulge`). How high each point rises comes
+ * from a pillow (Poisson's equation on a grid over the face, 0 at the rim: one smooth field, rounded towards corners,
+ * no creases), its top shifted to the peak (each point reads the field nearer the middle, the more the higher it is),
+ * then shaped by the curve. OpenCascade's filling passes through those heights on `dirs` lines from the rim to the peak.
+ */
+function dome(face: BRepFace, n: V3, s: Of<'bulge'>, cells = 60, dirs = 32, rings = 6): BRepFace {
   const oc = getOC();
-  // the peak: the face's middle moved by `peak`, kept in its plane
-  const c = add(face.center.toTuple(), s.peak);
-  const off = (c[0] - face.center.x) * n[0] + (c[1] - face.center.y) * n[1] + (c[2] - face.center.z) * n[2];
-  const peak = add(c, scale(n, -off));
-  const fill = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 0.01, 0.1, 8, 9);
+  // the face's plane: u, v around its middle (read before its wire: that frees the face)
+  const c = face.center.toTuple() as V3;
   const edges = face.outerWire().edges;
+  const u = Math.abs(n[2]) < 0.9 ? norm(cross([0, 0, 1], n)) : norm(cross([0, 1, 0], n));
+  const v = cross(n, u);
+  const uv = (p: V3): [number, number] => [dot(sub(p, c), u), dot(sub(p, c), v)];
+  const at = (x: number, y: number, h: number) => add(add(c, add(scale(u, x), scale(v, y))), scale(n, h));
+  // the rim as a polygon (plane coordinates)
+  const rim = edges.flatMap((e) => {
+    const m = Math.max(4, Math.ceil(e.length / 2));
+    return Array.from({ length: m }, (_, k) => uv(e.pointAt(k / m).toTuple() as V3));
+  });
+  const xs = rim.map((p) => p[0]);
+  const ys = rim.map((p) => p[1]);
+  const [x0, y0] = [Math.min(...xs), Math.min(...ys)];
+  const h = Math.max(Math.max(...xs) - x0, Math.max(...ys) - y0) / cells;
+  const [nx, ny] = [Math.ceil((Math.max(...xs) - x0) / h) + 3, Math.ceil((Math.max(...ys) - y0) / h) + 3];
+  const X = (i: number) => x0 + (i - 1) * h;
+  const Y = (j: number) => y0 + (j - 1) * h;
+  const inside = new Uint8Array(nx * ny);
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      let odd = false;
+      for (let k = 0, m = rim.length - 1; k < rim.length; m = k++) {
+        const [a, b] = [rim[k], rim[m]];
+        if (a[1] > Y(j) !== b[1] > Y(j) && X(i) < a[0] + ((Y(j) - a[1]) / (b[1] - a[1])) * (b[0] - a[0])) odd = !odd;
+      }
+      inside[j * nx + i] = +odd;
+    }
+  // the pillow: Δf = -1 inside, 0 outside (over-relaxed Gauss-Seidel), scaled to 1 at its top
+  const f = new Float64Array(nx * ny);
+  for (let it = 0; it < 4 * cells; it++)
+    for (let k = 0; k < f.length; k++)
+      if (inside[k]) f[k] += 1.9 * ((f[k - 1] + f[k + 1] + f[k - nx] + f[k + nx] + h * h) / 4 - f[k]);
+  let top = 0;
+  for (let k = 0; k < f.length; k++) if (f[k] > f[top]) top = k;
+  const fmax = f[top] || 1;
+  const field = (x: number, y: number) => {
+    const [fi, fj] = [(x - x0) / h + 1, (y - y0) / h + 1];
+    const [i, j] = [Math.floor(fi), Math.floor(fj)];
+    if (i < 0 || j < 0 || i + 1 >= nx || j + 1 >= ny) return 0;
+    const [a, b] = [fi - i, fj - j];
+    const k = j * nx + i;
+    return ((1 - a) * (1 - b) * f[k] + a * (1 - b) * f[k + 1] + (1 - a) * b * f[k + nx] + a * b * f[k + nx + 1]) / fmax;
+  };
+  // the top moved to the peak: a point reads the field `shift` nearer its own top, the more the higher it is (the rim stays)
+  const [px, py] = uv(add(c, s.peak));
+  const shift = [px - X(top % nx), py - Y(Math.floor(top / nx))];
+  const height = (x: number, y: number) => {
+    let t = field(x, y);
+    for (let k = 0; k < 6; k++) t = field(x - shift[0] * t, y - shift[1] * t);
+    return s.amount * rise(Math.max(0, Math.min(1, t)), s.fullness);
+  };
+  // the filling's points: on `dirs` lines from the rim to the top, `rings` along each, and the top
+  const fill = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 0.01, 0.1, 8, 9);
   for (const e of edges) fill.Add(e.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
-  // the rim, sampled evenly along its length
-  const lengths = edges.map((e) => e.length);
-  const total = lengths.reduce((a, b) => a + b, 0);
-  const point = (p: V3) => new oc.gp_Pnt(...p);
-  for (let i = 0; i < dirs; i++) {
-    let along = (i / dirs) * total;
-    let k = 0;
-    while (along > lengths[k] && k < edges.length - 1) along -= lengths[k++];
-    const rim = edges[k].pointAt(Math.min(1, along / lengths[k])).toTuple() as V3;
-    for (let r = 1; r < rings; r++) {
-      const t = r / rings;
-      fill.Add(point(add(add(rim, scale(add(peak, scale(rim, -1)), t)), scale(n, s.amount * rise(t, s.fullness)))));
+  const peak: [number, number] = [px, py];
+  for (let k = 0; k < dirs; k++) {
+    const r = rim[Math.floor((k * rim.length) / dirs)];
+    for (let q = 1; q < rings; q++) {
+      const [x, y] = [r[0] + (peak[0] - r[0]) * (q / rings), r[1] + (peak[1] - r[1]) * (q / rings)];
+      fill.Add(new oc.gp_Pnt(...at(x, y, height(x, y))));
     }
   }
-  fill.Add(point(add(peak, scale(n, s.amount))));
+  fill.Add(new oc.gp_Pnt(...at(px, py, height(px, py))));
   fill.Build(new oc.Message_ProgressRange());
   if (!fill.IsDone()) throw new Error('the bulge surface could not be made');
-  return cast(fill.Shape()) as BRepFace;
+  const out = cast(fill.Shape()) as BRepFace;
+  return out;
 }
 
 /** A round face bulged: its radius grows by the curve along its axis (peak: `peak` along it from the middle), turned around the axis. */

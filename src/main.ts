@@ -2134,7 +2134,7 @@ function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
     update();
   };
   // a preset sets Fullness
-  const shape = Object.assign(document.createElement('select'), { title: 'The curve: soft (no edge at the rim), tent, dome, flat topped; Fullness in between' });
+  const shape = Object.assign(document.createElement('select'), { title: 'The curve: soft (flat at the rim and top), round (a pillow), dome, flat topped; Fullness in between' });
   shape.append(...[...BULGE_SHAPES, ['Custom', 'custom']].map(([name, v]) => Object.assign(document.createElement('option'), { value: v, textContent: name, selected: v === '2' })));
   shape.onchange = () => shape.value !== 'custom' && ((panel.inputs[1].value = shape.value), panel.inputs[1].dispatchEvent(new Event('input')));
   const panel = valuePanel(
@@ -2147,7 +2147,7 @@ function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
     ],
     write,
     (ok) => (ok ? render() : undo()),
-    'Bulge: its amount, curve and peak · Amount: how high (negative: a dent; T: to a point) · Fullness: 0 soft, 1 tent, 2 dome, 4 flat top · Peak X / Y / Z from the middle (T: to a point) · [Enter] keeps it · [Esc] leaves nothing',
+    'Bulge: its amount, curve and peak · Amount: how high (negative: a dent; T: to a point) · Fullness: 0 soft, 1 round, 2 dome, 4 flat top · Peak X / Y / Z from the middle (T: to a point) · [Enter] keeps it · [Esc] leaves nothing',
     [shape],
   );
 }

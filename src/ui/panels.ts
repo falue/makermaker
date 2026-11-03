@@ -1152,10 +1152,10 @@ function refGrid(ctx: UIContext, shape: string) {
   return h('div', { className: 'ref-grid', title: 'Reference diamond: X / Y measure this point of the shape; changing size or turn keeps it in place' }, ...cells);
 }
 
-/** A bulge's curve presets: name and fullness (0 soft, 1 tent, 2 dome, 4 flat topped). */
+/** A bulge's curve presets: name and fullness (0 soft, 1 round as a pillow, 2 dome, 4 flat topped). */
 export const BULGE_SHAPES = [
   ['Soft', '0'],
-  ['Tent', '1'],
+  ['Round', '1'],
   ['Dome', '2'],
   ['Flat top', '4'],
 ] as const;
