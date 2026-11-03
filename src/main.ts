@@ -3697,17 +3697,25 @@ function dragFinish(body: string, feature: string, at: Vector3) {
 
 /**
  * How a face pushes or pulls `doc` by `mm` along its outward normal: an end face changes its extrusion's depth, a side
- * moves that side of its shape (in the sketch, if linked); values keep their expressions. Null: no extrusion made it.
+ * moves that side of its shape (in the sketch, if linked); values keep their expressions. Any other flat face gets a
+ * Push / pull step. Null: a round face or a finish's.
  */
 function facePull(doc: Doc, face: FaceItem): ((d: Doc, mm: number) => Doc) | null {
   const features = built.get(face.body);
   const pl = bodyPlace(face.body);
+  // any other flat face: a Push / pull step of its own (in the steps it belongs to: a linked copy's source's)
+  const push = () => {
+    if (face.round || face.finish) return null;
+    const [i, id] = [stepsOf(doc, face.body), newId()];
+    const step = (mm: number): Feature => ({ id, type: 'push', at: unplaced(pl, face.point.toArray()), n: unplaced(pl, face.n.toArray(), true), distance: len(mm) });
+    return (d: Doc, mm: number) => setIn(d, ['bodies', String(i), 'features'], [...d.bodies[i].features, step(mm)]);
+  };
   const hit = features && faceAt(features, unplaced(pl, face.point.toArray()), unplaced(pl, face.n.toArray(), true));
-  if (!hit) return null;
+  if (!hit) return push();
   const bi = doc.bodies.findIndex((b) => b.features.some((f) => f.id === hit.feature));
   const fi = doc.bodies[bi]?.features.findIndex((f) => f.id === hit.feature) ?? -1;
   const feature = doc.bodies[bi]?.features[fi];
-  if (feature?.type !== 'extrude') return null;
+  if (feature?.type !== 'extrude') return push();
   const lookup = paramLookup(doc.params);
   const featurePath = ['bodies', String(bi), 'features', String(fi)];
   if (hit.kind === 'cap') {
@@ -3753,7 +3761,7 @@ async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; shapes
   const run = extrudeRun;
   const groups = await Promise.all(viewer.sketches.map(async (s) => ({ target: targetOf(s), areas: await areasOf(s), picked: new Set<number>() })));
   if (run !== extrudeRun) return; // another tool started meanwhile
-  const notPulled = 'Only faces made by extrusions can be pushed or pulled so far';
+  const notPulled = 'Only flat faces can be pushed or pulled (a round one: Bulge it)';
   const accept = (f: FaceItem) => !!facePull(history.current, f) || (fail(notPulled), false);
   // the faces pull live: from the document before, as built then
   let pulls: { before: Doc; by: ((d: Doc, mm: number) => Doc)[] } | null = null;

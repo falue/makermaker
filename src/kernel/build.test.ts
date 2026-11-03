@@ -154,6 +154,17 @@ describe('buildBody', () => {
     own.done();
   }, 60000);
 
+  it('pushes and pulls any flat face', () => {
+    const push = (distance: number) => ({ id: 'p', type: 'push', at: [30, 0, 2], n: [1, 0, 0], distance }) as BuildFeature;
+    const out = built([base(60), push(5)]);
+    expect(out.box.width).toBeCloseTo(65, 3);
+    expect(out.faces).toBe(6); // glued on: still a box
+    out.done();
+    const into = built([base(60), push(-5)]);
+    expect(into.box.width).toBeCloseTo(55, 3);
+    into.done();
+  });
+
   it('mirrors a body across a plane', () => {
     const m = built([base(100), { id: 'm', type: 'mirror', o: [60, 0, 0], n: [1, 0, 0] } as BuildFeature]);
     expect(m.box.bounds[0][0]).toBeCloseTo(70, 3); // -50..50 mirrored at x = 60: 70..170

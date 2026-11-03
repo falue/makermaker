@@ -1316,6 +1316,8 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         h('p', { className: 'hint' }, `On ${where}: X / Y / Z, its peak from the middle (across the face: its height); Fullness -4 pointy to 4 flat topped`),
       );
     }
+    case 'push':
+      return h('section', {}, h('h4', {}, 'Push / pull', remove), h('div', { className: 'row' }, f('distance', 'Distance'), h('span', { className: 'hint' }, 'a flat face, out (negative: in)')));
     case 'mirror':
       return h('section', {}, h('h4', {}, 'Mirror', remove), h('p', { className: 'hint' }, 'Mirrored across the plane it was made with'));
     case 'shell':

@@ -88,6 +88,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
       if (s.type === 'thread') apply(s.id, (cur) => thread(cur, s));
       if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
+      if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -482,6 +483,20 @@ export const rise = (t: number, k: number) => 1 - Math.pow(1 - t, k >= 0 ? 1 + k
 
 /** A bulge's fullness, kept between -4 and 4. */
 const fullness = (k: number) => Math.max(-4, Math.min(4, k));
+
+/** A flat face pushed or pulled: the face extruded along its normal, joined (out, glued along the face) or cut (in). */
+function push(shape: Shape3D | null, s: Of<'push'>): Shape3D {
+  if (!shape) throw new Error('nothing to push or pull yet');
+  if (!s.distance) throw new Error('the distance must not be 0');
+  const face = new FaceFinder().containsPoint(s.at).find(shape).find((f) => f.geomType === 'PLANE' && dot(f.normalAt(s.at).toTuple() as V3, s.n) > 0.99);
+  if (!face) throw new Error('its face is gone, or no longer flat');
+  const tool = basicFaceExtrusion(face.clone() as BRepFace, new Vector(scale(norm(s.n), s.distance))) as Shape3D;
+  try {
+    return s.distance > 0 ? shape.fuse(tool, { optimisation: 'commonFace' }) : shape.cut(tool, { optimisation: 'commonFace' });
+  } finally {
+    tool.delete();
+  }
+}
 
 /**
  * A face bulged out (its peak above it; below: a dent), its rim kept. A flat face is replaced by a smooth surface over
