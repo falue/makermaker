@@ -4533,6 +4533,11 @@ function scheduleAutosave(delay = 1500) {
   );
 }
 
+// closing or reloading with unsaved changes: the browser asks first, in its own words
+addEventListener('beforeunload', (e) => {
+  if (history.current !== file.saved) e.preventDefault();
+});
+
 /** Once per unsaved design, after some undo steps: a click on the note saves it and turns autosave on. */
 function offerAutosave() {
   if (offered || autosave || file.handle || history.steps < OFFER_AFTER) return;
