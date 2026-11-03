@@ -788,7 +788,7 @@ function left(ctx: UIContext): Node[] {
     return { open, head: h('div', { className: 'tree-head' }, title, ...all) };
   };
   const { open: objectsOpen, head } = heading('objects', 'Objects', 'body');
-  const sketchList = heading('sketches', 'Sketch groups', 'sketch');
+  const sketchList = heading('sketches', 'Sketches', 'sketch');
   const paramList = heading('params', 'Parameters', 'param');
   const planeList = heading('planes', 'Work planes', 'plane');
   const planeRows = doc.planes.map((w, i) => {
