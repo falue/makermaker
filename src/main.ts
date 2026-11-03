@@ -1737,10 +1737,10 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
  * A panel at the top middle of the view with value fields, each scrubbed by its label; T or To object: a click's value
  * (`reach`, in mm, or degrees when `raw`) goes in where the cursor is, to calculate on with it (several values: they
  * replace this field's and those before it, a point's X / Y / Z, say); `int`: whole numbers (scrubbed in 1s; typed
- * decimals go when the field is left); `title`: what label and field say on hover.
+ * decimals go when the field is left); `step`: its scrub step per px; `title`: what label and field say on hover.
  * `change` gets the texts as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
  */
-function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; step?: number; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
   const u = history.current.units;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
@@ -1777,7 +1777,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     };
     const label = Object.assign(document.createElement('span'), { innerHTML: axisHtml(f.label) });
     if (f.title) label.title = input.title = f.title;
-    scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()), f.int);
+    scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()), f.int, undefined, f.step);
     // To object right after the field it fills; label, field and button wrap together
     return [cell(label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field')] : []))];
   });
@@ -2200,7 +2200,7 @@ function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
       const w = on.point.clone().sub(r.at);
       const out = w.sub(r.dir.clone().multiplyScalar(w.dot(r.dir))).normalize();
       feature = { ...base, on: { kind: 'round', at: unplaced(pl, r.at.toArray()), dir: unplaced(pl, r.dir.toArray(), true), r: r.r, length: r.length, shaft: r.shaft }, peak: peak(unplaced(pl, out.multiplyScalar(r.r * (r.shaft ? 1.5 : 0.5)).toArray(), true)) };
-    } else feature = { ...base, on: { kind: 'face', at: unplaced(pl, on.point.toArray()), mid: unplaced(pl, viewer.faceCentre(on).toArray()), n: unplaced(pl, on.n.toArray(), true) }, peak: peak(unplaced(pl, on.n.clone().multiplyScalar(10).toArray(), true)) };
+    } else feature = { ...base, on: { kind: 'face', at: unplaced(pl, on.point.toArray()), mid: unplaced(pl, viewer.faceCentre(on).toArray()), half: viewer.faceHalf(on), n: unplaced(pl, on.n.toArray(), true) }, peak: peak(unplaced(pl, on.n.clone().multiplyScalar(10).toArray(), true)) };
     i = stepsOf(doc, on.body);
     [selected, shapeSel] = [[on.body], []];
     commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
@@ -2244,7 +2244,15 @@ function bulgePanel(body: string, id: string, fresh = false) {
     if (out.lengthSq() < 1e-12) out.copy(new Vector3(1, 0, 0).cross(axis).lengthSq() > 1e-6 ? new Vector3(1, 0, 0).cross(axis) : new Vector3(0, 1, 0).cross(axis));
     return axis.clone().multiplyScalar(along).addScaledVector(out.normalize(), q.clone().addScaledVector(axis, -q.dot(axis)).length()).toArray();
   };
-  const write = ([x, y, z, k]: string[]) => {
+  const write = (texts: string[]) => {
+    // across a flat face: kept within half its size (the height not), in the fields too
+    if (on.kind === 'face')
+      for (let k = 0; k < 3; k++) {
+        const mm = Number(texts[k]) * UNITS[u];
+        if (Math.abs(on.n[k]) < 0.1 && Math.abs(mm) > on.half[k]) panel.inputs[k].value = texts[k] = fmt((Math.sign(mm) * on.half[k]) / UNITS[u]);
+      }
+    const [x, y, z] = texts;
+    let k = texts[3];
     // fullness kept between -4 and 4, in its field too
     const full = Number(k);
     if (Number.isFinite(full) && Math.abs(full) > 4) panel.inputs[3].value = k = String(Math.sign(full) * 4);
@@ -2256,7 +2264,7 @@ function bulgePanel(body: string, id: string, fresh = false) {
   const panel = valuePanel(
     [
       ...(['X', 'Y', 'Z'] as const).map((a, k) => ({ label: a, value: feature.peak[k].e, title: `Peak ${a}: the high point from the face's middle (across the face: its height)`, ...(k === 2 ? { reach } : {}) })),
-      { label: 'Fullness', value: feature.fullness.e, raw: true, title: 'Fullness: -4 pointy, 0 a pillow, 1 a dome, 4 flat topped' },
+      { label: 'Fullness', value: feature.fullness.e, raw: true, step: 0.01, title: 'Fullness: -4 pointy, 0 a pillow, 1 a dome, 4 flat topped' },
     ],
     write,
     (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
@@ -4339,7 +4347,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 20, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 21, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

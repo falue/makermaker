@@ -685,6 +685,16 @@ export class Viewer implements ToolView {
     return sum.divideScalar(total || 1).applyMatrix4(f.mesh.matrixWorld);
   }
 
+  /** Half a face's size along x / y / z (body coordinates). */
+  faceHalf(f: FaceItem): [number, number, number] {
+    const groups = f.mesh.userData.faces as Uint32Array;
+    const index = f.mesh.geometry.index!.array;
+    const pos = f.mesh.geometry.attributes.position;
+    const box = new THREE.Box3();
+    for (let i = groups[f.index * 2]; i < groups[f.index * 2] + groups[f.index * 2 + 1]; i++) box.expandByPoint(new THREE.Vector3().fromBufferAttribute(pos, index[i]));
+    return box.getSize(new THREE.Vector3()).multiplyScalar(0.5).toArray();
+  }
+
   /** The face last clicked (null: none). */
   lastFaceItem() {
     return this.lastHit && this.faceItem(this.lastHit);

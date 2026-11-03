@@ -308,9 +308,9 @@ function input(path: string, shown: string, apply: (text: string) => void, error
 
 /**
  * Expression input for the value at `path`; dragging the label of a number scrubs it (Shift: fine). `own`: a value
- * that is not stored as it is shown (path only names the field), with its setter and error.
+ * that is not stored as it is shown (path only names the field), with its setter and error; `perPx`: its scrub step.
  */
-function exprField(ctx: UIContext, path: string, label: string, raw = false, own?: { value: Expr; set: (x: Expr, live: boolean) => void; error?: string }) {
+function exprField(ctx: UIContext, path: string, label: string, raw = false, own?: { value: Expr; set: (x: Expr, live: boolean) => void; error?: string }, perPx?: number) {
   const keys = path.split('.');
   const x = own?.value ?? (getIn(ctx.doc, keys) as Expr);
   const set = own?.set ?? ((v: Expr, live: boolean) => ctx.setValue(keys, v, live));
@@ -335,7 +335,7 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
     const field = document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
     field?.focus();
     field?.select();
-  });
+  }, false, undefined, perPx);
   return h('label', { className: 'field' }, name, el);
 }
 
@@ -343,10 +343,10 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
  * Scrubbing (as in incase): dragging `label`, or the `field` while it is not focused, sideways changes its number (a
  * plain one, or with a unit, `text()` at the press; else nothing) by a step per px for its unit (Shift ×10, Ctrl
  * `minStep` mm), handing each new text to `set` (`live` after the first); a press on the field without dragging calls
- * `click` (to edit it); `whole`: whole numbers, one per `wholePx` (Shift: ten). The pointer hides and is not stopped by
+ * `click` (to edit it); `whole`: whole numbers, one per `wholePx` (Shift: ten); `perPx`: its own step per px. The pointer hides and is not stopped by
  * the screen edge meanwhile.
  */
-export function scrub(label: HTMLElement, field: HTMLInputElement, text: () => string, u: Unit, minStep: number, set: (text: string, live: boolean) => void, click: () => void, whole = false, wholePx = 8) {
+export function scrub(label: HTMLElement, field: HTMLInputElement, text: () => string, u: Unit, minStep: number, set: (text: string, live: boolean) => void, click: () => void, whole = false, wholePx = 8, perPx?: number) {
   // a number with an optional unit (`12`, `4mm`) keeps its unit while scrubbed; an expression is not scrubbed
   const number = (shown: string) => {
     const num = /^\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*([a-z]*)\s*$/i.exec(shown);
@@ -358,7 +358,7 @@ export function scrub(label: HTMLElement, field: HTMLInputElement, text: () => s
     if (!num) return; // the field takes the press as usual
     const unit = (num[2] || u) as Unit;
     e.preventDefault();
-    const step = { mm: 0.5, cm: 0.05, m: 0.0005, in: 0.02, ft: 0.002 }[unit]; // per px, as in incase
+    const step = perPx ?? { mm: 0.5, cm: 0.05, m: 0.0005, in: 0.02, ft: 0.002 }[unit]; // per px, as in incase
     const base = parseFloat(num[1]);
     let travel: number | null = null; // px moved since scrubbing began
     let last = shown;
@@ -1320,7 +1320,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         'section',
         {},
         h('h4', {}, 'Bulge', button('✎', () => ctx.editBulge(body.id, feature.id), 'Edit it in its panel (T: the peak to a point)'), remove),
-        h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => f(`peak.${k}`, l)), exprField(ctx, `${at}.fullness`, 'Fullness', true)),
+        h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((l, k) => f(`peak.${k}`, l)), exprField(ctx, `${at}.fullness`, 'Fullness', true, undefined, 0.01)),
         h('p', { className: 'hint' }, `On ${where}: X / Y / Z, its peak from the middle (across the face: its height); Fullness -4 pointy to 4 flat topped`),
       );
     }
