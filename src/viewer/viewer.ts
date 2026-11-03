@@ -1690,15 +1690,17 @@ export class Viewer implements ToolView {
     const faded = dropped || (!cutter && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id)));
     (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : this.materialOf(id);
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
-    // a see-through body's depth, drawn before the see-through colours (sections and picking skip it)
+    // in sketch mode and the cut tool see-through bodies hide each other: their depth, drawn before the see-through
+    // colours (sections and picking skip it); fading around a group's objects shows what lies inside
+    const hides = faded && (dropped || !!this.focus);
     const g = this.bodies.get(id)!;
     let depth = g.children.find((c) => c.userData.depth);
-    if (faded && !depth) {
+    if (hides && !depth) {
       depth = Object.assign(new THREE.Mesh((solid as THREE.Mesh).geometry, this.depthOnly), { raycast: () => {} });
       Object.assign(depth.userData, { depth: true, outline: true });
       g.add(depth);
     }
-    if (depth) depth.visible = faded;
+    if (depth) depth.visible = hides;
     lines.renderOrder = cutter ? 1e5 : 0;
   }
 
@@ -3076,6 +3078,12 @@ export class Viewer implements ToolView {
           return solid && !this.hidden.has(id) && !this.cutters.has(id) ? [{ id, g, solid }] : [];
         })
         .sort((a, b) => rank(b.id) - rank(a.id));
+      // a box around each shown body: a plane caps only what it crosses, and what it cuts away wholly is not drawn
+      const around = new Map(shown.map(({ id, g, solid }) => {
+        if (!solid.geometry.boundingBox) solid.geometry.computeBoundingBox();
+        g.updateMatrix();
+        return [id, solid.geometry.boundingBox!.clone().applyMatrix4(g.matrix)];
+      }));
       for (const plane of planes) {
         const others = planes.filter((p) => p !== plane);
         /** A sheet on the cut plane, drawn `sub` after this body's marks. */
@@ -3092,7 +3100,8 @@ export class Viewer implements ToolView {
           ({ stencilWrite: true, stencilRef: ref, stencilFunc: func, stencilFuncMask: mask, stencilFail: THREE.KeepStencilOp, stencilZFail: op, stencilZPass: op }) as const;
         const segs: [THREE.Vector3, THREE.Vector3][] = [];
         let last: THREE.Mesh | null = null;
-        for (const { g, solid } of shown) {
+        for (const { id, g, solid } of shown) {
+          if (!plane.intersectsBox(around.get(id)!)) continue;
           order++;
           // inside the body: its back faces beyond the plane minus its front faces there (low bits; 1 inside)
           for (const side of [THREE.BackSide, THREE.FrontSide]) {
@@ -3128,8 +3137,10 @@ export class Viewer implements ToolView {
         }
       }
       // the bodies clipped to this box, drawn after the caps
+      const far = new THREE.Vector3();
+      const goneIn = ({ min, max }: THREE.Box3) => planes.some((p) => p.distanceToPoint(far.set(p.normal.x > 0 ? max.x : min.x, p.normal.y > 0 ? max.y : min.y, p.normal.z > 0 ? max.z : min.z)) < 0);
       for (const [id, g] of this.bodies)
-        for (const c of this.hidden.has(id) ? [] : g.children) {
+        for (const c of this.hidden.has(id) || (around.has(id) && goneIn(around.get(id)!)) ? [] : g.children) {
           const solid = c instanceof THREE.Mesh;
           if ((solid && this.cutters.has(id)) || c.userData.outline) continue;
           const material = ((c as THREE.Mesh).material as THREE.Material).clone();
