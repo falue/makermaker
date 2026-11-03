@@ -591,11 +591,20 @@ function dome(face: BRepFace, n: V3, s: Of<'bulge'>, mid?: V3, cells = 60, dirs 
   const v = cross(n, u);
   const uv = (p: V3): [number, number] => [dot(sub(p, c), u), dot(sub(p, c), v)];
   const at = (x: number, y: number, h: number) => add(add(c, add(scale(u, x), scale(v, y))), scale(n, h));
-  // the rim as a polygon (plane coordinates)
-  const rim = edges.flatMap((e) => {
+  // the rim as a polygon (plane coordinates): the edges chained end to end (they come in any order and direction)
+  const runs = edges.map((e) => {
     const m = Math.max(4, Math.ceil(e.length / 2));
-    return Array.from({ length: m }, (_, k) => uv(e.pointAt(k / m).toTuple() as V3));
+    return Array.from({ length: m + 1 }, (_, k) => uv(e.pointAt(k / m).toTuple() as V3));
   });
+  const rim = runs.shift()!;
+  while (runs.length) {
+    const end = rim.at(-1)!;
+    const gap = (p: [number, number]) => Math.hypot(p[0] - end[0], p[1] - end[1]);
+    const near = (r: [number, number][]) => Math.min(gap(r[0]), gap(r.at(-1)!));
+    const r = runs.splice(runs.reduce((best, r, k) => (near(r) < near(runs[best]) ? k : best), 0), 1)[0];
+    rim.push(...(gap(r[0]) < gap(r.at(-1)!) ? r : r.reverse()).slice(1));
+  }
+  rim.pop(); // back at the start
   const xs = rim.map((p) => p[0]);
   const ys = rim.map((p) => p[1]);
   const [x0, y0] = [Math.min(...xs), Math.min(...ys)];

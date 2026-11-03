@@ -122,6 +122,12 @@ describe('buildBody', () => {
       expect(leaning.box.bounds[0][2]).toBeGreaterThan(-0.01);
       leaning.done();
     }
+    // on a side face (its edges come in any order and direction): an even dome, still on the face
+    const side = built([base(40, 30), bulge({ kind: 'face', at: [20, 0, 15] }, [10, 0, 0])]);
+    expect(side.box.bounds[1][0]).toBeCloseTo(30, 0);
+    expect(side.box.bounds[0][2]).toBeGreaterThan(-0.01);
+    expect(side.box.bounds[1][2]).toBeLessThan(30.01);
+    side.done();
     // pointy (-4: the smooth surface rounds its tip a little) and flat topped (4) reach about the same peak
     for (const k of [-4, 4]) {
       const shaped = built([base(60), bulge({ kind: 'face', at: [0, 0, 4] }, [0, 0, 10], k)]);
