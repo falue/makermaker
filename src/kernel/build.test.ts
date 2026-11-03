@@ -420,6 +420,19 @@ describe('buildBody', () => {
   });
 });
 
+describe('loft', () => {
+  const section = (z: number, d: number) => ({ frame: { o: [0, 0, z], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, profile: { id: `c${z}`, kind: 'circle', x: 0, y: 0, d } });
+  const shell = { id: 's', type: 'shell', thickness: 1.5, open: [[0, 0, -70]] } as unknown as BuildFeature;
+
+  it('can be hollowed whichever way its shapes were picked', () => {
+    for (const sections of [[section(-6, 36), section(-70, 120)], [section(-70, 120), section(-6, 36)]]) {
+      const shape = buildBody([{ id: 'l', type: 'loft', sections, ruled: false } as unknown as BuildFeature, shell]);
+      expect(shape.faces.length).toBeGreaterThan(3); // walls, inside and out, and the rim
+      shape.delete();
+    }
+  });
+});
+
 describe('picked edges', () => {
   // a 40 × 60 × 4 block: one vertical edge picked by points along it
   const edge = (x: number, y: number) => [[x, y, 0], [x, y, 2], [x, y, 4]] as [number, number, number][];
@@ -480,6 +493,16 @@ describe('picked edges', () => {
       // a slot through the top leaves edges looking the same on both sides of where the picked one was
       const slot: BuildFeature = { id: 's', type: 'extrude', plane: { kind: 'base', axis: 'xy', offset: 0 }, profiles: [{ id: 'q', kind: 'rect', x: 0, y: 0, w: 10, h: 70, r: 0, rot: 0 }], depth: 0, mode: 'cut', through: true } as BuildFeature;
       expect(() => buildBody([base(40), slot, right(7.5, 4)])).toThrow('picked edges are gone'); // x -5 and x 20 look like it, 12.5 away each
+    });
+
+    it('a wider round edge is found though a cut split it and a hole looks alike', () => {
+      const round = (d: number): BuildFeature => ({ id: 'd', type: 'extrude', plane: { kind: 'base', axis: 'xy', offset: 0 }, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d }, { id: 'i', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 10, mode: 'add', through: false } as BuildFeature);
+      const notch: BuildFeature = { id: 'n', type: 'extrude', plane: { kind: 'base', axis: 'xy', offset: 0 }, profiles: [{ id: 'q', kind: 'rect', x: 0, y: 65, w: 10, h: 10, r: 0, rot: 0 }], depth: 0, mode: 'cut', through: true } as BuildFeature;
+      const rim = Array.from({ length: 65 }, (_, k) => [55 * Math.cos((k * Math.PI) / 32), 55 * Math.sin((k * Math.PI) / 32), 10] as [number, number, number]);
+      const finish: BuildFeature = { id: 'p', type: 'finish', mode: 'fillet', size: 1, edges: { pts: [rim], normals: [[[0, 0, 1], [-1, 0, 0]]] }, enabled: true, baked: false, skip: [] };
+      const r = finishedAt([round(130), notch, finish]);
+      expect(r.lost).toEqual({});
+      expect(Math.hypot(r.mids[0][0], r.mids[0][1])).toBeCloseTo(65, 1); // the rim, not the hole
     });
 
     it('one of several lost: the others are finished, the lost one counted', () => {

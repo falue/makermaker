@@ -403,7 +403,10 @@ function revolve(shape: Shape3D | null, s: Of<'revolve'>, f: Frame | undefined):
 /** A solid through its shapes in order, joined to the body (the first one makes it). */
 function loft(shape: Shape3D | null, s: Of<'loft'>): Shape3D {
   if (s.sections.length < 2) throw new Error('a loft needs two shapes or more');
-  const [first, ...rest] = s.sections.map(({ frame: f, profile }) => drawing(profile).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch);
+  // run against the first shape's normal, it comes out inside-out (a shell then fails): the same solid, built the other way
+  const middle = ({ frame: f, profile }: Of<'loft'>['sections'][number]) => toWorld(f, ...centre(profile));
+  const against = dot(sub(middle(s.sections.at(-1)!), middle(s.sections[0])), s.sections[0].frame.n) < 0;
+  const [first, ...rest] = (against ? s.sections.toReversed() : s.sections).map(({ frame: f, profile }) => drawing(profile).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch);
   return joined(shape, first.loftWith(rest, { ruled: s.ruled }), 'add');
 }
 
@@ -847,8 +850,8 @@ function leftOf(pts: [number, number][], far: number): Drawing {
 
 /**
  * What picked edges are now, as polylines. One stays where it was while an edge lies on it between a face it knew;
- * else it takes the edge that looks like it (straight or curved as it was, along the same way, between faces facing
- * the same ways), if that one is clearly the nearest. `lost`: how many are neither. Left out ones (`skip`) are dropped.
+ * else it takes the edge that looks like it (straight along the same way between faces facing the same ways, or curved
+ * beside a face facing the same way), if that one is clearly the nearest in place and length. `lost`: how many are neither. Left out ones (`skip`) are dropped.
  */
 function pickedNow(shape: Shape3D, rule: Exclude<EdgeRule, string>, skip: V3[], tol = 0.05) {
   const edges = shape.edges;
@@ -876,7 +879,8 @@ function pickedNow(shape: Shape3D, rule: Exclude<EdgeRule, string>, skip: V3[], 
       const sampled = Array.from({ length: 9 }, (_, i) => point(e, i / 8));
       if (!straight(sampled) !== curved || (!curved && Math.abs(dot(along, norm(sub(sampled[8], sampled[0])))) < 0.995)) return [];
       const normals = normalsOf(e);
-      if (!want.every((w) => normals.some((n) => facing(n, w)))) return [];
+      // a round face's normal turns along the edge: one face facing the same way is enough there
+      if (!(curved ? want.some : want.every).call(want, (w) => normals.some((n) => facing(n, w)))) return [];
       return [{ sampled, far: Math.hypot(...sub(sampled[4], mid)) + Math.abs(lengthOf(sampled) - long) }];
     }).sort((a, b) => a.far - b.far);
     if (like.length && (like.length < 2 || like[1].far > like[0].far * 1.5 + 0.01)) lines.push(like[0].sampled);
