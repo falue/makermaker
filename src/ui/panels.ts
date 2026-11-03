@@ -584,7 +584,7 @@ function booleanTools(ctx: UIContext, picked = () => {}) {
     ['subtract', 'Cut: the others cut the first'],
     ['intersect', 'Intersect: only where all of them overlap'],
   ];
-  return ops.map(([op, title]) => tool(op, title, () => (picked(), ctx.boolean(op))));
+  return [...ops.map(([op, title]) => tool(op, title, () => (picked(), ctx.boolean(op)))), tool('fingers', 'Box joint: the two bodies cut into interlocking fingers where they overlap', () => (picked(), ctx.boxJoint()))];
 }
 
 /** Rows of the custom sections, in the section panel: on/off, name, offset, flip, delete. */
