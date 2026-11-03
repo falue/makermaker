@@ -180,6 +180,11 @@ Later goals (2026-11-03):
 - [ ] **Hovering objects in the list:** an object or group hovered in the list is outlined orange for the moment, like a hovered sketch group.
 - [ ] **Off-screen hint:** an object, group or sketch group hovered in the list that lies outside the view gets a small orange arrow at the view's edge, pointing where it is.
 
+Later goals (2026-11-03, second round):
+
+- [ ] **Move along any direction:** objects move parallel to any edge, line or work plane, not only along X / Y / Z.
+- [ ] **One way to set a plane at an angle:** the Cut tool, work planes and Draft share one control for it.
+
 ## Performance and sample files
 
 Two representative workloads are required; neither is a guaranteed supported maximum before measurement:

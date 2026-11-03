@@ -130,6 +130,8 @@ What a basic, fully working CAD tool still needs, most important first (revolve,
 Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order they were asked for.
 
 - **Rebindable hotkeys**: every shortcut and modifier role (`MODS` in keys.ts: Shift constrain, Ctrl precise, Alt from the centre, ...) set by the user.
+- **Move along any direction**: move objects not only along X / Y / Z but parallel to any edge, line or work plane (picked as the direction).
+- **One way to set a plane at an angle**: the Cut tool's plane, work planes and Draft each set a plane at an angle their own way; make them one shared control.
 - **Undo history list**: ⌘Z twice shows the latest steps; drag a line through the log to move in history.
 - **Render quality target**: renders stop at a chosen quality (say 80 %) and save the picture; raising it to 100 % continues the render (or renders again, whichever the path tracer allows).
 - **Photo sphere backgrounds** for the 3D view and renders, next to solid and gradient.
@@ -137,7 +139,7 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Laser export, properly**: picking which face or profile to cut (now: the biggest flat face), DXF, kerf, nesting several parts on one sheet (the rules for which faces qualify are still open).
 - **3D print export, properly**: print checks (closed, manifold, scale) and 3MF next to the current STL proof.
 - **Imports**: 3MF / GLB as mesh bodies (STEP, STL and OBJ work), SVG / DXF into sketches; meshes in booleans and exports. Maybe use [cadmpeg](https://github.com/cadmpeg/cadmpeg) 
-- **Materials**: name, sheet thickness and look; groups give defaults; thickness mismatches shown.
+- **Materials**: name, sheet thickness and look; groups give defaults; thickness mismatches shown. materials: is a color, bumpyness, and a thickness and translucency and, if easy, emissivity in a color (for now). shows during 3d modelling (if possible) aswell as in rendering
 - **Joints, further**: a fixed joint, limits enforced while dragging, joints solved against each other (now each joint only places its own children).
 - **Linked copies, further**: linked sketches (shapes shared, placed apart) and linked groups as one unit.
 - **Cutters, further**: one cutter cutting several bodies, an editing mode that reveals hidden cutters, a note when a cutter removes nothing.
