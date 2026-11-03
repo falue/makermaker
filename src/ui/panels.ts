@@ -84,6 +84,8 @@ export interface UIContext {
   editBulge(body: string, feature: string): void;
   /** Opens a work plane's panel. */
   editPlane(id: string): void;
+  /** Measure: an edge's length or two points' distances (see main's measureTool). */
+  measureTool(): void;
   /** Outlines objects orange in the view, a temporary mark (hovered in the list; groups: their contents; null: none). */
   lightBodies(ids: string[] | null): void;
   /** A body's linked copies become their own objects, together with it in a new group of its name. */
@@ -519,6 +521,7 @@ function editbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout menu align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
+    tool('measure', 'Measure: click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
   ];
 }
 

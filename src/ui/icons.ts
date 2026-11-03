@@ -32,6 +32,7 @@ const ICONS = {
   loop: '<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>',
   rotate: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/><circle cx="12" cy="12" r="1.5"/>',
   revolve: '<path d="M12 2v20" stroke-dasharray="2 1.6"/><path d="M12 6h4v12h-4"/><path d="M8 7.5a7 2.5 0 1 0 8.5 0"/><path d="m16.5 7.5-.2-2.3 2 1"/>',
+  measure: '<path d="M3 16 16 3l5 5L8 21z"/><path class="faint" d="M7 12l2 2M10 9l2 2M13 6l2 2"/>',
   param: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   bulge: '<path d="M3 19h18" class="faint"/><path d="M4 19C4 11 8 7 12 7s8 4 8 12"/><path d="M12 3v2" class="faint"/>',
   loft: '<path d="M4 20h16"/><ellipse cx="12" cy="5" rx="4" ry="1.6"/><path d="M4 20C4 12 8 10 8 5M20 20c0-8-4-10-4-15"/>',

@@ -85,6 +85,8 @@ export interface PickedFace {
   point: THREE.Vector3;
   normal: THREE.Vector3;
   body?: string;
+  /** A quiet pick: the corner, edge point or face point clicked (none: empty space), and the edge there (its length). */
+  edge?: { length: number };
   /** A quiet pick: the corner, edge point or face point clicked (none: empty space). */
   snap?: THREE.Vector3;
   /** Picking outlines: the shape of a visible sketch whose outline was clicked, in front of any face. */
@@ -1122,6 +1124,18 @@ export class Viewer implements ToolView {
       this.tickLabel.textContent = `∠ ${+t.angle.toFixed(2)}°`;
       keepInside(this.tickLabel, x, y);
     }
+    this.render();
+  }
+
+  private measureLine = new THREE.Group();
+
+  /** A measurement: an orange line from `a` to `b` with marks at both ends (null: gone). */
+  showMeasureLine(a: THREE.Vector3 | null, b: THREE.Vector3 | null = null) {
+    for (const o of this.measureLine.children) ((o as THREE.Line).geometry.dispose(), ((o as THREE.Line).material as THREE.Material).dispose());
+    this.measureLine.clear();
+    if (!this.measureLine.parent) this.scene.add(this.measureLine);
+    if (a) this.measureLine.add(Object.assign(marks(b ? [a, b] : [a], 0xff8c1a, 9), { renderOrder: 1e6 }));
+    if (a && b) this.measureLine.add(Object.assign(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), new THREE.LineBasicMaterial({ color: 0xff8c1a, depthTest: false })), { renderOrder: 1e6 }));
     this.render();
   }
 
@@ -2288,7 +2302,10 @@ export class Viewer implements ToolView {
   /** A face under the pointer, else the base plane facing the camera through the origin; the normal points away from the camera. */
   private pickFaceAt(e: PointerEvent) {
     const hit = this.frontHit(e);
-    if (this.quietPick) return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined });
+    if (this.quietPick) {
+      const edge = this.edgeAt(e);
+      return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined, ...(edge ? { edge: { length: edge.segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0) } } : {}) });
+    }
     const s = this.sketchShapeAt(e, hit);
     const sketch = s ? { sketch: { id: s.sketch.id, shape: s.q.id } } : {};
     if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), item: this.faceItem(hit), ...sketch });

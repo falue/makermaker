@@ -2324,6 +2324,59 @@ function offsetShapes(sketch: string) {
 }
 
 /**
+ * Measure: click an edge (its length) or two points (how far apart along X / Y / Z, and straight), shown in a panel at
+ * the top of the view with an orange line between the points; a click on a value copies it. Goes on until Esc.
+ */
+function measureTool() {
+  const u = history.current.units;
+  let first: Vector3 | null = null;
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel measure' });
+  const show = (items: [string, number][]) =>
+    box.replaceChildren(
+      ...(items.length ? [] : [Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Click a second point' })]),
+      ...items.map(([label, mm]) => {
+        const text = `${fmt(+(mm / UNITS[u]).toFixed(4))} ${u}`;
+        const shown = axisHtml(`${label} ${text}`);
+        // copied: the button says so for a moment (the top bar shows the tool's hint)
+        const b = panelButton('', 'Click: copied', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
+        b.innerHTML = shown;
+        return b;
+      }),
+    );
+  const close = () => {
+    box.remove();
+    viewer.showMeasureLine(null);
+    toolHint = null;
+    render();
+  };
+  const pick = () =>
+    viewer.pickFace((face) => {
+      if (!face) return close();
+      const p = face.snap;
+      if (!p) return pick(); // empty space
+      if (!first) {
+        first = p;
+        viewer.showMeasureLine(p);
+        show(face.edge ? [['Edge', face.edge.length]] : []);
+      } else {
+        const d = p.clone().sub(first);
+        show([['X', d.x], ['Y', d.y], ['Z', d.z], ['L', d.length()]]);
+        viewer.showMeasureLine(first, p);
+        first = null;
+      }
+      atTop(box);
+      pick();
+    }, true);
+  toolHint = 'Measure: click an edge (its length) or two points (how far apart) · click a value: copied · [Esc] stops';
+  show([]);
+  box.firstElementChild!.textContent = 'Click an edge or a point';
+  document.body.append(box);
+  atTop(box);
+  render();
+  pick();
+}
+
+/**
  * Work plane: on what is selected (a sketch: its plane; an edge picked with Alt-click: a plane along it, turning around
  * it), else on a face clicked (empty space: the base plane facing you). Then its panel (see `planePanel`).
  */
@@ -4142,6 +4195,7 @@ function render() {
     jointRange: rangeText,
     lightSketch: (id) => viewer.lightSketch(id),
     editPlane: (id) => planePanel(id),
+    measureTool,
     editBulge: bulgePanel,
     lightBodies: (ids) => viewer.lightBodies(ids ? contents(history.current, ids) : []),
     breakLinks,
