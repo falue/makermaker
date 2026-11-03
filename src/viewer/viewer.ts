@@ -337,16 +337,32 @@ export class Viewer implements ToolView {
     this.render();
   }
 
+  private planeLooks: { id: string; selected: boolean }[] = [];
+  /** The work plane hovered in the list: drawn orange (see `lightPlane`). */
+  private hotPlane: string | null = null;
+
   /** The work planes: green, half see-through rectangles with their outlines (a selected one stronger). */
   setWorkPlanes(planes: { id: string; name: string; frame: Frame; rect: [number, number, number, number]; selected: boolean }[]) {
     this.workPlanes = planes;
+    this.planeLooks = planes;
+    this.drawWorkPlanes();
+  }
+
+  /** A work plane hovered in the list: orange for the moment (null: none); off the view, the arrow points to it. */
+  lightPlane(id: string | null) {
+    this.hotPlane = id;
+    this.drawWorkPlanes();
+  }
+
+  private drawWorkPlanes() {
     for (const o of this.workMark.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
     this.workMark.clear();
-    for (const p of planes) {
+    for (const p of this.workPlanes.map((w) => ({ ...w, selected: this.planeLooks.find((l) => l.id === w.id)?.selected ?? false }))) {
+      const color = p.id === this.hotPlane ? 0xff8c1a : 0x2fae5a;
       const [u0, v0, u1, v1] = p.rect;
       const c = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(([u, v]) => new THREE.Vector3(...toWorld(p.frame, u, v)));
-      const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([c[0], c[1], c[2], c[0], c[2], c[3]]), new THREE.MeshBasicMaterial({ color: 0x2fae5a, transparent: true, opacity: p.selected ? 0.28 : 0.14, side: THREE.DoubleSide, depthWrite: false }));
-      const rim = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c), new THREE.LineBasicMaterial({ color: 0x2fae5a }));
+      const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([c[0], c[1], c[2], c[0], c[2], c[3]]), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: p.selected ? 0.28 : 0.14, side: THREE.DoubleSide, depthWrite: false }));
+      const rim = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c), new THREE.LineBasicMaterial({ color }));
       this.workMark.add(fill, rim);
     }
     this.render();
@@ -582,6 +598,7 @@ export class Viewer implements ToolView {
     addEventListener('keyup', (e) => (e.key === 'Control' || e.key === 'Alt') && unpreview());
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
+      if (!e.buttons) this.hoverRow(e);
       if (this.planeDrag) return this.dragSide(e);
       if (this.planeEdit) canvas.style.cursor = this.planeSide(e) >= 0 ? 'grab' : '';
       if (this.facePick && !this.drag) {
@@ -1921,8 +1938,30 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The middle of what the off-view arrow points to: the bodies hovered in the list, else a sketch hovered there, else the selected bodies (null: none). */
+  /** Told what lies under the pointer (a sketch's outline, a body, a work plane; null: nothing), when it changes: its list row lights. */
+  onHover: ((id: string | null) => void) | null = null;
+  private hovering: string | null = null;
+
+  private hoverRow(e: MouseEvent) {
+    const hit = this.frontHit(e);
+    const ray = this.ray(e);
+    const s = this.shapeAt(ray, hit?.distance);
+    const plane = () =>
+      this.workPlanes.find((w) => {
+        const p = planeHit(ray, w.frame);
+        if (!p || (hit && p.distanceTo(ray.origin) > hit.distance)) return false;
+        const [u, v] = uvOf(w.frame, p);
+        return u >= w.rect[0] && u <= w.rect[2] && v >= w.rect[1] && v <= w.rect[3];
+      })?.id;
+    // a plane counts only in front of the body hit
+    const id = (s && s.edge < Infinity ? s.sketch : null) ?? plane() ?? (hit?.object.userData.bodyId as string | undefined) ?? null;
+    if (id !== this.hovering) this.onHover?.((this.hovering = id));
+  }
+
+  /** The middle of what the off-view arrow points to: the bodies hovered in the list, else a sketch or work plane hovered there, else the selected bodies (null: none). */
   private arrowAt() {
+    const hot = this.workPlanes.find((w) => w.id === this.hotPlane);
+    if (hot) return new THREE.Vector3(...toWorld(hot.frame, (hot.rect[0] + hot.rect[2]) / 2, (hot.rect[1] + hot.rect[3]) / 2));
     const box = new THREE.Box3();
     const ids = this.hovered.length ? this.hovered : this.sketchHover.children.length ? [] : this.selection.filter((id) => this.bodies.has(id) && !this.hidden.has(id));
     for (const id of ids) box.expandByObject(this.bodies.get(id)!);

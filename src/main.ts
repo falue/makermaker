@@ -309,6 +309,11 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     render();
   },
 });
+// what lies under the pointer lights its row in the list (orange) for the moment
+viewer.onHover = (id) => {
+  for (const el of document.querySelectorAll('#left .item.hot')) el.classList.remove('hot');
+  if (id) document.querySelector(`#left .item[data-id="${CSS.escape(id)}"]`)?.classList.add('hot');
+};
 
 const sections = sectionControls(
   document.getElementById('viewport')!,
@@ -4606,6 +4611,7 @@ function render() {
     },
     jointRange: rangeText,
     lightSketch: (id) => viewer.lightSketch(id),
+    lightPlane: (id) => viewer.lightPlane(id),
     editPlane: (id) => planePanel(id),
     measureTool,
     boxJoint,

@@ -253,6 +253,10 @@ input.invalid {
   border-color: var(--accent);
   background: var(--selected);
 }
+/* what lies under the pointer in the view: its row, for the moment */
+.item.hot {
+  border-color: #ff8c1a;
+}
 
 .param {
   display: grid;

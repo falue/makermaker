@@ -84,6 +84,8 @@ export interface UIContext {
   showJoint(joint: string | null): void;
   /** Lights a sketch's shapes in the view (hovered in the list; null: none). */
   lightSketch(id: string | null): void;
+  /** A work plane hovered in the list: orange in the view for the moment (null: none). */
+  lightPlane(id: string | null): void;
   /** Opens a bulge's panel (`body` holds it). */
   editBulge(body: string, feature: string): void;
   /** A box joint's panel (either body's step). */
@@ -221,11 +223,13 @@ let renaming: string | null = null;
 /** A list row's button; while its name is edited, a plain box (an input cannot sit in a button). */
 function listItem(id: string, className: string, pick: (how: Pick) => void, ...children: (Node | string)[]) {
   if (renaming === id) return h('div', { className }, ...children);
-  return h('button', {
+  const el = h('button', {
     className,
     onclick: (e) => pick(e.shiftKey ? 'range' : e.metaKey || e.ctrlKey),
     oncontextmenu: (e) => (e.preventDefault(), pick(true)),
   }, ...children);
+  el.dataset.id = id; // the view lights it (see `onHover` in main)
+  return el;
 }
 
 function h<K extends keyof HTMLElementTagNameMap>(
@@ -804,8 +808,11 @@ function left(ctx: UIContext): Node[] {
   const planeList = heading('planes', 'Work planes', 'plane');
   const planeRows = doc.planes.map((w, i) => {
     const item = listItem(w.id, selectedClass(w.id), (how) => ctx.select(w.id, how), h('span', { className: 'kind plane-swatch' }), nameOf(w.id, w.name, ['planes', String(i), 'name']));
+    item.onmouseenter = () => ctx.lightPlane(w.id);
+    item.onmouseleave = () => ctx.lightPlane(null);
+    const edit = h('button', { className: 'icon', title: 'Edit it in its panel: how it is made, offset, turn, points, size', innerHTML: icon('edit'), onclick: () => ctx.editPlane(w.id) });
     const look = h('button', { className: 'icon', title: w.visible ? 'Hide' : 'Show', innerHTML: icon(w.visible ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, ['planes', String(i), 'visible'], !w.visible)) });
-    return h('div', { className: 'listed' }, item, look);
+    return h('div', { className: 'listed' }, item, edit, look);
   });
   head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));
   head.ondragleave = () => head.classList.remove('drop');
