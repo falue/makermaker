@@ -253,6 +253,7 @@ body {
 }
 #stage .view-bar .read-only {
   justify-self: end;
+  font-style: italic;
   color: var(--muted);
   white-space: nowrap;
 }
