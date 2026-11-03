@@ -3081,9 +3081,10 @@ function cancelPending() {
   toolHint = null;
 }
 
-/** Deletes the selected shapes of the selected sketch, else the selected bodies and sketches. */
+/** Deletes the selected part of a finish, the selected shapes of the selected sketch, else the selected bodies and sketches (not while faces or edges are picked). */
 function remove() {
   if (!selected.length) return pickFor('delete', remove);
+  if (pickedPart && !finishSel) return fail('Picked faces and edges are not deleted: Esc lets them go, then Del deletes the body');
   const doc = history.current;
   if (finishSel) {
     // a part of a finish: its edge is left out; the whole finish: it goes
