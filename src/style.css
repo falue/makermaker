@@ -1793,3 +1793,28 @@ input + .set-axis {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* the export panels: one row per body, then the options */
+.export-panel .export-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  max-height: 40vh;
+  overflow: auto;
+}
+.export-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-row .name {
+  flex: 1;
+}
+.export-row .check {
+  font-size: 12px;
+  color: var(--muted);
+}
+.export-row .check.bad {
+  color: var(--error);
+}

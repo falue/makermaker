@@ -24,6 +24,7 @@ import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
+import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
 import { renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
@@ -4767,8 +4768,8 @@ function render() {
     },
     toggleAutosave: () => run(toggleAutosave),
     importFile: pickImport,
-    exportPrint: () => run(() => exportBodies('stl')),
-    exportLaser: () => run(() => exportBodies('svg')),
+    exportPrint: () => void exportPanel('print'),
+    exportLaser: () => void exportPanel('laser'),
     exportStep: () => run(() => exportBodies('step')),
     toggleTheme() {
       const theme = viewer.isDark ? 'light' : 'dark';
@@ -4831,11 +4832,16 @@ function render() {
  * and joins are in their owners). stl: for 3D print, placed as in the world; svg: for the laser, the outline of the
  * body's biggest flat face at 1:1 without fillets and chamfers.
  */
-async function exportBodies(format: 'stl' | 'svg' | 'step') {
+/** The bodies an export takes: the selected ones (groups: their bodies), else all shown; tool bodies are part of their owner. */
+function exportable() {
   const doc = history.current;
   const tools = new Set(ownersOf(doc).keys());
   const chosen = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
-  const bodies = doc.bodies.filter((b) => (chosen.length ? chosen.includes(b.id) : b.visible) && !tools.has(b.id) && built.has(b.id));
+  return doc.bodies.filter((b) => (chosen.length ? chosen.includes(b.id) : b.visible) && !tools.has(b.id) && built.has(b.id));
+}
+
+/** Exports bodies (default: `exportable`) as files (`extra`: a laser face and kerf per body). */
+async function exportBodies(format: ExportFormat, bodies = exportable(), extra: (b: Body) => Partial<ExportBody> = () => ({})) {
   if (!bodies.length) return fail('Nothing to export: select bodies that build (tool bodies are part of their owner)');
   const taken = new Map<string, number>();
   const nameOf = (b: Body) => {
@@ -4844,12 +4850,107 @@ async function exportBodies(format: 'stl' | 'svg' | 'step') {
     taken.set(base, n);
     return n > 1 ? `${base}_${n}` : base;
   };
-  const { files, failed } = await kernel.export(format, bodies.map((b) => ({ name: nameOf(b), color: b.color, features: built.get(b.id)!, place: bodyPlace(b.id) })));
-  const type = format === 'stl' ? 'model/stl' : format === 'step' ? 'model/step' : 'image/svg+xml';
-  if (format === 'step' && files.length) download(new Blob([files[0].data], { type }), `${project()}.step`);
+  const { files, failed } = await kernel.export(format, bodies.map((b) => ({ name: nameOf(b), color: b.color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })));
+  const type = { stl: 'model/stl', '3mf': 'model/3mf', step: 'model/step', svg: 'image/svg+xml', dxf: 'image/vnd.dxf' }[format];
+  if ((format === 'step' || format === '3mf') && files.length) download(new Blob([files[0].data], { type }), `${project()}.${format}`);
   else if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
   else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, new Uint8Array(f.data)])))]), `${project()}_${format}.zip`);
-  notify(`Exported ${format === 'step' ? `${bodies.length - failed.length} bodies as one STEP file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}`, failed.length > 0);
+  notify(`Exported ${format === 'step' || format === '3mf' ? `${bodies.length - failed.length} bodies as one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}`, failed.length > 0);
+}
+
+/** The export panels' choices, this session. */
+const exportChoice = { laser: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0' };
+
+/**
+ * Laser or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each ticked (untick to
+ * leave it out; hovering a row lights it). Laser: per body the face to cut (its biggest flat one, or one clicked),
+ * the kerf, SVG or DXF. Print: per body whether it is closed, manifold and sound, its size; STL or 3MF. Export (Enter)
+ * makes the files.
+ */
+async function exportPanel(kind: 'laser' | 'print') {
+  const bodies = exportable();
+  if (!bodies.length) return fail('Nothing to export: select bodies that build (tool bodies are part of their owner)');
+  const doc = history.current;
+  const on = new Set(bodies.map((b) => b.id));
+  const faces = new Map<string, { at: Vec3; n: Vec3 }>();
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel export-panel' });
+  const close = () => {
+    box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    viewer.lightBodies([]);
+    viewer.cancelFacePick();
+    toolHint = null;
+    render();
+  };
+  const go = () => {
+    const chosen = bodies.filter((b) => on.has(b.id));
+    close();
+    if (kind === 'print') return void run(() => exportBodies(exportChoice.print, chosen));
+    const kerf = length(exportChoice.kerf) ?? 0;
+    void run(() => exportBodies(exportChoice.laser, chosen, (b) => ({ face: faces.get(b.id), kerf })));
+  };
+  const keys = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    if (pressed(e, 'confirm')) go();
+    else close();
+  };
+  // the checks for printing, filled in when they come
+  const checks = new Map<string, PrintCheck>();
+  const rows = () =>
+    bodies.map((b) => {
+      const tick = Object.assign(document.createElement('input'), { type: 'checkbox', checked: on.has(b.id), onchange: () => (tick.checked ? on.add(b.id) : on.delete(b.id)) });
+      const row = Object.assign(document.createElement('label'), { className: 'export-row', onmouseenter: () => viewer.lightBodies([b.id]), onmouseleave: () => viewer.lightBodies([]) });
+      row.append(tick, Object.assign(document.createElement('span'), { className: 'name', textContent: b.name }));
+      if (kind === 'laser') {
+        const picked = faces.get(b.id);
+        const faceButton = panelButton(picked ? 'Face: picked' : 'Face: auto', 'The face cut out: its biggest flat one (auto), or click one of it', () => {
+          toolHint = `Laser: click the face of ${b.name} to cut out · [Esc] keeps it as it was`;
+          render();
+          viewer.pickFace((p) => {
+            toolHint = 'Laser: untick what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels';
+            if (p?.item?.body === b.id) {
+              const pl = bodyPlace(b.id);
+              faces.set(b.id, { at: unplaced(pl, p.item.point.toArray()), n: unplaced(pl, p.item.n.toArray(), true) });
+            } else if (p) fail(`That is not a face of ${b.name}`);
+            draw();
+          });
+        });
+        row.append(faceButton, ...(picked ? [panelButton('×', 'Back to its biggest flat face', () => (faces.delete(b.id), draw()))] : []));
+      } else {
+        const c = checks.get(b.id);
+        const [x, y, z] = (c?.size ?? [0, 0, 0]).map((v) => fmt(+(v / UNITS[doc.units]).toFixed(1)));
+        const problems = c ? [!c.closed && 'not closed', !c.manifold && 'not manifold', !c.sound && 'unsound', c.size.some((v) => v > 0 && v < 1) && 'under 1 mm: units?', c.size.some((v) => v > 1000) && 'over 1 m: units?', c.error].filter(Boolean) : [];
+        row.append(Object.assign(document.createElement('span'), { className: problems.length ? 'check bad' : 'check', textContent: !c ? 'checking …' : problems.length ? problems.join(' · ') : `✓ closed, manifold · ${x} × ${y} × ${z} ${doc.units}` }));
+      }
+      return row;
+    });
+  const segmented = <T extends string>(choices: [T, string][], now: () => T, set: (v: T) => void) => {
+    const el = Object.assign(document.createElement('span'), { className: 'segmented' });
+    el.append(...choices.map(([v, label]) => Object.assign(document.createElement('button'), { textContent: label, className: now() === v ? 'on' : '', onclick: () => (set(v), draw()) })));
+    return el;
+  };
+  const draw = () => {
+    const kerf = Object.assign(document.createElement('input'), { value: exportChoice.kerf, title: 'Kerf: how wide the beam cuts; the outline moves out by half, holes in, so the part comes out true', oninput: () => (exportChoice.kerf = kerf.value) });
+    const options =
+      kind === 'laser'
+        ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf), segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice.laser, (v) => (exportChoice.laser = v))]
+        : [segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v))];
+    box.replaceChildren(Object.assign(document.createElement('div'), { className: 'export-rows' }), ...options, panelButton('Export', 'Export the ticked ones (Enter)', go));
+    box.firstElementChild!.append(...rows());
+    atTop(box);
+  };
+  toolHint = kind === 'laser' ? 'Laser: untick what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels' : '3D print: untick what stays out · each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';
+  document.body.append(box);
+  draw();
+  render();
+  addEventListener('keydown', keys, { capture: true });
+  if (kind === 'print') {
+    const results = await kernel.check(bodies.map((b) => ({ name: b.id, color: b.color, features: built.get(b.id)!, place: bodyPlace(b.id) })));
+    for (const r of results) checks.set(r.name, r);
+    if (box.isConnected) draw();
+  }
 }
 
 /** The right column shows the renders. */

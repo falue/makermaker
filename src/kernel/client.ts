@@ -1,7 +1,7 @@
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { AreaMesh, BuildFeature } from './build';
-import type { BodyResult, ExportFile, Request, Response } from './worker';
+import type { BodyResult, ExportBody, ExportFile, ExportFormat, PrintCheck, Request, Response } from './worker';
 
 type BuildPart = Extract<Request, { kind: 'build' }>['bodies'][number];
 
@@ -37,10 +37,16 @@ export class Kernel {
     return answer.kind === 'areas' ? answer.areas : [];
   }
 
-  /** One file per body (see the worker's export), and the names of those that could not be made. */
-  async export(format: 'stl' | 'svg' | 'step', bodies: Extract<Request, { kind: 'export' }>['bodies']): Promise<{ files: ExportFile[]; failed: string[] }> {
+  /** The files of an export (see the worker's export), and the names of the bodies that could not be made. */
+  async export(format: ExportFormat, bodies: ExportBody[]): Promise<{ files: ExportFile[]; failed: string[] }> {
     const answer = await this.ask({ kind: 'export', format, id: this.nextAsk++, bodies });
     return answer.kind === 'export' ? answer : { files: [], failed: [] };
+  }
+
+  /** For 3D printing: whether each body is closed, manifold and sound, and its size. */
+  async check(bodies: ExportBody[]): Promise<PrintCheck[]> {
+    const answer = await this.ask({ kind: 'check', id: this.nextAsk++, bodies });
+    return answer.kind === 'check' ? answer.results : [];
   }
 
   private ask(request: Extract<Request, { id: number }>): Promise<Response> {
