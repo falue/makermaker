@@ -72,7 +72,7 @@ export interface SketchResult {
 export interface ToolView {
   el: HTMLElement;
   /** The shown work planes (world frames, `half`: half their size in mm): drawing tools draw on them. */
-  workPlanes: { id: string; name: string; frame: Frame; half: number }[];
+  workPlanes: { id: string; name: string; frame: Frame; rect: [number, number, number, number] }[];
   overlay: THREE.Group;
   /** The step a drag moves in near `at` (mm), by the zoom and modifiers (Shift ×10 unless `coarse` is false, Ctrl the minimum). */
   step(at: THREE.Vector3, e?: { shiftKey: boolean; ctrlKey: boolean }, coarse?: boolean): number;
@@ -652,7 +652,9 @@ export class SketchTool implements Tool {
     // a work plane in front of any face: its sketch, or a new one on it
     for (const w of this.view.workPlanes) {
       const p = planeHit(ray, w.frame);
-      if (!p || (hit && p.distanceTo(ray.origin) > hit.distance + 1e-3) || uvOf(w.frame, p).some((c) => Math.abs(c) > w.half)) continue;
+      if (!p || (hit && p.distanceTo(ray.origin) > hit.distance + 1e-3)) continue;
+      const [u, v] = uvOf(w.frame, p);
+      if (u < w.rect[0] || u > w.rect[2] || v < w.rect[1] || v > w.rect[3]) continue;
       const placement = { kind: 'work' as const, plane: w.id };
       const existing = this.view.sketches.find((s) => s.placement.kind === 'work' && s.placement.plane === w.id);
       return existing ? this.sketchTarget(existing) : { sketch: null, placement, frame: w.frame, body: null, name: w.name };

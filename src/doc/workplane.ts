@@ -7,7 +7,7 @@ const turned = (v: V3, k: V3, a: number): V3 => add(add(scale(v, Math.cos(a)), s
  * A work plane's frame (world): its base frame, then through its points (one: turned around its axis until it passes
  * through it; two: through both, its normal as near the base's as that lets; three: through all three), else turned
  * `turn` degrees around its axis (none set: its own x through its origin); moved `offset` along its normal last. Its x
- * stays as near the base's as the plane lets.
+ * runs from the first point to the second (fewer: as near the base's as the plane lets).
  */
 export function workFrame(base: Frame, offset: number, turn: number, axis: { at: V3; dir: V3 } | null, points: V3[]): Frame {
   const line = axis ? { at: axis.at, dir: norm(axis.dir) } : { at: base.o, dir: norm(base.x) };
@@ -26,8 +26,8 @@ export function workFrame(base: Frame, offset: number, turn: number, axis: { at:
     const a = (turn * Math.PI) / 180;
     [o, n] = [add(line.at, turned(sub(o, line.at), line.dir, a)), turned(n, line.dir, a)];
   }
-  // x: the base's, laid into the plane (else any line in it)
-  const lay = sub(base.x, scale(n, dot(base.x, n)));
+  // x: from the first point to the second, else the base's laid into the plane (else any line in it)
+  const lay = p2 ? sub(p2, p1) : sub(base.x, scale(n, dot(base.x, n)));
   const x = Math.hypot(...lay) > 1e-9 ? norm(lay) : norm(cross(n, Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]));
   return { o: add(o, scale(n, offset)), x, y: cross(n, x), n };
 }

@@ -87,8 +87,10 @@ export interface PickedFace {
   body?: string;
   /** A quiet pick: the corner, edge point or face point clicked (none: empty space), and the edge there (its length). */
   edge?: { length: number };
-  /** A quiet pick: the corner, edge point or face point clicked (none: empty space). */
+  /** A quiet pick: the corner, edge point or face point clicked (none: empty space), what it is ('corner', 'on edge', 'on face' …), and a straight edge there (its ends). */
   snap?: THREE.Vector3;
+  what?: string;
+  line?: { at: THREE.Vector3; to: THREE.Vector3 };
   /** Picking outlines: the shape of a visible sketch whose outline was clicked, in front of any face. */
   sketch?: { id: string; shape: string };
   /** A round (cylindrical) face clicked (world): its axis from `at` along `dir` for `length`, radius `r`; `shaft`: material inside it (else a hole). */
@@ -242,16 +244,18 @@ export class Viewer implements ToolView {
   /** End faces of extrusions, where sketches can start. */
   /** Visible sketches (world frames) and the selected one with its selected shapes. */
   sketches: ViewSketch[] = [];
-  workPlanes: { id: string; name: string; frame: Frame; half: number }[] = [];
+  /** `rect`: its rectangle in its own coordinates (u0, v0, u1, v1). */
+  workPlanes: { id: string; name: string; frame: Frame; rect: [number, number, number, number] }[] = [];
   private workMark = new THREE.Group();
 
-  /** The work planes: green, half see-through squares with their outlines (a selected one stronger). */
-  setWorkPlanes(planes: { id: string; name: string; frame: Frame; selected: boolean }[], half = 60) {
-    this.workPlanes = planes.map((p) => ({ ...p, half }));
+  /** The work planes: green, half see-through rectangles with their outlines (a selected one stronger). */
+  setWorkPlanes(planes: { id: string; name: string; frame: Frame; rect: [number, number, number, number]; selected: boolean }[]) {
+    this.workPlanes = planes;
     for (const o of this.workMark.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
     this.workMark.clear();
     for (const p of planes) {
-      const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => new THREE.Vector3(...toWorld(p.frame, u * half, v * half)));
+      const [u0, v0, u1, v1] = p.rect;
+      const c = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(([u, v]) => new THREE.Vector3(...toWorld(p.frame, u, v)));
       const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([c[0], c[1], c[2], c[0], c[2], c[3]]), new THREE.MeshBasicMaterial({ color: 0x2fae5a, transparent: true, opacity: p.selected ? 0.28 : 0.14, side: THREE.DoubleSide, depthWrite: false }));
       const rim = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c), new THREE.LineBasicMaterial({ color: 0x2fae5a }));
       this.workMark.add(fill, rim);
@@ -974,6 +978,11 @@ export class Viewer implements ToolView {
     this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone(), true, 600, at);
   }
 
+  /** Where the camera looks (world, unit). */
+  looking() {
+    return this.camera.getWorldDirection(new THREE.Vector3());
+  }
+
   /** Looking straight along `n` (a flat view), turns back to the last angled view: pulling along `n` needs depth to see. */
   unflatten(n: THREE.Vector3) {
     const look = this.camera.getWorldDirection(new THREE.Vector3());
@@ -1172,7 +1181,10 @@ export class Viewer implements ToolView {
     this.markEdge(edges.length ? edges.flat() : undefined, this.partEdges);
   }
 
-  /** A face's area (mm²) and, when flat, its sides: the smallest rectangle around it along one of its mesh edges (long, short). */
+  /**
+   * A face's area (mm²) and, when flat, the smallest rectangle around it along one of its mesh edges: its sides (long,
+   * short), corners (world) and long side's direction.
+   */
   faceSize(f: FaceItem) {
     const groups = f.mesh.userData.faces as Uint32Array;
     const index = f.mesh.geometry.index!.array;
@@ -1189,17 +1201,23 @@ export class Viewer implements ToolView {
     }
     const n = normals[0];
     if (!n || normals.some((m) => m.dot(n) < 0.9999)) return { area };
-    let best: [number, number] | null = null;
+    let best: { u: THREE.Vector3; v: THREE.Vector3; lo: [number, number]; hi: [number, number] } | null = null;
+    const size = (b: NonNullable<typeof best>) => (b.hi[0] - b.lo[0]) * (b.hi[1] - b.lo[1]);
     for (let i = 0; i + 1 < pts.length && i < 600; i++) {
       const u = pts[i + 1].clone().sub(pts[i]);
       if (u.lengthSq() < 1e-9) continue;
       u.normalize();
       const v = n.clone().cross(u);
       const [us, vs] = [pts.map((p) => p.dot(u)), pts.map((p) => p.dot(v))];
-      const sides: [number, number] = [Math.max(...us) - Math.min(...us), Math.max(...vs) - Math.min(...vs)];
-      if (!best || sides[0] * sides[1] < best[0] * best[1] - 1e-9) best = sides;
+      const box = { u, v, lo: [Math.min(...us), Math.min(...vs)] as [number, number], hi: [Math.max(...us), Math.max(...vs)] as [number, number] };
+      if (!best || size(box) < size(best) - 1e-9) best = box;
     }
-    return { area, sides: best && ([Math.max(...best), Math.min(...best)] as [number, number]) };
+    if (!best) return { area };
+    const { u, v, lo, hi } = best;
+    const depth = pts[0].dot(n);
+    const corners = [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]].map(([a, b]) => u.clone().multiplyScalar(a).addScaledVector(v, b).addScaledVector(n, depth));
+    const long = hi[0] - lo[0] >= hi[1] - lo[1];
+    return { area, sides: [Math.max(hi[0] - lo[0], hi[1] - lo[1]), Math.min(hi[0] - lo[0], hi[1] - lo[1])] as [number, number], corners, x: long ? u : v };
   }
 
   /** An axis drawn dashed in the cut's red (dashes kept on screen at any zoom), `half` mm both ways from the point on it nearest `mid` (null: gone). */
@@ -2406,7 +2424,19 @@ export class Viewer implements ToolView {
     }
     if (this.quietPick) {
       const edge = this.edgeAt(e);
-      return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), snap: this.pointAt(e) ?? undefined, ...(edge ? { edge: { length: edge.segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0) } } : {}) });
+      const snap = this.snapAt(e);
+      const [a, b] = edge ? [edge.segs[0][0], edge.segs.at(-1)![1]] : [];
+      // straight: every segment along the line from its first point to its last
+      const straight = edge && a!.distanceTo(b!) > 1e-6 && edge.segs.every(([p, q]) => q.clone().sub(p).normalize().cross(b!.clone().sub(a!).normalize()).length() < 1e-3);
+      return this.endFacePick({
+        point: hit?.point.clone() ?? new THREE.Vector3(),
+        normal: hit ? hit.face!.normal.clone().transformDirection(hit.object.matrixWorld).negate() : new THREE.Vector3(),
+        snap: snap?.at,
+        what: snap?.what,
+        ...(edge ? { edge: { length: edge.segs.reduce((n, [p, q]) => n + p.distanceTo(q), 0) } } : {}),
+        ...(straight ? { line: { at: a!.clone(), to: b!.clone() } } : {}),
+        ...(hit ? { item: this.faceItem(hit) } : {}),
+      });
     }
     const s = this.sketchShapeAt(e, hit);
     const sketch = s ? { sketch: { id: s.sketch.id, shape: s.q.id } } : {};

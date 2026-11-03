@@ -304,7 +304,9 @@ export interface RenderShot {
  * A work plane (world): its base frame (`o`, `x`, `y` in it, normal `n`: where it was made), then through its `points`
  * (one: turned around its axis until it passes through it; two: through both; three: through all three), else turned
  * `turn` degrees around its `axis` (null: its own x through `o`); moved `offset` along its normal last (see
- * `workFrame`). Shown green; sketches go on it and follow it.
+ * `workFrame`). `mode` is how it was made: on a face, along an edge (its `axis`; then a point or a turn), or through
+ * three points. Shown green: a rectangle around `hull` (world points: the face's corners, the edge's ends) and its
+ * points, a margin on each side; sketches go on it and follow it.
  */
 export interface WorkPlane {
   id: string;
@@ -317,6 +319,8 @@ export interface WorkPlane {
   turn: Expr;
   axis: { at: [number, number, number]; dir: [number, number, number] } | null;
   points: [Expr, Expr, Expr][];
+  mode: 'face' | 'edge' | 'points';
+  hull: [number, number, number][];
   visible: boolean;
 }
 
@@ -340,7 +344,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 21;
+  schema: 22;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

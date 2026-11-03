@@ -19,6 +19,7 @@ describe('work planes', () => {
     const two = workFrame(ground, 0, 0, null, [[0, 0, 0], [10, 0, 10]]);
     for (const p of [[0, 0, 0], [10, 0, 10]] as V3[]) expect(on(two, p)).toBeCloseTo(0, 6);
     expect(two.n[2]).toBeGreaterThan(0.5); // still facing up mostly
+    expect(two.x.map((v) => +v.toFixed(6))).toEqual([0.707107, 0, 0.707107]); // from the first point to the second
     const three = workFrame(ground, 0, 0, null, [[0, 0, 5], [10, 0, 5], [0, 10, 5]]);
     expect(three.n.map((v) => +v.toFixed(6))).toEqual([0, 0, 1]);
     expect(three.o[2]).toBeCloseTo(5, 6);

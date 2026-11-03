@@ -3,7 +3,7 @@ import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
-import { BASE, capFrame, cutPlane, extent, frames, moved, placed as inWorld, placeFrame, scale, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
+import { BASE, capFrame, cutPlane, dot, extent, frames, moved, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, centre, closedLoop, corners, grown, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
@@ -418,16 +418,19 @@ function update() {
   const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
   // joints still playing stay where they are in their motion (another one stopping saves and redraws everything)
   if (playing.size) placeJoints(playingValues());
-  // work planes: moved along their normal by their offset; shown green, drawing tools take them
+  // work planes: moved along their normal by their offset; shown green (a rectangle around what they cover), drawing tools take them
+  const workRects = new Map<string, [number, number, number, number]>();
   const workFrames = new Map(
     doc.planes.map((w, i) => {
       const num = (v: number) => (Number.isFinite(v) ? v : 0);
       const [d, t] = [resolve(w.offset, lookup, `planes.${i}.offset`, exprErrors), resolve(w.turn, lookup, `planes.${i}.turn`, exprErrors)].map(num);
       const points = w.points.map((p, k) => resolve(p, lookup, `planes.${i}.points.${k}`, exprErrors).map(num) as V3);
-      return [w.id, workFrame({ o: w.o, x: w.x, y: w.y, n: w.n }, d, t, w.axis, points)] as const;
+      const frame = workFrame({ o: w.o, x: w.x, y: w.y, n: w.n }, d, t, w.axis, points);
+      workRects.set(w.id, planeRect(frame, [...w.hull, ...points], doc.units));
+      return [w.id, frame] as const;
     }),
   );
-  viewer.setWorkPlanes(doc.planes.filter((w) => w.visible).map((w) => ({ id: w.id, name: w.name, frame: workFrames.get(w.id)!, selected: selected.includes(w.id) })));
+  viewer.setWorkPlanes(doc.planes.filter((w) => w.visible).map((w) => ({ id: w.id, name: w.name, frame: workFrames.get(w.id)!, rect: workRects.get(w.id)!, selected: selected.includes(w.id) })));
   /** A placement's frame in the world; undefined while its body is not built (or its face is gone). */
   const worldFrame = (p: Resolved<SketchPlacement>): Frame | undefined => {
     if (p.kind === 'base') return { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) };
@@ -2486,48 +2489,104 @@ function measureTool() {
   pick();
 }
 
+/** What a click on a work plane's first pick makes, by what it lands on. */
+const planeAim = (what: string) => (what === 'on face' ? 'a plane on this face' : what === 'on edge' ? 'a plane along this edge (a straight one)' : 'a plane through this point and two more');
+
 /**
- * Work plane: on what is selected (a sketch: its plane; an edge picked with Alt-click: a plane along it, turning around
- * it), else on a face clicked (empty space: the base plane facing you). Then its panel (see `planePanel`).
+ * Work plane: the first thing picked sets how it is made (selected before, or clicked after; hovering marks the snap
+ * a click takes): a face (Alt-picked, or clicked inside it): on it; a straight edge: along it, then a point it passes
+ * through or a turn around it; a point (a corner, an edge's middle, a sketch point …): through it and two more; a
+ * sketch selected: on its plane; empty space: the base plane facing you. Then its panel (see `planePanel`).
  */
 function planeTool() {
   const sketch = viewer.sketches.find((v) => v.id === activeSketch());
-  if (sketch) return newPlane(sketch.frame);
-  const edge = viewer.pickedEdgeLine();
-  if (edge) {
-    // along the edge, facing up as far as it can (a vertical edge: towards the front), turning around the edge
-    const x = edge.to.clone().sub(edge.at).normalize();
-    const up = Math.abs(x.z) < 0.9 ? new Vector3(0, 0, 1) : new Vector3(0, -1, 0);
-    const n = up.addScaledVector(x, -up.dot(x)).normalize();
-    viewer.dropPicked();
-    return newPlane({ o: edge.at.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: n.toArray() }, { at: edge.at.toArray(), dir: x.toArray() });
-  }
-  toolHint = 'Work plane: click a face · empty space: the base plane facing you · or select a sketch or Alt-click an edge first · [Esc] cancels';
+  if (sketch) return newPlane(sketch.frame, 'face', sketchHull(sketch));
+  const [edge, face] = [viewer.pickedEdgeLine(), viewer.pickedFaceItems()[0]];
+  if (edge || face) viewer.dropPicked();
+  if (edge) return edgePlane(edge.at, edge.to);
+  if (face) return facePlane(face);
+  toolHint = 'Work plane: click a face (on it), a straight edge (along it) or a point (through it and two more) · empty space: the base plane facing you · or select a sketch, or Alt-click a face or edge first · [Esc] cancels';
+  viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: ${planeAim(a.what)}` : null);
   render();
-  viewer.pickFace((face) => {
-    toolHint = null;
-    if (!face) return render();
-    const n = face.normal.clone().negate().normalize(); // out of the face, towards the viewer off bodies
-    const x = new Vector3(0, 0, 1).cross(n);
-    if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
-    x.normalize();
-    newPlane({ o: face.point.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: n.toArray() });
+  viewer.pickFace((p) => {
+    [viewer.aiming, toolHint] = [null, null];
+    viewer.aimAt(null);
+    tips.cursorTip(null);
+    if (!p) return render();
+    if (p.what === 'on edge' && p.line) return edgePlane(p.line.at, p.line.to);
+    if (p.what === 'on face' && p.item) return facePlane(p.item);
+    if (p.snap) return pointsPlane(p.snap);
+    // empty space: the base plane square to the axis looked along most, facing you
+    const look = viewer.looking();
+    const k = [0, 1, 2].reduce((best, c) => (Math.abs(look.getComponent(c)) > Math.abs(look.getComponent(best)) ? c : best), 0);
+    const n = new Vector3().setComponent(k, -Math.sign(look.getComponent(k)) || 1);
+    newPlane(frameOn(new Vector3(), n), 'face', []);
+  }, true);
+}
+
+/** A frame at `o` with normal `n`, its x level (square to Z; looking along Z: X). */
+function frameOn(o: Vector3, n: Vector3, x = new Vector3(0, 0, 1).cross(n)): Frame {
+  if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+  x.normalize();
+  return { o: o.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: n.toArray() };
+}
+
+/** The corners of a sketch's shapes' boxes (world): what a plane on it covers. */
+function sketchHull(s: { frame: Frame; shapes: DrawnProfile[] }): V3[] {
+  return s.shapes.flatMap((q) => {
+    const [u0, v0, u1, v1] = bounds(q);
+    return [toWorld(s.frame, u0, v0), toWorld(s.frame, u1, v1)];
   });
 }
 
+/**
+ * A work plane's rectangle in its own coordinates (u0, v0, u1, v1): around `pts` (world, laid onto it), each side a
+ * tenth of its length out, at least `margin` units; no points: a square `half` mm out from its origin.
+ */
+function planeRect(f: Frame, pts: V3[], u: Unit, margin = 5, half = 60): [number, number, number, number] {
+  if (!pts.length) return [-half, -half, half, half];
+  const us = pts.map((p) => dot(sub(p, f.o), f.x));
+  const vs = pts.map((p) => dot(sub(p, f.o), f.y));
+  const [u0, u1, v0, v1] = [Math.min(...us), Math.max(...us), Math.min(...vs), Math.max(...vs)];
+  const out = (lo: number, hi: number) => Math.max(0.1 * (hi - lo), margin * UNITS[u]);
+  return [u0 - out(u0, u1), v0 - out(v0, v1), u1 + out(u0, u1), v1 + out(v0, v1)];
+}
+
+/** A work plane on a face: its middle, its x along the face's long side, covering the face (curved: where clicked, covering nothing). */
+function facePlane(f: FaceItem) {
+  const { corners, x } = viewer.faceSize(f);
+  const n = f.n.clone().normalize();
+  if (!corners) return newPlane(frameOn(f.point, n), 'face', []);
+  newPlane(frameOn(viewer.faceCentre(f), n, x!.clone()), 'face', corners.map((c) => c.toArray()));
+}
+
+/** A work plane along an edge from `at` to `to`, facing up as far as it can (a vertical edge: the front), turning around it. */
+function edgePlane(at: Vector3, to: Vector3) {
+  const x = to.clone().sub(at).normalize();
+  const up = Math.abs(x.z) < 0.9 ? new Vector3(0, 0, 1) : new Vector3(0, -1, 0);
+  const n = up.addScaledVector(x, -up.dot(x)).normalize();
+  newPlane(frameOn(at, n, x), 'edge', [at.toArray(), to.toArray()], { at: at.toArray(), dir: x.toArray() });
+}
+
+/** A work plane through point `p` (facing you so far), two more to click. */
+function pointsPlane(p: Vector3) {
+  newPlane(frameOn(p, viewer.looking().negate()), 'points', [], null, [p]);
+}
+
 /** A new work plane on `base` (world; `axis`: what it turns around), selected, its panel open. */
-function newPlane(base: Frame, axis: WorkPlane['axis'] = null) {
+function newPlane(base: Frame, mode: WorkPlane['mode'], hull: V3[], axis: WorkPlane['axis'] = null, points: Vector3[] = []) {
   const doc = history.current;
-  const plane: WorkPlane = { id: newId(), name: `Plane ${doc.planes.length + 1}`, ...base, offset: len(0), turn: ex('0'), axis, points: [], visible: true };
+  const plane: WorkPlane = { id: newId(), name: `Plane ${doc.planes.length + 1}`, ...base, offset: len(0), turn: ex('0'), axis, points: points.map((p) => p.toArray().map((v) => len(v)) as [Expr, Expr, Expr]), mode, hull, visible: true };
   selected = [plane.id];
   commit({ ...doc, planes: [...doc.planes, plane] });
   planePanel(plane.id, true);
 }
 
 /**
- * A work plane's panel: Offset (T: a point's distance), Turn ° and Set axis (while it passes through fewer than two
- * points), Points: clicked points it passes through (one: it turns around its axis to it; two, three: through them; a
- * fourth drops the first), Clear. Live; `fresh`: Esc leaves nothing, else Esc puts it back.
+ * A work plane's panel: how it is made (Face · Edge + point · 3 points; switching picks that anew), Offset (T: a
+ * point's distance), Turn ° once it has an axis (on a face: Set axis; along an edge: the edge, until a point is
+ * clicked), and the points it passes through (along an edge: one, a new one replaces it; 3 points: a fourth drops the
+ * first), picked right away where the mode takes them. Live; `fresh`: Esc leaves nothing, else Esc puts it back.
  */
 function planePanel(id: string, fresh = false) {
   const doc0 = history.current;
@@ -2542,56 +2601,111 @@ function planePanel(id: string, fresh = false) {
     update();
   };
   const now = () => history.current.planes[i];
-  let picking = false;
-  const status = () => {
-    pointsButton.textContent = picking ? `Points: click (${now().points.length})` : `Points (${now().points.length})`;
-    pointsButton.classList.toggle('on', picking);
-    clear.hidden = !now().points.length;
-  };
-  /** Clicked points, one after another, until Esc or the button again. */
-  const pickPoints = () => {
-    picking = !picking;
+  const setPlane = (next: Partial<WorkPlane>) => change(setIn(history.current, ['planes', String(i)], { ...now(), ...next }));
+  const hint = "Work plane: its offset (T: a point's distance, type on, e.g. /2 for halfway) · the mode above picks it anew · [Enter] keeps it · [Esc] " + (fresh ? 'leaves nothing' : 'puts it back');
+  // one pick at a time: `take` gets each click (true: picking goes on); the snap a click takes shows while hovering
+  let picking: string | null = null;
+  const pick = (what: string, tip: string, take: (p: PickedFace) => boolean) => {
+    viewer.cancelFacePick();
+    picking = what;
+    toolHint = `Work plane: ${tip} · [Esc] stops`;
+    viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: ${tip}` : null);
     status();
-    if (!picking) return viewer.cancelFacePick();
-    toolHint = 'Work plane: click points it passes through (corners, edges, sketch points) · one: it turns to it · three: through all · a fourth drops the first · [Esc] stops';
-    render();
     const next = () =>
-      viewer.pickFace((face) => {
-        if (!face || !picking) return (picking = false), status(), (toolHint = hint), render();
-        if (!face.snap) return next(); // empty space: nothing to pass through
-        const pts = [...now().points, face.snap.toArray().map((v) => len(v)) as [Expr, Expr, Expr]].slice(-3);
-        change(setIn(history.current, at('points'), pts));
+      viewer.pickFace((p) => {
+        if (picking !== what) return;
+        if (p && take(p)) return status(), next();
+        [picking, viewer.aiming, toolHint] = [null, null, hint];
+        viewer.aimAt(null);
+        tips.cursorTip(null);
         status();
-        next();
       }, true);
     next();
   };
-  const pointsButton = panelButton('Points', 'Click points the plane passes through: one turns it around its axis to it, two or three set it through them (a fourth drops the first)', pickPoints);
-  const clear = panelButton('Clear', 'Leave the points out: back to its turn', () => (change(setIn(history.current, at('points'), [])), status()));
-  const setAxis = panelButton('Set axis', 'Click an edge or line: it turns around that', () => {
+  const point = (p: Vector3) => p.toArray().map((v) => len(v)) as [Expr, Expr, Expr];
+  const pickPoints = () =>
+    pick('points', now().mode === 'edge' ? 'a point it passes through (turns around the edge to it)' : 'points it passes through (three; a fourth drops the first)', (p) => {
+      if (!p.snap) return true; // empty space: nothing to pass through
+      setPlane({ points: now().mode === 'edge' ? [point(p.snap)] : [...now().points, point(p.snap)].slice(-3) });
+      return now().mode !== 'edge';
+    });
+  const modes: [WorkPlane['mode'], string, string][] = [
+    ['face', 'Face', 'On a face: click one'],
+    ['edge', 'Edge + point', 'Along a straight edge: click one, then a point it passes through, or type a turn'],
+    ['points', '3 points', 'Through three points: click them'],
+  ];
+  const switcher = Object.assign(document.createElement('span'), { className: 'segmented' });
+  const modeButtons = modes.map(([m, label, title]) =>
+    Object.assign(document.createElement('button'), {
+      textContent: label,
+      title,
+      onclick: () => {
+        if (m === 'points') return setPlane({ mode: 'points', points: [], hull: [], axis: null, turn: ex('0') }), pickPoints();
+        pick(m, m === 'face' ? 'a face it lies on' : 'a straight edge it runs along', (p) => {
+          if (m === 'face' && p.what === 'on face' && p.item) {
+            const { corners, x } = viewer.faceSize(p.item);
+            setPlane({ ...frameOn(corners ? viewer.faceCentre(p.item) : p.item.point, p.item.n.clone().normalize(), x?.clone()), mode: 'face', hull: corners?.map((c) => c.toArray()) ?? [], axis: null, points: [], turn: ex('0') });
+            return false;
+          }
+          if (m === 'edge' && p.line) {
+            const d = p.line.to.clone().sub(p.line.at).normalize();
+            const up = Math.abs(d.z) < 0.9 ? new Vector3(0, 0, 1) : new Vector3(0, -1, 0);
+            setPlane({ ...frameOn(p.line.at, up.addScaledVector(d, -up.dot(d)).normalize(), d), mode: 'edge', hull: [p.line.at.toArray(), p.line.to.toArray()], axis: { at: p.line.at.toArray(), dir: d.toArray() }, points: [], turn: ex('0') });
+            setTimeout(pickPoints); // then its point, after this pick ends
+            return false;
+          }
+          return true; // not that kind: click again
+        });
+      },
+    }),
+  );
+  switcher.append(...modeButtons);
+  const pointsButton = panelButton('Points', 'Click points the plane passes through', () => (picking === 'points' ? viewer.cancelFacePick() : pickPoints()));
+  const clear = panelButton('Clear', 'Leave the points out', () => (setPlane({ points: [] }), status()));
+  const setAxis = panelButton('Set axis', 'Click an edge or line: it turns around that (then Turn °)', () => {
+    viewer.cancelFacePick();
     viewer.pickAxis(
       (a) => {
         tips.cursorTip(null);
         viewer.showAxis(null);
-        if (a) change(setIn(history.current, at('axis'), { at: a.at.toArray(), dir: a.dir.toArray() }));
+        if (a) setPlane({ axis: { at: a.at.toArray(), dir: a.dir.toArray() } });
+        status();
         render();
       },
       (a) => (tips.cursorTip(a ? `${a.what}\nClick: it turns around it` : null), viewer.showAxis(a, a?.at, 60)),
     );
   });
-  const hint = "Work plane: its offset and turn · T in Offset: a point's distance (type on, e.g. /2 for halfway) · Set axis: what it turns around · Points: through clicked points · [Enter] keeps it · [Esc] " + (fresh ? 'leaves nothing' : 'puts it back');
-  const n = new Vector3(...w.n);
-  valuePanel(
+  const panel = valuePanel(
     [
-      { label: 'Offset', value: w.offset.e, reach: (p) => p.clone().sub(new Vector3(...w.o)).dot(n) },
-      { label: 'Turn °', value: w.turn.e, raw: true, title: 'Turn °: around its axis (Set axis; none: its own x line), while it passes through fewer than two points' },
+      { label: 'Offset', value: w.offset.e, reach: (p) => p.clone().sub(new Vector3(...now().o)).dot(new Vector3(...now().n)) },
+      { label: 'Turn °', value: w.turn.e, raw: true, title: 'Turn °: around its axis' },
     ],
     ([o, t]) => change(setIn(setIn(history.current, at('offset'), { e: o, u }), at('turn'), { e: t, u: 'mm' })),
-    (ok) => ((picking = false), ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
+    (ok) => {
+      [picking, viewer.aiming] = [null, null];
+      viewer.cancelFacePick();
+      viewer.aimAt(null);
+      tips.cursorTip(null);
+      if (ok || !(fresh || history.current !== doc0)) render();
+      else undo();
+    },
     hint,
-    [setAxis, pointsButton, clear],
+    [switcher, setAxis, pointsButton, clear],
   );
+  const turnCell = panel.inputs[1].closest('.cell') as HTMLElement;
+  function status() {
+    const p = now();
+    modeButtons.forEach((b, k) => b.classList.toggle('on', modes[k][0] === p.mode));
+    turnCell.style.display = p.mode !== 'points' && p.axis && !p.points.length ? '' : 'none';
+    setAxis.hidden = p.mode !== 'face';
+    pointsButton.hidden = p.mode === 'face';
+    pointsButton.textContent = p.mode === 'edge' ? 'Point' : `Points (${p.points.length})`;
+    pointsButton.classList.toggle('on', picking === 'points');
+    clear.hidden = !p.points.length;
+    render();
+  }
   status();
+  if (w.mode !== 'face' && w.points.length < (w.mode === 'edge' ? 1 : 3)) pickPoints();
 }
 
 /**
@@ -4397,7 +4511,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 21, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 22, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
