@@ -255,7 +255,10 @@ export function renderUI(ctx: UIContext) {
   $('toolbar').replaceChildren(...toolbar(ctx));
   $('editbar').replaceChildren(...editbar(ctx));
   $('custom-sections').replaceChildren(...customSections(ctx));
+  // each list scrolls on its own: where it was stays across the rebuild
+  const scrolled = new Map([...$('left').querySelectorAll<HTMLElement>('.list-body')].map((b) => [b.dataset.list, b.scrollTop]));
   $('left').replaceChildren(...left(ctx));
+  for (const b of $('left').querySelectorAll<HTMLElement>('.list-body')) b.scrollTop = scrolled.get(b.dataset.list) ?? 0;
   $('right').replaceChildren(...right(ctx));
   $('hint').innerHTML = axisHtml(ctx.hint ?? (ctx.sketching ? SKETCH_HINT : hint(ctx.selected.length, ctx.shapes.length))).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   rendering = false;
@@ -772,9 +775,9 @@ function left(ctx: UIContext): Node[] {
     return { open, head: h('div', { className: 'tree-head' }, title, ...all) };
   };
   const { open: objectsOpen, head } = heading('objects', 'Objects', 'body');
-  const sketchList = heading('sketches', 'Sketch groups');
-  const paramList = heading('params', 'Parameters');
-  const planeList = heading('planes', 'Work planes');
+  const sketchList = heading('sketches', 'Sketch groups', 'sketch');
+  const paramList = heading('params', 'Parameters', 'param');
+  const planeList = heading('planes', 'Work planes', 'plane');
   const planeRows = doc.planes.map((w, i) => {
     const item = listItem(w.id, selectedClass(w.id), (how) => ctx.select(w.id, how), h('span', { className: 'kind plane-swatch' }), nameOf(w.id, w.name, ['planes', String(i), 'name']));
     const look = h('button', { className: 'icon', title: w.visible ? 'Hide' : 'Show', innerHTML: icon(w.visible ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, ['planes', String(i), 'visible'], !w.visible)) });
@@ -807,14 +810,17 @@ function left(ctx: UIContext): Node[] {
   addParam.dataset.complete = '';
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
+  // a list: its heading always in reach, its contents scrolling below it
+  const section = (key: string, title: Node, open: boolean, contents: Node[]) => {
+    const body = h('div', { className: 'list-body' }, ...contents);
+    body.dataset.list = key;
+    return h('div', { className: 'list-section' }, title, ...(open ? [body] : []));
+  };
   return [
-    head,
-    ...(objectsOpen ? [...rows, ...none] : []),
-    sketchList.head,
-    ...(sketchList.open ? sketchRows : []),
-    ...(doc.planes.length ? [planeList.head, ...(planeList.open ? planeRows : [])] : []),
-    paramList.head,
-    ...(paramList.open ? [...params, addParam] : []),
+    section('objects', head, objectsOpen, [...rows, ...none]),
+    section('sketches', sketchList.head, sketchList.open, sketchRows),
+    ...(doc.planes.length ? [section('planes', planeList.head, planeList.open, planeRows)] : []),
+    section('params', paramList.head, paramList.open, [...params, addParam]),
   ];
 }
 

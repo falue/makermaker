@@ -142,6 +142,23 @@ body {
 #left {
   grid-area: left;
   border-right: 1px solid var(--line);
+  /* the lists share the height: headings stay, each list's contents scroll */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.list-section {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.list-section > :first-child {
+  flex: none;
+}
+.list-body {
+  min-height: 0;
+  overflow: auto;
 }
 #right {
   grid-area: right;
