@@ -18,6 +18,7 @@ import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './
 import { FacePullTool, type PullLook } from './faces';
 import { icon } from '../ui/icons';
 import { marks } from './marks';
+import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayout } from './viewlayout';
 import { fastRaycast } from './pick';
 import { DEFAULT_LIGHT, sunDirection, type Look } from '../doc/materials';
 import { applyLook, boxUv, renderMaterial } from './look';
@@ -87,6 +88,10 @@ export type TurnAxis = { at: THREE.Vector3; dir: THREE.Vector3; what: string; le
 
 /** Where an extra view looks from. */
 export type ViewKind = '3d' | 'top' | 'front' | 'right' | 'back' | 'left' | 'bottom' | 'face';
+
+/** An extra view as saved between sessions. */
+type SavedView = { kind: ViewKind; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number };
+const VIEWS_KEY = 'makermaker.views';
 
 export interface PickedFace {
   point: THREE.Vector3;
@@ -577,6 +582,7 @@ export class Viewer implements ToolView {
       this.tool?.refresh(); // labels and markers follow the camera
     });
     new ResizeObserver(() => this.resize()).observe(el);
+    queueMicrotask(() => this.restoreViews());
     // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
     this.home(0);
 
@@ -3233,29 +3239,32 @@ export class Viewer implements ToolView {
     }, ms);
   }
 
-  /** Extra views beside this one (in #views): each its own camera and controls on the same scene; editing stays here. */
-  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number }[] = [];
+  /** Extra views beside this one (in #stage): each its own camera and controls on the same scene; editing stays here. */
+  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; setOrtho(on: boolean): void }[] = [];
 
   /**
    * A new view: `kind` looks from that side (3D: from the front right, above), 'face': along `look.n` at `look.at`;
-   * fitted to everything shown. Its bar: the side, Ortho | Persp, ⇄ (swap it with this view, to edit there), ×.
+   * fitted to everything shown (`saved`: as it was instead). Its bar: the side, Ortho | Persp, ⇄ (swap it with this
+   * view, to edit there), ×.
    */
-  addView(kind: ViewKind, look?: { n: THREE.Vector3; at: THREE.Vector3 }) {
-    const strip = document.getElementById('views');
-    if (!strip) return;
+  addView(kind: ViewKind, look?: { n: THREE.Vector3; at: THREE.Vector3 }, saved?: SavedView) {
+    const stage = this.el.parentElement!;
     const el = Object.assign(document.createElement('div'), { className: 'view' });
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(this.renderer.getPixelRatio());
     const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
     const persp = new THREE.PerspectiveCamera(35, 1, 1, 50000);
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
-    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400 };
+    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on) };
     view.controls.zoomToCursor = true;
-    view.controls.addEventListener('change', () => this.renderView(view));
+    view.controls.addEventListener('change', () => (this.renderView(view), this.saveViews()));
     const sides: [ViewKind, string][] = [['3d', '3D'], ['top', 'Top'], ['front', 'Front'], ['right', 'Right'], ['back', 'Back'], ['left', 'Left'], ['bottom', 'Bottom'], ...(look ? [['face', 'Face'] as [ViewKind, string]] : [])];
     const side = Object.assign(document.createElement('select'), { title: 'Where it looks from' });
     side.append(...sides.map(([k, name]) => Object.assign(document.createElement('option'), { value: k, textContent: name, selected: k === kind })));
-    side.onchange = () => this.aimView(view, side.value as ViewKind, look);
+    side.onchange = () => {
+      view.kind = side.value as ViewKind;
+      this.aimView(view, view.kind, look);
+    };
     const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { textContent: text, title, onclick });
     const projection = Object.assign(document.createElement('span'), { className: 'segmented' });
     const pick = (on: boolean) => {
@@ -3266,6 +3275,7 @@ export class Viewer implements ToolView {
       view.camera = view.controls.object = to;
       projection.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 0) === on));
       this.renderView(view);
+      this.saveViews();
     };
     projection.append(button('Ortho', 'Orthographic', () => pick(true)), button('Persp', 'Perspective', () => pick(false)));
     projection.firstElementChild!.classList.add('on');
@@ -3279,12 +3289,95 @@ export class Viewer implements ToolView {
         view.controls.dispose();
         renderer.dispose();
         el.remove();
+        this.placeViews();
+        this.saveViews();
       }),
     );
     el.append(bar, renderer.domElement);
-    strip.append(el);
+    stage.append(el);
     this.views.push(view);
-    this.aimView(view, kind, look);
+    this.placeViews();
+    if (saved) {
+      view.setOrtho(saved.ortho);
+      for (const c of [ortho, persp]) c.position.set(...saved.position);
+      view.controls.target.set(...saved.target);
+      view.height = saved.height;
+      ortho.zoom = saved.zoom;
+      view.controls.update();
+    } else this.aimView(view, kind, look);
+    this.saveViews();
+  }
+
+  /** The borders between the views, by where they lie. */
+  private viewLayout: ViewLayout = newViewLayout();
+  private viewBorders: HTMLElement[] = [];
+
+  /** Puts the views where the layout says; the borders follow (new ones when their number changed). */
+  private placeViews() {
+    const n = this.views.length + 1;
+    const stage = this.el.parentElement!;
+    const place = (el: HTMLElement, p: { x: number; y: number; w: number; h: number }) => {
+      el.style.left = `${p.x * 100}%`;
+      el.style.top = `${p.y * 100}%`;
+      el.style.width = Number.isNaN(p.w) ? '' : `${p.w * 100}%`;
+      el.style.height = Number.isNaN(p.h) ? '' : `${p.h * 100}%`;
+    };
+    panes(n, this.viewLayout).forEach((p, i) => place(i ? this.views[i - 1].el : this.el, p));
+    const list = borders(n, this.viewLayout);
+    if (list.length !== this.viewBorders.length) {
+      for (const b of this.viewBorders) b.remove();
+      this.viewBorders = list.map((_, i) => {
+        const el = Object.assign(document.createElement('div'), { title: 'Drag to resize the views' });
+        el.onpointerdown = (e) => this.dragViewBorder(e, el, i);
+        stage.append(el);
+        return el;
+      });
+    }
+    list.forEach((b, i) => {
+      const el = this.viewBorders[i];
+      el.className = `view-border ${b.kind}`;
+      place(el, b.kind === 'column' ? { x: b.at, y: 0, w: NaN, h: 1 } : { x: b.from, y: b.at, w: b.to - b.from, h: NaN });
+    });
+    this.render();
+  }
+
+  /** Drags border number `i`: its views change size as it goes; saved when let go. */
+  private dragViewBorder(down: PointerEvent, el: HTMLElement, i: number) {
+    down.preventDefault();
+    el.setPointerCapture(down.pointerId);
+    el.classList.add('dragged');
+    const box = this.el.parentElement!.getBoundingClientRect();
+    const border = borders(this.views.length + 1, this.viewLayout)[i] as ViewBorder;
+    el.onpointermove = (e) => {
+      const at = border.kind === 'column' ? (e.clientX - box.left) / box.width : (e.clientY - box.top) / box.height;
+      this.viewLayout = dragged(this.viewLayout, border, at);
+      this.placeViews();
+      el.classList.add('dragged');
+    };
+    el.onpointerup = () => {
+      el.onpointermove = el.onpointerup = null;
+      el.classList.remove('dragged');
+      this.saveViews();
+    };
+  }
+
+  /** The views and their borders, for the next session in this browser. */
+  private saveViews() {
+    localStorage.setItem(VIEWS_KEY, JSON.stringify({
+      layout: this.viewLayout,
+      views: this.views.map((v): SavedView => {
+        const cam = v.camera as THREE.OrthographicCamera | THREE.PerspectiveCamera;
+        return { kind: v.kind, look: v.look && { n: v.look.n.toArray(), at: v.look.at.toArray() }, ortho: cam === v.ortho, position: cam.position.toArray(), target: v.controls.target.toArray(), height: v.height, zoom: v.ortho.zoom };
+      }),
+    }));
+  }
+
+  /** The views of the last session in this browser. */
+  private restoreViews() {
+    const saved = JSON.parse(localStorage.getItem(VIEWS_KEY) ?? 'null') as { layout: ViewLayout; views: SavedView[] } | null;
+    if (saved) this.viewLayout = saved.layout;
+    for (const v of saved?.views ?? []) this.addView(v.kind, v.look && { n: new THREE.Vector3(...v.look.n), at: new THREE.Vector3(...v.look.at) }, v);
+    this.placeViews();
   }
 
   /** A view looking from `kind`'s side (see `addView`) at everything shown, fitted. */
@@ -3311,13 +3404,14 @@ export class Viewer implements ToolView {
     // the view takes the main camera
     view.camera = view.controls.object = here.ortho ? view.ortho : view.persp;
     view.el.querySelectorAll('.segmented button').forEach((b, i) => b.classList.toggle('on', (i === 0) === here.ortho));
-    view.el.querySelector('select')!.value = '3d'; // the main camera: free
+    view.el.querySelector('select')!.value = view.kind = '3d'; // the main camera: free
     (view.camera as THREE.Camera).position.set(...here.position);
     view.controls.target.set(...here.target);
     view.height = here.height;
     view.ortho.zoom = 1;
     view.controls.update();
     this.renderView(view);
+    this.saveViews();
   }
 
   /** Draws an extra view at its size now. */
