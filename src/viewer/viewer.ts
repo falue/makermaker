@@ -247,6 +247,24 @@ export class Viewer implements ToolView {
   /** `rect`: its rectangle in its own coordinates (u0, v0, u1, v1). */
   workPlanes: { id: string; name: string; frame: Frame; rect: [number, number, number, number] }[] = [];
   private workMark = new THREE.Group();
+  private alignMark = new THREE.Group();
+
+  /** The planes an alignment lines objects up on (square to axis `k` at `at`), over `box` and a margin each side: orange, half see-through (none: gone). */
+  showAlignPlanes(planes: { k: number; at: number }[], box = new THREE.Box3(), margin = 5) {
+    for (const o of this.alignMark.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
+    this.alignMark.clear();
+    if (!this.alignMark.parent) this.scene.add(this.alignMark);
+    const pad = (c: number) => Math.max(0.1 * (box.max.getComponent(c) - box.min.getComponent(c)), margin);
+    for (const { k, at } of planes) {
+      const [a, b] = [(k + 1) % 3, (k + 2) % 3];
+      const end = (c: number, high: number) => (high ? box.max.getComponent(c) + pad(c) : box.min.getComponent(c) - pad(c));
+      const c = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => new THREE.Vector3().setComponent(k, at).setComponent(a, end(a, u)).setComponent(b, end(b, v)));
+      const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([c[0], c[1], c[2], c[0], c[2], c[3]]), new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }));
+      const rim = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c), new THREE.LineBasicMaterial({ color: 0xff8c1a }));
+      this.alignMark.add(fill, rim);
+    }
+    this.render();
+  }
 
   /** The work planes: green, half see-through rectangles with their outlines (a selected one stronger). */
   setWorkPlanes(planes: { id: string; name: string; frame: Frame; rect: [number, number, number, number]; selected: boolean }[]) {
@@ -2455,10 +2473,11 @@ export class Viewer implements ToolView {
   }
 
   /**
-   * A preview of a move by `by` (world, mm; null: back to where it was): the selected bodies move, translucent copies
-   * stay where they were; `shapes` show moved, their old outlines grey.
+   * A preview of a move by `by` (world, mm; null: back to where it was): the selected bodies move (`each`: by their
+   * own, tool bodies by their owner's), translucent copies stay where they were; `shapes` show moved, their old
+   * outlines grey.
    */
-  previewMove(by: THREE.Vector3 | null, shapes: { id: string; profile: DrawnProfile }[] = [], across: { sketch: string; by: THREE.Vector3; bodies: string[] } | null = null, opacity = 0.25) {
+  previewMove(by: THREE.Vector3 | null, shapes: { id: string; profile: DrawnProfile }[] = [], across: { sketch: string; by: THREE.Vector3; bodies: string[] } | null = null, opacity = 0.25, each?: Map<string, THREE.Vector3>) {
     if (!this.moving && by) {
       const looks = [new THREE.MeshBasicMaterial({ color: 0x8a8f98, transparent: true, opacity, depthWrite: false }), new THREE.LineBasicMaterial({ color: 0x8a8f98, transparent: true, opacity: 2 * opacity })];
       this.moving = { from: new Map(), carried: new Map(), ghosts: new THREE.Group(), looks };
@@ -2467,7 +2486,13 @@ export class Viewer implements ToolView {
     }
     const m = this.moving;
     if (!m) return;
-    for (const [id, at] of m.from) this.group(id).position.copy(at).add(by ?? new THREE.Vector3());
+    const shift = (id: string) => {
+      if (!by || !each) return by ?? new THREE.Vector3();
+      let o: string | undefined = id;
+      while (o && !each.has(o)) o = this.owners.get(o);
+      return (o ? each.get(o) : undefined) ?? new THREE.Vector3();
+    };
+    for (const [id, at] of m.from) this.group(id).position.copy(at).add(shift(id));
     // a sketch moved across its plane: the bodies extruded from it (with their tool bodies) go along, a ghost stays
     const along = this.withOwned(across?.bodies ?? []);
     for (const id of along) if (!m.carried.has(id)) this.ghostAt(id, m.carried);

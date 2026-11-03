@@ -75,6 +75,8 @@ export interface UIContext {
   rotateTool(): void;
   /** Aligns the selected objects (bodies, groups as one, whole sketches) by their boxes; see `alignObjects` in main. */
   alignObjects(how: ObjectAlign): void;
+  /** Hovering an align choice: what it would do, shown (null: back). */
+  previewAlign(how: ObjectAlign | null): void;
   jointTool(): void;
   /** Lights a joint's moving objects (null: the selection again). */
   showJoint(joint: string | null): void;
@@ -552,7 +554,8 @@ function alignTools(ctx: UIContext) {
   const n = ctx.selected.length;
   // per axis: the icons of incase's align menu (min, middle, max, distribute), the axis letter in its colour
   const icons: Record<'X' | 'Y' | 'Z', [IconName, IconName, IconName, IconName]> = { X: ['left', 'centerX', 'right', 'distributeX'], Y: ['bottom', 'centerY', 'top', 'distributeY'], Z: ['bottom', 'centerY', 'top', 'distributeY'] };
-  const item = (how: ObjectAlign, name: IconName, label: string, title: string) => menuItem(name, label, title, () => ctx.alignObjects(how), n < (how.startsWith('spread') ? 3 : 2));
+  const item = (how: ObjectAlign, name: IconName, label: string, title: string) =>
+    Object.assign(menuItem(name, label, title, () => ctx.alignObjects(how), n < (how.startsWith('spread') ? 3 : 2)), { onmouseenter: () => ctx.previewAlign(how), onmouseleave: () => ctx.previewAlign(null) });
   return (['X', 'Y', 'Z'] as const).flatMap((a) => {
     const [lo, mid, hi, spread] = icons[a];
     const k = axisHtml(a);

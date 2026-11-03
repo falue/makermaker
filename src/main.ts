@@ -3034,11 +3034,11 @@ function rotateTool() {
 }
 
 /**
- * Align (as in incase): the selected bodies, groups (as one) and whole sketches by their boxes in the world: their min,
- * middle or max along an axis onto that of all of them, equal gaps along it (the outermost stay), or their middles onto
- * the first one's. One undo step.
+ * How Align (as in incase) moves the selected bodies, groups (as one) and whole sketches, by their boxes in the world:
+ * their min, middle or max along an axis onto that of all of them, equal gaps along it (the outermost stay), or their
+ * middles onto the first one's. Each one's shift, the box of all, and the planes they line up on; a string: why not.
  */
-function alignObjects(how: ObjectAlign) {
+function alignPlan(how: ObjectAlign) {
   const doc = history.current;
   const units = selected.filter((id) => [...doc.bodies, ...doc.groups, ...doc.sketches].some((o) => o.id === id));
   const boxOf = (id: string) => {
@@ -3052,25 +3052,57 @@ function alignObjects(how: ObjectAlign) {
     return box.isEmpty() ? null : box;
   };
   const boxes = units.map(boxOf);
-  if (units.length < 2 || boxes.some((b) => !b)) return fail('Select two shown objects or more to align them');
+  if (units.length < 2 || boxes.some((b) => !b)) return 'Select two shown objects or more to align them';
   const all = boxes.reduce((a, b) => a!.clone().union(b!), boxes[0]!)!;
   const k = 'XYZ'.indexOf(how.at(-1)!);
   const lo = (b: Box3) => b.min.getComponent(k);
   const hi = (b: Box3) => b.max.getComponent(k);
   const mid = (b: Box3) => (lo(b) + hi(b)) / 2;
   const shifts = boxes.map(() => new Vector3());
-  if (how === 'first') boxes.forEach((b, i) => shifts[i].copy(boxes[0]!.getCenter(new Vector3()).sub(b!.getCenter(new Vector3()))));
-  else if (how.startsWith('spread')) {
+  let planes: { k: number; at: number }[];
+  if (how === 'first') {
+    const c = boxes[0]!.getCenter(new Vector3());
+    boxes.forEach((b, i) => shifts[i].copy(c.clone().sub(b!.getCenter(new Vector3()))));
+    planes = [0, 1, 2].map((a) => ({ k: a, at: c.getComponent(a) }));
+  } else if (how.startsWith('spread')) {
     const gap = (hi(all) - lo(all) - boxes.reduce((n, b) => n + hi(b!) - lo(b!), 0)) / (units.length - 1);
     let at = lo(all);
     for (const i of boxes.map((_, i) => i).sort((i, j) => lo(boxes[i]!) - lo(boxes[j]!))) {
       shifts[i].setComponent(k, at - lo(boxes[i]!));
       at += hi(boxes[i]!) - lo(boxes[i]!) + gap;
     }
-  } else boxes.forEach((b, i) => shifts[i].setComponent(k, how.startsWith('min') ? lo(all) - lo(b!) : how.startsWith('max') ? hi(all) - hi(b!) : mid(all) - mid(b!)));
+    planes = [{ k, at: lo(all) }, { k, at: hi(all) }];
+  } else {
+    boxes.forEach((b, i) => shifts[i].setComponent(k, how.startsWith('min') ? lo(all) - lo(b!) : how.startsWith('max') ? hi(all) - hi(b!) : mid(all) - mid(b!)));
+    planes = [{ k, at: how.startsWith('min') ? lo(all) : how.startsWith('max') ? hi(all) : mid(all) }];
+  }
+  return { units, shifts, all, planes };
+}
+
+/** Hovering an align choice: the objects shown where it moves them (translucent copies where they are) and the planes they line up on; null: back. */
+function previewAlign(how: ObjectAlign | null) {
+  const plan = how && alignPlan(how);
+  if (!plan || typeof plan === 'string') return viewer.previewMove(null), viewer.showAlignPlanes([]);
+  const doc = history.current;
+  const each = new Map(plan.units.flatMap((id, i) => contents(doc, [id]).map((b) => [b, plan.shifts[i]] as const)));
+  const shapes = plan.units.flatMap((id, i) => {
+    const s = viewer.sketches.find((v) => v.id === id);
+    const [du, dv] = s ? [plan.shifts[i].dot(new Vector3(...s.frame.x)), plan.shifts[i].dot(new Vector3(...s.frame.y))] : [0, 0];
+    return s ? s.shapes.map((q) => ({ id: q.id, profile: shifted(q, du, dv) })) : [];
+  });
+  viewer.previewMove(new Vector3(), shapes, null, 0.25, each);
+  viewer.showAlignPlanes(plan.planes, plan.all);
+}
+
+/** Align (see `alignPlan`): one undo step. */
+function alignObjects(how: ObjectAlign) {
+  previewAlign(null);
+  const plan = alignPlan(how);
+  if (typeof plan === 'string') return fail(plan);
+  const doc = history.current;
   let next = doc;
-  units.forEach((id, i) => {
-    const by = shifts[i];
+  plan.units.forEach((id, i) => {
+    const by = plan.shifts[i];
     if (by.lengthSq() < 1e-12) return;
     const s = viewer.sketches.find((v) => v.id === id);
     if (s) {
@@ -4390,6 +4422,7 @@ function render() {
     threadTool,
     rotateTool,
     alignObjects,
+    previewAlign,
     jointTool,
     editJoint: (id) => jointPanel(id, false),
     moveJointEnd(id, from, to) {
