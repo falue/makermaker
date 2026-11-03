@@ -23,6 +23,7 @@ import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
+import { describe as describeCommands, runCommand, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
@@ -5386,6 +5387,31 @@ addEventListener('keydown', (e) => {
   else return;
   e.preventDefault();
 });
+
+/**
+ * The command API at work in the app (see src/api/commands.ts): each command one undo step, and what it made
+ * selected. `window.makermaker` in the browser console (scripts and LLM tools will go through it).
+ */
+const cad = {
+  /** Every command: its name, what it does, its parameters. */
+  commands: describeCommands,
+  /** Runs a command; its result (a new object's id, or what `list` tells). */
+  run(name: string, args: Args = {}) {
+    const { doc, result } = runCommand(history.current, name, args);
+    if (doc === history.current) return result;
+    if (typeof result === 'string' && [...doc.bodies, ...doc.sketches, ...doc.groups].some((o) => o.id === result)) [selected, shapeSel] = [[result], []];
+    commit(doc);
+    return result;
+  },
+  select(ids: string[]) {
+    [selected, shapeSel] = [ids, []];
+    showSelection();
+  },
+  selection: () => [...selected],
+  undo: () => undo(),
+  redo: () => undo(true),
+};
+(window as unknown as { makermaker: typeof cad }).makermaker = cad;
 
 addEventListener('dragover', (e) => e.preventDefault());
 addEventListener('drop', (e) => {

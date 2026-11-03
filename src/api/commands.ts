@@ -1,0 +1,296 @@
+import { ex, newId, unturned } from '../doc/sample';
+import type { Body, Doc, Expr, Feature, Group, Profile, Sketch, Unit } from '../doc/types';
+
+/**
+ * The CAD command API: every modelling command as a pure step from one document to the next, described well enough
+ * for scripts and LLM tools to call (names, what each does, its parameters). The app runs them as undo steps (see
+ * `cad` in main); `run` here stays free of the view and the kernel. Lengths are millimetres, angles degrees; a value
+ * may also be an expression string (`'2*ply'`).
+ */
+export type Param = { name: string; type: 'number' | 'string' | 'id' | 'ids' | 'point2' | 'point3' | 'points2' | 'points3' | 'enum'; doc: string; optional?: true; values?: readonly string[] };
+export type Args = Record<string, unknown>;
+export type Result = { doc: Doc; result?: unknown };
+export interface Command {
+  doc: string;
+  params: Param[];
+  run(doc: Doc, args: Args): Result;
+}
+
+const len = (v: unknown): Expr => ex(typeof v === 'number' ? +v.toFixed(6) : String(v ?? 0));
+const deg = len;
+const num = (v: unknown, fallback = 0) => (typeof v === 'number' ? v : v === undefined ? fallback : Number(v));
+const xyz = (v: unknown): [number, number, number] => (Array.isArray(v) ? [num(v[0]), num(v[1]), num(v[2])] : [0, 0, 0]);
+
+/** The command's input checked against its parameters: a missing one that is needed, or a wrong type, throws. */
+function check(name: string, c: Command, args: Args) {
+  for (const p of c.params) {
+    const v = args[p.name];
+    if (v === undefined) {
+      if (!p.optional) throw new Error(`${name}: "${p.name}" is needed (${p.doc})`);
+      continue;
+    }
+    const bad =
+      (p.type === 'number' && typeof v !== 'number' && typeof v !== 'string') ||
+      ((p.type === 'string' || p.type === 'id') && typeof v !== 'string') ||
+      (p.type === 'ids' && !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) ||
+      (p.type === 'enum' && !p.values!.includes(v as string)) ||
+      ((p.type === 'point2' || p.type === 'point3') && !(Array.isArray(v) && v.length === (p.type === 'point2' ? 2 : 3)));
+    if (bad) throw new Error(`${name}: "${p.name}" should be ${p.type === 'enum' ? `one of ${p.values!.join(', ')}` : `a ${p.type}`}`);
+  }
+}
+
+const bodyOf = (doc: Doc, id: unknown) => {
+  const i = doc.bodies.findIndex((b) => b.id === id);
+  if (i < 0) throw new Error(`no body "${String(id)}"`);
+  return i;
+};
+const sketchOf = (doc: Doc, id: unknown) => {
+  const i = doc.sketches.findIndex((s) => s.id === id);
+  if (i < 0) throw new Error(`no sketch "${String(id)}"`);
+  return i;
+};
+const withBody = (doc: Doc, i: number, b: Body): Doc => ({ ...doc, bodies: doc.bodies.map((x, k) => (k === i ? b : x)) });
+const palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f'];
+
+/** A new body from `features`, at `at` (mm), named `name` (else "Body n"). */
+function addBody(doc: Doc, features: Feature[], at: unknown, name: unknown): Result {
+  const n = doc.bodies.length;
+  const [x, y, z] = xyz(at);
+  const body: Body = { id: newId(), name: typeof name === 'string' ? name : `Body ${n + 1}`, group: null, rotation: unturned(), color: palette[n % palette.length], visible: true, position: [len(x), len(y), len(z)], features, link: null };
+  return { doc: { ...doc, bodies: [...doc.bodies, body] }, result: body.id };
+}
+
+/** A shape added to sketch `args.sketch`. */
+function addShape(doc: Doc, args: Args, shape: Profile): Result {
+  const i = sketchOf(doc, args.sketch);
+  const s = doc.sketches[i];
+  return { doc: { ...doc, sketches: doc.sketches.map((x, k) => (k === i ? { ...s, shapes: [...s.shapes, shape] } : x)) }, result: shape.id };
+}
+
+/** An extrusion of its own on the ground, centred on the body's origin. */
+const pulled = (profile: Profile, depth: unknown): Feature => ({ id: newId(), type: 'extrude', source: { kind: 'own', plane: { kind: 'base', axis: 'xy', offset: ex(0) }, profiles: [profile] }, depth: len(depth), mode: 'add', through: false });
+const rect = (x: unknown, y: unknown, w: unknown, h: unknown, r: unknown = 0): Profile => ({ id: newId(), kind: 'rect', x: len(x), y: len(y), w: len(w), h: len(h), r: len(r), rot: ex(0) });
+const circle = (x: unknown, y: unknown, d: unknown): Profile => ({ id: newId(), kind: 'circle', x: len(x), y: len(y), d: len(d) });
+const pts2 = (v: unknown) => (Array.isArray(v) ? v.map((p) => [num(p[0]), num(p[1])] as [number, number]) : []);
+const at3: Param = { name: 'at', type: 'point3', doc: 'where its origin goes, [x, y, z] mm', optional: true };
+const named: Param = { name: 'name', type: 'string', doc: 'its name in the list', optional: true };
+
+export const COMMANDS: Record<string, Command> = {
+  list: {
+    doc: 'What the design holds: bodies (id, name, position, steps), sketches (id, name, shapes), groups, work planes, images, parameters.',
+    params: [],
+    run: (doc) => ({
+      doc,
+      result: {
+        units: doc.units,
+        parameters: Object.fromEntries(Object.entries(doc.params).map(([k, v]) => [k, v.e])),
+        bodies: doc.bodies.map((b) => ({ id: b.id, name: b.name, group: b.group, position: b.position.map((p) => p.e), visible: b.visible, steps: b.features.map((f) => f.type) })),
+        sketches: doc.sketches.map((s) => ({ id: s.id, name: s.name, plane: s.plane.kind, shapes: s.shapes.map((q) => ({ id: q.id, kind: q.kind })) })),
+        groups: doc.groups.map((g) => ({ id: g.id, name: g.name, parent: g.parent })),
+        planes: doc.planes.map((w) => ({ id: w.id, name: w.name })),
+        images: doc.images.map((im) => ({ id: im.id, name: im.name, width: im.width })),
+      },
+    }),
+  },
+  box: {
+    doc: 'A new box body: width (x) × depth (y), pulled up height (z), centred on its origin at the bottom.',
+    params: [{ name: 'width', type: 'number', doc: 'along x, mm' }, { name: 'depth', type: 'number', doc: 'along y, mm' }, { name: 'height', type: 'number', doc: 'up, mm' }, { name: 'radius', type: 'number', doc: 'corner radius seen from above, mm', optional: true }, at3, named],
+    run: (doc, a) => addBody(doc, [pulled(rect(0, 0, a.width, a.depth, a.radius), a.height)], a.at, a.name),
+  },
+  cylinder: {
+    doc: 'A new cylinder body standing up from its origin.',
+    params: [{ name: 'diameter', type: 'number', doc: 'mm' }, { name: 'height', type: 'number', doc: 'mm' }, at3, named],
+    run: (doc, a) => addBody(doc, [pulled(circle(0, 0, a.diameter), a.height)], a.at, a.name),
+  },
+  sphere: {
+    doc: 'A new ball body centred on its origin.',
+    params: [{ name: 'diameter', type: 'number', doc: 'mm' }, at3, named],
+    run: (doc, a) => addBody(doc, [{ id: newId(), type: 'sphere', x: ex(0), y: ex(0), z: ex(0), d: len(a.diameter) }], a.at, a.name),
+  },
+  sketch: {
+    doc: 'A new, empty sketch on a base plane (xy: the ground, xz: the front, yz: the side), moved `offset` along its normal.',
+    params: [{ name: 'plane', type: 'enum', values: ['xy', 'xz', 'yz'], doc: 'the base plane' }, { name: 'offset', type: 'number', doc: 'mm along its normal', optional: true }, named],
+    run: (doc, a) => {
+      const s: Sketch = { id: newId(), name: typeof a.name === 'string' ? a.name : `Sketch ${doc.sketches.length + 1}`, group: null, plane: { kind: 'base', axis: a.plane as 'xy' | 'xz' | 'yz', offset: len(a.offset ?? 0) }, shapes: [], groups: [], visible: true };
+      return { doc: { ...doc, sketches: [...doc.sketches, s] }, result: s.id };
+    },
+  },
+  rectangle: {
+    doc: 'A rectangle in a sketch, centred at x, y of its plane.',
+    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'x', type: 'number', doc: 'centre, mm' }, { name: 'y', type: 'number', doc: 'centre, mm' }, { name: 'width', type: 'number', doc: 'mm' }, { name: 'height', type: 'number', doc: 'mm' }, { name: 'radius', type: 'number', doc: 'corner radius, mm', optional: true }],
+    run: (doc, a) => addShape(doc, a, rect(a.x, a.y, a.width, a.height, a.radius)),
+  },
+  circle: {
+    doc: 'A circle in a sketch.',
+    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'x', type: 'number', doc: 'centre, mm' }, { name: 'y', type: 'number', doc: 'centre, mm' }, { name: 'diameter', type: 'number', doc: 'mm' }],
+    run: (doc, a) => addShape(doc, a, circle(a.x, a.y, a.diameter)),
+  },
+  polygon: {
+    doc: 'A closed polygon in a sketch through its corners.',
+    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'points', type: 'points2', doc: 'corners [[x, y], …] mm, 3 or more' }],
+    run: (doc, a) => {
+      if (pts2(a.points).length < 3) throw new Error('polygon: 3 corners or more');
+      return addShape(doc, a, { id: newId(), kind: 'polygon', pts: pts2(a.points), r: ex(0), rot: ex(0) });
+    },
+  },
+  line: {
+    doc: 'An open line in a sketch through its points (never extruded on its own; lines closing areas are).',
+    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'points', type: 'points2', doc: '[[x, y], …] mm, 2 or more' }],
+    run: (doc, a) => {
+      if (pts2(a.points).length < 2) throw new Error('line: 2 points or more');
+      return addShape(doc, a, { id: newId(), kind: 'line', pts: pts2(a.points) });
+    },
+  },
+  extrude: {
+    doc: "A new body pulled from a sketch's closed shapes (all, or those named) by `depth` (negative: the other way); it stays linked to the sketch.",
+    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'depth', type: 'number', doc: 'mm' }, { name: 'shapes', type: 'ids', doc: 'which shapes (all closed ones if left out)', optional: true }, named],
+    run: (doc, a) => {
+      const s = doc.sketches[sketchOf(doc, a.sketch)];
+      const shapes = (a.shapes as string[] | undefined) ?? s.shapes.filter((q) => q.kind !== 'line' && !q.construction).map((q) => q.id);
+      if (!shapes.length) throw new Error('extrude: the sketch has no closed shapes');
+      return addBody(doc, [{ id: newId(), type: 'extrude', source: { kind: 'sketch', sketch: s.id, shapes }, depth: len(a.depth), mode: 'add', through: false }], [0, 0, 0], a.name);
+    },
+  },
+  move: {
+    doc: 'Moves bodies by a distance (in their group’s coordinates).',
+    params: [{ name: 'ids', type: 'ids', doc: 'the bodies' }, { name: 'by', type: 'point3', doc: '[dx, dy, dz] mm' }],
+    run: (doc, a) => {
+      const by = xyz(a.by);
+      const ids = a.ids as string[];
+      ids.forEach((id) => bodyOf(doc, id));
+      const add = (e: Expr, d: number): Expr => (d ? ex(/^[-+]?[\d.]+$/.test(e.e) ? String(+(Number(e.e) + d).toFixed(6)) : `(${e.e})+${d}`, e.u) : e);
+      return { doc: { ...doc, bodies: doc.bodies.map((b) => (ids.includes(b.id) ? { ...b, position: b.position.map((e, k) => add(e, by[k])) as Body['position'] } : b)) } };
+    },
+  },
+  place: {
+    doc: 'Puts a body at a position (in its group’s coordinates).',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'at', type: 'point3', doc: '[x, y, z] mm' }],
+    run: (doc, a) => {
+      const i = bodyOf(doc, a.id);
+      const [x, y, z] = xyz(a.at);
+      return { doc: withBody(doc, i, { ...doc.bodies[i], position: [len(x), len(y), len(z)] }) };
+    },
+  },
+  rotate: {
+    doc: 'Turns a body about its origin: degrees around X, then Y, then Z (replacing its turn).',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'x', type: 'number', doc: 'degrees', optional: true }, { name: 'y', type: 'number', doc: 'degrees', optional: true }, { name: 'z', type: 'number', doc: 'degrees', optional: true }],
+    run: (doc, a) => {
+      const i = bodyOf(doc, a.id);
+      return { doc: withBody(doc, i, { ...doc.bodies[i], rotation: { rx: deg(a.x ?? 0), ry: deg(a.y ?? 0), rz: deg(a.z ?? 0) } }) };
+    },
+  },
+  boolean: {
+    doc: 'Joins, cuts or intersects: `target` keeps the result, `tools` become its tool bodies (cutters stay as red outlines, the others hide).',
+    params: [{ name: 'op', type: 'enum', values: ['union', 'subtract', 'intersect'], doc: 'join, cut or intersect' }, { name: 'target', type: 'id', doc: 'the body that keeps the result' }, { name: 'tools', type: 'ids', doc: 'the bodies it is joined with, cut by or intersected with' }],
+    run: (doc, a) => {
+      const i = bodyOf(doc, a.target);
+      const tools = a.tools as string[];
+      tools.forEach((id) => bodyOf(doc, id));
+      const op = a.op as 'union' | 'subtract' | 'intersect';
+      const bodies = doc.bodies.map((b, k) =>
+        tools.includes(b.id) ? { ...b, visible: op === 'subtract' } : k === i ? { ...b, features: [...b.features, ...tools.map((body): Feature => ({ id: newId(), type: 'boolean', op, body }))] } : b,
+      );
+      return { doc: { ...doc, bodies } };
+    },
+  },
+  fillet: {
+    doc: 'Rounds a body’s edges by rule (all, top, bottom, vertical); stays editable, runs last.',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'size', type: 'number', doc: 'radius, mm' }, { name: 'edges', type: 'enum', values: ['all', 'top', 'bottom', 'vertical'], doc: 'which edges' }],
+    run: (doc, a) => finish(doc, a, 'fillet'),
+  },
+  chamfer: {
+    doc: 'Bevels a body’s edges by rule (all, top, bottom, vertical); stays editable, runs last.',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'size', type: 'number', doc: 'distance, mm' }, { name: 'edges', type: 'enum', values: ['all', 'top', 'bottom', 'vertical'], doc: 'which edges' }],
+    run: (doc, a) => finish(doc, a, 'chamfer'),
+  },
+  hole: {
+    doc: 'A round hole down into a body from the top of its first extrusion, at x, y in that extrusion\u2019s plane (body coordinates for one on the ground); through all unless `depth`.',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'x', type: 'number', doc: 'mm' }, { name: 'y', type: 'number', doc: 'mm' }, { name: 'diameter', type: 'number', doc: 'mm' }, { name: 'depth', type: 'number', doc: 'mm (through if left out)', optional: true }],
+    run: (doc, a) => {
+      const i = bodyOf(doc, a.id);
+      const first = doc.bodies[i].features.find((f) => f.type === 'extrude');
+      if (!first) throw new Error('hole: the body has no extrusion to start from');
+      const through = a.depth === undefined;
+      const cut: Feature = { id: newId(), type: 'extrude', source: { kind: 'own', plane: { kind: 'cap', feature: first.id }, profiles: [circle(a.x, a.y, a.diameter)] }, depth: through ? ex(0) : len(-num(a.depth)), mode: 'cut', through };
+      return { doc: withBody(doc, i, { ...doc.bodies[i], features: [...doc.bodies[i].features, cut] }), result: cut.id };
+    },
+  },
+  shell: {
+    doc: 'Hollows a body to walls `thickness` thick (inside it); the faces through the `open` points are left open.',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'thickness', type: 'number', doc: 'mm' }, { name: 'open', type: 'points3', doc: 'body points [[x, y, z], …] on faces to leave open', optional: true }],
+    run: (doc, a) => {
+      const i = bodyOf(doc, a.id);
+      const open = Array.isArray(a.open) ? a.open.map(xyz) : [];
+      const f: Feature = { id: newId(), type: 'shell', thickness: len(a.thickness), open };
+      return { doc: withBody(doc, i, { ...doc.bodies[i], features: [...doc.bodies[i].features, f] }), result: f.id };
+    },
+  },
+  group: {
+    doc: 'Puts bodies and sketches into a new group (they stay where they are).',
+    params: [{ name: 'ids', type: 'ids', doc: 'what goes in' }, named],
+    run: (doc, a) => {
+      const g: Group = { id: newId(), name: typeof a.name === 'string' ? a.name : `Group ${doc.groups.length + 1}`, parent: null, visible: true, origin: { kind: 'parent' } };
+      const ids = a.ids as string[];
+      const into = <T extends { id: string; group: string | null }>(o: T) => (ids.includes(o.id) ? { ...o, group: g.id } : o);
+      return { doc: { ...doc, groups: [...doc.groups, g], bodies: doc.bodies.map(into), sketches: doc.sketches.map(into) }, result: g.id };
+    },
+  },
+  delete: {
+    doc: 'Deletes bodies, sketches, work planes and images (a deleted tool body takes its boolean along).',
+    params: [{ name: 'ids', type: 'ids', doc: 'what goes' }],
+    run: (doc, a) => {
+      const gone = new Set(a.ids as string[]);
+      const bodies = doc.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => (f.type !== 'boolean' && f.type !== 'fingers') || !gone.has(f.body)) }));
+      return { doc: { ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) } };
+    },
+  },
+  rename: {
+    doc: 'Renames a body, sketch, group, work plane or image.',
+    params: [{ name: 'id', type: 'id', doc: 'what' }, { name: 'name', type: 'string', doc: 'its new name' }],
+    run: (doc, a) => {
+      const to = <T extends { id: string; name: string }>(o: T) => (o.id === a.id ? { ...o, name: a.name as string } : o);
+      return { doc: { ...doc, bodies: doc.bodies.map(to), sketches: doc.sketches.map(to), groups: doc.groups.map(to), planes: doc.planes.map(to), images: doc.images.map(to) } };
+    },
+  },
+  color: {
+    doc: 'A body’s colour (#rrggbb).',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'color', type: 'string', doc: '#rrggbb' }],
+    run: (doc, a) => {
+      if (!/^#[\da-f]{6}$/i.test(a.color as string)) throw new Error('color: #rrggbb');
+      const i = bodyOf(doc, a.id);
+      return { doc: withBody(doc, i, { ...doc.bodies[i], color: a.color as string }) };
+    },
+  },
+  parameter: {
+    doc: 'Sets a named parameter (a number with a unit, or an expression); any value may use it by name.',
+    params: [{ name: 'name', type: 'string', doc: 'a name (letters, digits, _)' }, { name: 'value', type: 'string', doc: "e.g. '4mm' or '2*ply'" }],
+    run: (doc, a) => {
+      if (!/^[a-z_]\w*$/i.test(a.name as string)) throw new Error('parameter: a name of letters, digits and _');
+      return { doc: { ...doc, params: { ...doc.params, [a.name as string]: { e: a.value as string, u: doc.units } } } };
+    },
+  },
+  units: {
+    doc: 'The units numbers are shown in (values keep their size).',
+    params: [{ name: 'units', type: 'enum', values: ['mm', 'cm', 'm', 'in', 'ft'], doc: 'the display unit' }],
+    run: (doc, a) => ({ doc: { ...doc, units: a.units as Unit } }),
+  },
+};
+
+/** A fillet or chamfer by rule on a body. */
+function finish(doc: Doc, a: Args, mode: 'fillet' | 'chamfer'): Result {
+  const i = bodyOf(doc, a.id);
+  const f: Feature = { id: newId(), type: 'finish', mode, size: len(a.size), edges: a.edges as 'all' | 'top' | 'bottom' | 'vertical', enabled: true, baked: false, skip: [] };
+  return { doc: withBody(doc, i, { ...doc.bodies[i], features: [...doc.bodies[i].features, f] }), result: f.id };
+}
+
+/** Runs command `name` on `doc` with `args` (checked first); unknown names and bad input throw with what is wrong. */
+export function runCommand(doc: Doc, name: string, args: Args = {}): Result {
+  const c = COMMANDS[name];
+  if (!c) throw new Error(`no command "${name}" (there are: ${Object.keys(COMMANDS).join(', ')})`);
+  check(name, c, args);
+  return c.run(doc, args);
+}
+
+/** The commands as a list of tool descriptions (for scripts and LLMs): name, what it does, its parameters. */
+export const describe = () => Object.entries(COMMANDS).map(([name, c]) => ({ name, doc: c.doc, params: c.params }));
+
