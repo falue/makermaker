@@ -2583,9 +2583,14 @@ export class Viewer implements ToolView {
       if (loop) return this.host.select(loop.body, false), this.pickEdges(loop);
       // an edge near the pointer, else the face: its body selected and the part picked (a face: E pulls it, S sketches on it);
       // Shift adds it to (or takes it from) the parts picked: edges on that body, faces on any body (all selected)
-      // on a fillet's or chamfer's face (before its edges): that part of the finish selected, as a plain click does (Del leaves its edge out)
+      // on a fillet's or chamfer's face (before its edges): that part of the finish selected, as a plain click does (Del
+      // leaves its edge out); pressed again, its size drags
       const finish = !e.shiftKey && hit && this.finishAt(hit);
-      if (finish) return this.host.select(hit!.object.userData.bodyId, false), this.host.pickFinish({ body: hit!.object.userData.bodyId, ...finish });
+      if (finish) {
+        const id = hit!.object.userData.bodyId as string;
+        if (this.finishSel?.body === id && this.finishSel.feature === finish.feature) return this.host.dragFinish(id, finish.feature, hit!.point.clone()), void (this.toolPress = !!this.tool);
+        return this.host.select(id, false), this.host.pickFinish({ body: id, ...finish });
+      }
       const edge = this.edgeAt(e);
       if (!edge && !hit) return;
       const body = edge?.body ?? (hit!.object.userData.bodyId as string);

@@ -3087,11 +3087,12 @@ function remove() {
   if (pickedPart && !finishSel) return fail('Picked faces and edges are not deleted: Esc lets them go, then Del deletes the body');
   const doc = history.current;
   if (finishSel) {
-    // a part of a finish: its edge is left out; the whole finish: it goes
+    // a part of a finish: its edge is left out (its last picked edge: the finish goes); the whole finish: it goes
     const { body, feature, mid } = finishSel;
     viewer.setFinishMark((finishSel = null));
+    const last = (f: Extract<Feature, { type: 'finish' }>) => typeof f.edges === 'object' && f.edges.pts.length - f.skip.length <= 1;
     const bodies = doc.bodies.map((b) =>
-      b.id !== body ? b : { ...b, features: b.features.flatMap((f) => (f.id !== feature || f.type !== 'finish' ? [f] : mid ? [{ ...f, skip: [...f.skip, mid] }] : [])) },
+      b.id !== body ? b : { ...b, features: b.features.flatMap((f) => (f.id !== feature || f.type !== 'finish' ? [f] : mid && !last(f) ? [{ ...f, skip: [...f.skip, mid] }] : [])) },
     );
     return commit({ ...doc, bodies });
   }
