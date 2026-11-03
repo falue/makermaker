@@ -8,7 +8,7 @@ import type { Area, BooleanOp, BuildIn, EdgeRule, Profile } from '../doc/types';
 /** A boolean with its tool body's features at hand, placed as the tool body sits in this body's coordinates. */
 export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place };
 /** A box joint as the kernel builds it: the other body's features (without its box joint) where it sits, the finger count or width, which fingers stay. */
-export type FingersBuild = { id: string; type: 'fingers'; features: BuildFeature[]; place: Place; count: number; width: number; first: boolean };
+export type FingersBuild = { id: string; type: 'fingers'; features: BuildFeature[]; place: Place; count: number; width: number; from?: V3; first: boolean };
 export type BuildFeature = Resolved<BuildIn> | BooleanBuild | FingersBuild;
 type Of<T extends BuildFeature['type']> = Extract<BuildFeature, { type: T }>;
 
@@ -489,7 +489,8 @@ const fullness = (k: number) => Math.max(-4, Math.min(4, k));
 
 /**
  * A box joint: where the body and the other overlap, sliced across the overlap's longest side into fingers (`width`
- * above 0: as many as fit, else `count`), every other one cut from the body (the first kept if `first`).
+ * above 0: exactly that long from the low end, or from `from` both ways, the rest at the ends; else `count` equal
+ * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`).
  */
 function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   if (!shape) throw new Error('nothing to joint yet');
@@ -502,15 +503,23 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
     const k = [0, 1, 2].reduce((best, a) => (hi[a] - lo[a] > hi[best] - lo[best] ? a : best), 0);
     const length = hi[k] - lo[k];
     if (!(length > 1e-6)) throw new Error('the two bodies do not overlap');
-    const n = Math.max(1, s.width > 0 ? Math.round(length / s.width) : Math.round(s.count));
-    // the slices this body gives up: a box across the overlap for each
+    // the slices along k: [start, end, index]; index 0 is the first finger
+    const slices: [number, number, number][] = [];
+    if (s.width > 0) {
+      const start = s.from ? Math.max(lo[k], Math.min(hi[k], s.from[k])) : lo[k];
+      for (let j = -Math.ceil((start - lo[k]) / s.width - 1e-9); start + j * s.width < hi[k] - 1e-9; j++) slices.push([Math.max(lo[k], start + j * s.width), Math.min(hi[k], start + (j + 1) * s.width), j]);
+    } else {
+      const n = Math.max(1, Math.round(s.count));
+      for (let i = 0; i < n; i++) slices.push([lo[k] + (length * i) / n, lo[k] + (length * (i + 1)) / n, i]);
+    }
+    // the slices this body gives up (every other one): a box across the overlap for each
     const pad = 1;
     let cut: Shape3D | null = null;
-    for (let i = s.first ? 1 : 0; i < n; i += 2) {
+    for (const [from, to, i] of slices) {
+      if (Math.abs(i % 2) !== (s.first ? 1 : 0)) continue;
       const [a, b] = [lo.map((v) => v - pad) as V3, hi.map((v) => v + pad) as V3];
-      [a[k], b[k]] = [lo[k] + (length * i) / n, lo[k] + (length * (i + 1)) / n];
-      const slab = makeBox(a, b) as unknown as Shape3D;
-      cut = joined(cut, slab, 'add');
+      [a[k], b[k]] = [from, to];
+      cut = joined(cut, makeBox(a, b) as unknown as Shape3D, 'add');
     }
     if (!cut) return shape.clone();
     const away = overlap.clone().intersect(cut);

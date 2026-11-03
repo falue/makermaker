@@ -144,10 +144,11 @@ export type BulgeFeature = {
 
 /**
  * A box joint with another body: where the two overlap is cut into `count` fingers across its longest side (`width`
- * set above 0: as many as fit that long), every other one taken from each body, so they interlock. Both bodies have
- * one; the `first` keeps the first finger, and its count and width count for both.
+ * set above 0: fingers exactly that long from the overlap's low end, the rest at the other end; `from` set: from that
+ * point (world) both ways), every other one taken from each body, so they interlock. Both bodies have one; the `first`
+ * keeps the first finger, and its count, width and point count for both.
  */
-export type FingersFeature = { id: string; type: 'fingers'; body: string; count: Expr; width: Expr; first: boolean };
+export type FingersFeature = { id: string; type: 'fingers'; body: string; count: Expr; width: Expr; from: [number, number, number] | null; first: boolean };
 
 /** Any flat face (body point `at` on it, outward normal `n`, body-local) pushed or pulled `distance` along `n`: the face extruded and joined, or cut in. */
 export type PushFeature = { id: string; type: 'push'; at: [number, number, number]; n: [number, number, number]; distance: Expr };
@@ -344,7 +345,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 22;
+  schema: 23;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

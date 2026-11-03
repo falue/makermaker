@@ -18,7 +18,7 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, BulgeFeature, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, BulgeFeature, FingersFeature, Joint, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -498,7 +498,8 @@ function update() {
         if (typeof other === 'string') return other;
         const lead = s.first ? s : (resolvedOf.get(s.body)?.find((f) => f.type === 'fingers' && f.body === id) as typeof s | undefined) ?? s;
         const relative = (bodyPlaces.get(id) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
-        out.push({ id: s.id, type: 'fingers', features: other, place: toPlace(relative), count: lead.count, width: lead.width, first: s.first });
+        const from = lead.from && (new Vector3(...lead.from).applyMatrix4((bodyPlaces.get(id) ?? new Matrix4()).clone().invert()).toArray() as V3);
+        out.push({ id: s.id, type: 'fingers', features: other, place: toPlace(relative), count: Math.max(1, lead.count), width: Math.max(0, lead.width), ...(from ? { from } : {}), first: s.first });
         continue;
       }
       if (s.type !== 'boolean') {
@@ -1781,7 +1782,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     input.dataset.complete = '';
     input.oninput = () => (input.classList.toggle('invalid', !valid(k)), emit());
     input.onfocus = () => (last = input);
-    if (f.int) input.onblur = () => valid(k) && String(Math.round(Number(input.value || '0'))) !== input.value && ((input.value = String(Math.round(Number(input.value || '0')))), emit());
+    if (f.int) input.onblur = () => input.value !== '' && valid(k) && String(Math.round(Number(input.value))) !== input.value && ((input.value = String(Math.round(Number(input.value)))), emit());
     input.onkeydown = (e) => {
       if (f.reach && wantsT(e, input, history.current.params)) e.preventDefault(), aim(k);
     };
@@ -2359,8 +2360,7 @@ function offsetShapes(sketch: string) {
 
 /**
  * Box joint: two overlapping bodies (selected, or clicked next) cut each other into interlocking fingers across the
- * overlap's longest side, for gluing sheets. A panel: Fingers (7 first) or a Finger length (above 0: it counts
- * instead). Live, one undo step; Esc leaves nothing.
+ * overlap's longest side, for gluing sheets; then its panel (see `fingersPanel`).
  */
 function boxJoint() {
   const doc = history.current;
@@ -2381,21 +2381,92 @@ function boxJoint() {
   }
   const [a, b] = ids;
   const [fa, fb] = [newId(), newId()];
-  const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex('7'), width: len(0), first });
+  const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex('7'), width: len(0), from: null, first });
   commit({ ...doc, bodies: doc.bodies.map((x) => (x.id === a ? { ...x, features: [...x.features, step(b, true, fa)] } : x.id === b ? { ...x, features: [...x.features, step(a, false, fb)] } : x)) });
-  // the first body's step holds the count and width for both
-  const i = history.current.bodies.findIndex((x) => x.id === a);
-  const path = ['bodies', String(i), 'features', String(history.current.bodies[i].features.length - 1)];
-  const u = doc.units;
-  valuePanel(
+  fingersPanel(a, fa, true);
+}
+
+/**
+ * A box joint's panel, on the step that holds its values for both bodies (the first's; `id` of either leads there):
+ * Fingers (1 or more, equal ones) or Finger length (above 0: exactly that long, from the overlap's low end or From a
+ * point clicked, both ways; the count then empties); each shows what the other makes. Live; `fresh`: Esc leaves
+ * nothing, else Esc puts it back.
+ */
+function fingersPanel(body: string, id: string, fresh = false) {
+  const doc0 = history.current;
+  const mine = doc0.bodies.find((b) => b.id === body)?.features.find((f) => f.id === id);
+  if (mine?.type !== 'fingers') return;
+  // the first's step holds the values
+  const [owner, partner] = mine.first ? [body, mine.body] : [mine.body, body];
+  const i = doc0.bodies.findIndex((b) => b.id === owner);
+  const j = doc0.bodies[i]?.features.findIndex((f) => f.type === 'fingers' && f.body === partner && f.first) ?? -1;
+  if (j < 0) return;
+  const path = ['bodies', String(i), 'features', String(j)];
+  const now = () => getIn(history.current, path) as FingersFeature;
+  const u = doc0.units;
+  const change = (next: Doc) => {
+    if (fresh || history.current !== doc0) history.replace(next);
+    else history.push(next);
+    update();
+  };
+  // the overlap's longest side (mm), from the two bodies' boxes
+  const span = () => {
+    const [a, b] = [viewer.measure(owner)?.box, viewer.measure(partner)?.box];
+    const o = a && b && a.clone().intersect(b);
+    return o && !o.isEmpty() ? Math.max(...o.getSize(new Vector3()).toArray()) : 0;
+  };
+  const lengthOf = (n: number) => fmt(span() / Math.max(1, n) / UNITS[u]);
+  const f0 = now();
+  const byLength = (length(f0.width.e) ?? 0) > 0;
+  let last = [byLength ? '' : f0.count.e, byLength ? f0.width.e : lengthOf(Number(f0.count.e) || 1)];
+  const write = () => {
+    const [n, w] = [panel.inputs[0], panel.inputs[1]];
+    // never below 1 finger or a length of 0
+    if (n.value !== '' && Number(n.value) < 1) n.value = '1';
+    if ((length(w.value || '0') ?? 0) < 0) w.value = '0';
+    if (w.value !== last[1] && (length(w.value || '0') ?? 0) > 0) {
+      // a length counts: the count empties
+      n.value = '';
+      change(setIn(history.current, [...path, 'width'], { e: w.value, u }));
+    } else if (n.value !== last[0] && n.value !== '') {
+      // a count: the length shows what it makes
+      w.value = lengthOf(Number(n.value));
+      change(setIn(setIn(history.current, [...path, 'count'], ex(n.value)), [...path, 'width'], len(0)));
+    }
+    last = [n.value, w.value];
+  };
+  const fromButton = panelButton('From point', 'Fingers of the length set count from a point clicked, both ways (else from the overlap\'s low end)', () => {
+    viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the fingers count from here` : null);
+    viewer.pickFace((p) => {
+      viewer.aiming = null;
+      viewer.aimAt(null);
+      tips.cursorTip(null);
+      if (p?.snap) change(setIn(history.current, [...path, 'from'], p.snap.toArray()));
+      status();
+    }, true);
+  });
+  const clearFrom = panelButton('×', 'Count from the overlap\'s low end again', () => (change(setIn(history.current, [...path, 'from'], null)), status()));
+  const status = () => {
+    const from = now().from;
+    fromButton.textContent = from ? 'From: point' : 'From point';
+    clearFrom.hidden = !from;
+    viewer.showMeasureLine(from && new Vector3(...from));
+  };
+  const panel = valuePanel(
     [
-      { label: 'Fingers', value: '7', raw: true, int: true, title: 'Fingers: how many across the overlap' },
-      { label: 'Finger length', value: '0', title: 'Finger length: above 0, as many fingers as fit (the count then is ignored)' },
+      { label: 'Fingers', value: last[0], raw: true, int: true, title: 'Fingers: how many, all as long, across the overlap' },
+      { label: 'Finger length', value: last[1], title: 'Finger length: each exactly this long, from the low end (or From a point), the rest at the end(s)' },
     ],
-    ([n, w]) => (history.replace(setIn(setIn(history.current, [...path, 'count'], ex(n)), [...path, 'width'], { e: w, u })), update()),
-    (ok) => (ok ? render() : undo()),
-    'Box joint: how many fingers · or a finger length (above 0: it counts) · [Enter] keeps it · [Esc] leaves nothing',
+    write,
+    (ok) => {
+      viewer.showMeasureLine(null);
+      if (ok || !(fresh || history.current !== doc0)) render();
+      else undo();
+    },
+    'Box joint: how many fingers · or a finger length (exact; the count empties) · From point: the fingers count from there · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    [fromButton, clearFrom],
   );
+  status();
 }
 
 /**
@@ -4455,6 +4526,7 @@ function render() {
     measureTool,
     boxJoint,
     editBulge: bulgePanel,
+    editFingers: fingersPanel,
     lightBodies: (ids) => viewer.lightBodies(ids ? contents(history.current, ids) : []),
     breakLinks,
     unlinkCopy,
@@ -4544,7 +4616,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 22, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 23, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

@@ -172,6 +172,15 @@ describe('buildBody', () => {
     const upright = buildBody([sheet, fingers([base(100)], false)]);
     expect(measureVolume(upright)).toBeCloseTo(4 * 60 * 40 - 4 * slice, 0); // fingers 1, 3, 5, 7 given up
     upright.delete();
+    // exactly 7 long from the low end (y -30): 8 whole and 4 left; the first gives up the 2nd, 4th, 6th and 8th
+    const exact = (from?: number[]) => ({ ...(fingers([sheet], true) as object), width: 7, ...(from ? { from } : {}) }) as BuildFeature;
+    const even = buildBody([base(100), exact()]);
+    expect(measureVolume(even)).toBeCloseTo(100 * 60 * 4 - 4 * 7 * 16, 0);
+    even.delete();
+    // from y 0 both ways: -30..-28, -28..-21, …, 0..7, …, 28..30; it gives up the odd ones counted from 0: 2 + 4 × 7 long
+    const centred = buildBody([base(100), exact([48, 0, 2])]);
+    expect(measureVolume(centred)).toBeCloseTo(100 * 60 * 4 - (2 + 4 * 7) * 16, 0);
+    centred.delete();
   });
 
   it('pushes and pulls any flat face', () => {

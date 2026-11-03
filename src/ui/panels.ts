@@ -84,6 +84,8 @@ export interface UIContext {
   lightSketch(id: string | null): void;
   /** Opens a bulge's panel (`body` holds it). */
   editBulge(body: string, feature: string): void;
+  /** A box joint's panel (either body's step). */
+  editFingers(body: string, feature: string): void;
   /** Opens a work plane's panel. */
   editPlane(id: string): void;
   /** Measure: an edge's length or two points' distances (see main's measureTool). */
@@ -1333,11 +1335,11 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       return h(
         'section',
         {},
-        h('h4', {}, 'Box joint', remove),
+        h('h4', {}, 'Box joint', button('✎', () => ctx.editFingers(body.id, feature.id), 'Edit it in its panel: fingers, finger length, from a point'), remove),
         ...(feature.first
           ? [h('div', { className: 'row' }, exprField(ctx, `${at}.count`, 'Fingers', true), f('width', 'Finger length'))]
           : []),
-        h('p', { className: 'hint' }, other ? `With ${other.name}${lead ? ` (fingers set there)` : ''}; a finger length above 0 replaces the count` : 'Its partner was deleted: it does nothing'),
+        h('p', { className: 'hint' }, other ? `With ${other.name}${lead ? ` (fingers set there)` : ''}; a finger length above 0 replaces the count (exact, from the low end or a point: ✎)` : 'Its partner was deleted: it does nothing'),
       );
     }
     case 'push':
