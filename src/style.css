@@ -1834,7 +1834,7 @@ input + .set-axis {
 /* a drawing mode switched: its pictogram and name, top left in the view for a moment */
 .mode-note {
   position: absolute;
-  top: 48px;
+  top: 76px; /* below the sketch's breadcrumbs */
   left: 10px;
   z-index: 20;
   display: flex;
