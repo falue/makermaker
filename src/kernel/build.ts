@@ -91,7 +91,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'thread') apply(s.id, (cur) => thread(cur, s));
       if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
       if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
-      if (s.type === 'draft') apply(s.id, (cur) => draft(cur, s));
+      if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
       if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles));
     }
@@ -554,7 +554,6 @@ function push(shape: Shape3D | null, s: Of<'push'>): Shape3D {
  */
 function draft(shape: Shape3D | null, s: Of<'draft'>): Shape3D {
   if (!shape) throw new Error('nothing to draft yet');
-  if (!s.angle) throw new Error('the angle must not be 0');
   const oc = getOC();
   const face = new FaceFinder().containsPoint(s.at).find(shape).find((f) => f.geomType === 'PLANE' && dot(f.normalAt(s.at).toTuple() as V3, s.n) > 0.99);
   if (!face) throw new Error('its face is gone, or no longer flat');

@@ -188,7 +188,7 @@ describe('buildBody', () => {
     // the plate's x 30 side (60 × 4 tall), hinged at its bottom: 5° in takes a wedge 4 tall, 4 tan 5° deep
     const draft = (angle: number) => ({ id: 'd', type: 'draft', at: [30, 0, 2], n: [1, 0, 0], axis: { at: [30, -30, 0], dir: [0, 1, 0] }, angle }) as BuildFeature;
     const wedge = 0.5 * 4 * 4 * Math.tan((5 * Math.PI) / 180) * 60;
-    for (const [angle, sign] of [[5, -1], [-5, 1]]) {
+    for (const [angle, sign] of [[5, -1], [-5, 1], [0, 0]]) {
       const drafted = buildBody([base(60), draft(angle)]);
       expect(measureVolume(drafted)).toBeCloseTo(60 * 60 * 4 + sign * wedge, 1);
       drafted.delete();

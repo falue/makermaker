@@ -2248,10 +2248,11 @@ function draftOn(face: FaceItem) {
 }
 
 /**
- * A draft's panel: Angle ° (the orange indicator at its hinge) and Set axis (an edge or line: the hinge, laid into the
- * face's plane). Live; `fresh`: Esc leaves nothing, else Esc puts it back.
+ * A draft's panel: Angle ° (the orange indicator at its hinge; also dragging its body up and down, Shift in angle
+ * steps, A / Shift A finer / coarser) and Set axis (an edge or line: the hinge, laid into the face's plane; while
+ * picking it the draft is off). Live; `fresh`: Esc leaves nothing, else Esc puts it back.
  */
-function draftPanel(body: string, id: string, fresh = false) {
+function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
   const doc0 = history.current;
   const i = doc0.bodies.findIndex((b) => b.id === body);
   const j = doc0.bodies[i]?.features.findIndex((f) => f.id === id) ?? -1;
@@ -2264,6 +2265,10 @@ function draftPanel(body: string, id: string, fresh = false) {
     else history.push(next);
     update();
   };
+  const setAngle = (e: string, doc = history.current) => setIn(doc, [...path, 'angle'], { e, u: 'mm' });
+  let picking = false;
+  // the angle steps show as rays while Shift is held, and a while after A / Shift A
+  let [shift, raysUntil] = [false, 0];
   // the angle at the hinge: from the face as it was, turning inward
   const ticks = () => {
     const f = now();
@@ -2275,21 +2280,65 @@ function draftPanel(body: string, id: string, fresh = false) {
     viewer.showAxis({ at, dir: h, what: '' }, at, 40);
     // turned about the hinge the way that tips the face inward, so the angle reads as typed
     if (h.clone().cross(d).dot(n) > 0) h.negate();
-    viewer.showTicks(Number.isFinite(angle) ? { at, dir: h, from: at.clone().addScaledVector(d, 30), step: 5, angle } : null);
+    viewer.showTicks(Number.isFinite(angle) ? { at, dir: h, from: at.clone().addScaledVector(d, 30), step: SketchTool.angleStep, angle, rays: shift || performance.now() < raysUntil } : null);
+  };
+  const keys = (e: KeyboardEvent) => {
+    if (e.key === roleKeyName('constrain')) return (shift = e.type === 'keydown'), !picking && ticks();
+    const step = e.type === 'keydown' && document.activeElement !== panel.inputs[0] ? (pressed(e, 'moreSnaps') ? 1 : pressed(e, 'fewerSnaps') ? -1 : 0) : 0;
+    if (!step) return;
+    SketchTool.angleStep = ANGLE_STEPS[Math.min(ANGLE_STEPS.length - 1, Math.max(0, ANGLE_STEPS.indexOf(SketchTool.angleStep) + step))];
+    raysUntil = performance.now() + 1500;
+    setTimeout(() => panel.inputs[0].isConnected && !picking && ticks(), 1600);
+    if (!picking) ticks();
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  // a press on the body: dragging up turns the face further, down back (a press elsewhere still turns the view)
+  const press = (e: PointerEvent) => {
+    if (e.button !== 0 || picking || !(e.target instanceof HTMLCanvasElement) || viewer.hit(e)?.object.userData.bodyId !== body) return;
+    e.stopPropagation();
+    const field = panel.inputs[0];
+    field.blur();
+    const [y0, a0] = [e.clientY, Number(field.value) || 0];
+    const move = (m: PointerEvent) => {
+      m.stopPropagation();
+      const step = role(m, 'constrain') ? SketchTool.angleStep : role(m, 'precise') ? settings.minAngle : 1;
+      const text = fmt(Math.round((a0 + (y0 - m.clientY) * degPerPx) / step) * step);
+      if (text === field.value || !field.isConnected) return; // Esc or Enter while dragging ended the panel
+      field.value = text;
+      change(setAngle(text));
+      ticks();
+    };
+    const up = (u: PointerEvent) => {
+      u.stopPropagation();
+      removeEventListener('pointermove', move, { capture: true });
+      removeEventListener('pointerup', up, { capture: true });
+    };
+    addEventListener('pointermove', move, { capture: true });
+    addEventListener('pointerup', up, { capture: true });
   };
   const setAxis = panelButton('Set axis', 'Click an edge or line: the hinge it turns about (laid into the face)', () => {
+    if (picking) return;
+    picking = true;
+    const kept = now().angle.e;
+    change(setAngle('0'));
+    viewer.showTicks(null);
     viewer.pickAxis(
       (a) => {
+        picking = false;
         tips.cursorTip(null);
         const f = now();
-        if (a) {
+        const typed = panel.inputs[0].value || '0';
+        const back = setAngle(length(typed) !== null ? typed : kept);
+        if (!a) change(back);
+        else {
           // laid into the face's plane
           const n = new Vector3(...f.n).normalize();
           const [p, d] = [new Vector3(...unplaced(pl, a.at.toArray())), new Vector3(...unplaced(pl, a.dir.toArray(), true))];
           p.addScaledVector(n, -p.clone().sub(new Vector3(...f.at)).dot(n));
           d.addScaledVector(n, -d.dot(n));
-          if (d.lengthSq() < 1e-6) fail('That stands square to the face: pick one along it');
-          else change(setIn(history.current, [...path, 'axis'], { at: p.toArray(), dir: d.normalize().toArray() }));
+          if (d.lengthSq() < 1e-6) (fail('That stands square to the face: pick one along it'), change(back));
+          else change(setIn(back, [...path, 'axis'], { at: p.toArray(), dir: d.normalize().toArray() }));
         }
         ticks();
       },
@@ -2298,16 +2347,20 @@ function draftPanel(body: string, id: string, fresh = false) {
   });
   const panel = valuePanel(
     [{ label: 'Angle °', value: now().angle.e, raw: true, step: 0.1, title: 'Angle °: how far the face turns about its hinge, inward (negative: outward)' }],
-    ([t]) => (change(setIn(history.current, [...path, 'angle'], { e: t, u: 'mm' })), ticks()),
+    ([t]) => (change(setAngle(t)), !picking && ticks()),
     (ok) => {
+      removeEventListener('pointerdown', press, { capture: true });
+      for (const type of ['keydown', 'keyup'] as const) removeEventListener(type, keys, { capture: true });
       viewer.showTicks(null);
       viewer.showAxis(null);
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
     },
-    'Draft: the angle (inward; negative: outward) · Set axis: the hinge it turns about (its bottom side first) · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    'Draft: drag the body up / down or type the angle (inward; negative: outward) · [Shift] angle steps, [A] / [Shift A] finer / coarser, [Ctrl] precise · Set axis: the hinge it turns about (its bottom side first) · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
     [setAxis],
   );
+  addEventListener('pointerdown', press, { capture: true });
+  for (const type of ['keydown', 'keyup'] as const) addEventListener(type, keys, { capture: true });
   ticks();
 }
 
