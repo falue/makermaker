@@ -269,7 +269,7 @@ let rendering = false;
 let holding = false;
 /** The rebuild held back (a rebuild by the click itself makes it unneeded). */
 let waiting: UIContext | null = null;
-addEventListener('pointerdown', (e) => (holding = document.activeElement instanceof HTMLInputElement && e.target !== document.activeElement), { capture: true });
+addEventListener('pointerdown', (e) => (holding = (e.target as HTMLElement).matches?.('input[type=range]') || (document.activeElement instanceof HTMLInputElement && e.target !== document.activeElement)), { capture: true });
 const release = () => {
   if (!holding) return;
   holding = false;
@@ -438,10 +438,12 @@ export function wantsT(e: KeyboardEvent, input: HTMLInputElement, params: Record
 /** The To object button, the same everywhere: its icon and words (T does the same where it is offered). */
 export function toObjectButton(onclick: () => void, title: string, measure?: () => void) {
   const target = h('button', { className: 'to-object', innerHTML: icon('target'), title: `T: to object · ${title}`, onclick });
-  if (!measure) return target;
-  // keeps the focus in the field the value goes to
-  const measuring = h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'G: Measure · its Use puts the value measured in this field', onmousedown: (e: Event) => e.preventDefault(), onclick: measure });
-  return h('span', { className: 'to-tools' }, target, measuring);
+  return measure ? h('span', { className: 'to-tools' }, target, measureButton(measure)) : target;
+}
+
+/** The Measure tool for a field (it keeps the focus): G does the same. */
+export function measureButton(onclick: () => void) {
+  return h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'G: measure · click a length there: it goes into this field', onmousedown: (e: Event) => e.preventDefault(), onclick });
 }
 
 /** A one-character label (×, ⇄, ✎) makes an icon button: no outline. */

@@ -73,7 +73,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     lamp.position.set(...aim.camera);
     model.add(lamp);
   }
-  const hazeColour = new THREE.Color(light.ambientColor).lerp(new THREE.Color(0xc9ced6), 0.5);
+  const hazeColour = hazeColourOf(light.ambientColor);
   // the real fog: a box of it around everything, at full about 2/3 of the light gone across the model's size
   const size = box.getSize(new THREE.Vector3()).length();
   const fogMaterial = fog > 0 ? new FogVolumeMaterial({ color: hazeColour, density: fog / size }) : null;
@@ -112,7 +112,14 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     else drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background);
     g.drawImage(renderer.domElement, 0, 0);
     if (fogBox) fogBox.visible = false;
-    if (haze > 0) addHaze(g, renderer, scene, view as THREE.PerspectiveCamera | THREE.OrthographicCamera, box, hazeColour, haze);
+    if (haze > 0) {
+      // the model in the first third of what is hazed
+      const eye = new THREE.Vector3().setFromMatrixPosition(view.matrixWorld);
+      const middle = box.getCenter(new THREE.Vector3()).applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+      const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+      const distance = eye.distanceTo(middle);
+      addHaze(g, depthPicture(renderer, scene, view as THREE.PerspectiveCamera | THREE.OrthographicCamera, Math.max(0, distance - radius), distance + radius * 3, width, height), hazeColour, haze);
+    }
     return await new Promise<Blob>((done, fail) => out.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));
   } finally {
     tracer.dispose();
@@ -143,16 +150,11 @@ function photoPicture(photo: { image: HTMLImageElement; turn: number }, camera: 
   return copy;
 }
 
-/** Fades what is far into `colour` over the finished picture, by a depth picture drawn with the same camera. */
-function addHaze(g: CanvasRenderingContext2D, renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, box: THREE.Box3, colour: THREE.Color, amount: number) {
-  const { width, height } = g.canvas;
-  camera.far *= 1000; // the floor reaches far: not cut off, that would show as a band
+/** A picture of how far each pixel is, drawn with `camera` on the renderer (0 near .. 1 far; nothing there: 1). */
+export function depthPicture(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, near: number, far: number, width: number, height: number) {
+  const reach = camera.far;
+  camera.far = reach * 1000; // the floor reaches far: not cut off, that would show as a band
   camera.updateProjectionMatrix();
-  const eye = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
-  const middle = box.getCenter(new THREE.Vector3()).applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
-  const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
-  const distance = eye.distanceTo(middle);
-  const [near, far] = [Math.max(0, distance - radius), distance + radius * 3]; // the model in the first third
   scene.overrideMaterial = new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     vertexShader: 'varying float d; void main() { vec4 v = modelViewMatrix * vec4(position, 1.0); d = -v.z; gl_Position = projectionMatrix * v; }',
@@ -160,17 +162,23 @@ function addHaze(g: CanvasRenderingContext2D, renderer: THREE.WebGLRenderer, sce
   });
   const [mapping, background, environment] = [renderer.toneMapping, scene.background, scene.environment];
   renderer.toneMapping = THREE.NoToneMapping;
-  scene.background = new THREE.Color(1, 1, 1); // nothing there: as far as it gets
+  scene.background = new THREE.Color(1, 1, 1);
   scene.environment = null;
   renderer.render(scene, camera);
-  const depthCanvas = Object.assign(document.createElement('canvas'), { width, height });
-  const depthGraphics = depthCanvas.getContext('2d', { willReadFrequently: true })!;
-  depthGraphics.drawImage(renderer.domElement, 0, 0);
+  const canvas = Object.assign(document.createElement('canvas'), { width, height });
+  const g = canvas.getContext('2d', { willReadFrequently: true })!;
+  g.drawImage(renderer.domElement, 0, 0, width, height);
   (scene.overrideMaterial as THREE.Material).dispose();
   scene.overrideMaterial = null;
   [renderer.toneMapping, scene.background, scene.environment] = [mapping, background, environment];
-  const depth = depthGraphics.getImageData(0, 0, width, height).data;
-  const picture = g.getImageData(0, 0, width, height);
+  camera.far = reach;
+  camera.updateProjectionMatrix();
+  return g.getImageData(0, 0, width, height).data;
+}
+
+/** Fades what is far (`depth`, see `depthPicture`) into `colour` on the picture of `g`. `amount`: 0 to 1. */
+export function addHaze(g: CanvasRenderingContext2D, depth: Uint8ClampedArray, colour: THREE.Color, amount: number) {
+  const picture = g.getImageData(0, 0, g.canvas.width, g.canvas.height);
   const { r, g: gr, b } = colour.clone().convertLinearToSRGB().multiplyScalar(255);
   // nothing at the nearest; at the farthest `amount`, twice over: far things and the sky are all haze at half way
   const [thick, top] = [amount * 3, Math.min(1, amount * 2) / (1 - Math.exp(-amount * 3))];
@@ -182,3 +190,6 @@ function addHaze(g: CanvasRenderingContext2D, renderer: THREE.WebGLRenderer, sce
   }
   g.putImageData(picture, 0, 0);
 }
+
+/** The haze colour of a light. */
+export const hazeColourOf = (ambient: string) => new THREE.Color(ambient).lerp(new THREE.Color(0xc9ced6), 0.5);

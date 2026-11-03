@@ -32,7 +32,7 @@ import { describe as describeCommands, runCommand, type Args } from './api/comma
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
-import { renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { measureButton, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { MAC, pressed, role, roleKeyName, type Action } from './ui/keys';
@@ -1262,6 +1262,9 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
 }
 
 /** Where the selection reaches along `axis` (world mm, without the move preview): bodies' boxes, or the moved shapes' outlines. */
+/** How far a point lies from the nearest side of the selection's box (mm). */
+const nearestSide = (p: Vector3) => Math.min(...[0, 1, 2].flatMap((k) => (extentAlong(k) ?? []).map((v) => Math.abs(p.getComponent(k) - v))));
+
 function extentAlong(axis: number): [number, number] | null {
   const doc = history.current;
   const s = doc.sketches.find((x) => x.id === activeSketch());
@@ -1847,7 +1850,8 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     if (f.title) label.title = input.title = f.title;
     scrub(label, input, () => input.value, f.raw ? 'mm' : u, settings.minStep, (text) => ((input.value = text), emit()), () => (input.focus(), input.select()), f.int, undefined, f.step);
     // To object right after the field it fills; label, field and button wrap together
-    return [cell(label, input, ...(f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field', f.raw ? undefined : measureField)] : []))];
+    const tools = f.reach ? [toObjectButton(() => aim(k), 'Click a point: its value goes into the field', f.raw ? undefined : measureField)] : f.raw ? [] : [measureButton(measureField)];
+    return [cell(label, input, ...tools)];
   });
   const end = (ok: boolean) => {
     viewer.aiming = null;
@@ -2530,7 +2534,7 @@ function offsetTool() {
   const walls = () => {
     stop();
     const u = history.current.units;
-    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[u]) }], ([t]) => (history.replace(setIn(history.current, [...path, 'thickness'], { e: t, u })), update()), (ok) => (ok ? render() : undo()), 'Shell: the wall thickness · type or scrub it · [Enter] keeps it · [Esc] leaves nothing');
+    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[u]), reach: nearestSide, title: 'Wall: how thick · T: the distance from a point to the nearest side of the body' }], ([t]) => (history.replace(setIn(history.current, [...path, 'thickness'], { e: t, u })), update()), (ok) => (ok ? render() : undo()), 'Shell: the wall thickness · type or scrub it · [Enter] keeps it · [Esc] leaves nothing');
   };
   addEventListener('keydown', keys, { capture: true });
   next();
@@ -2702,7 +2706,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
         // waiting field: the value goes straight in; else copied: the button says so for a moment (the top bar shows the tool's hint)
         const b = use && !area
           ? panelButton('', `Use ${text}: it goes in the field`, () => (close(), use(mm)))
-          : panelButton('', 'Click: copied', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
+          : panelButton('', 'Click: copy', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
         b.innerHTML = shown;
         return b;
       }),
@@ -5723,7 +5727,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'copy')) copy(false);
   else if (pressed(e, 'cut')) copy(true);
   // a file in the clipboard goes to the 'paste' event; it comes right after this key if there is one
-  else if (pressed(e, 'paste')) pasteSoon = window.setTimeout(paste, 40);
+  else if (pressed(e, 'paste')) return void (pasteSoon = window.setTimeout(paste, 60));
   else if (pressed(e, 'ungroup')) sketching && shapeSel.length ? groupShapes(true) : ungroup();
   else if (pressed(e, 'group')) sketching && shapeSel.length ? groupShapes() : groupTool();
   else return;

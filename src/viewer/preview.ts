@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { TeapotGeometry } from 'three/addons/geometries/TeapotGeometry.js';
-import { findMaterial, sunDirection, toLook, type Look } from '../doc/materials';
+import { findMaterial, lightDirections, toLook, type Look } from '../doc/materials';
 import type { Doc } from '../doc/types';
 import type { Light } from '../doc/types';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { applyLook, boxUv, renderMaterial } from './look';
+import { addHaze, depthPicture, hazeColourOf } from './render';
 
 type Tracer = import('three-gpu-pathtracer').WebGLPathTracer;
 
@@ -31,10 +32,14 @@ export class MaterialPreview {
   private camera = new THREE.PerspectiveCamera(32, WIDTH / HEIGHT, 1, 5000);
   private teapot: THREE.Mesh;
   private sun = new THREE.DirectionalLight();
+  private lamp = new THREE.DirectionalLight();
   private sky: THREE.DataTexture | null = null;
   private lit: Light | null = null;
   private tracer: Tracer | null = null;
-  private wanted: { look: Look; light: Light; finished?: string } | null = null;
+  private wanted: { look: Look; light: Light; finished?: string; air: { haze: number; fog: number } } | null = null;
+  private air = { haze: 0, fog: 0 };
+  private fog: THREE.Mesh | null = null;
+  private depth: Uint8ClampedArray | null = null;
   private tracing: { look: Look; light: Light; at: number } | null = null;
   private thumbnails: { look: Look; light: Light; done: (url: string) => void; width: number; samples: number; scale: number; quality: number }[] = [];
   private running = false;
@@ -67,7 +72,7 @@ export class MaterialPreview {
       return wall;
     };
     this.inView.ambient.visible = false;
-    this.scene.add(this.inView.ambient, this.teapot, this.sun, side(0, 0, 0, -Math.PI / 2, 0), side(-170, 0, 0, 0, Math.PI / 2), side(0, 0, -130, 0, 0));
+    this.scene.add(this.inView.ambient, this.lamp, this.teapot, this.sun, side(0, 0, 0, -Math.PI / 2, 0), side(-170, 0, 0, 0, Math.PI / 2), side(0, 0, -130, 0, 0));
     // the tracer takes its textures from the scene once: these wear each of them, hidden under the floor
     for (const look of [{ overlay: 'metric' }, { overlay: 'imperial' }, { bump: 1 }] as Partial<Look>[]) {
       const carrier = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), renderMaterial({ ...BLANK, ...look }));
@@ -84,9 +89,9 @@ export class MaterialPreview {
     this.camera.updateMatrixWorld();
   }
 
-  /** Shows a look: at once as the 3D view draws it; rendered: `finished` if there is such a picture, else traced. */
-  show(look: Look, light: Light, finished?: string) {
-    this.wanted = { look, light, finished };
+  /** Shows a look: at once as the 3D view draws it; rendered: `finished` if there is such a picture, else traced, in `air` if given. */
+  show(look: Look, light: Light, finished?: string, air: { haze: number; fog: number } = { haze: 0, fog: 0 }) {
+    this.wanted = { look, light, finished, air };
     void this.run();
   }
 
@@ -117,8 +122,14 @@ export class MaterialPreview {
     if (light === this.lit) return;
     this.lit = light;
     // the scene is y up, the light's angles z up
-    const [x, y, z] = sunDirection(light);
+    // where the camera is, as z up for the light's angles (this scene is y up)
+    const eye = this.camera.position.clone().normalize();
+    const { sun, camera } = lightDirections(light, [eye.x, -eye.z, eye.y]);
+    const [x, y, z] = sun;
     this.sun.position.set(x, z, -y).multiplyScalar(800);
+    this.lamp.position.set(camera[0], camera[2], -camera[1]);
+    this.lamp.color.set(0xffffff);
+    this.lamp.intensity = light.cameraOn ? light.cameraLight : 0;
     this.sun.color.set(light.sunColor);
     this.sun.intensity = light.sun;
     const [top, bottom] = [new THREE.Color(light.ambientColor), new THREE.Color(light.ambientColor).multiplyScalar(0.6)];
@@ -161,7 +172,35 @@ export class MaterialPreview {
   }
 
   private copy() {
-    this.canvas.getContext('2d')!.drawImage(this.renderer.domElement, 0, 0);
+    const g = this.canvas.getContext('2d')!;
+    g.drawImage(this.renderer.domElement, 0, 0, WIDTH, HEIGHT);
+    if (this.air.haze > 0 && this.depth) addHaze(g, this.depth, hazeColourOf(this.haze), this.air.haze);
+  }
+  private haze = '#ffffff';
+
+  /** Fog and haze as asked: a box of real fog (a new scene for the tracer when it comes or goes), the depth for the haze. */
+  private async setAir(air: { haze: number; fog: number }, light: Light) {
+    this.air = air;
+    this.haze = light.ambientColor;
+    const { FogVolumeMaterial } = air.fog > 0 && !this.fog ? await import('three-gpu-pathtracer') : { FogVolumeMaterial: null };
+    if (FogVolumeMaterial) {
+      this.fog = new THREE.Mesh(new THREE.BoxGeometry(1600, 800, 1600), new FogVolumeMaterial({ color: 0xc9ced6, density: 0 }));
+      this.fog.position.y = 400;
+      this.scene.add(this.fog);
+      this.tracer?.setScene(this.scene, this.camera);
+    }
+    if (this.fog) {
+      const m = this.fog.material as THREE.MeshStandardMaterial & { density: number };
+      m.density = air.fog / 300;
+      m.color.copy(hazeColourOf(light.ambientColor));
+      this.fog.visible = air.fog > 0;
+      this.tracer?.updateMaterials();
+    }
+    if (air.haze <= 0) return;
+    const fogged = this.fog?.visible;
+    if (this.fog) this.fog.visible = false;
+    this.depth ??= depthPicture(this.renderer, this.scene, this.camera, 150, 900, WIDTH, HEIGHT);
+    if (this.fog) this.fog.visible = !!fogged;
   }
 
   /** Traces what is dressed, up to `samples`; false: something newer came in between. */
@@ -190,9 +229,10 @@ export class MaterialPreview {
     this.running = true;
     while (!this.closed) {
       if (this.wanted) {
-        const { look, light, finished } = this.wanted;
+        const { look, light, finished, air } = this.wanted;
         this.wanted = null;
         this.dress(look, light);
+        await this.setAir(air, light);
         this.drawAsView(look, light);
         this.tracing = null;
         if (finished) {

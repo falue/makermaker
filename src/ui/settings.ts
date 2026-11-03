@@ -1,5 +1,6 @@
 import { UNITS } from '../doc/expr';
-import { DEFAULT_LIGHT } from '../doc/materials';
+import { DEFAULT_LIGHT, effectiveLight, STANDARD_MATERIALS, toLook } from '../doc/materials';
+import { MaterialPreview } from '../viewer/preview';
 import type { Light, PhotoSphere, Unit } from '../doc/types';
 import { lightRows } from './light';
 import { BUILT_IN_PHOTOS } from './photospheres';
@@ -52,6 +53,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     s = next;
     localStorage.setItem(KEY, JSON.stringify(s));
     changed(s);
+    showLight();
     if (redraw) draw();
   };
   const body = make('div', { className: 'body' });
@@ -101,6 +103,12 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     ];
   };
   let lightTab: 'view' | 'render' = start ? 'render' : 'view';
+  let lightPreview: MaterialPreview | null = null;
+  /** The light of renders on the teapot in steel. */
+  const showLight = () => {
+    const light = s.renderLight.same ? s.light : s.renderLight;
+    lightPreview?.show(toLook(STANDARD_MATERIALS[0]), effectiveLight(light), undefined, s.renderLight);
+  };
   /** Chapters: the left column lists them, the right shows the open one. */
   const chapters: [string, () => Node[]][] = [
     [
@@ -183,6 +191,10 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         }
         const r = s.renderLight;
         const put = (patch: Partial<Settings['renderLight']>) => set({ ...s, renderLight: { ...s.renderLight, ...patch } });
+        lightPreview ??= new MaterialPreview();
+        lightPreview.canvas.className = 'light-preview';
+        lightPreview.canvas.title = 'These settings on the teapot of the material pictures, in steel';
+        showLight();
         const same = input({ type: 'checkbox', checked: r.same, onchange: () => put({ same: same.checked }) });
         const haze = (key: 'haze' | 'fog', label: string, title: string) => {
           const el = input({ type: 'range', min: '0', max: '1', step: '0.01', value: String(r[key]), title });
@@ -191,6 +203,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         };
         return [
           head,
+          lightPreview.canvas,
           make('p', { className: 'hint' }, 'Every render takes these when it runs. In renders a photo sphere lights the model too, instead of the ambient colour.'),
           make('label', { className: 'check' }, same, 'Same as 3D viewer'),
           ...(r.same
@@ -308,6 +321,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   draw();
   const close = () => {
     removeEventListener('keydown', esc, { capture: true });
+    lightPreview?.dispose();
     dialog.remove();
   };
   const esc = (e: KeyboardEvent) => pressed(e, 'cancel') && (e.stopImmediatePropagation(), close());

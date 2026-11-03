@@ -452,6 +452,9 @@ input.invalid {
 .row > * {
   flex: 1;
 }
+.row input[type='range'] {
+  min-width: 0;
+}
 .row.wrap {
   flex-wrap: wrap;
 }
@@ -1348,6 +1351,13 @@ button.primary.wide {
 .settings .segmented button.on {
   background: var(--accent);
   color: var(--accent-text);
+}
+.light-preview {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: var(--field);
 }
 .mat-compare {
   position: relative;
