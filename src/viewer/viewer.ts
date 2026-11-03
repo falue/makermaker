@@ -81,6 +81,9 @@ type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number] };
  */
 export type TurnAxis = { at: THREE.Vector3; dir: THREE.Vector3; what: string; length?: number; d?: number; body?: string };
 
+/** Where an extra view looks from. */
+export type ViewKind = '3d' | 'top' | 'front' | 'right' | 'back' | 'left' | 'bottom' | 'face';
+
 export interface PickedFace {
   point: THREE.Vector3;
   normal: THREE.Vector3;
@@ -569,6 +572,8 @@ export class Viewer implements ToolView {
       'pointerdown',
       (e) => {
         if (e.target !== canvas) return;
+        if (e.button === 2) this.rightPress = { x: e.clientX, y: e.clientY };
+        if (this.faceMenu) clearTimeout(this.faceMenu), (this.faceMenu = 0);
         // a side of the edited work plane: dragged
         const side = e.button === 0 ? this.planeSide(e) : -1;
         if (side >= 0) {
@@ -648,6 +653,7 @@ export class Viewer implements ToolView {
       if (!this.toolPress) this.move(e); // a drag that belongs to a tool is no orbit
     });
     canvas.addEventListener('pointerup', (e) => {
+      if (e.button === 2) this.rightUp(e);
       if (this.planeDrag) return this.planeEdit?.resize([...this.planeDrag.rect], true), (this.planeDrag = null);
       if (this.clickAt) return this.clicked(e);
       if (!this.toolPress) return this.up(e);
@@ -2031,6 +2037,7 @@ export class Viewer implements ToolView {
       this.drawCrossings();
       this.drawGrips();
       this.pointTo(this.arrowAt());
+      for (const v of this.views) this.renderView(v);
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
       this.drawSilhouette();
@@ -3072,8 +3079,136 @@ export class Viewer implements ToolView {
       b.append(Object.assign(document.createElement('span'), { className: 'track' }), name);
       return b;
     };
-    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes));
+    const more = button('+ View', 'Another view beside this one: its own camera (Top, Front, … or 3D), the same model; right-click a face: a view looking at it', () => this.addView('3d'));
+    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes), more);
     return bar;
+  }
+
+  private rightPress: { x: number; y: number } | null = null;
+  /** The wait before a right-click's face menu shows (0: none waiting): a second right press means its edge loop instead. */
+  private faceMenu = 0;
+
+  /** A right-click on a face (not a drag, no second press soon): a menu to look at that face in a new view. */
+  private rightUp(e: PointerEvent, ms = 300) {
+    const at = this.rightPress;
+    this.rightPress = null;
+    if (!at || Math.hypot(e.clientX - at.x, e.clientY - at.y) > 4 || this.tool || this.facePick) return;
+    const hit = this.frontHit(e);
+    if (!hit) return;
+    const look = { n: hit.face!.normal.clone().transformDirection(hit.object.matrixWorld), at: hit.point.clone() };
+    this.faceMenu = window.setTimeout(() => {
+      this.faceMenu = 0;
+      const r = this.el.getBoundingClientRect();
+      const menu = Object.assign(document.createElement('div'), { className: 'flyout menu face-menu' });
+      menu.style.left = `${e.clientX - r.left}px`;
+      menu.style.top = `${e.clientY - r.top}px`;
+      const gone = () => (menu.remove(), removeEventListener('pointerdown', away, true));
+      const away = (ev: Event) => !menu.contains(ev.target as Node) && gone();
+      menu.append(Object.assign(document.createElement('button'), { className: 'menu-item', textContent: 'Look at this face in a new view', onclick: () => (gone(), this.addView('face', look)) }));
+      this.el.append(menu);
+      addEventListener('pointerdown', away, true);
+    }, ms);
+  }
+
+  /** Extra views beside this one (in #views): each its own camera and controls on the same scene; editing stays here. */
+  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number }[] = [];
+
+  /**
+   * A new view: `kind` looks from that side (3D: from the front right, above), 'face': along `look.n` at `look.at`;
+   * fitted to everything shown. Its bar: the side, Ortho | Persp, ⇄ (swap it with this view, to edit there), ×.
+   */
+  addView(kind: ViewKind, look?: { n: THREE.Vector3; at: THREE.Vector3 }) {
+    const strip = document.getElementById('views');
+    if (!strip) return;
+    const el = Object.assign(document.createElement('div'), { className: 'view' });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(this.renderer.getPixelRatio());
+    const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
+    const persp = new THREE.PerspectiveCamera(35, 1, 1, 50000);
+    for (const c of [ortho, persp]) c.up.set(0, 0, 1);
+    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400 };
+    view.controls.zoomToCursor = true;
+    view.controls.addEventListener('change', () => this.renderView(view));
+    const sides: [ViewKind, string][] = [['3d', '3D'], ['top', 'Top'], ['front', 'Front'], ['right', 'Right'], ['back', 'Back'], ['left', 'Left'], ['bottom', 'Bottom'], ...(look ? [['face', 'Face'] as [ViewKind, string]] : [])];
+    const side = Object.assign(document.createElement('select'), { title: 'Where it looks from' });
+    side.append(...sides.map(([k, name]) => Object.assign(document.createElement('option'), { value: k, textContent: name, selected: k === kind })));
+    side.onchange = () => this.aimView(view, side.value as ViewKind, look);
+    const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { textContent: text, title, onclick });
+    const projection = Object.assign(document.createElement('span'), { className: 'segmented' });
+    const pick = (on: boolean) => {
+      const from = view.camera as THREE.OrthographicCamera | THREE.PerspectiveCamera;
+      const to = on ? ortho : persp;
+      to.position.copy(from.position);
+      to.quaternion.copy(from.quaternion);
+      view.camera = view.controls.object = to;
+      projection.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 0) === on));
+      this.renderView(view);
+    };
+    projection.append(button('Ortho', 'Orthographic', () => pick(true)), button('Persp', 'Perspective', () => pick(false)));
+    projection.firstElementChild!.classList.add('on');
+    const bar = Object.assign(document.createElement('div'), { className: 'view-bar' });
+    bar.append(
+      side,
+      projection,
+      button('⇄', 'Edit here: this view and the main one swap cameras', () => this.swapView(view)),
+      button('×', 'Close this view', () => {
+        this.views = this.views.filter((v) => v !== view);
+        view.controls.dispose();
+        renderer.dispose();
+        el.remove();
+      }),
+    );
+    el.append(bar, renderer.domElement);
+    strip.append(el);
+    this.views.push(view);
+    this.aimView(view, kind, look);
+  }
+
+  /** A view looking from `kind`'s side (see `addView`) at everything shown, fitted. */
+  private aimView(view: Viewer['views'][number], kind: ViewKind, look?: { n: THREE.Vector3; at: THREE.Vector3 }) {
+    const box = this.allBox();
+    const centre = look?.at ?? (box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3()));
+    const size = box.isEmpty() ? 200 : box.getSize(new THREE.Vector3()).length();
+    const from = { '3d': [1, -1, 0.8], top: [0, -1e-3, 1], bottom: [0, -1e-3, -1], front: [0, -1, 0], back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0], face: look?.n.toArray() ?? [0, 0, 1] }[kind] as Vec3;
+    const dir = new THREE.Vector3(...from).normalize();
+    view.height = size * 1.1;
+    view.ortho.zoom = 1;
+    view.controls.target.copy(centre);
+    for (const c of [view.ortho, view.persp]) c.position.copy(centre).addScaledVector(dir, size * 1.6);
+    view.controls.update();
+    this.renderView(view);
+  }
+
+  /** This view and `view` swap cameras: editing goes on from that angle here. */
+  private swapView(view: Viewer['views'][number]) {
+    const here = this.cameraState();
+    const cam = view.camera as THREE.OrthographicCamera | THREE.PerspectiveCamera;
+    const ortho = cam === view.ortho;
+    this.setCameraState({ ...here, ortho, position: cam.position.toArray(), target: view.controls.target.toArray(), height: view.height / view.ortho.zoom });
+    // the view takes the main camera
+    view.camera = view.controls.object = here.ortho ? view.ortho : view.persp;
+    view.el.querySelectorAll('.segmented button').forEach((b, i) => b.classList.toggle('on', (i === 0) === here.ortho));
+    view.el.querySelector('select')!.value = '3d'; // the main camera: free
+    (view.camera as THREE.Camera).position.set(...here.position);
+    view.controls.target.set(...here.target);
+    view.height = here.height;
+    view.ortho.zoom = 1;
+    view.controls.update();
+    this.renderView(view);
+  }
+
+  /** Draws an extra view at its size now. */
+  private renderView(view: Viewer['views'][number]) {
+    const canvas = view.renderer.domElement;
+    const [w, h] = [canvas.parentElement!.clientWidth, canvas.parentElement!.clientHeight - (view.el.querySelector('.view-bar') as HTMLElement).offsetHeight];
+    if (!w || !h) return;
+    if (canvas.width !== Math.round(w * view.renderer.getPixelRatio()) || canvas.height !== Math.round(h * view.renderer.getPixelRatio())) view.renderer.setSize(w, h);
+    const aspect = w / h;
+    Object.assign(view.ortho, { left: (-view.height / 2) * aspect, right: (view.height / 2) * aspect, top: view.height / 2, bottom: -view.height / 2 });
+    view.ortho.updateProjectionMatrix();
+    view.persp.aspect = aspect;
+    view.persp.updateProjectionMatrix();
+    view.renderer.render(this.scene, view.camera);
   }
 
   /** A projection chosen by hand stays when leaving a cube side. */
