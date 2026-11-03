@@ -1043,12 +1043,26 @@ input.rename {
   border-radius: 3px;
   vertical-align: -1px;
 }
-input.color {
-  width: 30px;
-  min-width: 30px;
+/* every colour field: a small pill, 3 : 1, as high as an input field */
+input.color,
+.row > input.color {
+  flex: none;
+  width: 75px;
+  min-width: 75px;
+  height: 25px;
   padding: 0;
-  border: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
   background: none;
+  cursor: pointer;
+}
+input.color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input.color::-webkit-color-swatch {
+  border: none;
+  border-radius: 999px;
 }
 
 .listed .tool {
@@ -1212,10 +1226,6 @@ button.primary {
   display: flex;
   gap: 2px;
   margin-left: auto;
-}
-.backdrop-pick .color {
-  width: 22px;
-  height: 22px;
 }
 button.primary.wide {
   width: 100%;
@@ -1563,14 +1573,8 @@ button.primary.wide {
   max-height: 60vh;
   overflow: auto;
 }
-.settings .hotkeys .keys {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
 .settings .hotkeys .key {
   display: inline-flex;
-  align-items: center;
 }
 .settings .key-rec {
   width: 7em;
@@ -1582,11 +1586,25 @@ button.primary.wide {
 .settings .key-rec.on {
   border-color: #ff8c1a;
 }
-.settings .hotkeys .drop {
-  padding: 0 4px;
-  border: none;
-  background: none;
-  color: var(--muted);
+/* a key's fields, its × and the + in one line; both buttons simple and square, as high as a field */
+.settings .hotkeys .keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 4px;
+}
+.settings .hotkeys .key {
+  gap: 2px;
+  align-items: stretch;
+}
+.settings .hotkeys .drop,
+.settings .hotkeys .add {
+  outline: none;
+  flex: none;
+  aspect-ratio: 1;
+  padding: 0;
+  min-width: 26px;
+  line-height: 1;
 }
 .settings .hotkeys .warn {
   color: var(--error);
@@ -1759,11 +1777,21 @@ button.icon.tool-op {
   stroke-width: 1.6;
 }
 
-/* measurements of the selection, at the bottom of the right column */
+/* measurements of the selection: stays at the bottom of the right column, what is above scrolls */
+#right {
+  display: flex;
+  flex-direction: column;
+}
+#right > * {
+  flex: none;
+}
 #right .info {
-  margin-top: 16px;
-  padding-top: 8px;
+  position: sticky;
+  bottom: -8px; /* over the column's padding */
+  margin: auto -10px -8px;
+  padding: 8px 10px;
   border-top: 1px solid var(--line);
+  background: var(--panel);
 }
 #right .info h3 {
   margin-top: 0;

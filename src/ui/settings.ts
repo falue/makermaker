@@ -204,7 +204,17 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
                     'div',
                     { className: 'keys' },
                     ...combos.map((c, i) => make('span', { className: 'key' }, recorder(action, i, comboText(c)), make('button', { className: 'drop', textContent: '×', title: 'Drop this key', onclick: () => (setKeys(action, combos.filter((_, j) => j !== i)), draw()) }))),
-                    recorder(action, combos.length, '+'),
+                    make('button', {
+                      className: 'add',
+                      textContent: '+',
+                      title: 'Add a key: click, then press it',
+                      onclick: (e: Event) => {
+                        const field = recorder(action, combos.length, '');
+                        field.onblur = () => draw(); // none pressed: the + comes back
+                        (e.target as HTMLElement).replaceWith(field);
+                        field.focus();
+                      },
+                    }),
                   ),
                   ...(warn.length ? [make('div', { className: 'warn' }, `Also: ${[...new Set(warn)].join(', ')}`)] : []),
                 ),
