@@ -1,7 +1,7 @@
 import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
 import { fitting, THREADS } from '../doc/threads';
 import { getIn, setIn } from '../doc/resolve';
-import { lookOf, setLook, STANDARD_MATERIALS } from '../doc/materials';
+import { lookOf, setLook, STANDARD_SECTIONS } from '../doc/materials';
 import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
@@ -1009,14 +1009,11 @@ function materialRows(ctx: UIContext, ids: string[], inherited: string): Node[] 
   const { doc } = ctx;
   const objects = [...doc.bodies, ...doc.groups].filter((x) => ids.includes(x.id));
   const same = objects.every((x) => x.material === objects[0]?.material) ? objects[0]?.material : undefined;
-  const list = select(same ?? '', {
-    '': inherited,
-    ...Object.fromEntries([...STANDARD_MATERIALS, ...doc.materials].map((m) => [m.id, m.name])),
-    new: '+ New…',
-  } as Record<string, string>, (id) => {
-    if (id === 'new') return ctx.openMaterials(true);
-    ctx.setMaterialOf(ids, id || undefined);
-  });
+  const option = (value: string, text: string) => h('option', { value, textContent: text, selected: value === (same ?? '') });
+  const chapter = (label: string, materials: Material[]) => (materials.length ? [h('optgroup', { label }, ...materials.map((m) => option(m.id, m.name)))] : []);
+  // the same chapters, in the same order, as the materials dialog
+  const list = h('select', { title: 'Its material' }, option('', inherited), ...chapter('In this file', doc.materials), ...STANDARD_SECTIONS.flatMap(([name, materials]) => chapter(name, materials)), option('new', '+ New…'));
+  list.onchange = () => (list.value === 'new' ? ctx.openMaterials(true) : ctx.setMaterialOf(ids, list.value || undefined));
   return [h('h3', {}, 'Material'), h('div', { className: 'row' }, list, button('Edit…', () => ctx.openMaterials(), 'The materials dialog: pick one, change the look of this object, or edit the materials of the file'))];
 }
 

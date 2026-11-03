@@ -36,12 +36,15 @@ export const STANDARD_SECTIONS: [string, Material[]][] = [
   [
     'Standard',
     [
-      standard('metal', 'Metal', '#c9ccd1', { bump: 0.15, reflection: 1 }),
+      standard('steel', 'Steel', '#565b61', { bump: 0.15, reflection: 1 }),
+      standard('bronze', 'Bronze', '#8c6239', { bump: 0.15, reflection: 1 }),
+      standard('brass', 'Brass', '#b5a13f', { bump: 0.15, reflection: 1 }),
       standard('white', 'Plastic, white', '#f2f2ee', { bump: 0.2 }),
       standard('red', 'Plastic, red', '#c8322d', { bump: 0.2 }),
       standard('yellow', 'Plastic, yellow', '#e8b818', { bump: 0.2 }),
       standard('black', 'Plastic, black', '#1c1c1e', { bump: 0.2 }),
       standard('dark-grey', 'Plastic, dark grey', '#3a3b3e', { bump: 0.2 }),
+      standard('pom-black', 'POM-C black', '#17171a', { bump: 0.05 }), // roughness 0.1: 90% shiny
       standard('wood', 'Wood', '#a9773f', { bump: 0.65 }),
     ],
   ],

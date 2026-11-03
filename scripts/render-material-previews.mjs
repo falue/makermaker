@@ -1,5 +1,5 @@
 // Renders the pictures of the standard materials into src/ui/material-previews (they are committed).
-// With `npm run dev` running on port 5173: npx -p playwright node scripts/render-material-previews.mjs
+// With `npm run dev` running on port 5173: npx -p playwright node scripts/render-material-previews.mjs [url] [ids, by commas]
 import { writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 
@@ -8,7 +8,7 @@ const page = await browser.newPage();
 const url = process.argv[2] ?? 'http://localhost:5173/';
 await page.goto(url);
 await page.waitForTimeout(5000);
-const ids = await page.evaluate(async () => (await import('/src/doc/materials.ts')).STANDARD_MATERIALS.map((m) => m.id));
+const ids = process.argv[3]?.split(',') ?? (await page.evaluate(async () => (await import('/src/doc/materials.ts')).STANDARD_MATERIALS.map((m) => m.id)));
 
 // A fresh page per picture: after a few long ones in a row the graphics context gets lost, and pictures come out black.
 const render = async (id) => {
