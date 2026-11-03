@@ -15,16 +15,41 @@ export function migrate(raw: unknown): Doc {
   return raw as Doc;
 }
 
-/** ZIP with document.json plus one history snapshot per save. */
-export function pack(doc: Doc, versions: Version[]): Uint8Array {
-  const files: Record<string, Uint8Array> = { 'document.json': strToU8(JSON.stringify(doc, null, 2)) };
-  for (const v of versions) files[`history/${v.savedAt}.json`] = strToU8(JSON.stringify(v.doc));
+/**
+ * ZIP with document.json, one history snapshot per save, and blobs/: long texts (imported files, pictures), each stored
+ * once however many versions hold it; `{ $blob: name }` stands in for them. `longFrom`: how long is long, in characters.
+ */
+export function pack(doc: Doc, versions: Version[], longFrom = 1024): Uint8Array {
+  const blobs = new Map<string, string>();
+  const json = (d: Doc, indent?: number) =>
+    JSON.stringify(
+      d,
+      (_, v) => {
+        if (typeof v !== 'string' || v.length < longFrom) return v;
+        if (!blobs.has(v)) blobs.set(v, String(blobs.size));
+        return { $blob: blobs.get(v) };
+      },
+      indent,
+    );
+  const files: Record<string, Uint8Array> = { 'document.json': strToU8(json(doc, 2)) };
+  for (const v of versions) files[`history/${v.savedAt}.json`] = strToU8(json(v.doc));
+  for (const [text, name] of blobs) files[`blobs/${name}`] = strToU8(text);
   return zipSync(files);
 }
 
 export function unpack(bytes: Uint8Array): { doc: Doc; versions: Version[] } {
   const files = unzipSync(bytes);
-  const read = (name: string) => migrate(JSON.parse(strFromU8(files[name])));
+  // one string per blob: versions in memory share them too
+  const blobs = new Map<string, string>();
+  const blob = (name: string) => {
+    if (!blobs.has(name)) {
+      const file = files[`blobs/${name}`];
+      if (!file) throw new Error(`damaged design file: blobs/${name} missing`);
+      blobs.set(name, strFromU8(file));
+    }
+    return blobs.get(name)!;
+  };
+  const read = (name: string) => migrate(JSON.parse(strFromU8(files[name]), (_, v) => (typeof v?.$blob === 'string' ? blob(v.$blob) : v)));
   if (!files['document.json']) throw new Error('not a design file: document.json missing');
   const versions = Object.keys(files)
     .filter((k) => k.startsWith('history/'))

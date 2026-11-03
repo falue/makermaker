@@ -20,7 +20,7 @@ Chromium-based browsers only.
 - `src/kernel` – Replicad/OpenCascade build of bodies, runs in a Web Worker
 - `src/viewer` – three.js viewport
 - `src/ui` – panels
-- `src/io` – `.mmk` design file (ZIP: `document.json` + `history/`), file access
+- `src/io` – `.mmk` design file (ZIP: `document.json`, `history/`, and `blobs/`: long texts such as imported files and pictures, each stored once), file access
 - `public/sw.js` – offline cache
 
 ## Status
