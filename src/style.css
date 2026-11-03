@@ -146,6 +146,12 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding-right: 0; /* its lists keep it inside, for their scrollbars to sit on */
+}
+#left > :not(.list-section),
+.list-section > :first-child,
+.list-body {
+  padding-right: 10px;
 }
 .list-section {
   display: flex;
