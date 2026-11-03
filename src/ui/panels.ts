@@ -6,11 +6,11 @@ import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
-import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, Profile, Unit } from '../doc/types';
+import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, Unit } from '../doc/types';
 import type { Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml } from './axes';
-import { lightRows } from './light';
+import { BUILT_IN_PHOTOS } from './photospheres';
 import { icon, tool, type IconName } from './icons';
 import { MAC, mod, pressed, role, toggles } from './keys';
 
@@ -170,6 +170,10 @@ export interface UIContext {
   /** Snapshot: downloads the view as a PNG (and keeps it in the renders). */
   renderImage(): void;
   openSettings(): void;
+  /** Settings at the light of renders. */
+  openRenderLight(): void;
+  /** The photo spheres of this document and of this browser. */
+  photos(): PhotoSphere[];
   /** Nice renders: the panel (open: it replaces the right column), this session's jobs, and what can be done. */
   renders: {
     open: boolean;
@@ -423,8 +427,8 @@ function select<T extends string>(value: T, options: Record<T, string>, onChange
 }
 
 /** Whether T pressed in `input` means To object: not in the middle of a name, nor where a parameter starting with t could begin. */
-export function wantsT(e: KeyboardEvent, input: HTMLInputElement, params: Record<string, unknown>) {
-  if (!pressed(e, 'toObject')) return false;
+export function wantsT(e: KeyboardEvent, input: HTMLInputElement, params: Record<string, unknown>, action: 'toObject' | 'measureValue' = 'toObject') {
+  if (!pressed(e, action)) return false;
   const before = input.value.slice(0, input.selectionStart ?? 0);
   const word = before.match(/[A-Za-z_]\w*$/)?.[0];
   const name = !/[\w.]$/.test(before) && Object.keys(params).some((p) => p.startsWith(e.key));
@@ -436,7 +440,7 @@ export function toObjectButton(onclick: () => void, title: string, measure?: () 
   const target = h('button', { className: 'to-object', innerHTML: icon('target'), title: `T: to object · ${title}`, onclick });
   if (!measure) return target;
   // keeps the focus in the field the value goes to
-  const measuring = h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'Space: Measure · its Use puts the value measured in this field', onmousedown: (e: Event) => e.preventDefault(), onclick: measure });
+  const measuring = h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'G: Measure · its Use puts the value measured in this field', onmousedown: (e: Event) => e.preventDefault(), onclick: measure });
   return h('span', { className: 'to-tools' }, target, measuring);
 }
 
@@ -942,21 +946,15 @@ function rendersPanel(ctx: UIContext): Node[] {
       button('Use view', () => renders.useView(shot.id), 'Turn the 3D view to this camera'),
       button('×', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) }), 'Delete this render'),
     ];
-    // its photo sphere and light, for the next render of this view
-    const photos = doc.photos.length
-      ? [
-          h('div', { className: 'row' }, h('span', {}, 'Photo'), select(shot.background.photo?.id ?? '', { '': 'None', ...Object.fromEntries(doc.photos.map((p) => [p.id, p.name])) }, (id) => {
-            const { photo: _, ...rest } = shot.background;
-            ctx.commit(setIn(doc, ['renders', String(i), 'background'], id ? { ...rest, photo: { id, turn: shot.background.photo?.turn ?? 0 } } : rest));
-          })),
-          ...(shot.background.photo ? [h('div', { className: 'row light' }, h('span', {}, 'Turn'), turnSlider(ctx, i, shot.background.photo.turn))] : []),
-        ]
-      : [];
-    const light = h('details', { className: 'shot-light', open: lightOpen.has(shot.id), ontoggle: (e: Event) => void ((e.target as HTMLDetailsElement).open ? lightOpen.add(shot.id) : lightOpen.delete(shot.id)) },
-      h('summary', {}, 'Light and photo'),
-      ...photos,
-      ...lightRows(shot.light, (next, live) => ctx.setValue(['renders', String(i), 'light'], next, live)),
-    );
+    // its photo sphere, for the next render of this view
+    const spheres = [...BUILT_IN_PHOTOS, ...ctx.photos()];
+    const photos = [
+      h('div', { className: 'row' }, h('span', {}, 'Photo'), select(shot.background.photo?.id ?? '', { '': 'None', ...Object.fromEntries(spheres.map((p) => [p.id, p.name])) }, (id) => {
+        const { photo: _, ...rest } = shot.background;
+        ctx.commit(setIn(doc, ['renders', String(i), 'background'], id ? { ...rest, photo: { id, turn: shot.background.photo?.turn ?? 0 } } : rest));
+      })),
+      ...(shot.background.photo ? [h('div', { className: 'row light' }, h('span', {}, 'Turn'), turnSlider(ctx, i, shot.background.photo.turn))] : []),
+    ];
     // its background, for the next render of this view: picking a colour makes it two colours (the ends of its stops)
     const stops = shot.background.stops;
     const ends = { top: stops[0].color, bottom: stops[stops.length - 1].color };
@@ -981,20 +979,18 @@ function rendersPanel(ctx: UIContext): Node[] {
         h('strong', {}, state),
         h('span', { className: 'backdrop-pick', title: 'Background of the next render of this view: above and below the horizon (the same twice: solid)' }, colour('top', 'Above the horizon'), colour('bottom', 'Below')),
       ),
-      light,
+      ...photos,
+      h('div', { className: 'row actions' }, button('Light setting', ctx.openRenderLight, 'The light every render takes: Settings, Light, Rendering')),
       h('div', { className: 'row actions' }, ...actions),
     );
   });
   return [
     h('div', { className: 'head' }, h('h3', {}, 'Renders'), button('×', renders.toggle, 'Close the renders')),
     h('button', { className: 'primary wide', onclick: renders.shoot, title: 'Render the view as it is now; renders queue up' }, 'Render this view'),
-    h('p', { className: 'hint' }, 'Each render keeps its camera and background (new ones take the background of the settings): Render again renders the same view with the model as it is now and saves itself. Snapshots land here too. Full pictures stay until the page reloads; small copies are saved in the file.'),
+    h('p', { className: 'hint' }, 'Each render keeps its camera and background (new ones take the background of the settings), its light comes from Settings, Light, Rendering: Render again renders the same view with the model as it is now and saves itself. Snapshots land here too. Full pictures stay until the page reloads; small copies are saved in the file.'),
     ...shots,
   ];
 }
-
-/** Renders whose light section is open (stays across the panel's rebuilds). */
-const lightOpen = new Set<string>();
 
 /** How far a render's photo sphere is turned, degrees. */
 function turnSlider(ctx: UIContext, i: number, turn: number) {

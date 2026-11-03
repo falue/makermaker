@@ -21,7 +21,7 @@ import { marks } from './marks';
 import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayout } from './viewlayout';
 import { fastRaycast } from './pick';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { DEFAULT_LIGHT, plainLook, sunDirection, toLook, type Look } from '../doc/materials';
+import { DEFAULT_LIGHT, lightDirections, plainLook, toLook, type Look } from '../doc/materials';
 import { applyLook, boxUv, needsUv, renderMaterial } from './look';
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
@@ -558,7 +558,7 @@ export class Viewer implements ToolView {
     el.append(canvas, this.viewCube(), this.cameraControls(), this.crumbs, this.moveLabel);
 
     this.setLight(DEFAULT_LIGHT);
-    this.scene.add(this.ambient, this.sun, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.aimMark, this.cutMark, this.axisMark, this.ticks, this.workMark);
+    this.scene.add(this.ambient, this.sun, this.lamp, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.aimMark, this.cutMark, this.axisMark, this.ticks, this.workMark);
     // grid first, then the origin lines over it; neither hides bodies
     this.applyTheme();
     this.dark.addEventListener('change', this.applyTheme);
@@ -2067,7 +2067,7 @@ export class Viewer implements ToolView {
   }
 
   /** A path traced picture (`samples` passes) from a saved camera: shown bodies only, cutters and overlays left out. */
-  async renderNice(camera: CameraState, background: Backdrop, light: Light, samples: number, watch: RenderWatch) {
+  async renderNice(camera: CameraState, background: Backdrop, light: Light, haze: { haze: number; fog: number }, samples: number, watch: RenderWatch) {
     const meshes: THREE.Mesh[] = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children[0] as THREE.Mesh | undefined;
       if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];
@@ -2085,7 +2085,7 @@ export class Viewer implements ToolView {
     }
     const url = background.photo && this.photos.get(background.photo.id);
     const photo = url ? { image: await loadImage(url), turn: background.photo!.turn } : null;
-    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, light, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
+    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, light, haze, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
   }
 
   /** The camera's tilt and half field of view (ortho: as the perspective camera would see it), for the sky. */
@@ -2148,9 +2148,21 @@ export class Viewer implements ToolView {
     this.photo = null;
   }
 
-  /** The sun and the light from all around in the view. */
+  /** The lights that go by the camera, where it is now. */
+  private aimLights() {
+    const toCamera = this.camera.position.clone().sub(this.controls.target).normalize().toArray();
+    const { sun, camera } = lightDirections(this.lightNow, toCamera);
+    this.sun.position.set(...sun);
+    this.lamp.position.set(...camera);
+  }
+  private lightNow = DEFAULT_LIGHT;
+  private lamp = new THREE.DirectionalLight();
+
+  /** The sun, the light from all around and the camera's light in the view. */
   setLight(l: Light) {
-    this.sun.position.set(...sunDirection(l));
+    this.lightNow = l;
+    this.aimLights();
+    this.lamp.intensity = l.cameraOn ? l.cameraLight : 0;
     this.sun.color.set(l.sunColor);
     this.sun.intensity = l.sun;
     this.ambient.color.set(l.ambientColor);
@@ -2237,6 +2249,7 @@ export class Viewer implements ToolView {
       this.frame = 0;
       this.placeWheel();
       this.drawSky();
+      if (this.lightNow.followCamera || this.lightNow.cameraOn) this.aimLights();
       this.scaleDashes();
       this.drawCrossings();
       this.drawGrips();

@@ -15,7 +15,8 @@ import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { readStep, stepObjects } from './io/step';
-import { changeLook, dropMaterial, lookOf, newMaterialFor, plainLook, setLook } from './doc/materials';
+import { changeLook, dropMaterial, effectiveLight, lookOf, newMaterialFor, plainLook, setLook } from './doc/materials';
+import { dropPhoto, keepPhoto, loadPhotos } from './ui/photolibrary';
 import { fromMtlx, toMtlx } from './io/materials';
 import { openMaterials } from './ui/materials';
 import { ex, newId, sampleDoc, unturned } from './doc/sample';
@@ -357,7 +358,7 @@ function applySettings() {
   SketchTool.guideMs = settings.guideMs;
   viewer.setAO(settings.ao);
   viewer.setBackdrop(settings.background);
-  viewer.setLight(settings.light);
+  viewer.setLight(effectiveLight(settings.light));
 }
 applySettings();
 
@@ -609,7 +610,7 @@ function update() {
       b.visible && !hideAll.objects && shownIn(b.group) ? (resolvedOf.get(b.id) ?? []).flatMap((f) => (f.type === 'sphere' ? [{ center: new Vector3(...inWorld(bodyPlace(b.id), [f.x, f.y, f.z])), r: f.d / 2, body: b.id }] : [])) : [],
     ),
   );
-  viewer.setPhotos([...BUILT_IN_PHOTOS, ...doc.photos]);
+  viewer.setPhotos([...BUILT_IN_PHOTOS, ...allPhotos()]);
   viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));
   viewer.select(contents(doc, selected), groupKept(doc));
   viewer.setSketches(shown, activeSketch(), shapeSel);
@@ -4618,9 +4619,48 @@ function materialsDialog(fresh = false) {
       notify(`Imported ${fresh.length} new material${fresh.length === 1 ? '' : 's'} from ${f.name}`);
     },
     exportFile: () => download(new Blob([toMtlx(history.current.materials)], { type: 'application/xml' }), `${project()}_materials.mtlx`),
-    light: () => settings.light,
+    light: renderLight,
   });
 }
+
+/** The photo spheres added in this browser, for every design (see `photolibrary`). */
+let library: PhotoSphere[] = [];
+void loadPhotos().then((photos) => {
+  library = photos;
+  update();
+});
+/** Those of this document and of this browser. */
+const allPhotos = () => [...history.current.photos, ...library.filter((p) => !history.current.photos.some((x) => x.id === p.id))];
+
+function settingsDialog(start?: 'light-render') {
+  openSettings(
+    settings,
+    (next) => {
+      const remesh = next.meshDetail !== settings.meshDetail;
+      settings = next;
+      applySettings();
+      if (remesh) {
+        kernel.setTolerance(next.meshDetail);
+        update();
+      }
+    },
+    {
+      units: () => history.current.units,
+      setUnits: (units) => commit({ ...history.current, units }),
+      photos: allPhotos,
+      addPhoto,
+      removePhoto(id) {
+        library = library.filter((p) => p.id !== id);
+        void dropPhoto(id);
+        commit({ ...history.current, photos: history.current.photos.filter((p) => p.id !== id) });
+      },
+    },
+    start,
+  );
+}
+
+/** The light renders take. */
+const renderLight = () => effectiveLight(settings.renderLight.same ? settings.light : settings.renderLight);
 
 /** Keeps a photo sphere in the document, its long side at most 4096 px (it travels with every saved version). */
 async function addPhoto(file: File) {
@@ -4632,6 +4672,8 @@ async function addPhoto(file: File) {
   bitmap.close();
   const photo: PhotoSphere = { id: newId(), name: file.name.replace(/\.[^.]*$/, ''), data: canvas.toDataURL('image/jpeg', 0.85) };
   commit({ ...history.current, photos: [...history.current.photos, photo] });
+  library = [...library, photo];
+  await keepPhoto(photo);
   return photo.id;
 }
 
@@ -4982,30 +5024,13 @@ function render() {
       },
     },
     renderImage: () => run(snapshot),
-    openSettings: () =>
-      openSettings(
-        settings,
-        (next) => {
-          const remesh = next.meshDetail !== settings.meshDetail;
-          settings = next;
-          applySettings();
-          if (remesh) {
-            kernel.setTolerance(next.meshDetail);
-            update();
-          }
-        },
-        {
-          units: () => history.current.units,
-          setUnits: (units) => commit({ ...history.current, units }),
-          photos: () => history.current.photos,
-          addPhoto,
-          removePhoto: (id) => commit({ ...history.current, photos: history.current.photos.filter((p) => p.id !== id) }),
-        },
-      ),
+    openSettings: () => settingsDialog(),
+    openRenderLight: () => settingsDialog('light-render'),
+    photos: allPhotos,
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 30, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 31, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -5162,9 +5187,11 @@ const dataUrl = (blob: Blob) =>
  * rendered again with newer model data), and a small picture taken at once. Returns its id.
  */
 async function newShot(results: RenderShot['results'] = []) {
-  const shot: RenderShot = { id: newId(), at: new Date().toISOString(), camera: viewer.cameraState(), background: viewer.backdropColours(), light: settings.light, thumbnail: await dataUrl(await viewer.thumbnail()), results };
+  const shot: RenderShot = { id: newId(), at: new Date().toISOString(), camera: viewer.cameraState(), background: viewer.backdropColours(), thumbnail: await dataUrl(await viewer.thumbnail()), results };
   const doc = history.current;
-  commit({ ...doc, renders: [shot, ...doc.renders] });
+  // a photo sphere of this browser goes with the render into the file
+  const from = library.find((p) => p.id === shot.background.photo?.id);
+  commit({ ...doc, photos: from && !doc.photos.some((p) => p.id === from.id) ? [...doc.photos, from] : doc.photos, renders: [shot, ...doc.renders] });
   return shot.id;
 }
 
@@ -5203,7 +5230,7 @@ async function renderQueue() {
       render();
       let shown = -1;
       try {
-        const image = await viewer.renderNice(shot.camera, shot.background, shot.light, 256, {
+        const image = await viewer.renderNice(shot.camera, shot.background, renderLight(), settings.renderLight, 256, {
           show: (canvas) => ((job.canvas = canvas), render()),
           progress(done) {
             job.done = done;
@@ -5315,7 +5342,7 @@ function importStep(name: string, data: string) {
 }
 
 const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
-/** A field's value measured instead of typed (Space, or the button by To object): goes in at the cursor. */
+/** A field's value measured instead of typed (G, or the button by To object): goes in at the cursor. */
 function measureInto(field: HTMLInputElement) {
   const hintBefore = toolHint;
   measureTool((mm) => {
@@ -5334,13 +5361,12 @@ addEventListener('focusin', (e) => {
 });
 const measureField = () => lastField?.isConnected && measureInto(lastField);
 
-// Space in a value field that is empty or all selected (else a space may be meant): measure it
+// G in a value field, where T would work (not in the middle of a name, nor where a parameter could begin): measure it
 addEventListener(
   'keydown',
   (e) => {
     const field = e.target;
-    if (!(field instanceof HTMLInputElement) || !pressed(e, 'measureValue') || field.dataset.noMeasure !== undefined || !('complete' in field.dataset)) return;
-    if (field.value && (field.selectionStart !== 0 || field.selectionEnd !== field.value.length)) return;
+    if (!(field instanceof HTMLInputElement) || field.dataset.noMeasure !== undefined || !('complete' in field.dataset) || !wantsT(e, field, history.current.params, 'measureValue')) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     measureInto(field);

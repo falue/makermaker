@@ -12,7 +12,16 @@ export interface Look {
   overlay?: MaterialLook['overlay'];
 }
 
-export const DEFAULT_LIGHT: Light = { sunHeight: 53, sunAround: -63, sun: 2, sunColor: '#ffffff', ambient: 2, ambientColor: '#ffffff' };
+export const DEFAULT_LIGHT: Light = { sunHeight: 53, sunAround: -63, sun: 2, sunColor: '#ffffff', ambient: 2, ambientColor: '#ffffff', followCamera: false, cameraOn: false, cameraLight: 1, standard: false };
+
+/** A light as it works: the standard one if it is set to that. */
+export const effectiveLight = (l: Light): Light => (l.standard ? DEFAULT_LIGHT : l);
+
+/** Directions (unit) to the sun and to the camera, `toCamera` being from what it looks at to it. */
+export function lightDirections(l: Light, toCamera: [number, number, number]) {
+  const around = (Math.atan2(toCamera[1], toCamera[0]) * 180) / Math.PI + 45;
+  return { sun: sunDirection(l.followCamera ? { ...l, sunAround: around } : l), camera: toCamera };
+}
 
 /** Mirror to matte over the slider's first half, matte to bumpy over the second. */
 export const toLook = (m: MaterialLook): Look => ({

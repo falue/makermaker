@@ -1335,6 +1335,14 @@ button.primary.wide {
   gap: 6px;
   margin-top: 10px;
 }
+.settings .segmented {
+  display: inline-flex;
+  margin-bottom: 10px;
+}
+.settings .segmented button.on {
+  background: var(--accent);
+  color: var(--accent-text);
+}
 .mat-compare {
   position: relative;
   aspect-ratio: 4 / 3;

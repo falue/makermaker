@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { assignMaterial, changeLook, dropMaterial, findMaterial, lookOf, newMaterialFor, plainLook, setLook, STANDARD_MATERIALS, sunDirection, toLook, DEFAULT_LIGHT } from './materials';
+import { assignMaterial, changeLook, dropMaterial, findMaterial, lookOf, newMaterialFor, plainLook, setLook, STANDARD_MATERIALS, sunDirection, toLook, DEFAULT_LIGHT, effectiveLight, lightDirections } from './materials';
 import type { Body, Doc, Group, Material } from './types';
 
 const material = (id: string): Material => ({ ...plainLook('#112233'), id, name: id, bump: 0.75, translucency: 0.25, glow: '#ff0000', glowStrength: 0.5 });
@@ -79,6 +79,19 @@ it('dropping a material clears what used it', () => {
   expect(d.materials.map((m) => m.id)).toEqual(['b']);
   expect(d.groups[0].material).toBeUndefined();
   expect(d.bodies.map((b) => b.material)).toEqual([undefined, 'b']);
+});
+
+it('a sun that follows the camera stands behind it, 45° to its side, at its own height', () => {
+  const { sun } = lightDirections({ ...DEFAULT_LIGHT, followCamera: true, sunHeight: 0 }, [1, 0, 0]);
+  expect(sun[0]).toBeCloseTo(Math.SQRT1_2);
+  expect(sun[1]).toBeCloseTo(Math.SQRT1_2);
+  expect(sun[2]).toBeCloseTo(0);
+  expect(lightDirections({ ...DEFAULT_LIGHT, sunAround: 0, sunHeight: 0 }, [0, 1, 0]).sun[0]).toBeCloseTo(1);
+});
+
+it('a standard light leaves its own values aside', () => {
+  expect(effectiveLight({ ...DEFAULT_LIGHT, sun: 7, standard: true }).sun).toBe(DEFAULT_LIGHT.sun);
+  expect(effectiveLight({ ...DEFAULT_LIGHT, sun: 7 }).sun).toBe(7);
 });
 
 it('the sun stands where its angles say', () => {

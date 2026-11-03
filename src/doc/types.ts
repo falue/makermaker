@@ -297,7 +297,11 @@ export interface Material extends MaterialLook {
   name: string;
 }
 
-/** The sun (degrees above the horizon and around Z from +X; three's light intensity) and the light from all around. */
+/**
+ * The sun (degrees above the horizon and around Z from +X; three's light intensity) and the light from all around.
+ * `followCamera`: the sun stays behind the camera, 45° to its side, `sunAround` unused. `cameraOn`: a light from the
+ * camera too, `cameraLight` strong. `standard`: all this is left aside for `DEFAULT_LIGHT`.
+ */
 export interface Light {
   sunHeight: number;
   sunAround: number;
@@ -305,6 +309,10 @@ export interface Light {
   sunColor: string;
   ambient: number;
   ambientColor: string;
+  followCamera: boolean;
+  cameraOn: boolean;
+  cameraLight: number;
+  standard: boolean;
 }
 
 /** A picture of all around (equirectangular, about 2:1), as a data URL. */
@@ -339,13 +347,12 @@ export interface Backdrop {
   photo?: { id: string; turn: number };
 }
 
-/** A nice render: when, from where, on which background, in which light, and a small picture taken when it was asked for. */
+/** A nice render: when, from where, on which background, and a small picture taken when it was asked for. */
 export interface RenderShot {
   id: string;
   at: string;
   camera: CameraState;
   background: Backdrop;
-  light: Light;
   /** PNG data URL, about 320 px wide. */
   thumbnail: string;
   /** Small data URLs of its pictures, newest first (rendered again: the older ones stay below); `nice`: path traced, else a snapshot. */
@@ -415,7 +422,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 30;
+  schema: 31;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

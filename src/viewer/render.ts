@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { sunDirection } from '../doc/materials';
+import { lightDirections } from '../doc/materials';
 import type { Backdrop, CameraState, Light } from '../doc/types';
 import { photoEnvironment, photoPass, photoTexture } from './photo';
 import { drawSky } from './sky';
@@ -34,9 +34,9 @@ export interface RenderWatch {
  * `photoPass` shows it); a solid background gets a floor of its colour that catches the shadows. The path tracer
  * loads on first use.
  */
-export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: Backdrop, light: Light, photo: { image: HTMLImageElement; turn: number } | null, tanHalf: number, samples: number, watch: RenderWatch, slowMs = 120) {
+export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: Backdrop, light: Light, { haze = 0, fog = 0 }: { haze?: number; fog?: number }, photo: { image: HTMLImageElement; turn: number } | null, tanHalf: number, samples: number, watch: RenderWatch, slowMs = 120) {
   if (!meshes.length) throw new Error('Nothing to render: no body is shown');
-  const { WebGLPathTracer, GradientEquirectTexture } = await import('three-gpu-pathtracer');
+  const { WebGLPathTracer, GradientEquirectTexture, FogVolumeMaterial } = await import('three-gpu-pathtracer');
   const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, alpha: true });
   renderer.setSize(width, height, false);
   renderer.toneMapping = THREE.NeutralToneMapping; // keeps the background colour close to what was picked
@@ -63,9 +63,26 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   scene.background = null; // transparent: the background is laid under it at the end
   scene.environment = sky;
   scene.environmentIntensity = light.ambient / Math.PI; // three's ambient light of that strength
+  const toCamera = camera.getWorldDirection(new THREE.Vector3()).negate().toArray();
+  const aim = lightDirections(light, toCamera);
   const sun = new THREE.DirectionalLight(light.sunColor, light.sun);
-  sun.position.set(...sunDirection(light));
+  sun.position.set(...aim.sun);
   model.add(sun);
+  if (light.cameraOn) {
+    const lamp = new THREE.DirectionalLight(0xffffff, light.cameraLight);
+    lamp.position.set(...aim.camera);
+    model.add(lamp);
+  }
+  const hazeColour = new THREE.Color(light.ambientColor).lerp(new THREE.Color(0xc9ced6), 0.5);
+  // the real fog: a box of it around everything, at full about 2/3 of the light gone across the model's size
+  const size = box.getSize(new THREE.Vector3()).length();
+  const fogMaterial = fog > 0 ? new FogVolumeMaterial({ color: hazeColour, density: fog / size }) : null;
+  const fogBox = fogMaterial && new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), fogMaterial);
+  if (fogBox) {
+    fogBox.scale.setScalar(size * 2);
+    fogBox.position.copy(box.getCenter(new THREE.Vector3()));
+    model.add(fogBox);
+  }
   const view = camera.clone();
   if (view instanceof THREE.OrthographicCamera) {
     // the viewer's ortho camera sees behind itself (negative near); the tracer starts rays at the camera: step back
@@ -94,11 +111,15 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     if (photo) g.drawImage(photoPicture(photo, camera, width, height), 0, 0);
     else drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background);
     g.drawImage(renderer.domElement, 0, 0);
+    if (fogBox) fogBox.visible = false;
+    if (haze > 0) addHaze(g, renderer, scene, view as THREE.PerspectiveCamera | THREE.OrthographicCamera, box, hazeColour, haze);
     return await new Promise<Blob>((done, fail) => out.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));
   } finally {
     tracer.dispose();
     sky.dispose();
     floor.geometry.dispose();
+    fogBox?.geometry.dispose();
+    fogMaterial?.dispose();
     (floor.material as THREE.Material).dispose();
     for (const m of meshes) (m.material as THREE.Material).dispose(); // their geometry belongs to the viewer
     renderer.dispose();
@@ -120,4 +141,44 @@ function photoPicture(photo: { image: HTMLImageElement; turn: number }, camera: 
   renderer.dispose();
   renderer.forceContextLoss();
   return copy;
+}
+
+/** Fades what is far into `colour` over the finished picture, by a depth picture drawn with the same camera. */
+function addHaze(g: CanvasRenderingContext2D, renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, box: THREE.Box3, colour: THREE.Color, amount: number) {
+  const { width, height } = g.canvas;
+  camera.far *= 1000; // the floor reaches far: not cut off, that would show as a band
+  camera.updateProjectionMatrix();
+  const eye = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+  const middle = box.getCenter(new THREE.Vector3()).applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+  const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+  const distance = eye.distanceTo(middle);
+  const [near, far] = [Math.max(0, distance - radius), distance + radius * 3]; // the model in the first third
+  scene.overrideMaterial = new THREE.ShaderMaterial({
+    side: THREE.DoubleSide,
+    vertexShader: 'varying float d; void main() { vec4 v = modelViewMatrix * vec4(position, 1.0); d = -v.z; gl_Position = projectionMatrix * v; }',
+    fragmentShader: `varying float d; void main() { gl_FragColor = vec4(vec3(clamp((d - ${near.toFixed(3)}) / ${(far - near).toFixed(3)}, 0.0, 1.0)), 1.0); }`,
+  });
+  const [mapping, background, environment] = [renderer.toneMapping, scene.background, scene.environment];
+  renderer.toneMapping = THREE.NoToneMapping;
+  scene.background = new THREE.Color(1, 1, 1); // nothing there: as far as it gets
+  scene.environment = null;
+  renderer.render(scene, camera);
+  const depthCanvas = Object.assign(document.createElement('canvas'), { width, height });
+  const depthGraphics = depthCanvas.getContext('2d', { willReadFrequently: true })!;
+  depthGraphics.drawImage(renderer.domElement, 0, 0);
+  (scene.overrideMaterial as THREE.Material).dispose();
+  scene.overrideMaterial = null;
+  [renderer.toneMapping, scene.background, scene.environment] = [mapping, background, environment];
+  const depth = depthGraphics.getImageData(0, 0, width, height).data;
+  const picture = g.getImageData(0, 0, width, height);
+  const { r, g: gr, b } = colour.clone().convertLinearToSRGB().multiplyScalar(255);
+  // nothing at the nearest; at the farthest `amount`, twice over: far things and the sky are all haze at half way
+  const [thick, top] = [amount * 3, Math.min(1, amount * 2) / (1 - Math.exp(-amount * 3))];
+  for (let i = 0; i < picture.data.length; i += 4) {
+    const k = top * (1 - Math.exp((-thick * depth[i]) / 255));
+    picture.data[i] += (r - picture.data[i]) * k;
+    picture.data[i + 1] += (gr - picture.data[i + 1]) * k;
+    picture.data[i + 2] += (b - picture.data[i + 2]) * k;
+  }
+  g.putImageData(picture, 0, 0);
 }

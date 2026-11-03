@@ -605,7 +605,8 @@ export class SketchTool implements Tool {
     const modKey = MAC ? 'Meta' : 'Control';
     // Measure while a size is typed: this tool waits, the value goes in (not a polygon's sides)
     if ((ph.kind === 'shape' && !(this.kind === 'ngon' && ph.axis === 1)) || ph.kind === 'pull') {
-      if (pressed(e, 'measureValue')) {
+      // same key as Fix guide: on a guide, not typing, that one goes first
+      if (pressed(e, 'measureValue') && !(free && guide && pressed(e, 'fixGuide')) && !/[A-Za-z_]$/.test((ph.kind === 'pull' ? ph.typed : ph.typed[ph.axis]) ?? '')) {
         this.measuring = true;
         this.view.unlockPointer();
         this.host.measure(

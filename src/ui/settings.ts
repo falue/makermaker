@@ -20,25 +20,27 @@ export interface Settings {
   jointSeconds: number;
   /** Background of the 3D view and of new renders: the theme's grey, two colours meeting sharply at the horizon, a sky preset (`sky`: its index), or a photo sphere of the open document (`turn`: degrees; another document without it: the grey). */
   background: { mode: 'solid' | 'colours' | 'sky' | 'photo'; top: string; bottom: string; sky: number; photo: string | null; turn: number };
-  /** Sun and ambient light of the 3D view and of new renders. */
+  /** The light of the 3D view. */
   light: Light;
+  /** The light of renders (`same`: the 3D view's instead), and their haze, 0 to 1: fast by depth, and real fog in the path tracer. */
+  renderLight: Light & { same: boolean; haze: number; fog: number };
   /** How far (mm) the 3D view's surfaces may stray from the real ones. */
   meshDetail: number;
 }
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, meshDetail: 0.05 };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, renderLight: { ...DEFAULT_LIGHT, same: true, haze: 0, fog: 0 }, meshDetail: 0.05 };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-  return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background }, light: { ...DEFAULTS.light, ...saved.light } };
+  return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background }, light: { ...DEFAULTS.light, ...saved.light }, renderLight: { ...DEFAULTS.renderLight, ...saved.renderLight } };
 }
 
 /**
  * The settings dialog: changes apply and are saved at once; × or Esc closes it. `doc`: the open document's own
  * settings (its units, shown under General) and its photo spheres.
  */
-export function openSettings(settings: Settings, changed: (next: Settings) => void, doc: { units(): Unit; setUnits(units: Unit): void; photos(): PhotoSphere[]; addPhoto(file: File): Promise<string>; removePhoto(id: string): void }) {
+export function openSettings(settings: Settings, changed: (next: Settings) => void, doc: { units(): Unit; setUnits(units: Unit): void; photos(): PhotoSphere[]; addPhoto(file: File): Promise<string>; removePhoto(id: string): void }, start?: 'light-render') {
   const make = (tag: string, props: object = {}, ...children: (Node | string)[]) => {
     const el = Object.assign(document.createElement(tag), props);
     el.append(...children);
@@ -98,6 +100,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
       make('div', { className: 'row light' }, make('span', {}, 'Turn'), turn),
     ];
   };
+  let lightTab: 'view' | 'render' = start ? 'render' : 'view';
   /** Chapters: the left column lists them, the right shows the open one. */
   const chapters: [string, () => Node[]][] = [
     [
@@ -155,9 +158,50 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
             : []),
           ...(bg.mode === 'photo' ? photoRows() : []),
           ...meshRows(),
-          make('h3', {}, 'Light'),
-          make('p', { className: 'hint' }, 'Of the 3D view, and of new renders (each render keeps its own). In renders a photo sphere lights the model too, instead of the ambient colour.'),
-          ...lightRows(s.light, (light) => set({ ...s, light }, false)),
+        ];
+      },
+    ],
+    [
+      'Light',
+      () => {
+        const tab = (name: 'view' | 'render', label: string) => make('button', { className: lightTab === name ? 'on' : '', textContent: label, onclick: () => ((lightTab = name), draw()) });
+        const standard = (l: Light, put: (next: Partial<Light>) => void) =>
+          make('button', {
+            className: l.standard ? 'on' : '',
+            textContent: l.standard ? 'Standard light: on' : 'Use the standard light',
+            title: 'All the settings below left aside for the standard light (they are kept)',
+            onclick: () => put({ standard: !l.standard }),
+          });
+        const head = make('div', { className: 'segmented' }, tab('view', '3D view'), tab('render', 'Rendering'));
+        if (lightTab === 'view') {
+          const put = (patch: Partial<Light>) => set({ ...s, light: { ...s.light, ...patch } });
+          return [
+            head,
+            make('div', { className: 'row' }, standard(s.light, put)),
+            ...(s.light.standard ? [] : lightRows(s.light, (light, _, layout) => set({ ...s, light }, !!layout))),
+          ];
+        }
+        const r = s.renderLight;
+        const put = (patch: Partial<Settings['renderLight']>) => set({ ...s, renderLight: { ...s.renderLight, ...patch } });
+        const same = input({ type: 'checkbox', checked: r.same, onchange: () => put({ same: same.checked }) });
+        const haze = (key: 'haze' | 'fog', label: string, title: string) => {
+          const el = input({ type: 'range', min: '0', max: '1', step: '0.01', value: String(r[key]), title });
+          el.oninput = () => set({ ...s, renderLight: { ...s.renderLight, [key]: +el.value } }, false);
+          return make('div', { className: 'row light' }, make('span', {}, label), el);
+        };
+        return [
+          head,
+          make('p', { className: 'hint' }, 'Every render takes these when it runs. In renders a photo sphere lights the model too, instead of the ambient colour.'),
+          make('label', { className: 'check' }, same, 'Same as 3D viewer'),
+          ...(r.same
+            ? []
+            : [
+                make('div', { className: 'row' }, standard(r, put)),
+                ...(r.standard ? [] : lightRows(r, (light, _, layout) => set({ ...s, renderLight: { ...s.renderLight, ...light } }, !!layout))),
+              ]),
+          make('h3', {}, 'Haze'),
+          haze('haze', 'Haze', 'Far things fade into haze. Fast, no grain'),
+          haze('fog', 'Real fog', 'A fog in the path tracer: light scatters in it, the sun can make beams. For people with time: slower, and grainier'),
         ];
       },
     ],
@@ -249,7 +293,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   const seen = 'makermaker.settings.seen';
   const last = JSON.parse(localStorage.getItem(seen) ?? '{}') as { open?: string; scrolled?: Record<string, number> };
   const scrolled = last.scrolled ?? {};
-  let open = Math.max(0, chapters.findIndex(([name]) => name === last.open));
+  let open = Math.max(0, chapters.findIndex(([name]) => name === (start ? 'Light' : last.open)));
   const remember = () => localStorage.setItem(seen, JSON.stringify({ open: chapters[open][0], scrolled }));
   const restore = () => (body.scrollTop = scrolled[chapters[open][0]] ?? 0);
   body.onscroll = () => {
