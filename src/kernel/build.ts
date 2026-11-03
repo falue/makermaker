@@ -526,10 +526,9 @@ function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
 /**
  * The smooth surface over a flat face's outer edges, rising along `n` (see `bulge`). How high each point rises comes
  * from a pillow (Poisson's equation on a grid over the face, 0 at the rim: one smooth field, rounded towards corners,
- * no creases), its top shifted to the peak (each point reads the field nearer the middle, the more the higher it is),
- * then shaped by the curve. OpenCascade's filling passes through those heights on `dirs` lines from the rim to the peak.
+ * no creases), leaning so its top lies at the peak, then shaped by the curve. OpenCascade's filling passes through those heights on `dirs` lines from the rim to the peak.
  */
-function dome(face: BRepFace, n: V3, s: Of<'bulge'>, mid?: V3, cells = 60, dirs = 48, rings = 6): BRepFace {
+function dome(face: BRepFace, n: V3, s: Of<'bulge'>, mid?: V3, cells = 60, dirs = 48, rings = 6, margin = 0.3): BRepFace {
   const oc = getOC();
   // the peak's height above the face; the face's plane: u, v around its middle (read before its wire: that frees the face)
   const amount = dot(s.peak, n);
@@ -562,45 +561,83 @@ function dome(face: BRepFace, n: V3, s: Of<'bulge'>, mid?: V3, cells = 60, dirs 
       }
       inside[j * nx + i] = +odd;
     }
-  // the pillow: Δf = -1 inside, 0 outside (over-relaxed Gauss-Seidel), scaled to 1 at its top
+  // the pillow: Δf = -w inside, 0 outside (over-relaxed Gauss-Seidel), scaled to 1 at its top. w = e^(g·p) leans the
+  // top towards the peak: g is nudged until the top lies there. One smooth field, however far off the middle the peak is.
+  const size = (cells * h) / 2;
+  // the peak in the face's plane, kept `margin` (of the face's half size) from the rim: nearer, the surface turns too steep to fill
+  const fromRim = (x: number, y: number) => Math.min(...rim.map(([u, v]) => Math.hypot(x - u, y - v)));
   const f = new Float64Array(nx * ny);
-  for (let it = 0; it < 4 * cells; it++)
-    for (let k = 0; k < f.length; k++)
-      if (inside[k]) f[k] += 1.9 * ((f[k - 1] + f[k + 1] + f[k - nx] + f[k + nx] + h * h) / 4 - f[k]);
-  let top = 0;
-  for (let k = 0; k < f.length; k++) if (f[k] > f[top]) top = k;
-  const fmax = f[top] || 1;
-  const field = (x: number, y: number) => {
-    const [fi, fj] = [(x - x0) / h + 1, (y - y0) / h + 1];
-    const [i, j] = [Math.floor(fi), Math.floor(fj)];
-    if (i < 0 || j < 0 || i + 1 >= nx || j + 1 >= ny) return 0;
-    const [a, b] = [fi - i, fj - j];
-    const k = j * nx + i;
-    return ((1 - a) * (1 - b) * f[k] + a * (1 - b) * f[k + 1] + (1 - a) * b * f[k + nx] + a * b * f[k + nx + 1]) / fmax;
+  const w = new Float64Array(nx * ny);
+  const solve = (gx: number, gy: number, its: number) => {
+    for (let k = 0; k < w.length; k++) w[k] = Math.exp(gx * X(k % nx) + gy * Y(Math.floor(k / nx)));
+    for (let it = 0; it < its; it++)
+      for (let k = 0; k < f.length; k++)
+        if (inside[k]) f[k] += 1.9 * ((f[k - 1] + f[k + 1] + f[k - nx] + f[k + nx] + h * h * w[k]) / 4 - f[k]);
   };
-  // the top moved to the peak: a point reads the field `shift` nearer its own top, the more the higher it is (the rim stays)
-  const [px, py] = uv(add(c, s.peak)); // in the face's plane
-  const shift = [px - X(top % nx), py - Y(Math.floor(top / nx))];
-  const height = (x: number, y: number) => {
-    let t = field(x, y);
-    for (let k = 0; k < 6; k++) t = field(x - shift[0] * t, y - shift[1] * t);
-    return amount * rise(Math.max(0, Math.min(1, t)), fullness(s.fullness));
-  };
-  // the filling's points: on `dirs` lines from the rim to the top, `rings` along each, and the top
-  const fill = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 0.01, 0.1, 8, 9);
-  for (const e of edges) fill.Add(e.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
-  const peak: [number, number] = [px, py];
-  for (let k = 0; k < dirs; k++) {
-    const r = rim[Math.floor((k * rim.length) / dirs)];
-    for (let q = 1; q < rings; q++) {
-      const [x, y] = [r[0] + (peak[0] - r[0]) * (q / rings), r[1] + (peak[1] - r[1]) * (q / rings)];
-      fill.Add(new oc.gp_Pnt(...at(x, y, height(x, y))));
-    }
+  const topOf = () => f.reduce((best, v, k) => (v > f[best] ? k : best), 0);
+  let [gx, gy] = [0, 0];
+  solve(gx, gy, 4 * cells);
+  // how far a face's box reaches from the face's plane, the way it bulges
+  const reach = ({ bounds: [lo, hi] }: { bounds: [V3, V3] }) => Math.max(...[lo, hi].flatMap((a) => [lo, hi].flatMap((b) => [lo, hi].map((d) => dot(sub([a[0], b[1], d[2]], c), n) * Math.sign(amount)))));
+  // the peak where asked; if no filling holds there, step by step nearer the middle
+  const [wx, wy] = uv(add(c, s.peak));
+  for (let pull = 1; pull > 0.1; pull *= 0.8) {
+    let [px, py] = [wx * pull, wy * pull];
+    for (let k = 0.95; fromRim(px, py) < margin * size && k > 0.05; k -= 0.05) [px, py] = [wx * pull * k, wy * pull * k];
+    const face = attempt(px, py);
+    if (face) return face;
   }
-  fill.Add(new oc.gp_Pnt(...at(px, py, height(px, py))));
-  fill.Build(new oc.Message_ProgressRange());
-  if (!fill.IsDone()) throw new Error('the bulge surface could not be made');
-  return cast(fill.Shape()) as BRepFace;
+  throw new Error('the bulge surface could not be made');
+
+  /** The filling for a peak at (px, py), or null if it did not hold. */
+  function attempt(px: number, py: number): BRepFace | null {
+    let top = topOf();
+    for (let n = 0; n < 12 && Math.hypot(px - X(top % nx), py - Y(Math.floor(top / nx))) > h; n++) {
+      // about how far the top moves per unit of tilt (an interval's: R² / 3), damped; kept from overflowing
+      [gx, gy] = [gx + (1.5 / (size * size)) * (px - X(top % nx)), gy + (1.5 / (size * size)) * (py - Y(Math.floor(top / nx)))];
+      const g = Math.hypot(gx, gy) * size;
+      if (g > 30) [gx, gy] = [(gx * 30) / g, (gy * 30) / g];
+      solve(gx, gy, cells);
+      top = topOf();
+    }
+    const fmax = f[top] || 1;
+    const field = (x: number, y: number) => {
+      const [fi, fj] = [(x - x0) / h + 1, (y - y0) / h + 1];
+      const [i, j] = [Math.floor(fi), Math.floor(fj)];
+      if (i < 0 || j < 0 || i + 1 >= nx || j + 1 >= ny) return 0;
+      const [a, b] = [fi - i, fj - j];
+      const k = j * nx + i;
+      return ((1 - a) * (1 - b) * f[k] + a * (1 - b) * f[k + 1] + (1 - a) * b * f[k + nx] + a * b * f[k + nx + 1]) / fmax;
+    };
+    const height = (x: number, y: number) => amount * rise(Math.max(0, Math.min(1, field(x, y))), fullness(s.fullness));
+    const peak: [number, number] = [X(top % nx), Y(Math.floor(top / nx))];
+    // the filling's points: on `dirs` lines from the rim to the top, `rings` along each, and the top. OpenCascade's filling
+    // now and then ignores them (a flat face back): tried again with other settings until its top is near the height
+    // per try: lines, iterations, highest degree, most segments
+    const tries = [
+      [dirs, 3, 10, 30],
+      [32, 2, 8, 9],
+      [24, 2, 8, 20],
+    ];
+    for (const [count, iterations, degree, segments] of tries) {
+      const fill = new oc.BRepOffsetAPI_MakeFilling(3, 15, iterations, false, 1e-5, 1e-4, 0.01, 0.1, degree, segments);
+      for (const e of edges) fill.Add(e.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
+      for (let k = 0; k < count; k++) {
+        const r = rim[Math.floor((k * rim.length) / count)];
+        for (let q = 1; q < rings; q++) {
+          const [x, y] = [r[0] + (peak[0] - r[0]) * (q / rings), r[1] + (peak[1] - r[1]) * (q / rings)];
+          fill.Add(new oc.gp_Pnt(...at(x, y, height(x, y))));
+        }
+      }
+      fill.Add(new oc.gp_Pnt(...at(...peak, amount)));
+      fill.Build(new oc.Message_ProgressRange());
+      if (!fill.IsDone()) continue;
+      const out = cast(fill.Shape()) as BRepFace;
+      if (Math.abs(reach(out.boundingBox as { bounds: [V3, V3] }) - Math.abs(amount)) < 0.2 * Math.abs(amount)) return out;
+      out.delete();
+    }
+    return null;
+  }
 }
 
 /**

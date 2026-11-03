@@ -114,6 +114,14 @@ describe('buildBody', () => {
     expect(domed.box.bounds[1][2]).toBeCloseTo(14, 0);
     expect(domed.box.width).toBeCloseTo(60, 3);
     domed.done();
+    // the peak far off the middle: it leans there (kept a little from the rim), no spikes above it, nothing below the rim
+    for (const [x, y] of [[20, 10], [-25, 0], [12, -24]]) {
+      const leaning = built([base(60), bulge({ kind: 'face', at: [0, 0, 4] }, [x, y, 10])]);
+      expect(leaning.box.bounds[1][2]).toBeLessThan(15); // a little over near the rim, where it is steep
+      expect(leaning.box.bounds[1][2]).toBeGreaterThan(13);
+      expect(leaning.box.bounds[0][2]).toBeGreaterThan(-0.01);
+      leaning.done();
+    }
     // pointy (-4: the smooth surface rounds its tip a little) and flat topped (4) reach about the same peak
     for (const k of [-4, 4]) {
       const shaped = built([base(60), bulge({ kind: 'face', at: [0, 0, 4] }, [0, 0, 10], k)]);
