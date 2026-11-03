@@ -2007,14 +2007,13 @@ export class Viewer implements ToolView {
     const p = this.photo;
     if (!p?.texture) return;
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    const { tanHalf } = this.tilt();
-    const key = `${this.camera.quaternion.toArray().map((v) => v.toFixed(4))} ${size.x} ${size.y} ${tanHalf} ${turn}`;
+    const key = `${this.camera.quaternion.toArray().map((v) => v.toFixed(4))} ${size.x} ${size.y} ${turn}`;
     if (key === p.drawn) return;
     p.drawn = key;
     p.target.setSize(size.x, size.y);
     this.camera.updateMatrixWorld();
     this.renderer.setRenderTarget(p.target);
-    this.photoDraw.draw(this.renderer, p.texture, this.camera, tanHalf, size.x / size.y, turn);
+    this.photoDraw.draw(this.renderer, p.texture, this.camera, size.x / size.y, turn);
     this.renderer.setRenderTarget(null);
   }
 

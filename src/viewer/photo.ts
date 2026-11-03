@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
-/** The picture a camera sees of a photo sphere (z up): one quad over the whole target, `aim` sets its uniforms. */
-export function photoPass() {
+/** The picture a camera sees of a photo sphere (z up), `fov` degrees high whatever the camera's angle (a narrower one stretches the photo's pixels): one quad over the whole target. */
+export function photoPass(fov = 70) {
   const material = new THREE.ShaderMaterial({
-    uniforms: { photo: { value: null }, basis: { value: new THREE.Matrix3() }, tanHalf: { value: 1 }, aspect: { value: 1 }, turn: { value: 0 } },
+    uniforms: { photo: { value: null }, basis: { value: new THREE.Matrix3() }, tanHalf: { value: Math.tan(THREE.MathUtils.degToRad(fov / 2)) }, aspect: { value: 1 }, turn: { value: 0 } },
     depthTest: false,
     depthWrite: false,
     vertexShader: 'varying vec2 at; void main() { at = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }',
@@ -22,11 +22,10 @@ export function photoPass() {
   const none = new THREE.Camera();
   return {
     /** Draws into the renderer's current target. `turn`: degrees. */
-    draw(renderer: THREE.WebGLRenderer, photo: THREE.Texture, camera: THREE.Camera, tanHalf: number, aspect: number, turn: number) {
+    draw(renderer: THREE.WebGLRenderer, photo: THREE.Texture, camera: THREE.Camera, aspect: number, turn: number) {
       const u = material.uniforms;
       u.photo.value = photo;
       u.basis.value.setFromMatrix4(camera.matrixWorld);
-      u.tanHalf.value = tanHalf;
       u.aspect.value = aspect;
       u.turn.value = turn / 360;
       material.uniformsNeedUpdate = true;

@@ -30,8 +30,8 @@ export interface RenderWatch {
 /**
  * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px, lit by `light`
  * (a photo sphere replaces its ambient colours), `samples` passes: traced on a transparent background, then laid over
- * `background` (the gradient around the horizon or the photo as the camera sees it, `tanHalf`: tangent of half the
- * view angle it assumes); a solid background gets a floor of its colour that catches the shadows. The path tracer
+ * `background` (the gradient around the horizon, `tanHalf`: tangent of half the view angle it assumes, or the photo as
+ * `photoPass` shows it); a solid background gets a floor of its colour that catches the shadows. The path tracer
  * loads on first use.
  */
 export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: Backdrop, light: Light, photo: { image: HTMLImageElement; turn: number } | null, tanHalf: number, samples: number, watch: RenderWatch, slowMs = 120) {
@@ -91,7 +91,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     const out = Object.assign(document.createElement('canvas'), { width, height });
     const g = out.getContext('2d')!;
     const look = camera.getWorldDirection(new THREE.Vector3());
-    if (photo) g.drawImage(photoPicture(photo, camera, tanHalf, width, height), 0, 0);
+    if (photo) g.drawImage(photoPicture(photo, camera, width, height), 0, 0);
     else drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background);
     g.drawImage(renderer.domElement, 0, 0);
     return await new Promise<Blob>((done, fail) => out.toBlob((b) => (b ? done(b) : fail(new Error('the picture could not be made'))), 'image/png'));
@@ -107,12 +107,12 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
 }
 
 /** The photo sphere as `camera` sees it, on a renderer of its own (the tracer's canvas holds the picture). */
-function photoPicture(photo: { image: HTMLImageElement; turn: number }, camera: THREE.Camera, tanHalf: number, width: number, height: number) {
+function photoPicture(photo: { image: HTMLImageElement; turn: number }, camera: THREE.Camera, width: number, height: number) {
   const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
   renderer.setSize(width, height, false);
   const texture = photoTexture(photo.image);
   const pass = photoPass();
-  pass.draw(renderer, texture, camera, tanHalf, width / height, photo.turn);
+  pass.draw(renderer, texture, camera, width / height, photo.turn);
   const copy = Object.assign(document.createElement('canvas'), { width, height });
   copy.getContext('2d')!.drawImage(renderer.domElement, 0, 0);
   pass.dispose();
