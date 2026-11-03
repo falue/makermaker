@@ -1746,7 +1746,7 @@ input + .set-axis {
   z-index: 20;
   width: 28px;
   height: 28px;
-  pointer-events: none;
+  cursor: pointer;
   color: #ff8c1a;
 }
 .offscreen svg {

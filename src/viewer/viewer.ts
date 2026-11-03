@@ -893,8 +893,6 @@ export class Viewer implements ToolView {
     this.sketchHover.clear();
     const s = id ? this.sketches.find((k) => k.id === id) : undefined;
     for (const q of s?.shapes ?? []) this.sketchHover.add(outline(q, s!.frame, 0xff8c1a, 0, 1.5, 3));
-    const box = new THREE.Box3().setFromObject(this.sketchHover);
-    this.pointTo(box.isEmpty() ? null : box.getCenter(new THREE.Vector3()));
     this.sketchHover.traverse((o) => (o.renderOrder = 1e6));
     this.render();
   }
@@ -1708,6 +1706,7 @@ export class Viewer implements ToolView {
       this.placeWheel();
       this.drawSky();
       this.scaleDashes();
+      this.pointTo(this.arrowAt());
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
       this.drawSilhouette();
@@ -1724,16 +1723,45 @@ export class Viewer implements ToolView {
 
   /** Bodies hovered in the list: outlined orange (a temporary mark). */
   private hovered: string[] = [];
-  /** At the view's edge, pointing to what is hovered in the list when it lies outside the view. */
-  private offscreen = Object.assign(document.createElement('div'), { className: 'offscreen', hidden: true, innerHTML: icon('offscreen') });
+  /** At the view's edge, pointing to what is hovered in the list (else the selection) when it lies outside the view; a click centres it. */
+  private offscreen = Object.assign(document.createElement('div'), { className: 'offscreen', hidden: true, innerHTML: icon('offscreen'), title: 'Click: into the middle of the view', onclick: () => {
+      const at = this.arrowAt();
+      if (at) this.centreOn(at);
+    } });
 
   /** Outlines bodies orange (hovered in the list; none: clears it); off the view, an arrow at its edge points to them. */
   lightBodies(ids: string[]) {
     this.hovered = ids.filter((id) => this.bodies.has(id) && !this.hidden.has(id));
-    const box = new THREE.Box3();
-    for (const id of this.hovered) box.expandByObject(this.bodies.get(id)!);
-    this.pointTo(box.isEmpty() ? null : box.getCenter(new THREE.Vector3()));
     this.render();
+  }
+
+  /** The middle of what the off-view arrow points to: the bodies hovered in the list, else a sketch hovered there, else the selected bodies (null: none). */
+  private arrowAt() {
+    const box = new THREE.Box3();
+    const ids = this.hovered.length ? this.hovered : this.sketchHover.children.length ? [] : this.selection.filter((id) => this.bodies.has(id) && !this.hidden.has(id));
+    for (const id of ids) box.expandByObject(this.bodies.get(id)!);
+    if (!this.hovered.length && this.sketchHover.children.length) box.setFromObject(this.sketchHover);
+    return box.isEmpty() ? null : box.getCenter(new THREE.Vector3());
+  }
+
+  /** Slides the view (its turn and zoom kept) until `at` lies in its middle. */
+  private centreOn(at: THREE.Vector3, ms = 400) {
+    const look = this.camera.getWorldDirection(new THREE.Vector3());
+    const d = at.clone().sub(this.controls.target);
+    // only across the view, unless it lies behind the camera
+    if (at.clone().sub(this.camera.position).dot(look) > 0) d.addScaledVector(look, -d.dot(look));
+    const cams = [this.orthographic, this.perspective];
+    const [t0, p0] = [this.controls.target.clone(), cams.map((c) => c.position.clone())];
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / ms);
+      const k = t * t * (3 - 2 * t);
+      this.controls.target.copy(t0).addScaledVector(d, k);
+      cams.forEach((c, i) => c.position.copy(p0[i]).addScaledVector(d, k));
+      if (t < 1) (this.controls.dispatchEvent({ type: 'change' }), requestAnimationFrame(step));
+      else (this.controls.update(), this.render());
+    };
+    requestAnimationFrame(step);
   }
 
   /** The off-view arrow: at the view's edge towards `at` (world) when it lies outside the view; null: hidden. */
