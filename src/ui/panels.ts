@@ -1204,7 +1204,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
 }
 
 const SKETCH_HINT =
-  'Sketch group: [R] [C] [L] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · hover a line: drag its points, curve handles and arc middles · click an arc middle: type its diameter · double-click a point: smooth or sharp · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
+  'Sketch group: [R] [C] [L] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · hover a line: drag its points, curve handles and arc middles · click an arc middle: type its diameter · click a curve handle: type its length, [Tab] its angle · double-click a point: smooth or sharp · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
 
 function hint(selected: number, shapes: number) {
   if (shapes)
@@ -1329,7 +1329,7 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   if (p.kind === 'line') return shape(row(...pos), row(tf('w', 'W', w), link, tf('h', 'H', hh))); // no corners to round, no turn of its own
   const rot = tf('rot', 'Turn °', stored('rot'), true); // degrees: shown as typed, never unit-converted
   if (p.kind === 'ngon') return shape(row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true)));
-  return shape(row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), ...(p.kind === 'polygon' && p.curves?.some(Boolean) ? [] : [pf('r', 'R')]))); // curved: no corner radius yet
+  return shape(row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), pf('r', 'R')));
 }
 
 /** Illustrator's reference point locator for one shape: which point of its box X / Y give, and which point stays when sizing or turning. */

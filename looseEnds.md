@@ -6,11 +6,9 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A point follows a parameter only through a side's typed length, angle or diameter; points clicked freely stay fixed, so what follows a changed side does not move along with it.
 
 ## Curves
-- Sketch Offset and corner radius do not work on curved sides yet.
-- An arc tangent at both ends only keeps its start tangent.
-- Rule-based finishes ignore extruded arcs.
-- Bezier handles take no typed values.
-- Tangency to neighbours is not held when a point or an arc's end moves.
+- Tangency is held only by an arc's middle between two straight sides. Moving a point, or an arc next to a curved side, does not hold it.
+- Offset of a bezier side is close, not exact. A side that an offset would turn inside out is not removed.
+- The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
 ## Terminal
 - A script's result arriving while a tool is in the middle of a drag or a drawing is not held back. Not tested what that does to the drag.

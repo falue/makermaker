@@ -242,6 +242,99 @@ export function grown(pts: [number, number][], d: number): [number, number][] {
   });
 }
 
+/** A side as it lies after an offset; `on`: the circle or line it runs on, where it meets its neighbours. */
+type Offset = { a: UV; b: UV; curve: Curve | null; on: { c: UV; r: number } | { o: UV; d: UV }; sweep?: number };
+
+/**
+ * A curved line or polygon `by` mm to the side (a polygon: outside; a line: its left). Arcs stay arcs around their
+ * middle, straight sides stay straight, beziers go by their control legs (close, not exact). Where a corner opens or
+ * crosses, neighbours meet where they cross; no crossing near it: half way between their ends.
+ */
+export function offsetPath(p: Pathed, by: number): { pts: UV[]; curves: (Curve | null)[] } {
+  const n = p.pts.length;
+  const closed = p.kind === 'polygon';
+  const ring = flattened(p);
+  const ccw = ring.reduce((t, [x, y], i) => t + x * ring[(i + 1) % ring.length][1] - ring[(i + 1) % ring.length][0] * y, 0) > 0;
+  const left = closed && ccw ? -by : by;
+  const hat = ([x, y]: UV): UV => [x / (Math.hypot(x, y) || 1), y / (Math.hypot(x, y) || 1)];
+  const off = (q: UV, d: UV): UV => [q[0] - hat(d)[1] * left, q[1] + hat(d)[0] * left];
+  const cross = (o: UV, d: UV, q: UV, e: UV): UV | null => {
+    const den = d[0] * e[1] - d[1] * e[0];
+    if (Math.abs(den) < 1e-9) return null;
+    const t = ((q[0] - o[0]) * e[1] - (q[1] - o[1]) * e[0]) / den;
+    return [o[0] + d[0] * t, o[1] + d[1] * t];
+  };
+  const sides: Offset[] = Array.from({ length: closed ? n : n - 1 }, (_, i) => {
+    const [a, b] = [p.pts[i], p.pts[(i + 1) % n]];
+    const c = p.curves?.[i] ?? null;
+    const [d0, d1] = sideDirs(a, c, b);
+    const arc = c && 'mid' in c ? arcOf(a, c.mid, b) : null;
+    if (arc) {
+      const sweep = arc.a1 - arc.a0;
+      const r = Math.max(0.01, sweep > 0 ? arc.r - left : arc.r + left);
+      const at = (t: number): UV => [arc.c[0] + r * Math.cos(t), arc.c[1] + r * Math.sin(t)];
+      return { a: at(arc.a0), b: at(arc.a1), curve: { mid: at(arc.a0 + sweep / 2) }, on: { c: arc.c, r }, sweep };
+    }
+    if (c && 'c1' in c) {
+      const [a1, b1] = [off(a, d0), off(b, d1)];
+      const leg: UV = [c.c2[0] - c.c1[0], c.c2[1] - c.c1[1]];
+      const at = off(c.c1, leg);
+      return { a: a1, b: b1, curve: { c1: cross(a1, d0, at, leg) ?? off(c.c1, d0), c2: cross(b1, d1, at, leg) ?? off(c.c2, d1) }, on: { o: b1, d: d1 } };
+    }
+    return { a: off(a, d0), b: off(b, d0), curve: null, on: { o: off(a, d0), d: d0 } };
+  });
+  /** Where two sides' circles or lines cross. */
+  const crossings = (u: Offset['on'], v: Offset['on']): UV[] => {
+    if ('o' in u && 'o' in v) return [cross(u.o, u.d, v.o, v.d)].filter((q): q is UV => !!q);
+    if ('c' in u && 'c' in v) {
+      const l = Math.hypot(v.c[0] - u.c[0], v.c[1] - u.c[1]);
+      const x = (l * l + u.r * u.r - v.r * v.r) / (2 * l || 1);
+      const h = u.r * u.r - x * x;
+      if (!l || h < 0) return [];
+      const e = hat([v.c[0] - u.c[0], v.c[1] - u.c[1]]);
+      return [1, -1].map((k) => [u.c[0] + e[0] * x - k * e[1] * Math.sqrt(h), u.c[1] + e[1] * x + k * e[0] * Math.sqrt(h)]);
+    }
+    const [circle, line] = ('c' in u ? [u, v] : [v, u]) as [{ c: UV; r: number }, { o: UV; d: UV }];
+    const e = hat(line.d);
+    const t = (circle.c[0] - line.o[0]) * e[0] + (circle.c[1] - line.o[1]) * e[1];
+    const near: UV = [line.o[0] + e[0] * t, line.o[1] + e[1] * t];
+    const h = circle.r ** 2 - (near[0] - circle.c[0]) ** 2 - (near[1] - circle.c[1]) ** 2;
+    if (h < 0) return [];
+    return [1, -1].map((k) => [near[0] + k * e[0] * Math.sqrt(h), near[1] + k * e[1] * Math.sqrt(h)]);
+  };
+  const moved = (s: Offset, end: 'a' | 'b', q: UV) => {
+    const by2: UV = [q[0] - s[end][0], q[1] - s[end][1]];
+    s[end] = q;
+    if (s.curve && 'c1' in s.curve) {
+      const k = end === 'a' ? 'c1' : 'c2';
+      s.curve = { ...s.curve, [k]: [s.curve[k][0] + by2[0], s.curve[k][1] + by2[1]] };
+    }
+  };
+  sides.forEach((next, i) => {
+    if (!i && !closed) return;
+    const prev = sides[(i - 1 + sides.length) % sides.length];
+    if (Math.hypot(prev.b[0] - next.a[0], prev.b[1] - next.a[1]) < 1e-6) return;
+    const half: UV = [(prev.b[0] + next.a[0]) / 2, (prev.b[1] + next.a[1]) / 2];
+    const far = 5 * Math.abs(by);
+    const q = crossings(prev.on, next.on)
+      .sort((u, v) => Math.hypot(u[0] - half[0], u[1] - half[1]) - Math.hypot(v[0] - half[0], v[1] - half[1]))
+      .find((u) => Math.hypot(u[0] - p.pts[i][0], u[1] - p.pts[i][1]) <= far) ?? half;
+    moved(prev, 'b', q);
+    moved(next, 'a', q);
+  });
+  // arcs cut or lengthened at their ends: their middle again
+  for (const s of sides)
+    if (s.sweep !== undefined && 'c' in s.on) {
+      const { c, r } = s.on;
+      const dir = Math.sign(s.sweep);
+      const [t0, t1] = [s.a, s.b].map((q) => Math.atan2(q[1] - c[1], q[0] - c[0]));
+      const full = 2 * Math.PI;
+      const sweep = dir * ((((t1 - t0) * dir) % full + full) % full);
+      s.curve = { mid: [c[0] + r * Math.cos(t0 + sweep / 2), c[1] + r * Math.sin(t0 + sweep / 2)] };
+    }
+  return { pts: closed ? sides.map((s) => s.a) : [...sides.map((s) => s.a), sides[sides.length - 1].b], curves: sides.map((s) => s.curve) };
+}
+
 export function beside(pts: [number, number][], d: number): [number, number][] {
   if (!d) return pts;
   const left = (a: [number, number], b: [number, number]): [number, number] => {

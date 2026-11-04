@@ -190,7 +190,8 @@ export function controlMoved(p: Pathed, i: number, which: 'c1' | 'c2' | 'mid', q
 
 /**
  * The arc on side `i` with its middle dragged to `q`, or its radius typed (else on `step`): it moves the only way the
- * tangents allow. Smooth at its start: along the normal there, the angle kept, its end (and what follows) moving; else
+ * tangents allow. Smooth at both ends between straight sides: like a fillet, its ends sliding along them, as far as
+ * they reach. Smooth at its start: along the normal there, the angle kept, its end (and what follows) moving; else
  * smooth at its end: the same from there; neither: along the line square to its chord, both ends staying.
  */
 export function centreMoved(p: Pathed, i: number, q: UV, radius?: number, step = 0): Pathed {
@@ -204,6 +205,30 @@ export function centreMoved(p: Pathed, i: number, q: UV, radius?: number, step =
   const onStep = (v: number) => (step ? Math.round(v / step) * step : v);
   const withMid = (r: Pathed, mid: UV): Pathed => ({ ...r, curves: r.curves!.map((x, k) => (k === i ? { mid } : x)) });
   const fromStart = isSmooth(s, i);
+  const [before, after] = [sidesAt(s, i).into, sidesAt(s, next).out];
+  if (fromStart && isSmooth(s, next) && before !== null && after !== null && !s.curves?.[before] && !s.curves?.[after]) {
+    const [prev, far] = [s.pts[before], s.pts[(next + 1) % n]];
+    const [d1, d2]: UV[] = [[a[0] - prev[0], a[1] - prev[1]], [far[0] - b[0], far[1] - b[1]]];
+    const den = d1[0] * d2[1] - d1[1] * d2[0];
+    if (Math.abs(den) > 1e-9) {
+      // where the straight sides cross: scaling around it keeps the arc tangent to both
+      const t = ((b[0] - prev[0]) * d2[1] - (b[1] - prev[1]) * d2[0]) / den;
+      const o: UV = [prev[0] + d1[0] * t, prev[1] + d1[1] * t];
+      const out = unit([arc.c[0] - o[0], arc.c[1] - o[1]]);
+      const toC = Math.hypot(arc.c[0] - o[0], arc.c[1] - o[1]);
+      // how far the sides reach
+      const reach = (end: UV, stop: UV) => {
+        const v: UV = [end[0] - o[0], end[1] - o[1]];
+        const l = v[0] * v[0] + v[1] * v[1];
+        const k = ((stop[0] - o[0]) * v[0] + (stop[1] - o[1]) * v[1]) / (l || 1);
+        return k > 0 ? k : Infinity;
+      };
+      const wanted = radius ?? onStep((((q[0] - o[0]) * out[0] + (q[1] - o[1]) * out[1]) / toC) * arc.r);
+      const k = Math.min(Math.max(0.01, wanted) / arc.r, reach(a, prev), reach(b, far));
+      const scaled = (v: UV): UV => [o[0] + (v[0] - o[0]) * k, o[1] + (v[1] - o[1]) * k];
+      return { ...s, pts: s.pts.map((v, m) => (m === i ? scaled(a) : m === next ? scaled(b) : v)), curves: s.curves!.map((x, m) => (m === i ? { mid: scaled(c.mid) } : x)) };
+    }
+  }
   if (fromStart || isSmooth(s, next)) {
     const [fix, sweep] = fromStart ? [a, arc.a1 - arc.a0] : [b, arc.a0 - arc.a1];
     const u = unit([arc.c[0] - fix[0], arc.c[1] - fix[1]]);

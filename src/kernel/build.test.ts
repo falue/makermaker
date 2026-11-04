@@ -588,3 +588,30 @@ describe('curved sides', () => {
     expect(areas.length).toBe(3);
   });
 });
+
+describe('curved sides in finishes', () => {
+  // a rounded end on a box: two tangent seams, two real corners
+  const rounded = (r = 0): BuildFeature => ({
+    id: 'c',
+    type: 'extrude',
+    plane: ground,
+    profiles: [{ id: 'p', kind: 'polygon', pts: [[0, 0], [30, 0], [30, 20], [0, 20]], curves: [null, { mid: [40, 10] }, null, null], r, rot: 0 }],
+    depth: 10,
+    mode: 'add',
+    through: false,
+  });
+  it('the vertical rule takes real corners, not the seams', () => {
+    const finishing: Finishing = { base: null, edges: [] };
+    const shape = buildBody([rounded(), { id: 'f', type: 'finish', mode: 'fillet', size: 2, edges: 'vertical', enabled: true, baked: false, skip: [] } as BuildFeature], finishing);
+    expect(finishing.edges.length).toBe(2);
+    expect(finishing.edges.every((e) => e.mid[0] < 1)).toBe(true);
+    shape.delete();
+  });
+  it('a corner radius rounds the corners of a curved polygon', () => {
+    const [sharp, round] = [rounded(), rounded(2)].map((f) => buildBody([f]));
+    expect(measureVolume(round)).toBeLessThan(measureVolume(sharp));
+    expect(measureVolume(sharp) - measureVolume(round)).toBeLessThan(40);
+    sharp.delete();
+    round.delete();
+  });
+});

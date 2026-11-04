@@ -1,7 +1,7 @@
 import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import type { DrawingPen } from 'replicad';
-import { beside, centre, corners, curved, flattened, mapPoints, nesting, sideDirs } from '../doc/profiles';
+import { bakeTurn, beside, centre, corners, curved, flattened, mapPoints, nesting, sideDirs } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/types';
@@ -320,7 +320,7 @@ function triangles(d: Drawing): Float32Array {
   return out;
 }
 
-/** Cylindrical faces standing on an XY-parallel plane (circles, rounded corners), for the edge rules. */
+/** Cylindrical faces standing on an XY-parallel plane (circles, rounded corners, tangent seams), for the edge rules. */
 function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
   if (Math.abs(Math.abs(f.n[2]) - 1) > EPS) return;
   const at = (u: number, v: number, r: number) => {
@@ -330,6 +330,16 @@ function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
   if (p.kind === 'circle') at(p.x, p.y, p.d / 2);
   if (p.kind === 'rect' && p.r > 0)
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) at(p.x + sx * (p.w / 2 - p.r), p.y + sy * (p.h / 2 - p.r), p.r);
+  // where curved sides run on without a corner: a seam, as a circle of no size
+  if (p.kind === 'polygon' && curved(p)) {
+    const q = bakeTurn(p);
+    q.pts.forEach((pt, i) => {
+      const n = q.pts.length;
+      const [, d0] = sideDirs(q.pts[(i - 1 + n) % n], q.curves?.[(i - 1 + n) % n], pt);
+      const [d1] = sideDirs(pt, q.curves?.[i], q.pts[(i + 1) % n]);
+      if (d0[0] * d1[0] + d0[1] * d1[1] > 0.99996 * Math.hypot(...d0) * Math.hypot(...d1)) at(pt[0], pt[1], 0);
+    });
+  }
 }
 
 /** Joins, cuts or intersects with the tool body (built here from its features). */

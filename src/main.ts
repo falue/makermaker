@@ -5,7 +5,7 @@ import { evalLength, evalQuantity, fmt, inName, isPlain, UNITS } from './doc/exp
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, flattened, grown, mapPoints, type Align } from './doc/profiles';
+import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, flattened, grown, mapPoints, offsetPath, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { fitting, THREADS, type ThreadSize } from './doc/threads';
 import { icon } from './ui/icons';
@@ -274,6 +274,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   pickShape,
   setShapes,
   length,
+  number,
   placeOn,
   touched() {
     if (!rendersOpen) return;
@@ -2765,8 +2766,7 @@ function offsetShapes(sketch: string) {
   const doc0 = history.current;
   const k = doc0.sketches.findIndex((s) => s.id === sketch);
   const shown = viewer.sketches.find((v) => v.id === sketch)!.shapes.filter((q) => shapeSel.includes(q.id));
-  const sources = doc0.sketches[k].shapes.filter((q) => shapeSel.includes(q.id) && !curved(shown.find((x) => x.id === q.id)!));
-  if (!sources.length) return notify('Offset does not take curved lines yet');
+  const sources = doc0.sketches[k].shapes.filter((q) => shapeSel.includes(q.id));
   const ids = sources.map(() => newId());
   const made = (d: number): Profile[] =>
     sources.map((q, n) => {
@@ -2775,6 +2775,12 @@ function offsetShapes(sketch: string) {
       if (q.kind === 'rect' && p.kind === 'rect') return { ...q, id, w: len(p.w + 2 * d), h: len(p.h + 2 * d), r: len(Math.max(0, p.r + d)) };
       if (q.kind === 'circle' && p.kind === 'circle') return { ...q, id, d: len(Math.max(0.01, p.d + 2 * d)) };
       if (q.kind === 'ngon' && p.kind === 'ngon') return { ...q, id, d: len(Math.max(0.01, p.d + (2 * d) / Math.cos(Math.PI / p.sides))) };
+      if ((q.kind === 'polygon' && p.kind === 'polygon') || (q.kind === 'line' && p.kind === 'line')) {
+        if (curved(p)) {
+          const { pts, curves } = offsetPath(p, d);
+          return { ...q, id, pts: roundPts(pts), curves: roundCurves(curves) } as Profile;
+        }
+      }
       if (q.kind === 'polygon' && p.kind === 'polygon') return { ...q, id, pts: roundPts(grown(p.pts, d)) };
       if (q.kind === 'line' && p.kind === 'line') return { ...q, id, pts: roundPts(beside(p.pts, d)) };
       return { ...q, id };

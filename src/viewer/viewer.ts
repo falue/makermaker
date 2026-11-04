@@ -52,6 +52,7 @@ export interface ViewerHost {
   setShapes(sketch: string, shapes: { id: string; profile: DrawnProfile }[], typed?: Partial<Record<'w' | 'h' | 'd', string>>): void;
   /** A typed distance in mm, or null if invalid. */
   length(text: string): number | null;
+  number(text: string): number | null;
   /** Where shapes drawn on a body face go (`flat`: the face is planar). */
   placeOn(face: PickedFace, flat: boolean): Omit<Target, 'sketch'> | null;
   /** A press on a body or a sketch shape (before any selecting). */
@@ -249,7 +250,7 @@ interface ShapeEdit {
   axis: number;
   last: PointerEvent | null;
   next: DrawnProfile | null;
-  /** An arc's middle clicked, not dragged: it follows the pointer and takes a typed diameter until a click or Enter. */
+  /** An arc's middle or a curve handle clicked, not dragged: it follows the pointer and takes typed values until a click or Enter. */
   armed?: boolean;
 }
 
@@ -4015,8 +4016,20 @@ export class Viewer implements ToolView {
       this.arcLabel(ed);
     } else if (ed.handle.kind === 'point' || ed.handle.kind === 'control') {
       if (st.kind !== 'polygon' && st.kind !== 'line') return;
-      const at = this.handleLands(ed, q, e);
-      ed.next = ed.handle.kind === 'point' ? pointMoved(st, ed.handle.i, at) : controlMoved(st, ed.handle.i, ed.handle.which, at);
+      let at = this.handleLands(ed, q, e);
+      if (ed.handle.kind === 'control' && ed.handle.which !== 'mid' && (ed.armed || ed.typed.some((t) => t !== undefined))) {
+        // typed: its length and angle from its point
+        const b = bakeTurn(st);
+        const o = b.pts[ed.handle.which === 'c1' ? ed.handle.i : (ed.handle.i + 1) % b.pts.length];
+        const l = ed.typed[0] === undefined ? null : this.host.length(ed.typed[0]);
+        const deg = ed.typed[1] === undefined ? null : this.host.number(ed.typed[1]);
+        const length = l ?? Math.hypot(at[0] - o[0], at[1] - o[1]);
+        const angle = deg === null ? Math.atan2(at[1] - o[1], at[0] - o[0]) : (deg * Math.PI) / 180;
+        at = [o[0] + length * Math.cos(angle), o[1] + length * Math.sin(angle)];
+        ed.next = controlMoved(st, ed.handle.i, ed.handle.which, at);
+        const body = (k: number, name: string, text: string) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? text : caret(ed.typed[k]!)}`;
+        this.label(`${body(0, 'L', this.host.format(length))}   ${body(1, '∠', ((angle * 180) / Math.PI).toFixed(1))}`, new THREE.Vector3(...toWorld(f, ...at)));
+      } else ed.next = ed.handle.kind === 'point' ? pointMoved(st, ed.handle.i, at) : controlMoved(st, ed.handle.i, ed.handle.which, at);
     } else if (ed.handle.kind === 'rotate') {
       const deg = angleAt(st, q) - ed.a0;
       const turn = e && role(e, 'precise') ? 0.1 : e && role(e, 'constrain') ? SketchTool.angleStep : 1; // degrees
@@ -4076,9 +4089,10 @@ export class Viewer implements ToolView {
   private editKey(e: KeyboardEvent): boolean {
     const ed = this.edit!;
     if (pressed(e, 'confirm') || pressed(e, 'cancel')) return this.endEdit(pressed(e, 'confirm')), true;
-    if (ed.handle.kind !== 'resize' && ed.handle.kind !== 'centre') return false;
+    const handleTyped = ed.handle.kind === 'control' && ed.handle.which !== 'mid';
+    if (ed.handle.kind !== 'resize' && ed.handle.kind !== 'centre' && !handleTyped) return false;
     if (pressed(e, 'otherSide') && restOf(ed.typed[ed.axis] ?? '')) ed.typed[ed.axis] += restOf(ed.typed[ed.axis]!); // a name showing: written out
-    else if (pressed(e, 'otherSide') && ed.handle.kind === 'resize') ed.axis = 1 - ed.axis;
+    else if (pressed(e, 'otherSide') && (ed.handle.kind === 'resize' || handleTyped)) ed.axis = 1 - ed.axis;
     else if (pressed(e, 'erase')) ed.typed[ed.axis] = ed.typed[ed.axis]?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) ed.typed[ed.axis] = (ed.typed[ed.axis] ?? '') + e.key;
     else return false;
@@ -4128,6 +4142,7 @@ export class Viewer implements ToolView {
   /** Ends a move, or handles a click: on empty space it deselects (unless Shift). */
   private up(e: PointerEvent) {
     if (this.edit?.handle.kind === 'centre' && !this.dragged(e)) return ((this.edit.armed = true), (this.controls.enabled = false), this.arcLabel(this.edit));
+    if (this.edit?.handle.kind === 'control' && this.edit.handle.which !== 'mid' && !this.dragged(e)) return ((this.edit.armed = true), (this.controls.enabled = false), this.applyEdit(this.edit));
     if (this.edit) return this.endEdit(true);
     const d = this.drag;
     if (d?.moved) return this.endDrag(true);

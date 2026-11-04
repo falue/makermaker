@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arcOf, area, bakeTurn, bounds, closedLoop, flattened, inside, mapPoints, sideDirs, sidesOf } from './profiles';
+import { arcOf, area, bakeTurn, bounds, closedLoop, flattened, inside, mapPoints, sideDirs, sidesOf, offsetPath } from './profiles';
 import { lineFaces } from './arrangement';
 import { centreMoved, controlMoved, isSmooth, pointHandles, pointMoved, smoothToggled } from '../viewer/shapes';
 import type { Curve } from './types';
@@ -181,5 +181,57 @@ describe('editing points and handles', () => {
 
   it('a line end has nothing to toggle', () => {
     expect(smoothToggled(s, 0)).toEqual(s);
+  });
+});
+
+describe('offsetPath', () => {
+  const slot = { kind: 'polygon' as const, pts: [[0, 0], [40, 0], [40, 20], [0, 20]] as [number, number][], curves: [null, { mid: [50, 10] as [number, number] }, null, { mid: [-10, 10] as [number, number] }], r: 0, rot: 0 };
+  it('a slot: arcs round the same middles, sides moved out, in both directions of travel', () => {
+    for (const shape of [slot, { ...slot, pts: [...slot.pts].reverse() as [number, number][], curves: [null, slot.curves[1], null, slot.curves[3]] }]) {
+      const { pts, curves } = offsetPath(shape, 5);
+      const ys = pts.map((q) => q[1]).sort((a, b) => a - b);
+      expect(ys[0]).toBeCloseTo(-5);
+      expect(ys[3]).toBeCloseTo(25);
+      const mids = curves.flatMap((c) => (c && 'mid' in c ? [c.mid[0]] : [])).sort((a, b) => a - b);
+      expect(mids[0]).toBeCloseTo(-15);
+      expect(mids[1]).toBeCloseTo(55);
+    }
+    const inner = offsetPath(slot, -5);
+    expect(inner.curves[1] && 'mid' in inner.curves[1] && inner.curves[1].mid[0]).toBeCloseTo(45);
+  });
+  it('a line goes to its left', () => {
+    const line = { kind: 'line' as const, pts: [[0, 0], [20, 0]] as [number, number][], curves: [{ c1: [5, 5] as [number, number], c2: [15, 5] as [number, number] }] };
+    const { pts } = offsetPath(line, 2);
+    expect(pts[0][1]).toBeGreaterThan(0);
+    expect(pts[0][0]).toBeLessThan(0);
+  });
+  it('a corner between a line and an arc: they meet on the arc\'s circle', () => {
+    const shape = { kind: 'polygon' as const, pts: [[0, 0], [20, 0], [0, 20]] as [number, number][], curves: [null, { mid: [14.1421, 14.1421] as [number, number] }, null], r: 0, rot: 0 };
+    const { pts, curves } = offsetPath(shape, 2);
+    expect(Math.hypot(...pts[1])).toBeCloseTo(22, 3);
+    expect(pts[1][1]).toBeCloseTo(-2, 5);
+    const c = curves[1]!;
+    expect('mid' in c && Math.hypot(...c.mid)).toBeCloseTo(22, 3);
+  });
+});
+
+describe('an arc tangent at both ends', () => {
+  // a rounded corner: x axis, a quarter arc, then up
+  const corner = { kind: 'line' as const, pts: [[0, 0], [20, 0], [30, 10], [30, 40]] as [number, number][], curves: [null, { mid: [20 + 10 * Math.SQRT1_2, 10 - 10 * Math.SQRT1_2] as [number, number] }, null] };
+  it('slides its ends along both sides, as a fillet', () => {
+    const q = centreMoved(corner, 1, [0, 0], 5);
+    expect(q.pts[1][0]).toBeCloseTo(25);
+    expect(q.pts[1][1]).toBeCloseTo(0);
+    expect(q.pts[2][0]).toBeCloseTo(30);
+    expect(q.pts[2][1]).toBeCloseTo(5);
+    expect(isSmooth(q, 1)).toBe(true);
+    expect(isSmooth(q, 2)).toBe(true);
+    expect(q.pts[0]).toEqual([0, 0]);
+    expect(q.pts[3]).toEqual([30, 40]);
+  });
+  it('stops where a side ends', () => {
+    const q = centreMoved(corner, 1, [0, 0], 500);
+    expect(q.pts[1][0]).toBeCloseTo(0);
+    expect(q.pts[1][1]).toBeCloseTo(0);
   });
 });
