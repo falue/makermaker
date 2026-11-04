@@ -10,7 +10,7 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 
 ## What it can do
 
-- **Draw and pull**: rectangles, circles, polygons, lines and spheres, drawn on the ground, on any flat face, on a sketch or on a green work plane (halfway between two faces, say), then pulled into solid bodies. Their faces can be pushed and pulled afterwards.
+- **Draw and pull**: rectangles, circles, regular polygons, lines (free polygons, bezier curves, round arcs, all in one tool) and spheres, drawn on the ground, on any flat face, on a sketch or on a green work plane (halfway between two faces, say), then pulled into solid bodies. Their faces can be pushed and pulled afterwards.
 - **More ways to make solids**: revolve a profile around an axis, loft through shapes on several sketches, sweep a shape along a path, bulge a face into a smooth dome or a shaft into a vase, hollow a body into walls (shell), offset outlines, mirror shapes and bodies.
 - **Real threads**: click a hole's or shaft's edge and get an ISO metric thread cut into it, ready to print.
 - **Round, chamfer, cut and join**: fillets and chamfers stay editable; bodies cut, join or intersect each other and stay movable while they do.

@@ -1,6 +1,6 @@
 import type { BuildFeature } from '../kernel/build';
 import { extent, frames, toPlane, toWorld, unplaced, type Frame, type V3 } from './frames';
-import { centre, corners, inside, type DrawnProfile } from './profiles';
+import { centre, corners, curved, inside, type DrawnProfile } from './profiles';
 import type { Resolved } from './resolve';
 import type { ExtrudeIn } from './types';
 
@@ -94,6 +94,7 @@ export function sideOf(p: DrawnProfile, [u, v]: UV, n: UV, eps: number): { edge:
     const c = ((u - p.x) * n[0] + (v - p.y) * n[1]) / r;
     return Math.abs(c) > 0.9 ? { edge: -1, rate: Math.sign(c) } : null;
   }
+  if (curved(p)) return null; // its flat faces get a Push / pull step of their own
   const pts = corners(p);
   const ccw = counterClockwise(pts);
   for (let i = 0; i < pts.length; i++) {

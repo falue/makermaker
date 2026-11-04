@@ -40,3 +40,15 @@ describe('laserSvg', () => {
     expect(dxf.trim().endsWith('EOF')).toBe(true);
   });
 });
+
+describe('curved outlines', () => {
+  it('cut out in short pieces, the area right', () => {
+    const plate: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[-20, 0], [20, 0]], curves: [null, { mid: [0, 20] }], r: 0, rot: 0 }], depth: 3, mode: 'add', through: false }];
+    const [cut] = laserCuts(plate);
+    expect(cut.pts.length).toBeGreaterThan(8);
+    expect(Math.max(...cut.pts.map((p) => p[1])) - Math.min(...cut.pts.map((p) => p[1]))).toBeCloseTo(20, 0);
+    expect(laserSvg(plate)).toContain('<path');
+    expect(dxfOf(cut ? [cut] : [])).toContain('LINE');
+  });
+});
+

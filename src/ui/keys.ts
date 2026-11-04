@@ -40,8 +40,7 @@ export const KEYS = {
   rect: { chapter: 'Draw', name: 'Rectangle', order: 40, default: [{ key: 'r' }], hint: 'Draw a rectangle (and pull it up, or keep it flat)' },
   circle: { chapter: 'Draw', name: 'Circle', order: 41, default: [{ key: 'c' }], hint: 'Draw a circle (a cylinder when pulled)' },
   ngon: { chapter: 'Draw', name: 'Regular polygon', order: 42, default: [{ key: 'n' }], hint: 'Draw a regular polygon' },
-  polygon: { chapter: 'Draw', name: 'Polygon', order: 43, default: [{ key: 'p' }], hint: 'Draw a polygon corner by corner (Esc: leave it open)' },
-  line: { chapter: 'Draw', name: 'Line', order: 43.5, default: [{ key: 'l' }], hint: 'Draw a single line (never extruded); hold ⌘ (else Ctrl) after one: the next starts where it ended' },
+  line: { chapter: 'Draw', name: 'Line', order: 43.5, default: [{ key: 'l' }], hint: 'Draw lines; again (or Alt): the next mode: one line per two clicks, free polygon, bezier curves, round arcs. Enter or Esc finishes a line, a click on its start closes it' },
   construction: { chapter: 'Draw', name: 'Construction', order: 43.8, default: [{ key: 'q' }], hint: 'Switch selected sketch objects to construction lines and back; the next ones are drawn the same' },
   sphere: { chapter: 'Draw', name: 'Sphere', order: 44, default: [{ key: 'o' }], hint: 'Draw a sphere from its centre' },
   sketch: { chapter: 'Draw', name: 'New sketch', order: 45, default: [{ key: 's' }], hint: 'A new sketch on a face or a base plane' },
@@ -71,10 +70,10 @@ export const KEYS = {
   confirm: { chapter: 'While a tool runs', name: 'Confirm', order: 70, default: [{ key: 'enter' }], hint: 'While a tool, move or pick runs: finish it (also: apply a waiting boolean or group)' },
   cancel: { chapter: 'While a tool runs', name: 'Cancel', order: 71, default: [{ key: 'escape' }], hint: 'While a tool, move or pick runs: stop it and put things back' },
   otherSide: { chapter: 'While a tool runs', name: 'Other side', order: 72, default: [{ key: 'tab' }], hint: 'Typing a size: switch between width and height (or the number of sides)' },
-  erase: { chapter: 'While a tool runs', name: 'Erase', order: 73, default: [{ key: 'backspace' }], hint: "Remove the last typed character (or a polygon's last corner)" },
+  erase: { chapter: 'While a tool runs', name: 'Erase', order: 73, default: [{ key: 'backspace' }], hint: "Remove the last typed character (or a line's last point)" },
   moreSnaps: { chapter: 'Drawing aids', name: 'More snap points', order: 75, default: [{ key: 'a', shift: false }], hint: 'Drawing, pointer on a line: one more evenly spaced snap point along it (a circle: around it)' },
   fewerSnaps: { chapter: 'Drawing aids', name: 'Fewer snap points', order: 76, default: [{ key: 'a', shift: true }], hint: 'Drawing, pointer on a line: one snap point fewer along it' },
-  baseline: { chapter: 'Drawing aids', name: 'Measure angle from', order: 78, default: [{ key: 'b' }], hint: 'Drawing a line or polygon side, pointer on a straight line or edge: its angle counts from that line (again, or off a line: from the X axis)' },
+  baseline: { chapter: 'Drawing aids', name: 'Measure angle from', order: 78, default: [{ key: 'b' }], hint: 'Drawing a line, pointer on a straight line or edge: its angle counts from that line (again, or off a line: from the X axis)' },
   fixGuide: { chapter: 'Drawing aids', name: 'Fix guide line', order: 77, default: [{ key: 'g' }], hint: 'Drawing, pointer on a guide line (or the line it extends): it stays until G again or sketch mode ends' },
   toObject: { chapter: 'Shape', name: 'To object', order: 78, default: [{ key: 't' }], hint: 'Pulling (before typing a size): click a corner, edge or face, the pull reaches it' },
   measureValue: { chapter: 'Shape', name: 'Distance measure', order: 78.5, default: [{ key: 'd' }], hint: 'Open the Distance measure tool, again: close it. Where T (to object) works: it opens, what you were doing waits; its Use puts the value measured at the cursor, to go on typing, or press T or this again' },
@@ -149,7 +148,7 @@ export const MODIFIER_NAMES: Record<Modifier, string> = { shift: 'Shift', ctrl: 
  */
 export const MODS = {
   add: { key: 'shift', when: 'click', name: 'Add', hint: 'Adds to the selection or takes away (in lists: a range)' },
-  addOne: { key: MAC ? 'meta' : 'ctrl', when: 'click', name: 'Add one, isolate, go on', hint: 'In lists adds one or takes it away; on an eye shows only that body; with the line tool: the next line from the last end' },
+  addOne: { key: MAC ? 'meta' : 'ctrl', when: 'click', name: 'Add one, isolate', hint: 'In lists adds one or takes it away; on an eye shows only that body' },
   parts: { key: 'alt', when: 'click', name: 'Faces and edges', hint: 'Picks a face or an edge instead of the body (with Shift: more of them)' },
   constrain: { key: 'shift', when: 'moving', name: 'Constrain', hint: 'Square, keeps proportions, 15° turns, ten times bigger steps' },
   precise: { key: 'ctrl', when: 'moving', name: 'Precise', hint: 'Steps of the minimum step (Settings → General)' },
@@ -177,7 +176,7 @@ export const role = (e: ModEvent, r: Role) => e[`${roleKey(r)}Key`];
 /** The KeyboardEvent key of `role`'s modifier ('Shift', 'Control' …), to follow it being pressed and let go. */
 export const roleKeyName = (r: Role) => ({ shift: 'Shift', ctrl: 'Control', alt: 'Alt', meta: 'Meta' })[roleKey(r)];
 
-/** Adds one in lists, isolates on an eye, goes on with the line tool. */
+/** Adds one in lists, isolates on an eye. */
 export const mod = (e: MouseEvent) => role(e, 'addOne');
 /** A click that adds to the selection or takes away. */
 export const toggles = (e: MouseEvent) => role(e, 'add') || mod(e);

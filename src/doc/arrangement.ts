@@ -1,4 +1,4 @@
-import { corners, inside, type DrawnProfile } from './profiles';
+import { flattened, inside, type DrawnProfile } from './profiles';
 
 type UV = [number, number];
 /** An enclosed face: its outline counter-clockwise, and the outlines of what lies inside it unconnected (holes). */
@@ -106,9 +106,9 @@ export function faces(paths: { pts: UV[]; closed: boolean }[], snap = 1e-6): Fac
 
 /** Points along a closed shape's outline (circles in `steps` pieces), or a line's points. */
 function pathOf(p: DrawnProfile, steps = 180): { pts: UV[]; closed: boolean } {
-  if (p.kind === 'line') return { pts: p.pts, closed: false };
+  if (p.kind === 'line') return { pts: flattened(p), closed: false };
   if (p.kind === 'circle') return { pts: Array.from({ length: steps }, (_, k): UV => [p.x + (p.d / 2) * Math.cos((2 * Math.PI * k) / steps), p.y + (p.d / 2) * Math.sin((2 * Math.PI * k) / steps)]), closed: true };
-  return { pts: corners(p), closed: true };
+  return { pts: flattened(p), closed: true };
 }
 
 type Box = [number, number, number, number];

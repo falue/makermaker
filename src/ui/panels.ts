@@ -486,13 +486,12 @@ const SHAPES = [
   ['rect', 'Rectangle (R)'],
   ['circle', 'Circle (C)'],
   ['ngon', 'Regular polygon (N)'],
-  ['polygon', 'Polygon (P)'],
-  ['line', 'Line (L): a single line, never extruded'],
+  ['line', 'Line (L): lines, a free polygon, bezier curves and round arcs; closed, an area to extrude'],
 ] as const;
 
 /** Left of the 3D view (incase's toolbar): sketching and making things, grouping, duplicating, deleting. */
 /** Shapes with several drawing modes, and how to switch them. */
-const MODED = ['rect', 'circle', 'ngon'];
+const MODED = ['rect', 'circle', 'ngon', 'line'];
 const MODE_TIP = ' · again (or Alt): its next drawing mode';
 
 function toolbar(ctx: UIContext): Node[] {
@@ -876,7 +875,7 @@ function left(ctx: UIContext): Node[] {
   addParam.placeholder = 'name = expression';
   addParam.dataset.complete = '';
 
-  const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, P) to start a body.')];
+  const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, L) to start a body.')];
   // a list: its heading always in reach, its contents scrolling below it
   const section = (key: string, title: Node, open: boolean, contents: Node[]) => {
     const body = h('div', { className: 'list-body' }, ...contents);
@@ -1208,7 +1207,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
 }
 
 const SKETCH_HINT =
-  'Sketch group: [R] [C] [P] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
+  'Sketch group: [R] [C] [L] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
 
 function hint(selected: number, shapes: number) {
   if (shapes)
@@ -1326,7 +1325,7 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   if (p.kind === 'line') return shape(row(...pos), row(tf('w', 'W', w), link, tf('h', 'H', hh))); // no corners to round, no turn of its own
   const rot = tf('rot', 'Turn °', stored('rot'), true); // degrees: shown as typed, never unit-converted
   if (p.kind === 'ngon') return shape(row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true)));
-  return shape(row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), pf('r', 'R')));
+  return shape(row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), ...(p.kind === 'polygon' && p.curves?.some(Boolean) ? [] : [pf('r', 'R')]))); // curved: no corner radius yet
 }
 
 /** Illustrator's reference point locator for one shape: which point of its box X / Y give, and which point stays when sizing or turning. */

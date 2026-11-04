@@ -1,6 +1,6 @@
 import { assignMaterial, changeLook, findMaterial } from '../doc/materials';
 import { ex, newId, unturned } from '../doc/sample';
-import type { Body, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
+import type { Body, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
 
 /**
  * The CAD command API: every modelling command as a pure step from one document to the next, described well enough
@@ -8,7 +8,7 @@ import type { Body, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Un
  * `cad` in main); `run` here stays free of the view and the kernel. Lengths are millimetres, angles degrees; a value
  * may also be an expression string (`'2*ply'`).
  */
-export type Param = { name: string; type: 'number' | 'string' | 'id' | 'ids' | 'point2' | 'point3' | 'points2' | 'points3' | 'enum'; doc: string; optional?: true; values?: readonly string[] };
+export type Param = { name: string; type: 'number' | 'string' | 'id' | 'ids' | 'point2' | 'point3' | 'points2' | 'points3' | 'curves' | 'enum'; doc: string; optional?: true; values?: readonly string[] };
 export type Args = Record<string, unknown>;
 export type Result = { doc: Doc; result?: unknown };
 export interface Command {
@@ -73,6 +73,9 @@ const pulled = (profile: Profile, depth: unknown): Feature => ({ id: newId(), ty
 const rect = (x: unknown, y: unknown, w: unknown, h: unknown, r: unknown = 0): Profile => ({ id: newId(), kind: 'rect', x: len(x), y: len(y), w: len(w), h: len(h), r: len(r), rot: ex(0) });
 const circle = (x: unknown, y: unknown, d: unknown): Profile => ({ id: newId(), kind: 'circle', x: len(x), y: len(y), d: len(d) });
 const pts2 = (v: unknown) => (Array.isArray(v) ? v.map((p) => [num(p[0]), num(p[1])] as [number, number]) : []);
+/** Per side how it bends: null straight, {c1, c2} a bezier curve's handles, {mid} a round arc through that point. */
+const curvesOf = (v: unknown) => (Array.isArray(v) && v.some(Boolean) ? { curves: v as (Curve | null)[] } : {});
+const curves: Param = { name: 'curves', type: 'curves', doc: 'per side from each point to the next: null straight, {c1: [x, y], c2: [x, y]} a bezier curve, {mid: [x, y]} a round arc through that point', optional: true };
 const at3: Param = { name: 'at', type: 'point3', doc: 'where its origin goes, [x, y, z] mm', optional: true };
 const named: Param = { name: 'name', type: 'string', doc: 'its name in the list', optional: true };
 
@@ -127,19 +130,19 @@ export const COMMANDS: Record<string, Command> = {
     run: (doc, a) => addShape(doc, a, circle(a.x, a.y, a.diameter)),
   },
   polygon: {
-    doc: 'A closed polygon in a sketch through its corners.',
-    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'points', type: 'points2', doc: 'corners [[x, y], …] mm, 3 or more' }],
+    doc: 'A closed shape in a sketch through its corners; its sides may curve.',
+    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'points', type: 'points2', doc: 'corners [[x, y], …] mm, 3 or more (2 with a curve)' }, curves],
     run: (doc, a) => {
-      if (pts2(a.points).length < 3) throw new Error('polygon: 3 corners or more');
-      return addShape(doc, a, { id: newId(), kind: 'polygon', pts: pts2(a.points), r: ex(0), rot: ex(0) });
+      if (pts2(a.points).length < (curvesOf(a.curves).curves ? 2 : 3)) throw new Error('polygon: 3 corners or more');
+      return addShape(doc, a, { id: newId(), kind: 'polygon', pts: pts2(a.points), ...curvesOf(a.curves), r: ex(0), rot: ex(0) });
     },
   },
   line: {
     doc: 'An open line in a sketch through its points (never extruded on its own; lines closing areas are).',
-    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'points', type: 'points2', doc: '[[x, y], …] mm, 2 or more' }],
+    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'points', type: 'points2', doc: '[[x, y], …] mm, 2 or more' }, curves],
     run: (doc, a) => {
       if (pts2(a.points).length < 2) throw new Error('line: 2 points or more');
-      return addShape(doc, a, { id: newId(), kind: 'line', pts: pts2(a.points) });
+      return addShape(doc, a, { id: newId(), kind: 'line', pts: pts2(a.points), ...curvesOf(a.curves) });
     },
   },
   extrude: {

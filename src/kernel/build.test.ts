@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
-import { setOC } from 'replicad';
+import { measureVolume, setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { STILL } from '../doc/frames';
 import { areasOf, buildBody, FeatureError, meshBody, type BuildFeature, type Finishing } from './build';
@@ -516,5 +516,66 @@ describe('picked edges', () => {
     it('a left out edge stays out when picked again by the same line', () => {
       expect(() => buildBody([base(40), { ...right(20, 4), skip: [[20, 0, 4]] } as BuildFeature])).toThrow('picked edges are gone');
     });
+  });
+});
+
+describe('curved sides', () => {
+  const on = (profile: unknown, depth = 10): BuildFeature => ({ id: 'e', type: 'extrude', plane: ground, profiles: [profile], depth, mode: 'add', through: false }) as BuildFeature;
+  const volume = (features: BuildFeature[]) => {
+    const shape = buildBody(features);
+    const faces = shape.faces.length;
+    const v = measureVolume(shape);
+    shape.delete();
+    return { faces, v };
+  };
+
+  it('extrudes a true arc: a half disc is one round face, not many', () => {
+    const { faces, v } = volume([on({ id: 'p', kind: 'polygon', pts: [[-10, 0], [10, 0]], curves: [null, { mid: [0, 10] }], r: 0, rot: 0 })]);
+    expect(faces).toBe(4);
+    expect(v).toBeCloseTo((Math.PI * 100 * 10) / 2, 1);
+  });
+
+  it('extrudes a closed shape whose last side curves back to its start', () => {
+    const { faces } = volume([on({ id: 'p', kind: 'polygon', pts: [[0, 0], [30, 0], [30, 30]], curves: [null, null, { c1: [10, 30], c2: [0, 10] }], r: 0, rot: 0 })]);
+    expect(faces).toBe(5);
+  });
+
+  it('turns a curved shape as a whole', () => {
+    const p = { id: 'p', kind: 'polygon', pts: [[-10, 0], [10, 0]], curves: [null, { mid: [0, 10] }], r: 0 };
+    const shape = buildBody([on({ ...p, rot: 180 })]);
+    expect(shape.boundingBox.bounds[0][1]).toBeLessThan(-9);
+    shape.delete();
+  });
+
+  it('sweeps along a line with an arc and a bezier curve', () => {
+    const path = { id: 'l', kind: 'line', pts: [[0, 0], [20, 0], [40, 20], [60, 20]], curves: [null, { c1: [30, 0], c2: [40, 10] }, { mid: [50, 25] }] };
+    const shape = buildBody([{ id: 's', type: 'sweep', profile: { id: 'c', kind: 'circle', x: 0, y: 0, d: 4 }, path: { frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, profile: path } } as unknown as BuildFeature]);
+    expect(shape.boundingBox.bounds[1][0]).toBeGreaterThan(55);
+    shape.delete();
+  });
+
+  it('cuts along a curved line, exact and moved aside', () => {
+    const box = on({ id: 'r', kind: 'rect', x: 0, y: 0, w: 40, h: 40, r: 0, rot: 0 });
+    const cut = (offset: number) => ({ id: 'c', type: 'split', side: 1, cutter: { kind: 'frame', frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] }, offset, profile: { id: 'l', kind: 'line', pts: [[-30, 0], [30, 0]], curves: [{ c1: [-10, 20], c2: [10, 20] }] } } }) as unknown as BuildFeature;
+    const exact = volume([box, cut(0)]);
+    expect(exact.faces).toBe(6);
+    expect(exact.v).toBeLessThan(16000);
+    expect(volume([box, cut(3)]).v).toBeGreaterThan(0);
+  });
+
+  it('revolves and lofts a curved outline', () => {
+    const half = { id: 'p', kind: 'polygon', pts: [[10, 0], [30, 0]], curves: [null, { mid: [20, 10] }], r: 0, rot: 0 };
+    const ring = buildBody([{ id: 'r', type: 'revolve', plane: ground, profiles: [half], axis: { at: [0, 0], dir: [0, 1] }, angle: 360, mode: 'add' } as unknown as BuildFeature]);
+    expect(ring.boundingBox.bounds[1][0]).toBeCloseTo(30, 0);
+    ring.delete();
+    const at = (z: number) => ({ o: [0, 0, z], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] });
+    const up = buildBody([{ id: 'l', type: 'loft', sections: [{ frame: at(0), profile: { ...half, pts: [[-10, 0], [10, 0]], curves: [null, { mid: [0, 10] }] } }, { frame: at(20), profile: { id: 'c', kind: 'circle', x: 0, y: 3, d: 8 } }], ruled: false } as unknown as BuildFeature]);
+    expect(up.boundingBox.bounds[1][2]).toBeCloseTo(20, 1);
+    up.delete();
+  });
+
+  it('finds areas where a closed curved shape overlaps another', () => {
+    const areas = areasOf([{ id: 'a', kind: 'polygon', pts: [[-10, 0], [10, 0]], curves: [null, { mid: [0, 10] }], r: 0, rot: 0 }, { id: 'b', kind: 'rect', x: 0, y: 0, w: 8, h: 8, r: 0, rot: 0 }]);
+    expect(areas.length).toBe(3);
   });
 });

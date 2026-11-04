@@ -1,9 +1,10 @@
 import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
-import { beside, centre, corners, nesting } from '../doc/profiles';
+import type { DrawingPen } from 'replicad';
+import { beside, centre, corners, curved, flattened, mapPoints, nesting, sideDirs } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
 import type { Resolved } from '../doc/resolve';
-import type { Area, BooleanOp, BuildIn, EdgeRule, Profile } from '../doc/types';
+import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/types';
 
 /** A boolean with its tool body's features at hand, placed as the tool body sits in this body's coordinates. */
 export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place };
@@ -206,12 +207,25 @@ function drawing(p: Resolved<Profile>): Drawing {
     case 'line':
       throw new Error('an open line cannot be extruded');
     case 'polygon': {
-      if (p.pts.length < 3) throw new Error('a polygon needs 3 corners');
+      if (p.pts.length < (curved(p) ? 2 : 3)) throw new Error('a polygon needs 3 corners');
       if (p.r < 0) throw new Error('corner radius must not be negative');
-      const closed = p.pts.slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(p.pts[0])).close();
+      const closed = sidesDrawn(draw(p.pts[0]), p, true).close();
       return (p.r > 0 ? closed.fillet(p.r) : closed).rotate(p.rot, centre(p));
     }
   }
+}
+
+/** `pen` (at the first point) drawn on along the sides; `closed`: the last one back to the first point. */
+function sidesDrawn(pen: DrawingPen, { pts, curves }: { pts: [number, number][]; curves?: (Curve | null)[] }, closed = false): DrawingPen {
+  const ends = closed ? [...pts.slice(1), pts[0]] : pts.slice(1);
+  ends.forEach((b, i) => {
+    const c = curves?.[i];
+    if (closed && i === ends.length - 1 && !c) return; // close() draws it
+    if (!c) pen.lineTo(b);
+    else if ('c1' in c) pen.cubicBezierCurveTo(b, c.c1, c.c2);
+    else pen.threePointsArcTo(b, c.mid);
+  });
+  return pen;
 }
 
 /** Profiles inside an odd number of others are holes (even-odd), so a circle drawn inside a rectangle cuts it. */
@@ -417,10 +431,8 @@ function sweep(shape: Shape3D | null, s: Of<'sweep'>): Shape3D {
   if (p.kind === 'line') throw new Error('the profile must be a closed shape');
   // the profile centred on its own origin: the path's start
   const [cx, cy] = centre(p);
-  const centred = p.kind === 'polygon' ? { ...p, pts: p.pts.map(([x, y]) => [x - cx, y - cy] as [number, number]) } : { ...p, x: 0, y: 0 };
-  let line = path.kind === 'line' ? draw(path.pts[0]) : null;
-  if (line && path.kind === 'line') for (const q of path.pts.slice(1)) line = line.lineTo(q);
-  const spine = (line ? line.done() : drawing(path)).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch;
+  const centred = p.kind === 'polygon' ? mapPoints(p, ([x, y]) => [x - cx, y - cy]) : { ...p, x: 0, y: 0 };
+  const spine = (path.kind === 'line' ? sidesDrawn(draw(path.pts[0]), path).done() : drawing(path)).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch;
   const tool = spine.sweepSketch((plane) => drawing(centred).sketchOnPlane(plane) as Sketch, { transitionMode: 'right' });
   return joined(shape, tool, 'add');
 }
@@ -832,20 +844,21 @@ function cutterSide(c: Of<'split'>['cutter'], far: number): Shape3D {
     return drawRectangle(2 * far, 2 * far).sketchOnPlane(new Plane(f.o, f.x, f.n)).extrude(far) as Shape3D;
   }
   const { frame: f, profile: p } = c;
-  return (p.kind === 'line' ? leftOf(beside(p.pts, c.offset), far) : drawing(p)).sketchOnPlane(new Plane(add(f.o, scale(f.n, -far)), f.x, f.n)).extrude(2 * far) as Shape3D;
+  // curves stay exact unless moved aside (then in short pieces)
+  const line = p.kind === 'line' ? (curved(p) && !c.offset ? p : { pts: beside(flattened(p), c.offset) }) : null;
+  return (line ? leftOf(line, far) : drawing(p)).sketchOnPlane(new Plane(add(f.o, scale(f.n, -far)), f.x, f.n)).extrude(2 * far) as Shape3D;
 }
 
 /** The region left of an open line (plane coordinates), its ends drawn on `far` mm and closed far to the left. */
-function leftOf(pts: [number, number][], far: number): Drawing {
-  const unit = (a: [number, number], b: [number, number]): [number, number] => {
-    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-    return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
-  };
-  const [d0, d1] = [unit(pts[0], pts[1]), unit(pts.at(-2)!, pts.at(-1)!)];
+function leftOf(line: { pts: [number, number][]; curves?: (Curve | null)[] }, far: number): Drawing {
+  const unit = ([x, y]: [number, number]): [number, number] => [x / (Math.hypot(x, y) || 1), y / (Math.hypot(x, y) || 1)];
+  const { pts, curves } = line;
+  const n = pts.length - 1;
+  const d0 = unit(sideDirs(pts[0], curves?.[0], pts[1])[0]);
+  const d1 = unit(sideDirs(pts[n - 1], curves?.[n - 1], pts[n])[1]);
   const start: [number, number] = [pts[0][0] - d0[0] * far, pts[0][1] - d0[1] * far];
-  const end: [number, number] = [pts.at(-1)![0] + d1[0] * far, pts.at(-1)![1] + d1[1] * far];
-  const ring = [start, ...pts, end, [end[0] - d1[1] * far, end[1] + d1[0] * far], [start[0] - d0[1] * far, start[1] + d0[0] * far]] as [number, number][];
-  return ring.slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(ring[0])).close();
+  const end: [number, number] = [pts[n][0] + d1[0] * far, pts[n][1] + d1[1] * far];
+  return sidesDrawn(draw(start).lineTo(pts[0]), line).lineTo(end).lineTo([end[0] - d1[1] * far, end[1] + d1[0] * far]).lineTo([start[0] - d0[1] * far, start[1] + d0[0] * far]).close();
 }
 
 /**

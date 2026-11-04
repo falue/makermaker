@@ -170,7 +170,7 @@ Later goals (2026-11-02):
 
 Later goals (2026-11-02, from the design talks; STATUS.md → "CAD goals" lists them in order):
 
-- [ ] **Basic CAD completeness:** sketch arcs, dimensions with basic constraints, hole features (counterbore, countersink), 2D drawings (revolve, loft, sweep, shell, mirror, threads, patterns, work planes, draft, measuring and STEP export are built).
+- [ ] **Basic CAD completeness:** dimensions with basic constraints, hole features (counterbore, countersink), 2D drawings (sketch arcs and bezier curves, revolve, loft, sweep, shell, mirror, threads, patterns, work planes, draft, measuring and STEP export are built).
 - [ ] **Flatten:** a body's whole recipe becomes one fixed solid (lossy, explicit), so booleans' tool bodies can be removed.
 - [ ] **Cut by any body:** planes, sketch shapes, balls and cylinders work; boxes, imported solids and any other body still to come.
 

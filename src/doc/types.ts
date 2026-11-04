@@ -24,17 +24,20 @@ export type SketchPlacement =
   | { kind: 'plane'; o: [number, number, number]; x: [number, number, number]; y: [number, number, number]; n: [number, number, number] }
   | { kind: 'work'; plane: string };
 
+/** How a side bends, in plane coordinates (mm): a bezier curve's two handles, or a round arc through `mid`. */
+export type Curve = { c1: [number, number]; c2: [number, number] } | { mid: [number, number] };
+
 /**
  * A shape in sketch plane coordinates: rect, circle and regular polygon (`ngon`: `sides` corners on diameter `d`)
  * centred on x, y; polygon corners in mm; `line`: an open line through its points (mm), never extruded. `rot` (degrees) turns rect and ngon around their centre and a polygon around
- * the centre of its corners.
+ * the centre of its corners. `curves`: per side (from each point to the next; a polygon's last back to its first) how it bends: null straight.
  */
 export type Profile = (
   | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr; rot: Expr }
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
   | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr }
-  | { id: string; kind: 'polygon'; pts: [number, number][]; r: Expr; rot: Expr }
-  | { id: string; kind: 'line'; pts: [number, number][] }
+  | { id: string; kind: 'polygon'; pts: [number, number][]; curves?: (Curve | null)[]; r: Expr; rot: Expr }
+  | { id: string; kind: 'line'; pts: [number, number][]; curves?: (Curve | null)[] }
 ) & {
   /** A construction line: drawn dashed, snapped to, never extruded. */
   construction?: boolean;

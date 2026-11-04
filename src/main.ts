@@ -5,7 +5,7 @@ import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, beside, bounds, centre, closedLoop, corners, grown, type Align } from './doc/profiles';
+import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, flattened, grown, mapPoints, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { fitting, THREADS, type ThreadSize } from './doc/threads';
 import { icon } from './ui/icons';
@@ -23,7 +23,7 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -805,7 +805,8 @@ function withShapes(doc: Doc, sketch: string, updates: { id: string; profile: Dr
     const old = resolve(q, lookup, '', new Map()) as Record<string, unknown>;
     const next = { ...q } as Record<string, unknown>;
     for (const [key, v] of Object.entries(u.profile)) {
-      if (key === 'pts') next.pts = (v as [number, number][]).map(([x, y]) => [+fmt(x), +fmt(y)]);
+      if (key === 'pts') next.pts = roundPts(v as [number, number][]);
+      else if (key === 'curves') next.curves = roundCurves(v as (Curve | null)[]);
       else if (typeof v === 'number' && Math.abs(v - (old[key] as number)) > 1e-9) next[key] = UNITLESS.includes(key) ? ex(fmt(v)) : len(v, typed[key as 'w']);
     }
     return next as Profile;
@@ -852,7 +853,7 @@ function addShapes(sketch: string, sources: Profile[], offset: number) {
   const copies = sources.map((src): Profile => {
     const m = shifted(resolve(src, lookup, '', new Map()), offset, -offset);
     const copy = { ...structuredClone(src), id: newId() };
-    if ((copy.kind === 'polygon' || copy.kind === 'line') && (m.kind === 'polygon' || m.kind === 'line')) return { ...copy, pts: m.pts.map(([x, y]) => [+fmt(x), +fmt(y)]) };
+    if ((copy.kind === 'polygon' || copy.kind === 'line') && (m.kind === 'polygon' || m.kind === 'line')) return { ...copy, pts: roundPts(m.pts), ...(m.curves ? { curves: roundCurves(m.curves) } : {}) };
     return m.kind === 'polygon' || m.kind === 'line' || copy.kind === 'polygon' || copy.kind === 'line' ? copy : offset ? { ...copy, x: len(m.x), y: len(m.y) } : copy;
   });
   [selected, shapeSel] = [[sketch], copies.map((c) => c.id)];
@@ -1013,9 +1014,8 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     if (shapes.length !== 1) return { title: shapeSel.length ? `${shapes.length} shapes` : s.name, rows: [['Shapes', String(shapes.length)]] }; // (areas would count holes too)
     const q = shapes[0];
     const [w, h] = sizeOf(q);
-    const pts = corners(q);
     const rows: [string, string][] = q.kind === 'circle' ? [['Ø', num(q.d)]] : [['Size', `${num(w)} × ${num(h)}`]];
-    rows.push(q.kind === 'line' ? ['Length', num(pts.slice(1).reduce((n, [x, y], i) => n + Math.hypot(x - pts[i][0], y - pts[i][1]), 0))] : ['Area', num(area(q), 2)]);
+    rows.push(q.kind === 'line' ? ['Length', num(flattened(q).reduce((n, [x, y], i, f) => n + (i ? Math.hypot(x - f[i - 1][0], y - f[i - 1][1]) : 0), 0))] : ['Area', num(area(q), 2)]);
     return { title: q.kind[0].toUpperCase() + q.kind.slice(1), rows };
   }
   const ids = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
@@ -1578,7 +1578,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     const s = viewer.sketches.find((k) => k.id === c.sketch);
     const q = s?.shapes.find((k) => k.id === c.shape);
     if (!s || !q) return viewer.showCut(null);
-    const pts = q.kind === 'line' ? beside(q.pts, resolve(c.offset, lookup, '', new Map()) as number) : [...corners(q), corners(q)[0]];
+    const pts = q.kind === 'line' ? beside(flattened(q), resolve(c.offset, lookup, '', new Map()) as number) : [...flattened(q), flattened(q)[0]];
     const n = new Vector3(...s.frame.n);
     // the band reaches through the body along the sketch's normal
     const h = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => new Vector3(k & 1 ? whole.max.x : whole.min.x, k & 2 ? whole.max.y : whole.min.y, k & 4 ? whole.max.z : whole.min.z).sub(new Vector3(...s.frame.o)).dot(n));
@@ -1635,8 +1635,9 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
         // a line: the point's distance from it in the sketch's plane, on its left positive (the way the offset moves it)
         const [x, y] = uvOf(s.frame, p);
         let best: [number, number] = [Infinity, 0];
-        line.pts.slice(1).forEach(([bx, by], i) => {
-          const [ax, ay] = line.pts[i];
+        const along = flattened(line);
+        along.slice(1).forEach(([bx, by], i) => {
+          const [ax, ay] = along[i];
           const [dx, dy] = [bx - ax, by - ay];
           const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
           const d = Math.hypot(x - ax - t * dx, y - ay - t * dy);
@@ -2329,7 +2330,7 @@ function mirrorTool() {
         const copies = doc.sketches[k].shapes.filter((q) => shapeSel.includes(q.id)).map((q): Profile => {
           const p = shown.find((x) => x.id === q.id)!;
           const id = newId();
-          if (p.kind === 'line' || p.kind === 'polygon') return { ...q, id, ...(p.kind === 'polygon' ? { rot: ex(0) } : {}), pts: (p.kind === 'polygon' ? corners(p) : p.pts).map(flip) } as Profile;
+          if (p.kind === 'line' || p.kind === 'polygon') return { ...q, id, ...(p.kind === 'polygon' ? { rot: ex(0) } : {}), ...(({ pts, curves }) => ({ pts, ...(curves ? { curves } : {}) }))(mapPoints(bakeTurn(p), flip)) } as Profile;
           const [x, y] = flip([p.x, p.y]);
           const rot = p.kind === 'rect' ? { rot: ex(fmt(2 * deg - p.rot)) } : p.kind === 'ngon' ? { rot: ex(fmt(2 * deg - p.rot - 180)) } : {};
           return { ...q, id, x: len(x), y: len(y), ...rot } as Profile;
@@ -2768,7 +2769,8 @@ function offsetShapes(sketch: string) {
   const doc0 = history.current;
   const k = doc0.sketches.findIndex((s) => s.id === sketch);
   const shown = viewer.sketches.find((v) => v.id === sketch)!.shapes.filter((q) => shapeSel.includes(q.id));
-  const sources = doc0.sketches[k].shapes.filter((q) => shapeSel.includes(q.id));
+  const sources = doc0.sketches[k].shapes.filter((q) => shapeSel.includes(q.id) && !curved(shown.find((x) => x.id === q.id)!));
+  if (!sources.length) return notify('Offset does not take curved lines yet');
   const ids = sources.map(() => newId());
   const made = (d: number): Profile[] =>
     sources.map((q, n) => {
@@ -2777,8 +2779,8 @@ function offsetShapes(sketch: string) {
       if (q.kind === 'rect' && p.kind === 'rect') return { ...q, id, w: len(p.w + 2 * d), h: len(p.h + 2 * d), r: len(Math.max(0, p.r + d)) };
       if (q.kind === 'circle' && p.kind === 'circle') return { ...q, id, d: len(Math.max(0.01, p.d + 2 * d)) };
       if (q.kind === 'ngon' && p.kind === 'ngon') return { ...q, id, d: len(Math.max(0.01, p.d + (2 * d) / Math.cos(Math.PI / p.sides))) };
-      if (q.kind === 'polygon' && p.kind === 'polygon') return { ...q, id, pts: grown(p.pts, d).map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]) };
-      if (q.kind === 'line' && p.kind === 'line') return { ...q, id, pts: beside(p.pts, d).map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]) };
+      if (q.kind === 'polygon' && p.kind === 'polygon') return { ...q, id, pts: roundPts(grown(p.pts, d)) };
+      if (q.kind === 'line' && p.kind === 'line') return { ...q, id, pts: roundPts(beside(p.pts, d)) };
       return { ...q, id };
     });
   const apply = (d: number) => {
@@ -3405,7 +3407,7 @@ function rotateTool() {
       const [c, s] = [Math.cos((angle * Math.PI) / 180), Math.sin((angle * Math.PI) / 180)];
       const around = ([u, v]: [number, number]): [number, number] => [pu + (u - pu) * c - (v - pv) * s, pv + (u - pu) * s + (v - pv) * c];
       return withShapes(doc0, sketch, shapes.map((q) => {
-        if (q.kind === 'line') return { id: q.id, profile: { ...q, pts: q.pts.map(around) } };
+        if (q.kind === 'line') return { id: q.id, profile: mapPoints(q, around) };
         const [m, n] = [centre(q), around(centre(q))];
         return { id: q.id, profile: shifted(rotated(q, angle), n[0] - m[0], n[1] - m[1]) };
       }));
@@ -4292,7 +4294,7 @@ function withSketched(doc: Doc, r: SketchResult): { doc: Doc; id: string; ids: s
     const shapes = sketches.find((s) => s.id === id)!.shapes;
     const loop = profile.kind === 'line' && !profile.construction && closedLoop(shapes.flatMap((q) => (q.kind === 'line' && !q.construction ? [q] : [])), profile.id);
     if (loop) {
-      const polygon: Profile = { id: newId(), kind: 'polygon', pts: loop.pts, r: len(0), rot: ex('0'), ...(profile.group ? { group: profile.group } : {}) };
+      const polygon: Profile = { id: newId(), kind: 'polygon', pts: loop.pts, ...(loop.curves ? { curves: loop.curves } : {}), r: len(0), rot: ex('0'), ...(profile.group ? { group: profile.group } : {}) };
       sketches = sketches.map((s) => (s.id === id ? { ...s, shapes: [...shapes.filter((q) => !loop.ids.includes(q.id)), polygon] } : s));
       ids = [polygon.id];
     }
@@ -4334,13 +4336,16 @@ function profileOf(drawn: Drawn): Profile {
   return drawConstruction ? { ...profile, construction: true } : profile;
 }
 
+const roundPts = (pts: [number, number][]) => pts.map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]);
+const roundCurves = (curves: (Curve | null)[]) => curves.map((c) => (!c ? null : 'c1' in c ? { c1: roundPts([c.c1])[0], c2: roundPts([c.c2])[0] } : { mid: roundPts([c.mid])[0] }));
+
 function shapeOf({ profile: p, typed: t }: Drawn): Profile {
   const id = newId();
   if (p.kind === 'rect') return { id, kind: 'rect', x: len(p.x), y: len(p.y), w: len(p.w, t.w), h: len(p.h, t.h), r: len(p.r), rot: ex(fmt(p.rot)) };
   if (p.kind === 'circle') return { id, kind: 'circle', x: len(p.x), y: len(p.y), d: len(p.d, t.d) };
   if (p.kind === 'ngon') return { id, kind: 'ngon', x: len(p.x), y: len(p.y), d: len(p.d, t.d), sides: ex(fmt(p.sides)), rot: ex(fmt(p.rot)) };
-  const pts = p.pts.map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]);
-  return p.kind === 'line' ? { id, kind: 'line', pts } : { id, kind: 'polygon', pts, r: len(p.r), rot: ex(fmt(p.rot)) };
+  const path = { pts: roundPts(p.pts), ...(p.curves ? { curves: roundCurves(p.curves) } : {}) };
+  return p.kind === 'line' ? { id, kind: 'line', ...path } : { id, kind: 'polygon', ...path, r: len(p.r), rot: ex(fmt(p.rot)) };
 }
 
 function stopTool() {
@@ -4448,7 +4453,8 @@ function rewrite(shape: Profile, old: DrawnProfile, next: DrawnProfile, keep: Re
   const was = old as Record<string, unknown>;
   for (const [key, v] of Object.entries(next))
     if (keep[key]) out[key] = keep[key];
-    else if (key === 'pts') out.pts = (v as [number, number][]).map(([x, y]) => [+fmt(x), +fmt(y)]);
+    else if (key === 'pts') out.pts = roundPts(v as [number, number][]);
+    else if (key === 'curves') out.curves = roundCurves(v as (Curve | null)[]);
     else if (typeof v === 'number' && !UNITLESS.includes(key)) out[key] = plus(out[key] as Expr, was[key] as number, v - (was[key] as number));
   return out as Profile;
 }
@@ -5899,7 +5905,6 @@ const TOOL_KEYS: [Action, ToolKind][] = [
   ['rect', 'rect'],
   ['circle', 'circle'],
   ['ngon', 'ngon'],
-  ['polygon', 'polygon'],
   ['line', 'line'],
   ['sphere', 'sphere'],
 ];

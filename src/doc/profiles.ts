@@ -1,9 +1,87 @@
 import type { Resolved } from './resolve';
-import type { Profile } from './types';
+import type { Curve, Profile } from './types';
 
 /** A profile in mm, without id (resolved profiles fit too). */
 export type DrawnProfile = Resolved<Profile> extends infer P ? (P extends unknown ? Omit<P, 'id'> : never) : never;
 type P = DrawnProfile;
+type UV = [number, number];
+type Pathed = Extract<P, { pts: UV[] }>;
+
+/** The middle and radius of the arc from `a` through `mid` to `b`, and its angles there (radians, `a1` the far end, running from `a0` through the middle); null: they lie on one line. */
+export function arcOf(a: UV, mid: UV, b: UV) {
+  const d = 2 * (a[0] * (mid[1] - b[1]) + mid[0] * (b[1] - a[1]) + b[0] * (a[1] - mid[1]));
+  if (Math.abs(d) < 1e-9) return null;
+  const sq = ([x, y]: UV) => x * x + y * y;
+  const x = (sq(a) * (mid[1] - b[1]) + sq(mid) * (b[1] - a[1]) + sq(b) * (a[1] - mid[1])) / d;
+  const y = (sq(a) * (b[0] - mid[0]) + sq(mid) * (a[0] - b[0]) + sq(b) * (mid[0] - a[0])) / d;
+  const [a0, am, ab] = [a, mid, b].map((p) => Math.atan2(p[1] - y, p[0] - x));
+  const turn = (t: number) => ((t % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const ccw = turn(am - a0) < turn(ab - a0);
+  return { c: [x, y] as UV, r: Math.hypot(a[0] - x, a[1] - y), a0, a1: a0 + (ccw ? turn(ab - a0) : -turn(a0 - ab)) };
+}
+
+/** Points along a side from `a` to `b`, both ends in. */
+function sidePoints(a: UV, c: Curve | null | undefined, b: UV, steps = 32): UV[] {
+  if (!c) return [a, b];
+  if ('c1' in c) {
+    const at = (t: number, k: number) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c.c1[k] + 3 * (1 - t) * t ** 2 * c.c2[k] + t ** 3 * b[k];
+    return Array.from({ length: steps + 1 }, (_, i) => (i === steps ? b : i ? [at(i / steps, 0), at(i / steps, 1)] : a));
+  }
+  const arc = arcOf(a, c.mid, b);
+  if (!arc) return [a, b];
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const t = arc.a0 + ((arc.a1 - arc.a0) * i) / steps;
+    return i === steps ? b : i ? [arc.c[0] + arc.r * Math.cos(t), arc.c[1] + arc.r * Math.sin(t)] : a;
+  });
+}
+
+/** Whether a side bends. */
+export const curved = (p: P) => (p.kind === 'polygon' || p.kind === 'line') && !!p.curves?.some(Boolean);
+
+/** Each side of a polygon or line as points, both ends in, bakeTurn. */
+export function sidesOf(p: Pathed): UV[][] {
+  const n = p.kind === 'line' ? p.pts.length - 1 : p.pts.length;
+  return Array.from({ length: Math.max(0, n) }, (_, i) => sidePoints(p.pts[i], p.curves?.[i], p.pts[(i + 1) % p.pts.length]));
+}
+
+/** Its points and curve handles through `f`. */
+export function mapPoints<T extends Pathed>(p: T, f: (q: UV) => UV): T {
+  const curves = p.curves?.map((c) => (!c ? null : 'c1' in c ? { c1: f(c.c1), c2: f(c.c2) } : { mid: f(c.mid) }));
+  return { ...p, pts: p.pts.map(f), ...(curves ? { curves } : {}) };
+}
+
+/** A polygon with its turn in its points (`rot` 0); a line as it is. */
+export function bakeTurn<T extends Pathed>(p: T): T {
+  if (p.kind === 'line' || !p.rot) return p;
+  const [cx, cy] = centre(p);
+  const a = (p.rot * Math.PI) / 180;
+  return { ...mapPoints(p, ([x, y]) => [cx + (x - cx) * Math.cos(a) - (y - cy) * Math.sin(a), cy + (x - cx) * Math.sin(a) + (y - cy) * Math.cos(a)]), rot: 0 };
+}
+
+/** The outline as points, curves in short pieces, turned; a closed shape's last point does not repeat its first (a circle has none). */
+export function flattened(p: P): UV[] {
+  if (p.kind !== 'polygon' && p.kind !== 'line') return corners(p);
+  if (!curved(p)) return corners(p);
+  const sides = sidesOf(bakeTurn(p));
+  const pts = sides.flatMap((s) => s.slice(0, -1));
+  return p.kind === 'line' ? [...pts, p.pts[p.pts.length - 1]] : pts;
+}
+
+/** The direction (not unit length) a side leaves its start in, and the one it reaches its end in. */
+export function sideDirs(a: UV, c: Curve | null | undefined, b: UV): [UV, UV] {
+  const chord: UV = [b[0] - a[0], b[1] - a[1]];
+  if (!c) return [chord, chord];
+  if ('c1' in c) {
+    const out: UV = [c.c1[0] - a[0], c.c1[1] - a[1]];
+    const into: UV = [b[0] - c.c2[0], b[1] - c.c2[1]];
+    return [Math.hypot(...out) > 1e-9 ? out : chord, Math.hypot(...into) > 1e-9 ? into : chord];
+  }
+  const arc = arcOf(a, c.mid, b);
+  if (!arc) return [chord, chord];
+  const s = Math.sign(arc.a1 - arc.a0);
+  const tangent = (t: number): UV => [-Math.sin(t) * s, Math.cos(t) * s];
+  return [tangent(arc.a0), tangent(arc.a1)];
+}
 
 /** The rect's or polygon's corners, turned by `rot` (a line: its points); a circle has none. */
 export function corners(p: P): [number, number][] {
@@ -35,7 +113,7 @@ export function corners(p: P): [number, number][] {
 /** Bounding box in plane coordinates: [minX, minY, maxX, maxY]. */
 export function bounds(p: P): [number, number, number, number] {
   if (p.kind === 'circle') return [p.x - p.d / 2, p.y - p.d / 2, p.x + p.d / 2, p.y + p.d / 2];
-  const pts = corners(p);
+  const pts = flattened(p);
   const xs = pts.map(([x]) => x);
   const ys = pts.map(([, y]) => y);
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
@@ -73,7 +151,7 @@ export function area(p: P): number {
   if (p.kind === 'line') return 0;
   if (p.kind === 'rect') return p.w * p.h;
   if (p.kind === 'circle') return (Math.PI * p.d * p.d) / 4;
-  const pts = corners(p);
+  const pts = flattened(p);
   return Math.abs(pts.reduce((s, [x, y], i) => s + x * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * y, 0)) / 2;
 }
 
@@ -87,7 +165,7 @@ export function centre(p: P): [number, number] {
 export function inside(p: P, u: number, v: number): boolean {
   if (p.kind === 'line') return false; // open: nothing inside
   if (p.kind === 'circle') return Math.hypot(u - p.x, v - p.y) <= p.d / 2;
-  const pts = corners(p);
+  const pts = flattened(p);
   let odd = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
     const [xi, yi] = pts[i];
@@ -100,7 +178,7 @@ export function inside(p: P, u: number, v: number): boolean {
 /** Distance (mm) from plane point (u, v) to the outline (rounded corners counted sharp; a line stays open). */
 export function edgeDistance(p: P, u: number, v: number): number {
   if (p.kind === 'circle') return Math.abs(Math.hypot(u - p.x, v - p.y) - p.d / 2);
-  const pts = corners(p);
+  const pts = flattened(p);
   return Math.min(
     ...(p.kind === 'line' ? pts.slice(0, -1) : pts).map(([x0, y0], i) => {
       const [x1, y1] = pts[(i + 1) % pts.length];
@@ -122,23 +200,27 @@ export function nesting(ps: P[]): number[] {
 
 /**
  * The loop that open lines close (each its points, joined end to end either way round, ends within `tol` mm) with
- * line `start` in it: the lines' ids and the loop's corners, each once; null: they do not close.
+ * line `start` in it: the lines' ids, the loop's corners, each once, and its sides' curves; null: they do not close.
  */
-export function closedLoop(lines: { id: string; pts: [number, number][] }[], start: string, tol = 1e-3) {
-  const same = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < tol;
+export function closedLoop(lines: { id: string; pts: UV[]; curves?: (Curve | null)[] }[], start: string, tol = 1e-3) {
+  const same = (a: UV, b: UV) => Math.hypot(a[0] - b[0], a[1] - b[1]) < tol;
   const first = lines.find((l) => l.id === start);
   if (!first) return null;
+  const sidesIn = (l: (typeof lines)[number]) => l.pts.slice(1).map((_, i) => l.curves?.[i] ?? null);
   const ids = [start];
   const pts = [...first.pts];
-  // closed: back at the first point, with at least three corners
-  while (pts.length < 4 || !same(pts[0], pts.at(-1)!)) {
+  const curves = sidesIn(first);
+  // closed: back at the first point; straight sides need three corners, curves two
+  while (!same(pts[0], pts.at(-1)!) || pts.length < (curves.some(Boolean) ? 3 : 4)) {
     const end = pts.at(-1)!;
     const next = lines.find((l) => !ids.includes(l.id) && (same(l.pts[0], end) || same(l.pts.at(-1)!, end)));
     if (!next) return null;
     ids.push(next.id);
-    pts.push(...(same(next.pts[0], end) ? next.pts : [...next.pts].reverse()).slice(1));
+    const on = same(next.pts[0], end);
+    pts.push(...(on ? next.pts : [...next.pts].reverse()).slice(1));
+    curves.push(...(on ? sidesIn(next) : sidesIn(next).reverse().map((c): Curve | null => (c && 'c1' in c ? { c1: c.c2, c2: c.c1 } : c))));
   }
-  return { ids, pts: pts.slice(0, -1) };
+  return { ids, pts: pts.slice(0, -1), ...(curves.some(Boolean) ? { curves } : {}) };
 }
 
 /** An open line moved `d` mm to its left, its corners mitred (as a parallel line at that distance). */

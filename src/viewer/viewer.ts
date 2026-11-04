@@ -11,9 +11,9 @@ import type { Backdrop, BasePlane, CameraState, Light } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { area, bounds, centre, corners, edgeDistance, inside, type DrawnProfile } from '../doc/profiles';
+import { area, bounds, centre, edgeDistance, flattened, inside, bakeTurn, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
-import { anchorAt, angleAt, handlesOf, moved, resized, rotated, sizeOf, type Handle } from './shapes';
+import { anchorAt, angleAt, controlMoved, handlesOf, moved, pointMoved, resized, rotated, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
 import { FacePullTool, type PullLook } from './faces';
 import { icon } from '../ui/icons';
@@ -684,6 +684,7 @@ export class Viewer implements ToolView {
     });
     canvas.addEventListener('dblclick', (e) => {
       if (this.tool) return this.tool.dblclick(e);
+      if (this.toggleSmooth(e)) return;
       // on a sketch shape: into its sketch group; on a finish face: the whole finish (an edge's tangent chain: a double Alt press, see down)
       const hit = this.frontHit(e);
       const shape = this.shapeAt(this.ray(e), this.focus ? undefined : hit?.distance);
@@ -1155,6 +1156,20 @@ export class Viewer implements ToolView {
     return s && p ? { sketch: s, shape: { ...p, ...this.overrides.get(p.id) } as DrawnProfile & { id: string } } : null;
   }
 
+  /** A double-click on a point of the single selected polygon or line: smooth to sharp, or back. True: it was on one. */
+  private toggleSmooth(e: MouseEvent) {
+    const h = this.handled();
+    if (!h || (h.shape.kind !== 'polygon' && h.shape.kind !== 'line')) return false;
+    const r = this.el.getBoundingClientRect();
+    const grab = this.handles().find((g) => {
+      const [x, y] = this.toScreen(g.world);
+      return g.handle.kind === 'point' && Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
+    });
+    if (grab?.handle.kind !== 'point') return false;
+    this.host.setShapes(h.sketch.id, [{ id: h.shape.id, profile: smoothToggled(h.shape, grab.handle.i) }]);
+    return true;
+  }
+
   /** Handles of the single selected shape: plane coordinates, screen position, kind. */
   private handles(reachPx = 26) {
     const h = this.handled();
@@ -1189,13 +1204,23 @@ export class Viewer implements ToolView {
     const resize = handles.filter((h) => h.handle.kind === 'resize').map((h) => h.world);
     const turn = handles.filter((h) => h.handle.kind === 'rotate').map((h) => h.world);
     if (resize.length) this.sketchView.add(marks(resize, 0xff8c1a));
+    const points = handles.filter((h) => h.handle.kind === 'point').map((h) => h.world);
+    const controls = handles.filter((h) => h.handle.kind === 'control');
+    if (points.length) this.sketchView.add(marks(points, 0xff8c1a));
+    if (controls.length) {
+      // each handle on a thin line from the point it pulls at (an arc's: none)
+      const h = this.handled()!;
+      const q = bakeTurn(h.shape as Extract<DrawnProfile, { pts: [number, number][] }>);
+      const stems = controls.flatMap(({ handle: c, world }) => (c.kind !== 'control' || c.which === 'mid' ? [] : [world, new THREE.Vector3(...toWorld(h.sketch.frame, ...q.pts[c.which === 'c1' ? c.i : (c.i + 1) % q.pts.length]))]));
+      this.sketchView.add(marks(controls.map((c) => c.world), 0xff8c1a, 7), new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stems), new THREE.LineBasicMaterial({ color: 0xff8c1a, depthTest: false })));
+    }
     if (turn.length) {
       // the line reaches in to the point the shape turns around (its centre), marked with a ring
       const h = this.handled()!;
       const pivot = new THREE.Vector3(...toWorld(h.sketch.frame, ...centre(h.shape)));
       this.sketchView.add(marks(turn, 0x1d4ed8), marks([pivot], 0x1d4ed8, 9), new THREE.Line(new THREE.BufferGeometry().setFromPoints([pivot, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
     }
-    this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' || o.type === 'Line2' ? 1e6 : 0));
+    this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' || o.type === 'LineSegments' || o.type === 'Line2' ? 1e6 : 0));
     if (refs.length) this.sketchView.add(...refs); // under the handles: a handle on the reference point gets a blue ring
     for (const o of refs) o.renderOrder = 1e6 - 1;
     this.render();
@@ -1475,7 +1500,7 @@ export class Viewer implements ToolView {
     if (!sketch || !q) return point ? { at: point.at, dir: z, what: 'point: Z through it' } : null;
     const f = sketch.frame;
     if (q.kind === 'circle') return { at: new THREE.Vector3(...toWorld(f, q.x, q.y)), dir: new THREE.Vector3(...f.n), what: 'circle: its centre' };
-    const pts = (q.kind === 'line' ? q.pts : [...corners(q), corners(q)[0]]).map(([u, v]) => new THREE.Vector3(...toWorld(f, u, v)));
+    const pts = (q.kind === 'line' ? flattened(q) : [...flattened(q), flattened(q)[0]]).map(([u, v]) => new THREE.Vector3(...toWorld(f, u, v)));
     return line(nearest(pts.slice(1).map((p, k): [THREE.Vector3, THREE.Vector3] => [pts[k], p])), q.kind === 'line' ? 'line' : 'side');
   }
 
@@ -3806,7 +3831,11 @@ export class Viewer implements ToolView {
     const q = p ? uvOf(f, p) : ed.q0;
     const st = ed.start;
     const world = new THREE.Vector3(...toWorld(f, ...centre(st)));
-    if (ed.handle.kind === 'rotate') {
+    if (ed.handle.kind === 'point' || ed.handle.kind === 'control') {
+      if (st.kind !== 'polygon' && st.kind !== 'line') return;
+      const at = this.handleLands(ed, q, e);
+      ed.next = ed.handle.kind === 'point' ? pointMoved(st, ed.handle.i, at) : controlMoved(st, ed.handle.i, ed.handle.which, at);
+    } else if (ed.handle.kind === 'rotate') {
       const deg = angleAt(st, q) - ed.a0;
       const turn = e && role(e, 'precise') ? 0.1 : e && role(e, 'constrain') ? SketchTool.angleStep : 1; // degrees
       const angle = Math.round(deg / turn) * turn;
@@ -3821,6 +3850,34 @@ export class Viewer implements ToolView {
     }
     this.overrides.set(st.id, ed.next);
     this.renderSketches();
+  }
+
+  /**
+   * Where a dragged point or curve handle lands: on a sketch's point within 10 px (a point: not its own shape's), else
+   * on the zoom's step (Ctrl: the minimum step); Shift: a curve handle turns in the angle step around its point.
+   */
+  private handleLands(ed: ShapeEdit, q: [number, number], e: PointerEvent | null): [number, number] {
+    const f = ed.sketch.frame;
+    const world = new THREE.Vector3(...toWorld(f, ...q));
+    const r = this.el.getBoundingClientRect();
+    if (e) {
+      const others = this.sketches.map((s) => ({ ...s, shapes: s.shapes.filter((p) => p.id !== ed.start.id) }));
+      const near = linePoints(snapLines(others, [])).find(({ at }) => {
+        const [x, y] = this.toScreen(at);
+        return Math.abs(at.clone().sub(new THREE.Vector3(...f.o)).dot(new THREE.Vector3(...f.n))) < 1e-3 && Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 10;
+      });
+      if (near) return uvOf(f, near.at);
+    }
+    const step = this.step(world, e ?? undefined, false);
+    if (ed.handle.kind === 'control' && ed.handle.which !== 'mid' && e && role(e, 'constrain') && (ed.start.kind === 'polygon' || ed.start.kind === 'line')) {
+      const s = bakeTurn(ed.start);
+      const o = s.pts[ed.handle.which === 'c1' ? ed.handle.i : (ed.handle.i + 1) % s.pts.length];
+      const by = (SketchTool.angleStep * Math.PI) / 180;
+      const a = Math.round(Math.atan2(q[1] - o[1], q[0] - o[0]) / by) * by;
+      const l = Math.round(Math.hypot(q[0] - o[0], q[1] - o[1]) / step) * step;
+      return [o[0] + l * Math.cos(a), o[1] + l * Math.sin(a)];
+    }
+    return [Math.round(q[0] / step) * step, Math.round(q[1] / step) * step];
   }
 
   /** Keys while resizing: typing sets the size of the marked axis, Tab the other one, Enter keeps, Esc undoes. */
