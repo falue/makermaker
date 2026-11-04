@@ -243,7 +243,7 @@ type Phase =
   /** `pts`: further points clicked (a turned rectangle's side end, a circle's second point); `lines`: a tangent circle's lines; `mode`: the drawing mode for this shape only (Alt while drawing) */
   | { kind: 'shape'; target: Target; anchor: UV; cur: UV; px: [number, number]; dragged: boolean; typed: (string | undefined)[]; axis: number; shift: boolean; pts: UV[]; lines: [UV, UV][]; mode?: string }
   /**
-   * A line: points so far, each side's curve, and the open side's end; typed length or radius (0) and angle (1) of the
+   * A line: points so far, each side's curve, and the open side's end; typed length or diameter (0) and angle (1) of the
    * open side; `base`: the direction (radians, plane coordinates) its angle counts from: the previous side's (going
    * straight on is 0°), else the plane's x axis, or a line picked with B. `out`: the handle pulled from the last point;
    * `held`: a bezier point pressed, its handle being pulled (`adds`: a new point, `closes`: on the line's start);
@@ -618,7 +618,7 @@ export class SketchTool implements Tool {
     const more = pressed(e, 'moreSnaps');
     const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined); // not while typing a size
     const guide = this.hoveredGuide();
-    // Measure while a size is typed: this tool waits, the value goes in (a line: its length or radius)
+    // Measure while a size is typed: this tool waits, the value goes in (a line: its length or an arc's diameter)
     if ((ph.kind === 'shape' && !(this.kind === 'ngon' && ph.axis === 1)) || ph.kind === 'pull' || (ph.kind === 'polygon' && ph.axis === 0)) {
       if (pressed(e, 'measureValue') && !inName((ph.kind === 'pull' ? (ph.side ? ph.typedBack : ph.typed) : ph.typed[ph.axis]) ?? '')) {
         this.measuring = true;
@@ -694,7 +694,7 @@ export class SketchTool implements Tool {
       if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
       else if (pressed(e, 'erase') && ph.typed[ph.axis] !== undefined) ph.typed[ph.axis] = ph.typed[ph.axis]!.slice(0, -1) || undefined;
       else if (pressed(e, 'otherSide') && restOf(ph.typed[ph.axis] ?? '')) ph.typed[ph.axis] += restOf(ph.typed[ph.axis]!); // a name showing: written out
-      else if (pressed(e, 'otherSide')) ph.axis = ph.arcEnd ? 0 : 1 - ph.axis; // a first arc's bulge: only its radius
+      else if (pressed(e, 'otherSide')) ph.axis = ph.arcEnd ? 0 : 1 - ph.axis; // a first arc's bulge: only its diameter
       else if (pressed(e, 'confirm') && ph.typed.some((t) => t !== undefined)) this.corner(ph, ph.cur, false); // typed: Enter sets the point
       else if (pressed(e, 'confirm')) {
         if (ph.pts.length >= 2) this.finishLine();
@@ -1037,7 +1037,7 @@ export class SketchTool implements Tool {
     return Math.atan2(d[1], d[0]);
   }
 
-  /** The arc going on from the line's end along its direction, towards `at` (typed: its radius and angle); sets `arc`; its end. */
+  /** The arc going on from the line's end along its direction, towards `at` (typed: its diameter and angle); sets `arc`; its end. */
   private tangentArc(ph: Extract<Phase, { kind: 'polygon' }>, at: UV, e?: MouseEvent): UV {
     const a = ph.pts[ph.pts.length - 1];
     const t = this.dirInto(ph);
@@ -1047,7 +1047,8 @@ export class SketchTool implements Tool {
     if (Math.abs(den) < 1e-6) return at; // straight on: no arc
     const pointed = (c[0] * c[0] + c[1] * c[1]) / den; // its radius, signed: left positive
     const s = Math.sign(pointed);
-    const r = (this.typed(ph.typed[0]) ?? Math.abs(pointed)) * s;
+    const d = this.typed(ph.typed[0]);
+    const r = (d == null ? Math.abs(pointed) : d / 2) * s;
     const m: UV = [a[0] + n[0] * r, a[1] + n[1] * r];
     const a0 = Math.atan2(a[1] - m[1], a[0] - m[0]);
     const full = 2 * Math.PI;
@@ -1062,16 +1063,16 @@ export class SketchTool implements Tool {
     return on(sweep);
   }
 
-  /** A first arc: from its start to `arcEnd`, bulging to the pointer `at` (typed: its radius, on the pointer's side); sets `arc`; its end. */
+  /** A first arc: from its start to `arcEnd`, bulging to the pointer `at` (typed: its diameter, on the pointer's side); sets `arc`; its end. */
   private bulge(ph: Extract<Phase, { kind: 'polygon' }>, at: UV): UV {
     const [a, b] = [ph.pts[0], ph.arcEnd!];
-    const r = this.typed(ph.typed[0]);
+    const d = this.typed(ph.typed[0]);
     const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
     const l = Math.hypot(dx, dy) || 1;
     const side = Math.sign(dx * (at[1] - a[1]) - dy * (at[0] - a[0])) || 1;
-    if (r === undefined) ph.arc = Math.abs(dx * (at[1] - a[1]) - dy * (at[0] - a[0])) / l < 1e-6 ? null : at;
+    if (d == null) ph.arc = Math.abs(dx * (at[1] - a[1]) - dy * (at[0] - a[0])) / l < 1e-6 ? null : at;
     else {
-      const big = Math.max(r, l / 2);
+      const big = Math.max(d / 2, l / 2);
       const sag = big - Math.sqrt(big * big - (l * l) / 4);
       ph.arc = [(a[0] + b[0]) / 2 - (side * dy * sag) / l, (a[1] + b[1]) / 2 + (side * dx * sag) / l];
     }
@@ -1136,7 +1137,7 @@ export class SketchTool implements Tool {
     if (mode === 'arc' && ph.pts.length === 1 && !ph.arcEnd) {
       [ph.arcEnd, ph.typed, ph.axis, ph.arc] = [closes ? ph.pts[0] : at, [], 0, null];
       ph.cur = ph.arcEnd;
-      return this.host.hint('Arc: move to its bulge and click, or type its radius, [Enter] · [Esc] cancels');
+      return this.host.hint('Arc: move to its bulge and click, or type its diameter, [Enter] · [Esc] cancels');
     }
     const end = closes ? ph.pts[0] : at;
     if (mode === 'arc' && closes && ph.pts.length > 1) {
@@ -1385,10 +1386,10 @@ export class SketchTool implements Tool {
       }
       if (ph.kind === 'polygon') this.handlesShown(ph);
       if (ph.kind === 'polygon' && ph.arc) {
-        // an arc: its radius in the pointer's note, its angle at its middle (a first arc's bulge: only its radius)
+        // an arc: its diameter in the pointer's note, its angle at its middle (a first arc's bulge: only its diameter)
         const arc = arcOf(ph.pts[ph.pts.length - 1], ph.arc, open);
         if (arc) {
-          sideLength = `R ${ph.typed[0] === undefined ? fmt(arc.r) : caret(ph.typed[0]!)}`;
+          sideLength = `Ø ${ph.typed[0] === undefined ? fmt(arc.r * 2) : caret(ph.typed[0]!)}`;
           if (!ph.arcEnd) label('∠', ph.typed[1], (Math.abs(arc.a1 - arc.a0) * 180) / Math.PI, v3(toWorld(f, ...ph.arc)), ph.axis === 1);
         }
       } else if (ph.kind === 'polygon' && !ph.held) {
@@ -1622,7 +1623,7 @@ function bisector([a1, b1]: [UV, UV], [a2, b2]: [UV, UV], p: UV): { o: UV; v: UV
 function lineHint(mode?: string) {
   const end = '[Alt] or [L] next mode · a click on the start closes it · [Enter], [Esc] or double-click finishes · [Backspace] removes the last';
   if (mode === 'bezier') return `Click: a smooth point, drag: pull its handles · [Shift] handle in angle steps, [Ctrl] precise · ${end}`;
-  if (mode === 'arc') return `Click the arc's end, or type its radius · [Tab] its angle, [Enter] · [Shift] angle steps · ${end}`;
+  if (mode === 'arc') return `Click the arc's end, or type its diameter · [Tab] its angle, [Enter] · [Shift] angle steps · ${end}`;
   const how = 'or type a length · [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it';
   return mode === 'polygon' ? `Click the next point, ${how} · ${end}` : `Click the end point, ${how} · [Alt] or [L] next mode · [Esc] cancels`;
 }

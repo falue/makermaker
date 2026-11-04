@@ -249,7 +249,7 @@ interface ShapeEdit {
   axis: number;
   last: PointerEvent | null;
   next: DrawnProfile | null;
-  /** An arc's middle clicked, not dragged: it follows the pointer and takes a typed radius until a click or Enter. */
+  /** An arc's middle clicked, not dragged: it follows the pointer and takes a typed diameter until a click or Enter. */
   armed?: boolean;
 }
 
@@ -3991,8 +3991,8 @@ export class Viewer implements ToolView {
     const world = new THREE.Vector3(...toWorld(f, ...centre(st)));
     if (ed.handle.kind === 'centre') {
       if (st.kind !== 'polygon' && st.kind !== 'line') return;
-      const typed = ed.typed[0] === undefined ? undefined : (this.host.length(ed.typed[0]) ?? undefined);
-      ed.next = centreMoved(st, ed.handle.i, q, typed, this.step(world, e ?? undefined, false));
+      const d = ed.typed[0] === undefined ? undefined : (this.host.length(ed.typed[0]) ?? undefined);
+      ed.next = centreMoved(st, ed.handle.i, q, d === undefined ? undefined : d / 2, this.step(world, e ?? undefined, false));
       this.arcLabel(ed);
     } else if (ed.handle.kind === 'point' || ed.handle.kind === 'control') {
       if (st.kind !== 'polygon' && st.kind !== 'line') return;
@@ -4015,14 +4015,14 @@ export class Viewer implements ToolView {
     this.renderSketches();
   }
 
-  /** The radius being set, at the arc's middle. */
+  /** The diameter being set, at the arc's middle. */
   private arcLabel(ed: ShapeEdit) {
     const s = ed.next ?? ed.start;
     if (ed.handle.kind !== 'centre' || (s.kind !== 'polygon' && s.kind !== 'line')) return;
     const q = bakeTurn(s);
     const c = q.curves?.[ed.handle.i];
     const arc = c && 'mid' in c ? arcOf(q.pts[ed.handle.i], c.mid, q.pts[(ed.handle.i + 1) % q.pts.length]) : null;
-    if (arc) this.label(`R ${ed.typed[0] === undefined ? this.host.format(arc.r) : caret(ed.typed[0])}`, new THREE.Vector3(...toWorld(ed.sketch.frame, ...arc.c)));
+    if (arc) this.label(`Ø ${ed.typed[0] === undefined ? this.host.format(arc.r * 2) : caret(ed.typed[0])}`, new THREE.Vector3(...toWorld(ed.sketch.frame, ...arc.c)));
   }
 
   /**

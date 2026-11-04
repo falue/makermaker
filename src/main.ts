@@ -43,7 +43,7 @@ import { drawer } from './ui/drawer';
 import { keepInside } from './ui/inside';
 import { BUILT_IN_PHOTOS } from './ui/photospheres';
 import { ANGLE_STEPS, SketchTool, uvOf, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
-import { anchorAt, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
+import { anchorAt, centreMoved, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import type { ExtrudeTool, FaceItem } from './viewer/extrude';
 import { alongEdge, Viewer, type FinishPick, type PickedFace, type PickedPart, type TurnAxis, type Vec3 } from './viewer/viewer';
 
@@ -4540,6 +4540,23 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
   update();
 }
 
+/** An arc of a line or polygon gets a diameter, moving as its middle handle does (a free arc stays at least as wide as its ends). */
+function arcDiameter(path: string[], side: number, value: Expr, live: boolean) {
+  const doc = history.current;
+  const shape = getIn(doc, path) as Profile;
+  const lookup = paramLookup(doc.params);
+  const errors = new Map<string, string>();
+  const d = resolve(value, lookup, 'd', errors) as number;
+  if (errors.size) return fail(errors.get('d')!);
+  if (!(d > 0)) return fail('A diameter above 0');
+  const old = resolve(shape, lookup, '', new Map()) as DrawnProfile;
+  if (old.kind !== 'polygon' && old.kind !== 'line') return;
+  const changed = setIn(doc, path, rewrite(shape, old, centreMoved(old, side, [0, 0], d / 2)));
+  if (live) history.replace(changed);
+  else history.push(changed);
+  update();
+}
+
 /** The reference point is the stored centre: X / Y fields then edit the stored expressions. */
 const centred = (p: DrawnProfile, ref: [number, number]) => !ref[0] && !ref[1] && p.kind !== 'polygon' && p.kind !== 'line';
 
@@ -5162,6 +5179,7 @@ function render() {
       return { x, y, w, h, centred: centred(p, ref) };
     },
     transformShape,
+    arcDiameter,
     setDrawConstruction(on) {
       drawConstruction = on;
     },

@@ -7,7 +7,7 @@ import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
 import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, Unit } from '../doc/types';
-import type { Align } from '../doc/profiles';
+import { arcOf, type Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml } from './axes';
 import { BUILT_IN_PHOTOS } from './photospheres';
@@ -197,6 +197,8 @@ export interface UIContext {
   /** The shape at `path`: its reference point and own size (mm); `centred`: the reference point is its stored centre. */
   measure(path: string[]): { x: number; y: number; w: number; h: number; centred: boolean };
   transformShape(path: string[], field: ShapeField, value: Expr, live: boolean): void;
+  /** Sets the diameter of the arc on side `side` of the line or polygon at `path`. */
+  arcDiameter(path: string[], side: number, value: Expr, live: boolean): void;
   duplicate(): void;
   remove(): void;
   newDoc(): void;
@@ -1202,7 +1204,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
 }
 
 const SKETCH_HINT =
-  'Sketch group: [R] [C] [L] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · hover a line: drag its points, curve handles and arc middles · click an arc middle: type its radius · double-click a point: smooth or sharp · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
+  'Sketch group: [R] [C] [L] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · hover a line: drag its points, curve handles and arc middles · click an arc middle: type its diameter · double-click a point: smooth or sharp · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
 
 function hint(selected: number, shapes: number) {
   if (shapes)
@@ -1312,7 +1314,14 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
     exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
   const pf = (key: string, label: string, raw = false) => exprField(ctx, `${path}.${key}`, label, raw);
   const row = (...cells: HTMLElement[]) => h('div', { className: 'trio' }, ...cells);
-  const shape = (...rows: HTMLElement[]) => [h('div', { className: 'shape-fields' }, refGrid(ctx, p.id), h('div', {}, ...rows))];
+  // its arcs' diameters; the points stay numbers, so a formula is used once
+  const arcs = p.kind === 'polygon' || p.kind === 'line' ? p.curves?.flatMap((c, side) => {
+    const arc = c && 'mid' in c ? arcOf(p.pts[side], c.mid, p.pts[(side + 1) % p.pts.length]) : null;
+    return arc ? [{ side, d: +(arc.r * 2).toFixed(3) }] : []; // from rounded points: 60.0001 is 60
+  }) ?? [] : [];
+  const arcFields = arcs.map(({ side, d }, k) => exprField(ctx, `${path}.@arc${side}`, arcs.length > 1 ? `Ø ${k + 1}` : 'Ø', false, { value: mm(d), set: (x, live) => ctx.arcDiameter(keys, side, x, live) }));
+  const arcRows = Array.from({ length: Math.ceil(arcFields.length / 3) }, (_, k) => row(...arcFields.slice(k * 3, k * 3 + 3)));
+  const shape = (...rows: HTMLElement[]) => [h('div', { className: 'shape-fields' }, refGrid(ctx, p.id), h('div', {}, ...rows, ...arcRows))];
   const pos = [tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
   if (p.kind === 'circle') return shape(row(...pos, tf('d', 'Ø', stored('d'))));
   const link = tool('link', ctx.linkSize(p.id) ? 'Width and height change together: click to unlink' : 'Link width and height: they change together', () => ctx.toggleLinkSize(p.id), ctx.linkSize(p.id));
