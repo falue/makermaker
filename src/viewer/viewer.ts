@@ -11,9 +11,9 @@ import type { Backdrop, BasePlane, CameraState, Light } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { area, bounds, centre, edgeDistance, flattened, inside, bakeTurn, type DrawnProfile } from '../doc/profiles';
+import { arcOf, area, bounds, centre, edgeDistance, flattened, inside, bakeTurn, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
-import { anchorAt, angleAt, controlMoved, handlesOf, moved, pointMoved, resized, rotated, sizeOf, smoothToggled, type Handle } from './shapes';
+import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, moved, pointMoved, resized, rotated, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
 import { FacePullTool, type PullLook } from './faces';
 import { icon } from '../ui/icons';
@@ -246,6 +246,8 @@ interface ShapeEdit {
   axis: number;
   last: PointerEvent | null;
   next: DrawnProfile | null;
+  /** An arc's middle clicked, not dragged: it follows the pointer and takes a typed radius until a click or Enter. */
+  armed?: boolean;
 }
 
 /**
@@ -616,10 +618,18 @@ export class Viewer implements ToolView {
           this.controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
           return;
         }
+        if (e.button === 0 && this.edit?.armed) {
+          this.endEdit(true);
+          this.downOnPart = true;
+          return e.stopPropagation();
+        }
+        // a drawing tool waiting: curve handles and arc middles can be dragged (a line's points start a new line, as usual)
+        if (e.button === 0 && this.toolIdle() && this.startHandle(e, ['control', 'centre'])) return e.stopPropagation();
         if (this.tool?.down(e)) {
           this.toolPress = true;
           canvas.setPointerCapture(e.pointerId);
           e.stopPropagation();
+          this.renderSketches(); // the handles go while drawing
         } else this.down(e);
       },
       { capture: true },
@@ -632,6 +642,7 @@ export class Viewer implements ToolView {
       this.hover = e;
       if (!e.buttons) this.hoverRow(e);
       if (this.planeDrag) return this.dragSide(e);
+      if (this.edit) return this.move(e);
       if (this.planeEdit) canvas.style.cursor = this.planeSide(e) >= 0 ? 'grab' : '';
       if (this.facePick && !this.drag) {
         // a work plane in front: lit orange
@@ -734,7 +745,7 @@ export class Viewer implements ToolView {
         if (pressed(e, 'cancel') && performance.now() - this.escFreed < 300) return e.preventDefault(), e.stopPropagation();
         const used = this.drag?.moved
           ? this.dragKey(e)
-          : this.edit?.next
+          : this.edit?.next || this.edit?.armed
             ? this.editKey(e)
             : this.facePick
               ? pressed(e, 'cancel') && (this.endFacePick(null), true)
@@ -1201,18 +1212,20 @@ export class Viewer implements ToolView {
       }
     }
     const refs = this.tool ? [] : this.refMarks();
-    const handles = this.tool || this.drag?.moved ? [] : this.handles();
+    // a drawing tool waiting: only a curve's points and handles
+    const handles = this.drag?.moved || (this.tool && !this.toolIdle()) ? [] : this.handles().filter((h) => !this.tool || !['resize', 'rotate'].includes(h.handle.kind));
     const resize = handles.filter((h) => h.handle.kind === 'resize').map((h) => h.world);
     const turn = handles.filter((h) => h.handle.kind === 'rotate').map((h) => h.world);
     if (resize.length) this.sketchView.add(marks(resize, 0xff8c1a));
     const points = handles.filter((h) => h.handle.kind === 'point').map((h) => h.world);
-    const controls = handles.filter((h) => h.handle.kind === 'control');
+    const controls = handles.filter((h) => h.handle.kind === 'control' || h.handle.kind === 'centre');
     if (points.length) this.sketchView.add(marks(points, 0xff8c1a));
     if (controls.length) {
-      // each handle on a thin line from the point it pulls at (an arc's: none)
+      // each handle on a thin line from the point it pulls at; an arc's middle on its two radii (the handle on the arc: none)
       const h = this.handled()!;
       const q = bakeTurn(h.shape as Extract<DrawnProfile, { pts: [number, number][] }>);
-      const stems = controls.flatMap(({ handle: c, world }) => (c.kind !== 'control' || c.which === 'mid' ? [] : [world, new THREE.Vector3(...toWorld(h.sketch.frame, ...q.pts[c.which === 'c1' ? c.i : (c.i + 1) % q.pts.length]))]));
+      const on = (k: number) => new THREE.Vector3(...toWorld(h.sketch.frame, ...q.pts[k % q.pts.length]));
+      const stems = controls.flatMap(({ handle: c, world }) => (c.kind === 'centre' ? [world, on(c.i), world, on(c.i + 1)] : c.kind !== 'control' || c.which === 'mid' ? [] : [world, on(c.which === 'c1' ? c.i : c.i + 1)]));
       this.sketchView.add(marks(controls.map((c) => c.world), 0xff8c1a, 7), new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stems), new THREE.LineBasicMaterial({ color: 0xff8c1a, depthTest: false })));
     }
     if (turn.length) {
@@ -3716,20 +3729,7 @@ export class Viewer implements ToolView {
     this.downAt = { x: e.clientX, y: e.clientY };
     const ray = this.raycaster(e);
     this.pick = ray.ray.clone();
-    const r = this.el.getBoundingClientRect();
-    const grab = this.handles().find((h) => {
-      const [x, y] = this.toScreen(h.world);
-      return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
-    });
-    const held = this.handled();
-    if (grab && held) {
-      const q0 = uvOf(held.sketch.frame, planeHit(ray.ray, held.sketch.frame) ?? grab.world);
-      const h = grab.handle;
-      this.edit = { sketch: held.sketch, start: held.shape, handle: h, q0, a0: angleAt(held.shape, q0), typed: [], axis: h.kind === 'resize' && !h.sx ? 1 : 0, last: null, next: null };
-      this.downOnPart = true;
-      this.controls.enabled = false;
-      return this.renderer.domElement.setPointerCapture(e.pointerId);
-    }
+    if (this.startHandle(e)) return;
     const hit = this.focus ? undefined : this.intersect(ray)[0]; // an open sketch group: faded bodies are not picked
     const shape = this.shapeAt(ray.ray, hit?.distance);
     this.downOnPart = !!hit || !!shape;
@@ -3849,6 +3849,30 @@ export class Viewer implements ToolView {
     });
   }
 
+  /** A press on a handle of the single selected shape (of `kinds`) starts dragging it. True: it did. */
+  private startHandle(e: PointerEvent, kinds?: Handle['kind'][]) {
+    const r = this.el.getBoundingClientRect();
+    const grab = this.handles().find((h) => {
+      const [x, y] = this.toScreen(h.world);
+      return (!kinds || kinds.includes(h.handle.kind)) && Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
+    });
+    const held = this.handled();
+    if (!grab || !held) return false;
+    this.downAt = { x: e.clientX, y: e.clientY };
+    const q0 = uvOf(held.sketch.frame, planeHit(this.raycaster(e).ray, held.sketch.frame) ?? grab.world);
+    const h = grab.handle;
+    this.edit = { sketch: held.sketch, start: held.shape, handle: h, q0, a0: angleAt(held.shape, q0), typed: [], axis: h.kind === 'resize' && !h.sx ? 1 : 0, last: null, next: null };
+    this.downOnPart = true;
+    this.controls.enabled = false;
+    this.renderer.domElement.setPointerCapture(e.pointerId);
+    return true;
+  }
+
+  /** A drawing tool is on, nothing being drawn. */
+  private toolIdle() {
+    return this.tool instanceof SketchTool && this.tool.idle();
+  }
+
   private startDrag(e: PointerEvent, ray: THREE.Ray, start: THREE.Vector3, o: Pick<Drag, 'axes' | 'lead' | 'plane' | 'only' | 'apply' | 'end'>) {
     this.controls.enabled = false;
     this.drag = { ...o, start, t0: [0, 1, 2].map((k) => along(ray, start, unit(k))), axis: null, typed: undefined, last: null, moved: false, by: new THREE.Vector3() };
@@ -3921,7 +3945,12 @@ export class Viewer implements ToolView {
     const q = p ? uvOf(f, p) : ed.q0;
     const st = ed.start;
     const world = new THREE.Vector3(...toWorld(f, ...centre(st)));
-    if (ed.handle.kind === 'point' || ed.handle.kind === 'control') {
+    if (ed.handle.kind === 'centre') {
+      if (st.kind !== 'polygon' && st.kind !== 'line') return;
+      const typed = ed.typed[0] === undefined ? undefined : (this.host.length(ed.typed[0]) ?? undefined);
+      ed.next = centreMoved(st, ed.handle.i, q, typed, this.step(world, e ?? undefined, false));
+      this.arcLabel(ed);
+    } else if (ed.handle.kind === 'point' || ed.handle.kind === 'control') {
       if (st.kind !== 'polygon' && st.kind !== 'line') return;
       const at = this.handleLands(ed, q, e);
       ed.next = ed.handle.kind === 'point' ? pointMoved(st, ed.handle.i, at) : controlMoved(st, ed.handle.i, ed.handle.which, at);
@@ -3940,6 +3969,16 @@ export class Viewer implements ToolView {
     }
     this.overrides.set(st.id, ed.next);
     this.renderSketches();
+  }
+
+  /** The radius being set, at the arc's middle. */
+  private arcLabel(ed: ShapeEdit) {
+    const s = ed.next ?? ed.start;
+    if (ed.handle.kind !== 'centre' || (s.kind !== 'polygon' && s.kind !== 'line')) return;
+    const q = bakeTurn(s);
+    const c = q.curves?.[ed.handle.i];
+    const arc = c && 'mid' in c ? arcOf(q.pts[ed.handle.i], c.mid, q.pts[(ed.handle.i + 1) % q.pts.length]) : null;
+    if (arc) this.label(`R ${ed.typed[0] === undefined ? this.host.format(arc.r) : caret(ed.typed[0])}`, new THREE.Vector3(...toWorld(ed.sketch.frame, ...arc.c)));
   }
 
   /**
@@ -3974,9 +4013,9 @@ export class Viewer implements ToolView {
   private editKey(e: KeyboardEvent): boolean {
     const ed = this.edit!;
     if (pressed(e, 'confirm') || pressed(e, 'cancel')) return this.endEdit(pressed(e, 'confirm')), true;
-    if (ed.handle.kind !== 'resize') return false;
+    if (ed.handle.kind !== 'resize' && ed.handle.kind !== 'centre') return false;
     if (pressed(e, 'otherSide') && restOf(ed.typed[ed.axis] ?? '')) ed.typed[ed.axis] += restOf(ed.typed[ed.axis]!); // a name showing: written out
-    else if (pressed(e, 'otherSide')) ed.axis = 1 - ed.axis;
+    else if (pressed(e, 'otherSide') && ed.handle.kind === 'resize') ed.axis = 1 - ed.axis;
     else if (pressed(e, 'erase')) ed.typed[ed.axis] = ed.typed[ed.axis]?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) ed.typed[ed.axis] = (ed.typed[ed.axis] ?? '') + e.key;
     else return false;
@@ -3994,7 +4033,7 @@ export class Viewer implements ToolView {
     if (!ed) return;
     if (keep && ed.next) {
       const [a, b] = ed.typed;
-      const typed = ed.start.kind === 'circle' ? { d: a ?? b } : { w: a, h: b };
+      const typed = ed.handle.kind !== 'resize' ? {} : ed.start.kind === 'circle' ? { d: a ?? b } : { w: a, h: b };
       return this.host.setShapes(ed.sketch.id, [{ id: ed.start.id, profile: ed.next }], typed);
     }
     this.overrides.clear();
@@ -4025,6 +4064,7 @@ export class Viewer implements ToolView {
 
   /** Ends a move, or handles a click: on empty space it deselects (unless Shift). */
   private up(e: PointerEvent) {
+    if (this.edit?.handle.kind === 'centre' && !this.dragged(e)) return ((this.edit.armed = true), (this.controls.enabled = false), this.arcLabel(this.edit));
     if (this.edit) return this.endEdit(true);
     const d = this.drag;
     if (d?.moved) return this.endDrag(true);

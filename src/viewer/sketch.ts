@@ -603,6 +603,11 @@ export class SketchTool implements Tool {
     return this.mode?.kind === 'plane';
   }
 
+  /** A drawing tool on, nothing being drawn. */
+  idle() {
+    return !!this.kind && this.phase.kind === 'hover';
+  }
+
   /** Double-click: the line ends here, open (the first click set the point, the second none: see `corner`). */
   dblclick() {
     if (this.phase.kind === 'polygon' && this.phase.pts.length >= 2) this.finishLine();

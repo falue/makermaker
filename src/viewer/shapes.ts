@@ -1,13 +1,13 @@
-import { centre, curved, mapPoints, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
+import { arcOf, bakeTurn, centre, curved, mapPoints, sideDirs, sidesOf, type DrawnProfile } from '../doc/profiles';
 import type { Curve } from '../doc/types';
 
 type UV = [number, number];
 
 /**
  * A resize handle pushes the edge (or corner) in direction (sx, sy) of the shape's own frame; the rotate handle turns
- * it; `point` moves point `i` of a polygon or line; `control` a curve's handle on side `i`.
+ * it; `point` moves point `i` of a polygon or line; `control` a curve's handle on side `i`; `centre` the arc's on side `i`.
  */
-export type Handle = { kind: 'resize'; sx: number; sy: number } | { kind: 'rotate' } | { kind: 'point'; i: number } | { kind: 'control'; i: number; which: 'c1' | 'c2' | 'mid' };
+export type Handle = { kind: 'resize'; sx: number; sy: number } | { kind: 'rotate' } | { kind: 'point'; i: number } | { kind: 'control'; i: number; which: 'c1' | 'c2' | 'mid' } | { kind: 'centre'; i: number };
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
 const turn = ([x, y]: UV, deg: number): UV => [x * Math.cos(rad(deg)) - y * Math.sin(rad(deg)), x * Math.sin(rad(deg)) + y * Math.cos(rad(deg))];
@@ -31,6 +31,12 @@ function box(p: DrawnProfile): { half: UV; mid: UV } {
   return { half: [(x1 - x0) / 2, (y1 - y0) / 2], mid: [(x0 + x1) / 2, (y0 + y1) / 2] };
 }
 
+/** The handle on the middle of the arc on side `i`; none: its points lie on one line. */
+function arcCentre(q: Extract<DrawnProfile, { pts: UV[] }>, i: number, mid: UV): { at: UV; handle: Handle }[] {
+  const arc = arcOf(q.pts[i], mid, q.pts[(i + 1) % q.pts.length]);
+  return arc ? [{ at: arc.c, handle: { kind: 'centre', i } }] : [];
+}
+
 /** A polygon's or line's points and curve handles, as they lie (these go first: they win over the box's handles). */
 function pointHandles(p: DrawnProfile): { at: UV; handle: Handle }[] {
   if (p.kind !== 'polygon' && p.kind !== 'line') return [];
@@ -38,7 +44,11 @@ function pointHandles(p: DrawnProfile): { at: UV; handle: Handle }[] {
   return [
     ...q.pts.map((at, i): { at: UV; handle: Handle } => ({ at, handle: { kind: 'point', i } })),
     ...(q.curves ?? []).flatMap((c, i): { at: UV; handle: Handle }[] =>
-      !c ? [] : 'c1' in c ? [{ at: c.c1, handle: { kind: 'control', i, which: 'c1' } }, { at: c.c2, handle: { kind: 'control', i, which: 'c2' } }] : [{ at: c.mid, handle: { kind: 'control', i, which: 'mid' } }],
+      !c
+        ? []
+        : 'c1' in c
+          ? [{ at: c.c1, handle: { kind: 'control', i, which: 'c1' } }, { at: c.c2, handle: { kind: 'control', i, which: 'c2' } }]
+          : [{ at: c.mid, handle: { kind: 'control', i, which: 'mid' } }, ...arcCentre(q, i, c.mid)],
     ),
   ];
 }
@@ -176,6 +186,45 @@ export function controlMoved(p: Pathed, i: number, which: 'c1' | 'c2' | 'mid', q
     }
   }
   return { ...s, curves };
+}
+
+/**
+ * The arc on side `i` with its middle dragged to `q`, or its radius typed (else on `step`): it moves the only way the
+ * tangents allow. Smooth at its start: along the normal there, the angle kept, its end (and what follows) moving; else
+ * smooth at its end: the same from there; neither: along the line square to its chord, both ends staying.
+ */
+export function centreMoved(p: Pathed, i: number, q: UV, radius?: number, step = 0): Pathed {
+  const s = bakeTurn(p);
+  const n = s.pts.length;
+  const next = (i + 1) % n;
+  const [a, b] = [s.pts[i], s.pts[next]];
+  const c = s.curves?.[i];
+  const arc = c && 'mid' in c ? arcOf(a, c.mid, b) : null;
+  if (!c || !('mid' in c) || !arc) return s;
+  const onStep = (v: number) => (step ? Math.round(v / step) * step : v);
+  const withMid = (r: Pathed, mid: UV): Pathed => ({ ...r, curves: r.curves!.map((x, k) => (k === i ? { mid } : x)) });
+  const fromStart = isSmooth(s, i);
+  if (fromStart || isSmooth(s, next)) {
+    const [fix, sweep] = fromStart ? [a, arc.a1 - arc.a0] : [b, arc.a0 - arc.a1];
+    const u = unit([arc.c[0] - fix[0], arc.c[1] - fix[1]]);
+    const r = Math.max(0.01, radius ?? onStep((q[0] - fix[0]) * u[0] + (q[1] - fix[1]) * u[1]));
+    const m: UV = [fix[0] + u[0] * r, fix[1] + u[1] * r];
+    const round = (k: number): UV => {
+      const [x, y] = [fix[0] - m[0], fix[1] - m[1]];
+      return [m[0] + x * Math.cos(k) - y * Math.sin(k), m[1] + x * Math.sin(k) + y * Math.cos(k)];
+    };
+    return withMid(pointMoved(s, fromStart ? next : i, round(sweep)), round(sweep / 2));
+  }
+  const m: UV = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const half = Math.hypot(b[0] - a[0], b[1] - a[1]) / 2;
+  // towards the arc's middle
+  let d = unit([a[1] - b[1], b[0] - a[0]]);
+  if ((c.mid[0] - m[0]) * d[0] + (c.mid[1] - m[1]) * d[1] < 0) d = [-d[0], -d[1]];
+  const along = (v: UV) => (v[0] - m[0]) * d[0] + (v[1] - m[1]) * d[1];
+  const pulled = along(q);
+  const r = Math.max(half, radius ?? onStep(Math.hypot(pulled, half)));
+  const h = (radius === undefined ? Math.sign(pulled) || -1 : Math.sign(along(arc.c)) || -1) * Math.sqrt(r * r - half * half);
+  return withMid(s, [m[0] + d[0] * (h + r), m[1] + d[1] * (h + r)]);
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { arcOf, area, bakeTurn, bounds, closedLoop, flattened, inside, mapPoints, sideDirs, sidesOf } from './profiles';
 import { lineFaces } from './arrangement';
-import { controlMoved, isSmooth, pointMoved, smoothToggled } from '../viewer/shapes';
+import { centreMoved, controlMoved, handlesOf, isSmooth, pointMoved, smoothToggled } from '../viewer/shapes';
 import type { Curve } from './types';
 
 type UV = [number, number];
@@ -141,6 +141,42 @@ describe('editing points and handles', () => {
     const t = smoothToggled(q, 1);
     expect(t.curves![1]).toEqual({ mid: [5, -20] });
     expect(isSmooth(t, 1)).toBe(true);
+  });
+
+  describe('an arc\'s middle', () => {
+    // straight along x to (10, 0), then a quarter arc to the left, radius 10, middle at (10, 10)
+    const k = Math.SQRT1_2 * 10;
+    const after = { kind: 'line' as const, pts: [[0, 0], [10, 0], [20, 10]] as UV[], curves: [null, { mid: [10 + k, 10 - k] }] as (Curve | null)[] };
+
+    it('is a handle', () => {
+      const h = handlesOf(after, 5).find((x) => x.handle.kind === 'centre')!;
+      expect(h.at[0]).toBeCloseTo(10);
+      expect(h.at[1]).toBeCloseTo(10);
+    });
+
+    it('moves square to the line before it: still tangent, its angle kept, the end moving', () => {
+      const q = centreMoved(after, 1, [99, 20]); // only its y counts
+      expect(q.pts[1]).toEqual([10, 0]);
+      expect(q.pts[2][0]).toBeCloseTo(30);
+      expect(q.pts[2][1]).toBeCloseTo(20);
+      expect(isSmooth(q, 1)).toBe(true);
+    });
+
+    it('takes a typed radius, on the step otherwise', () => {
+      expect(centreMoved(after, 1, [0, 0], 5).pts[2][0]).toBeCloseTo(15);
+      expect(centreMoved(after, 1, [10, 13], undefined, 5).pts[2][0]).toBeCloseTo(25);
+    });
+
+    it('with no tangent: square to its chord, both ends staying', () => {
+      const free = { kind: 'line' as const, pts: [[-10, 0], [10, 0]] as UV[], curves: [{ mid: [0, 10] }] as Curve[] };
+      const q = centreMoved(free, 0, [50, 10]); // the middle above the chord: a smaller bulge, on the same side
+      expect(q.pts).toEqual(free.pts);
+      const m = (q.curves![0] as { mid: UV }).mid;
+      expect(m[0]).toBeCloseTo(0);
+      expect(m[1]).toBeCloseTo(Math.hypot(10, 10) + 10);
+      const low = centreMoved(free, 0, [0, -5], 20);
+      expect((low.curves![0] as { mid: UV }).mid[1]).toBeCloseTo(20 - Math.sqrt(300));
+    });
   });
 
   it('a line end has nothing to toggle', () => {

@@ -1202,7 +1202,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
 }
 
 const SKETCH_HINT =
-  'Sketch group: [R] [C] [L] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
+  'Sketch group: [R] [C] [L] draw shapes (they stay flat) · click a shape to select it (a sub-group: all of it), double-click opens its sub-group · drag points, curve handles and arc middles · click an arc middle: type its radius · double-click a point: smooth or sharp · [⌘G] groups shapes, [⇧⌘G] ungroups · [X] [Y] [Z] move by a typed distance · [E] extrude · [Esc] up a level or leaves';
 
 function hint(selected: number, shapes: number) {
   if (shapes)
