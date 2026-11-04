@@ -154,6 +154,7 @@ What a basic, fully working CAD tool still needs, most important first (revolve,
 6. **Any body as a cutter** in the Cut tool (now: planes, sketch lines and shapes, balls, cylinders).
 
 ## Planned, not built yet
+- **Drawings**: sheets with live views at several scales, title block, multipage, vector PDF and SVG. The plan: DRAWINGS.md.
 
 Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order they were asked for.
 
