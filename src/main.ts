@@ -1,7 +1,7 @@
 import { zipSync } from 'fflate';
 import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
-import { evalLength, evalQuantity, fmt, isPlain, UNITS } from './doc/expr';
+import { evalLength, evalQuantity, fmt, inName, isPlain, UNITS } from './doc/expr';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
@@ -37,7 +37,7 @@ import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { pythonTerminal } from './ui/terminal';
 import { MAC, pressed, role, roleKeyName, type Action } from './ui/keys';
-import { installCompletion } from './ui/complete';
+import { caret, installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
 import { drawer } from './ui/drawer';
 import { keepInside } from './ui/inside';
@@ -324,7 +324,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
       },
       {
         hint: 'Drag up: fillet, down: chamfer · [Shift] coarse · [Ctrl] precise · type a size (minus: chamfer) · release or [Enter]: done · [Esc] puts it back',
-        label: (mm, typed) => `${mm >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(mm).toFixed(2) : `${typed}▏`}`,
+        label: (mm, typed) => `${mm >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(mm).toFixed(2) : caret(typed)}`,
         endOnUp: true,
       },
     );
@@ -1076,7 +1076,7 @@ function finishSize(doc: Doc, path: string[], value: Expr): Doc {
   if (max < Math.abs(mm)) return setIn(doc, ['bodies', i, 'features', j], { ...feature, mode, size: len(max) });
   if (!(mm < 0)) return doc;
   // `-3` / `-ply` lose their minus, longer expressions are wrapped
-  const single = /^\s*-\s*([A-Za-z_]\w*|\d+\.?\d*|\.\d+)\s*$/.exec(value.e);
+  const single = /^\s*-\s*(\$?[A-Za-z_]\w*|\d+\.?\d*|\.\d+)\s*$/.exec(value.e);
   const size = { ...value, e: single ? single[1] : `-(${value.e})` };
   return setIn(doc, ['bodies', i, 'features', j], { ...feature, mode, size });
 }
@@ -1218,13 +1218,10 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   };
   const keys = (e: KeyboardEvent, input: HTMLInputElement) => {
     const k = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
-    const before = input.value.slice(0, input.selectionStart ?? 0);
-    const word = before.match(/[A-Za-z_]\w*$/)?.[0];
-    // a name could start here and one starts with the letter: typed, Tab completes it
-    const name = !/[\w.]$/.test(before) && Object.keys(history.current.params).some((p) => p.startsWith(e.key));
-    if (k >= 0 && (!word || word in UNITS) && !name) return e.preventDefault(), open(k);
+    const typingName = inName(input.value.slice(0, input.selectionStart ?? 0));
+    if (k >= 0 && !typingName) return e.preventDefault(), open(k);
     // T (as X / Y / Z): the To object button
-    if (pressed(e, 'toObject') && (!word || word in UNITS) && !name) return e.preventDefault(), toObject.click();
+    if (pressed(e, 'toObject') && !typingName) return e.preventDefault(), toObject.click();
     // Tab (a completion took it already): the next axis' field (Shift: the previous), added if needed; leaving would cancel
     if (e.key === 'Tab') return e.preventDefault(), open((fields.indexOf(input) + (e.shiftKey ? 2 : 1)) % 3);
     if (pressed(e, 'cancel')) return close();
@@ -1597,12 +1594,9 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
       show();
     };
     input.oninput = apply;
-    // T: To object, as X / Y / Z in the move fields (typed in the middle of a name, or where a parameter with t could start)
+    // T: To object, as X / Y / Z in the move fields
     input.onkeydown = (e) => {
-      const before = input.value.slice(0, input.selectionStart ?? 0);
-      const word = before.match(/[A-Za-z_]\w*$/)?.[0];
-      const name = !/[\w.]$/.test(before) && Object.keys(history.current.params).some((p) => p.startsWith(e.key));
-      if (pressed(e, 'toObject') && (!word || word in UNITS) && !name) e.preventDefault(), aim();
+      if (wantsT(e, input)) e.preventDefault(), aim();
     };
     const name = Object.assign(document.createElement('span'), { textContent: label });
     scrub(name, input, () => input.value, u, settings.minStep, (text) => ((input.value = text), apply()), () => (input.focus(), input.select()));
@@ -1810,6 +1804,7 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
   commit({ ...doc, bodies: [...doc.bodies, body] });
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const input = Object.assign(document.createElement('input'), { value: '360', spellcheck: false });
+  Object.assign(input.dataset, { complete: '', noMeasure: '' });
   const set = (text: string) => {
     input.value = text;
     const ok = length(text) !== null;
@@ -1975,7 +1970,7 @@ function angleControl(o: { input: HTMLInputElement; axis: () => { at: Vector3; d
     stopped = null;
     const typing = document.activeElement instanceof HTMLInputElement;
     const stop = () => (e.preventDefault(), e.stopImmediatePropagation());
-    if (o.axis() && (document.activeElement === input ? wantsT(e, input, history.current.params) : !typing && pressed(e, 'toObject'))) return stop(), aim();
+    if (o.axis() && (document.activeElement === input ? wantsT(e, input) : !typing && pressed(e, 'toObject'))) return stop(), aim();
     if (!typing && o.axis() && /^[\d.-]$/.test(e.key) && !e.metaKey && !e.ctrlKey) return disarm(), (input.value = ''), input.focus(); // the key lands there
     const step = !typing ? (pressed(e, 'moreSnaps') ? 1 : pressed(e, 'fewerSnaps') ? -1 : 0) : 0;
     if (!step) return;
@@ -2058,7 +2053,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     input.onfocus = () => (last = input);
     if (f.int) input.onblur = () => input.value !== '' && valid(k) && String(Math.round(Number(input.value))) !== input.value && ((input.value = String(Math.round(Number(input.value)))), emit());
     input.onkeydown = (e) => {
-      if (f.reach && wantsT(e, input, history.current.params)) e.preventDefault(), aim(k);
+      if (f.reach && wantsT(e, input)) e.preventDefault(), aim(k);
     };
     const label = Object.assign(document.createElement('span'), { innerHTML: axisHtml(f.label) });
     if (f.title) label.title = input.title = f.title;
@@ -3860,9 +3855,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     input.oninput = () => set(input.value);
     input.onfocus = () => key !== 'speed' && (last = key);
     input.onkeydown = (e) => {
-      const before = input.value.slice(0, input.selectionStart ?? 0);
-      const word = before.match(/[A-Za-z_]\w*$/)?.[0];
-      if (key !== 'speed' && pressed(e, 'toObject') && (!word || word in UNITS)) e.preventDefault(), aim();
+      if (key !== 'speed' && wantsT(e, input)) e.preventDefault(), aim();
     };
     const label = Object.assign(document.createElement('span'), { className: 'scrub-label' });
     scrub(label, input, () => input.value, now().kind === 'hinge' || key === 'speed' ? 'mm' : u, key === 'speed' ? 0.01 : settings.minStep, (text) => set(text), () => (input.focus(), input.select()));
@@ -4027,7 +4020,7 @@ function jointRow(j: Joint) {
   slider.oninput = () => setValue(fmt(j.kind === 'hinge' ? +slider.value : +slider.value / UNITS[doc.units]));
   slider.onchange = () => ((dragging = false), showHinge(null));
   const now = Object.assign(document.createElement('input'), { className: 'now', spellcheck: false, title: 'Where it is now (degrees or a length)' });
-  now.dataset.joint = j.id;
+  Object.assign(now.dataset, { joint: j.id, complete: '', noMeasure: '' });
   now.oninput = () => length(now.value) !== null && setValue(now.value);
   now.onchange = () => ((dragging = false), showHinge(null));
   const nowLabel = Object.assign(document.createElement('span'), { textContent: j.kind === 'hinge' ? '°' : doc.units });
@@ -4586,7 +4579,7 @@ function dragFinish(body: string, feature: string, at: Vector3) {
       hint: 'Drag up: bigger, down: smaller · past 0 a fillet turns into a chamfer and back · [Shift] coarse · [Ctrl] precise · type a change · release or [Enter]: done · [Esc] puts it back',
       label: (d, typed) => {
         const v = clamped(feature, start + d);
-        return `${v >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(v).toFixed(2) : `${typed}▏`}`;
+        return `${v >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(v).toFixed(2) : caret(typed)}`;
       },
       endOnUp: true,
     },
@@ -5322,7 +5315,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 31, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load({ schema: 32, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),
@@ -5440,6 +5433,7 @@ async function exportPanel(kind: 'laser' | 'print') {
   };
   const draw = () => {
     const kerf = Object.assign(document.createElement('input'), { value: exportChoice.kerf, title: 'Kerf: how wide the beam cuts; the outline moves out by half, holes in, so the part comes out true', oninput: () => (exportChoice.kerf = kerf.value) });
+    Object.assign(kerf.dataset, { complete: '', noMeasure: '' });
     const options =
       kind === 'laser'
         ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf), segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice.laser, (v) => (exportChoice.laser = v))]
@@ -5588,6 +5582,7 @@ function meshUnits(body: string, size: Vec3, unit: Unit) {
   const box = Object.assign(document.createElement('div'), { className: 'mesh-units' });
   const buttons = (['mm', 'cm', 'm', 'in'] as Unit[]).map((u) => Object.assign(document.createElement('button'), { textContent: u, onclick: () => scaleTo(UNITS[u]) }));
   const fields = size.map((_, k) => Object.assign(document.createElement('input'), { className: 'number', spellcheck: false, title: `Its size along ${'XYZ'[k]} (the others follow)` }));
+  fields.forEach((f) => Object.assign(f.dataset, { complete: '', noMeasure: '' }));
   fields.forEach((f, k) => (f.oninput = () => {
     const mm = length(f.value);
     if (mm && mm > 0 && size[k] > 0) scaleTo(mm / size[k], k);
@@ -5656,7 +5651,7 @@ addEventListener(
   'keydown',
   (e) => {
     const field = e.target;
-    if (!(field instanceof HTMLInputElement) || field.dataset.noMeasure !== undefined || !('complete' in field.dataset) || !wantsT(e, field, history.current.params, 'measureValue')) return;
+    if (!(field instanceof HTMLInputElement) || field.dataset.noMeasure !== undefined || !('complete' in field.dataset) || !wantsT(e, field, 'measureValue')) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     measureInto(field);

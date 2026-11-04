@@ -6,7 +6,7 @@ import type { Body, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Ske
  * The CAD command API: every modelling command as a pure step from one document to the next, described well enough
  * for scripts and LLM tools to call (names, what each does, its parameters). The app runs them as undo steps (see
  * `cad` in main); `run` here stays free of the view and the kernel. Lengths are millimetres, angles degrees; a value
- * may also be an expression string (`'2*ply'`).
+ * may also be an expression string (`'2*$ply'`).
  */
 export type Param = { name: string; type: 'number' | 'string' | 'id' | 'ids' | 'point2' | 'point3' | 'points2' | 'points3' | 'curves' | 'enum'; doc: string; optional?: true; values?: readonly string[] };
 export type Args = Record<string, unknown>;
@@ -291,11 +291,11 @@ export const COMMANDS: Record<string, Command> = {
     },
   },
   parameter: {
-    doc: 'Sets a named parameter (a number with a unit, or an expression); any value may use it by name.',
-    params: [{ name: 'name', type: 'string', doc: 'a name (letters, digits, _)' }, { name: 'value', type: 'string', doc: "e.g. '4mm' or '2*ply'" }],
+    doc: 'Sets a named parameter (a number with a unit, or an expression); any value may use it as $name.',
+    params: [{ name: 'name', type: 'string', doc: 'a name (letters, digits, _); its $ is added' }, { name: 'value', type: 'string', doc: "e.g. '4mm' or '2*$ply'" }],
     run: (doc, a) => {
-      if (!/^[a-z_]\w*$/i.test(a.name as string)) throw new Error('parameter: a name of letters, digits and _');
-      return { doc: { ...doc, params: { ...doc.params, [a.name as string]: { e: a.value as string, u: doc.units } } } };
+      if (!/^\$?[a-z_]\w*$/i.test(a.name as string)) throw new Error('parameter: a name of letters, digits and _');
+      return { doc: { ...doc, params: { ...doc.params, [`$${(a.name as string).replace(/^\$/, '')}`]: { e: a.value as string, u: doc.units } } } };
     },
   },
   units: {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Doc } from '../doc/types';
 import { COMMANDS, describe as tools, runCommand } from './commands';
 
-const empty = (): Doc => ({ schema: 31, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] });
+const empty = (): Doc => ({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] });
 
 /** Runs commands one after another, each on the last one's document; their results. */
 function script(steps: [string, Record<string, unknown> | ((r: unknown[]) => Record<string, unknown>)][]) {
@@ -22,7 +22,7 @@ describe('commands', () => {
       ['parameter', { name: 'ply', value: '4mm' }],
       ['sketch', { plane: 'xy' }],
       ['rectangle', (r) => ({ sketch: r[1], x: 0, y: 0, width: 100, height: 60 })],
-      ['extrude', (r) => ({ sketch: r[1], depth: 'ply', name: 'Plate' })],
+      ['extrude', (r) => ({ sketch: r[1], depth: '$ply', name: 'Plate' })],
       ['box', { width: 20, depth: 20, height: 10, at: [30, 0, 0] }],
       ['boolean', (r) => ({ op: 'subtract', target: r[3], tools: [r[4]] })],
       ['hole', (r) => ({ id: r[3], x: -20, y: 0, diameter: 5 })],
@@ -34,7 +34,7 @@ describe('commands', () => {
     expect(plate.features.map((f) => f.type)).toEqual(['extrude', 'boolean', 'extrude', 'finish']);
     expect(plate.position[0].e).toBe('10');
     expect(doc.bodies.find((b) => b.id === results[4])!.visible).toBe(true); // a cutter stays shown (as red outlines)
-    expect(doc.params.ply.e).toBe('4mm');
+    expect(doc.params.$ply.e).toBe('4mm');
     const listed = runCommand(doc, 'list').result as { bodies: { name: string }[] };
     expect(listed.bodies.map((b) => b.name)).toEqual(['Plate', 'Body 2']);
   });

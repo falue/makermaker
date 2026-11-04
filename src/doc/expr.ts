@@ -13,7 +13,7 @@ export type Lookup = (name: string) => Quantity;
 type Token = { t: 'num'; v: number } | { t: 'id'; v: string } | { t: 'op'; v: string };
 
 function tokenize(src: string): Token[] {
-  const re = /\s*(?:((?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)|([A-Za-z_]\w*)|(\S))/iy;
+  const re = /\s*(?:((?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)|(\$?[A-Za-z_]\w*)|(\S))/iy;
   const out: Token[] = [];
   for (let m; re.lastIndex < src.length && (m = re.exec(src)); ) {
     if (m[1]) out.push({ t: 'num', v: parseFloat(m[1]) });
@@ -23,7 +23,16 @@ function tokenize(src: string): Token[] {
   return out;
 }
 
-/** Evaluates `+ - * / ^ ( )`, units (`3in`), names and sqrt/abs/min/max. Plain numbers stay unitless. */
+/**
+ * Whether what comes before the caret is a name or word being typed, so a letter key goes on with it (a parameter's
+ * `$name`, a function) instead of being a command; a unit just typed (`5mm`) is done.
+ */
+export function inName(before: string) {
+  const word = /\$\w*$|[A-Za-z_]\w*$/.exec(before)?.[0];
+  return !!word && !(word in UNITS);
+}
+
+/** Evaluates `+ - * / ^ ( )`, units (`3in`), parameters (`$name`) and sqrt/abs/min/max. Plain numbers stay unitless. */
 export function evalQuantity({ e, u }: Expr, lookup: Lookup): Quantity {
   const toks = tokenize(e);
   if (!toks.length) throw new Error('empty');
@@ -71,7 +80,9 @@ export function evalQuantity({ e, u }: Expr, lookup: Lookup): Quantity {
         if (!op(')')) throw new Error('expected ")"');
         return call(t.v, args);
       }
-      return t.v === 'pi' ? { v: Math.PI, dim: 0 } : lookup(t.v);
+      if (t.v === 'pi') return { v: Math.PI, dim: 0 };
+      if (!t.v.startsWith('$')) throw new Error(`unknown "${t.v}": parameters start with $`);
+      return lookup(t.v);
     }
     if (t.v === '(') {
       const a = sum();

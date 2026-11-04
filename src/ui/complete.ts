@@ -1,10 +1,28 @@
+/** The parameter names now. */
+let paramNames: () => string[] = () => [];
+
+/** The rest of the first parameter whose start is what `text` ends in (after a `$`), else ''. */
+export function restOf(text: string) {
+  const typed = /(?:^|[^\w.$])(\$\w*)$/.exec(text)?.[1];
+  const name = typed && paramNames().find((n) => n.startsWith(typed) && n !== typed);
+  return name ? name.slice(typed.length) : '';
+}
+
+/** What is typed while drawing or dragging (no field there), as a label shows it: the caret, then what Tab would add. */
+export const caret = (typed: string) => `${typed}▏${restOf(typed)}`;
+
+/** A label's text as HTML: what comes after the caret in grey. */
+export const caretHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/▏(\w+)/g, '▏<span class="typed-rest">$1</span>');
+
 /**
- * Parameter names completed in value fields (inputs with `data-complete`): the rest of the first name that starts with
- * the word before the caret shows in grey after it, Tab writes it out with a space. Not after a digit (`50m`: a unit).
+ * Parameter names completed in value fields (inputs with `data-complete`): after a `$`, the rest of the first name that
+ * starts with what is typed shows in grey after it, Tab writes it out with a space. Typed values without a field get
+ * the same from `restOf` and `caret`.
  * A calculation shows its result after that (`preview`: the text as shown, null: none). The field's value holds only
  * what was typed.
  */
 export function installCompletion(names: () => string[], preview: (text: string, field: HTMLInputElement) => string | null) {
+  paramNames = names;
   const ghost = Object.assign(document.createElement('div'), { className: 'completion', hidden: true });
   document.body.append(ghost);
   const measure = document.createElement('canvas').getContext('2d')!;
@@ -21,9 +39,7 @@ export function installCompletion(names: () => string[], preview: (text: string,
     field = el;
     const end = el.value.length;
     const atEnd = el.selectionStart === end && el.selectionEnd === end;
-    const m = atEnd ? /(^|[^\w.])([A-Za-z_]\w*)$/.exec(el.value) : null;
-    const name = m && names().find((n) => n.startsWith(m[2]) && n !== m[2]);
-    rest = name ? name.slice(m[2].length) : '';
+    rest = atEnd ? restOf(el.value) : '';
     let result = preview(el.value, el);
     if (!rest && !result) return;
     // right after the typed text, in the field's font

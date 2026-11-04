@@ -1740,6 +1740,9 @@ button.primary.wide {
   color: var(--muted);
   white-space: pre;
 }
+.typed-rest {
+  color: var(--muted);
+}
 .completion .result {
   opacity: 0.75;
 }

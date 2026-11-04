@@ -22,11 +22,11 @@ const smoked = material('Smoked glass', '#3a4248', { translucency: 0.7, bump: 0.
 const lamp = group('Desk lamp', null, { kind: 'custom', position: [-50, 10, 30].map(ex), rotation: unturned() });
 const screws = group('Screws', lamp.id);
 const arm = group('Arm', lamp.id);
-const head = group('Head', arm.id, { kind: 'custom', position: ['arm_l', 0, 182].map(ex), rotation: unturned() });
+const head = group('Head', arm.id, { kind: 'custom', position: ['$arm_l', 0, 182].map(ex), rotation: unturned() });
 const tray = group('Pen tray', null);
 
 // the plinth: a drawer's opening cut in from the front, its front top edge picked for a chamfer (it follows plinth_w)
-const plinthBase = extrude(base('xy'), [rect(0, 0, 'plinth_w', 160)], 30);
+const plinthBase = extrude(base('xy'), [rect(0, 0, '$plinth_w', 160)], 30);
 const plinth = body('Plinth', '#a9773f', null, [0, 0, 0], [
   plinthBase,
   extrude(base('xz', -81), [rect(0, 15, 140, 18)], 70, { back: ex(70), mode: 'cut' }),
@@ -56,9 +56,9 @@ const wedge = body('Wedge', '#c8322d', null, [95, -40, 30], [
 ], { material: 'red' });
 
 // the lamp's foot: threaded for the post, notched for the cable (a hidden tool body), its rim picked for a fillet
-const notch = body('Cable notch', '#888888', lamp.id, [0, 'base_d/2', -1], [extrude(base('xy'), [rect(0, 0, 14, 16)], 7)], { visible: false });
+const notch = body('Cable notch', '#888888', lamp.id, [0, '$base_d/2', -1], [extrude(base('xy'), [rect(0, 0, 14, 16)], 7)], { visible: false });
 const rim = Array.from({ length: 65 }, (_, k) => [55 * Math.cos((k * Math.PI) / 32), 55 * Math.sin((k * Math.PI) / 32), 12].map((v) => +v.toFixed(4)));
-const footBase = extrude(base('xy'), [circle(0, 0, 'base_d')], 12);
+const footBase = extrude(base('xy'), [circle(0, 0, '$base_d')], 12);
 const foot = body('Foot', '#565b61', lamp.id, [0, 0, 0], [
   footBase,
   { ...extrude({ kind: 'cap', feature: footBase.id }, [circle(0, 0, 10.2)], -10), mode: 'cut' },
@@ -78,13 +78,13 @@ const copies = [1, 2, 3, 4, 5].map((k) => {
 const stem = extrude(base('xy'), [circle(0, 0, 12)], 10);
 const post = body('Post', '#17171a', lamp.id, [0, 0, 2], [
   stem,
-  extrude({ kind: 'cap', feature: stem.id }, [circle(0, 0, 14)], 'post_h'),
+  extrude({ kind: 'cap', feature: stem.id }, [circle(0, 0, 14)], '$post_h'),
   { id: id(), type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 6, inside: false, size: 'M12', d: ex(12), pitch: ex(1.75), length: ex(10) },
 ], { material: 'pom-black' });
 
 // the arm: a slotted plate and its linked mirror image, a pin, a counterweight cut at an angle
 const plate = body('Arm plate', '#565b61', arm.id, [0, 9, 182], [
-  extrude(base('xz'), [rect('(arm_l-50)/2', 0, 'arm_l+64', 14, 6.9)], 1.5, { back: ex(1.5) }),
+  extrude(base('xz'), [rect('($arm_l-50)/2', 0, '$arm_l+64', 14, 6.9)], 1.5, { back: ex(1.5) }),
   extrude(base('xz'), [circle(40, 0, 7), circle(80, 0, 7), circle(120, 0, 7)], 0, { mode: 'cut', through: true }),
 ], { material: 'steel' });
 const plateCopy = body('Arm plate mirrored', '#565b61', arm.id, [0, 9, 182], [{ id: id(), type: 'mirror', o: [0, -9, 0], n: [0, 1, 0] }], { link: plate.id, material: 'steel' });
@@ -122,9 +122,9 @@ const drawing = `<svg xmlns="http://www.w3.org/2000/svg" width="520" height="400
 const image = { id: id(), name: 'Blueprint', data: `data:image/svg+xml;base64,${Buffer.from(drawing).toString('base64')}`, frame: { o: [0, 110, 130], x: [1, 0, 0], y: [0, 0, 1], n: [0, -1, 0] }, width: 260, opacity: 0.6, key: null, tolerance: 0.1, visible: true };
 
 const doc = {
-  schema: 31,
+  schema: 32,
   units: 'mm',
-  params: { plinth_w: ex(240), base_d: ex(110), arm_l: ex(200), post_h: ex(170) },
+  params: { $plinth_w: ex(240), $base_d: ex(110), $arm_l: ex(200), $post_h: ex(170) },
   bodies: [plinth, drawer, knob, boardA, boardB, paperweight, wedge, sign, foot, notch, screw, ...copies, post, plate, plateCopy, pin, weight, shade, finial, bulb, cable],
   sketches: [shadeTop, shadeRim, finialSketch, cablePath, cableProfile, signSketch].map((k) => ({ ...k, visible: false })),
   groups: [lamp, screws, arm, head, tray],

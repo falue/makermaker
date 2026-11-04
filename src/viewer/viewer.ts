@@ -27,6 +27,7 @@ import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
+import { caret, caretHtml, restOf } from '../ui/complete';
 import type { Settings } from '../ui/settings';
 import { divideMore, linePoints, outline, planeHit, shape2d, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 import { picksFace, pressed, role, toggles, type ModEvent } from '../ui/keys';
@@ -3876,14 +3877,14 @@ export class Viewer implements ToolView {
           ? delta
           : new THREE.Vector3(round(lead.x + delta.x, step) - lead.x, round(lead.y + delta.y, step) - lead.y, round(lead.z + delta.z, step) - lead.z);
       d.apply(d.by);
-      if (d.axis !== null) text += ` ${d.typed === undefined ? this.host.format(d.by.getComponent(d.axis)) : `${d.typed}▏`}`;
+      if (d.axis !== null) text += ` ${d.typed === undefined ? this.host.format(d.by.getComponent(d.axis)) : caret(d.typed)}`;
     }
     this.label(text, d.start);
   }
 
   private label(text: string, at: THREE.Vector3) {
     const [x, y] = this.toScreen(at);
-    Object.assign(this.moveLabel, { hidden: false, innerHTML: axisHtml(text) });
+    Object.assign(this.moveLabel, { hidden: false, innerHTML: axisHtml(caretHtml(text)) });
     keepInside(this.moveLabel, x + 60, y + 40);
   }
 
@@ -3909,7 +3910,7 @@ export class Viewer implements ToolView {
       const typed = ed.typed.map((t) => (t === undefined ? undefined : (this.host.length(t) ?? undefined))) as [number | undefined, number | undefined];
       ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e && role(e, 'centre'), shift: !!e && role(e, 'constrain'), step: this.step(world, e ?? undefined, false), typed });
       const [w, h] = sizeOf(ed.next);
-      const body = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : `${ed.typed[k]}▏`}`;
+      const body = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : caret(ed.typed[k]!)}`;
       this.label(st.kind === 'circle' ? body(ed.axis, 'Ø', w) : `${body(0, 'W', w)}   ${body(1, 'H', h)}`, world);
     }
     this.overrides.set(st.id, ed.next);
@@ -3949,7 +3950,8 @@ export class Viewer implements ToolView {
     const ed = this.edit!;
     if (pressed(e, 'confirm') || pressed(e, 'cancel')) return this.endEdit(pressed(e, 'confirm')), true;
     if (ed.handle.kind !== 'resize') return false;
-    if (pressed(e, 'otherSide')) ed.axis = 1 - ed.axis;
+    if (pressed(e, 'otherSide') && restOf(ed.typed[ed.axis] ?? '')) ed.typed[ed.axis] += restOf(ed.typed[ed.axis]!); // a name showing: written out
+    else if (pressed(e, 'otherSide')) ed.axis = 1 - ed.axis;
     else if (pressed(e, 'erase')) ed.typed[ed.axis] = ed.typed[ed.axis]?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) ed.typed[ed.axis] = (ed.typed[ed.axis] ?? '') + e.key;
     else return false;
@@ -3978,6 +3980,7 @@ export class Viewer implements ToolView {
   private dragKey(e: KeyboardEvent): boolean {
     const d = this.drag!;
     if (pressed(e, 'confirm') || pressed(e, 'cancel')) this.endDrag(pressed(e, 'confirm'));
+    else if (e.key === 'Tab' && restOf(d.typed ?? '')) d.typed += restOf(d.typed!); // a name showing: written out
     else if (pressed(e, 'erase')) d.typed = d.typed?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) d.typed = (d.typed ?? '') + e.key;
     else return false;

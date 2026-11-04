@@ -1,4 +1,4 @@
-import { displayText, fmt, isPlain, UNITS } from '../doc/expr';
+import { displayText, fmt, inName, isPlain, UNITS } from '../doc/expr';
 import { fitting, THREADS } from '../doc/threads';
 import { getIn, setIn } from '../doc/resolve';
 import { lookOf, setLook, STANDARD_SECTIONS } from '../doc/materials';
@@ -350,7 +350,7 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
   if (!el.title && !isPlain(x.e) && x.u !== u) el.title = `plain numbers in ${x.u}`;
   // T (To object): the clicked point's value goes in where the cursor is, to calculate on with it; Enter keeps it
   el.addEventListener('keydown', (e) => {
-    if (!wantsT(e, el, ctx.doc.params)) return;
+    if (!wantsT(e, el)) return;
     const reaching = ctx.reach(keys, (text) => {
       const field = document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`) ?? el;
       field.focus();
@@ -428,13 +428,9 @@ function select<T extends string>(value: T, options: Record<T, string>, onChange
   return el;
 }
 
-/** Whether T pressed in `input` means To object: not in the middle of a name, nor where a parameter starting with t could begin. */
-export function wantsT(e: KeyboardEvent, input: HTMLInputElement, params: Record<string, unknown>, action: 'toObject' | 'measureValue' = 'toObject') {
-  if (!pressed(e, action)) return false;
-  const before = input.value.slice(0, input.selectionStart ?? 0);
-  const word = before.match(/[A-Za-z_]\w*$/)?.[0];
-  const name = !/[\w.]$/.test(before) && Object.keys(params).some((p) => p.startsWith(e.key));
-  return (!word || word in UNITS) && !name;
+/** Whether T (or `action`) pressed in `input` means that: not in the middle of a name. */
+export function wantsT(e: KeyboardEvent, input: HTMLInputElement, action: 'toObject' | 'measureValue' = 'toObject') {
+  return pressed(e, action) && !inName(input.value.slice(0, input.selectionStart ?? 0));
 }
 
 /** The To object button, the same everywhere: its icon and words (T does the same where it is offered). */
@@ -643,7 +639,6 @@ function customSections(ctx: UIContext): Node[] {
   });
 }
 
-const RESERVED = new Set([...Object.keys(UNITS), 'pi', 'sqrt', 'abs', 'min', 'max']);
 
 function left(ctx: UIContext): Node[] {
   const { doc } = ctx;
@@ -865,14 +860,14 @@ function left(ctx: UIContext): Node[] {
     ),
   );
   const addParam = input('new-param', '', (text) => {
-    const m = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(text);
-    const name = m?.[1];
-    if (!m || !name || RESERVED.has(name) || Object.hasOwn(doc.params, name)) {
-      return ctx.notify(m ? `"${name}" is reserved or exists` : 'use: name = expression');
+    const m = /^\$?([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(text); // its $ is added if left out
+    const name = m && `$${m[1]}`;
+    if (!m || !name || Object.hasOwn(doc.params, name)) {
+      return ctx.notify(m ? `"${name}" exists` : 'use: $name = expression');
     }
     ctx.commit({ ...doc, params: { ...doc.params, [name]: { e: m[2], u: doc.units } } });
   });
-  addParam.placeholder = 'name = expression';
+  addParam.placeholder = '$name = expression';
   addParam.dataset.complete = '';
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, L) to start a body.')];

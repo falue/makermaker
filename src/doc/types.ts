@@ -426,7 +426,7 @@ export interface Joint {
 }
 
 export interface Doc {
-  schema: 31;
+  schema: 32;
   units: Unit;
   params: Record<string, Expr>;
   bodies: Body[];

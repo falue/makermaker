@@ -22,7 +22,7 @@ Build a precise, approachable modeling tool for props, fitted parts, and worksho
 | 4 | Native file | Single self-contained ZIP file. Version history is stored deliberately inside it as JSON snapshots on save plus named checkpoints, capped/compacted. The fine-grained undo stack stays in memory and is not saved. |
 | 5 | Browser | Chromium-only MVP (File System Access for save-in-place and safe saves). File access sits behind a small interface so a desktop wrapper (Tauri/Electron) can replace it later. |
 | 6 | Imported meshes | Reference objects: display, transform, snap, measure, section views, export. No mesh booleans or mesh-to-solid conversion. |
-| 7 | Parameters | General expressions with named parameters and references (e.g. `width = 2 * ply + 10`). Material thickness is one referenceable value; changing a material updates linked geometry. |
+| 7 | Parameters | General expressions with named parameters and references (e.g. `$width = 2 * $ply + 10`). Material thickness is one referenceable value; changing a material updates linked geometry. |
 | 8 | Instancing | Linked instances: a part definition plus placements; editing one updates all. "Make unique" detaches an instance. Groups have their own transforms and can be instanced too. |
 | 9 | Foundation | Start from scratch on Replicad/OpenCascade + three.js. Harvest individual pieces from ToubkalCAD (or others) only where they fit our model; no fork. |
 | 10 | Visualization | Screenshots, turntable and dolly clips with "okay-ish" renders. Real-time three.js (PBR, HDRI lighting, shadows) first. Stretch goal: nice renderings via Mitsuba 3 through a local helper process (Mitsuba runs natively, not in the browser). Video via frame-by-frame encoding (WebCodecs). |
@@ -222,7 +222,7 @@ Run geometry work away from the UI thread; avoid unnecessary copies, share geome
 11. A direct face edit on a native part survives an upstream dimension change, or reports a lost reference without changing the geometry.
 12. Selecting several objects and exporting laser outlines refuses objects without parallel flat sides with a message and exports all others projected along their biggest flat face at correct scale.
 13. At the visualization milestone, a turntable clip and a dolly clip export as video files with scale reference visible.
-14. Entering `3in`, `2*ply + 1`, or a reference to another dimension in any numeric field gives the correct result; switching display units does not change geometry; save/reopen keeps the expressions.
+14. Entering `3in`, `2*$ply + 1`, or a reference to another dimension in any numeric field gives the correct result; switching display units does not change geometry; save/reopen keeps the expressions.
 
 ## Effort
 

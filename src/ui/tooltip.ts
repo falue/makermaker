@@ -1,4 +1,6 @@
 
+import { caretHtml } from './complete';
+
 /**
  * Hover help (from incase): any element with a title or data-tip shows a styled tooltip after `delay` ms; hidden
  * while a button is held. Titles move into data-tip on first hover, so the browser's own tooltip never shows.
@@ -65,7 +67,7 @@ export function installTooltips(delay = 500, within?: () => DOMRect, note: (text
     cursorTip(text: string | null, more: string | null = null) {
       note(more);
       const lines = (text ?? '').split('\n').filter(Boolean);
-      follow.replaceChildren(...lines.map((line) => Object.assign(document.createElement('div'), { textContent: line })));
+      follow.replaceChildren(...lines.map((line) => Object.assign(document.createElement('div'), { innerHTML: caretHtml(line) })));
       follow.hidden = !lines.length;
       if (lines.length) place(follow);
     },

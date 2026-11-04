@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { caret } from '../ui/complete';
+import { inName } from '../doc/expr';
 import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
@@ -185,7 +187,8 @@ export class ExtrudeTool implements Tool {
     if (p) {
       if (pressed(e, 'cancel')) return this.drop(), true;
       if (pressed(e, 'confirm')) return this.commit(), true;
-      if (pressed(e, 'measureValue')) {
+      const typing = inName((p.side ? p.typedBack : p.typed) ?? '');
+      if (pressed(e, 'measureValue') && !typing) {
         this.measuring = true;
         this.view.unlockPointer();
         const pull = this.pull!;
@@ -198,7 +201,7 @@ export class ExtrudeTool implements Tool {
         );
         return true;
       }
-      if (pressed(e, 'toObject')) {
+      if (pressed(e, 'toObject') && !typing) {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
@@ -396,7 +399,7 @@ export class ExtrudeTool implements Tool {
       const shown: [string, string | undefined, number, number, boolean][] = [[pullName(frame.n), p.typed, depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
-        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : `${typed}▏`}`, active, active && !this.reaching);
+        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed)}`, active, active && !this.reaching);
         this.labels.append(el);
         keepInside(el, ...this.view.toScreen(at.clone().addScaledVector(n, along)));
       }

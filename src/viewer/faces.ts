@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { V3 } from '../doc/frames';
 import { pullBy, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
+import { caretHtml, restOf } from '../ui/complete';
 import { keepInside } from '../ui/inside';
 
 /** What a pull shows and how it ends: its hint, its label at the pointer, and whether releasing the button finishes it. */
@@ -67,6 +68,7 @@ export class FacePullTool implements Tool {
     if (cancel) this.finish('cancel');
     else if (confirm) this.finish('done');
     else if (pressed(e, 'erase')) this.typed = this.typed?.slice(0, -1) || undefined;
+    else if (e.key === 'Tab' && restOf(this.typed ?? '')) this.typed += restOf(this.typed!); // a name showing: written out
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) this.typed = (this.typed ?? '') + e.key;
     else return false;
     if (!cancel && !confirm) {
@@ -89,7 +91,7 @@ export class FacePullTool implements Tool {
     const [x, y] = this.view.toScreen(this.at.clone().addScaledVector(new THREE.Vector3(...this.n), this.value()));
     const el = Object.assign(document.createElement('div'), {
       className: 'size-label active',
-      textContent: this.look.label(this.value(), this.typed),
+      innerHTML: caretHtml(this.look.label(this.value(), this.typed)),
     });
     this.labels.replaceChildren(el);
     keepInside(el, x, y);

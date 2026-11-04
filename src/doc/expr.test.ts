@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { displayText, evalLength } from './expr';
+import { displayText, evalLength, inName } from './expr';
 import { paramLookup } from './resolve';
 import type { Expr, Unit } from './types';
 
 const ex = (e: string, u: Unit = 'mm'): Expr => ({ e, u });
-const params = paramLookup({ ply: ex('4mm'), count: ex('3'), loop: ex('loop + 1'), a: ex('b'), b: ex('a') });
+const params = paramLookup({ $ply: ex('4mm'), $count: ex('3'), $loop: ex('$loop + 1'), $a: ex('$b'), $b: ex('$a') });
 const len = (e: string, u: Unit = 'mm') => evalLength(ex(e, u), params);
 
 describe('evalLength', () => {
@@ -19,21 +19,31 @@ describe('evalLength', () => {
   });
 
   it('evaluates expressions with references', () => {
-    expect(len('2 * ply + 10')).toBe(18);
-    expect(len('(80 - 2*ply) / count')).toBe(24);
-    expect(len('-ply^1 + max(1cm, 5)')).toBe(6);
-    expect(len('sqrt(ply * ply)')).toBe(4);
+    expect(len('2 * $ply + 10')).toBe(18);
+    expect(len('(80 - 2*$ply) / $count')).toBe(24);
+    expect(len('-$ply^1 + max(1cm, 5)')).toBe(6);
+    expect(len('sqrt($ply * $ply)')).toBe(4);
   });
 
   it('reports errors', () => {
-    expect(() => len('ply * ply')).toThrow('not a length');
-    expect(() => len('nope')).toThrow('unknown name');
-    expect(() => len('loop')).toThrow('refers to itself');
-    expect(() => len('a')).toThrow('refers to itself');
+    expect(() => len('$ply * $ply')).toThrow('not a length');
+    expect(() => len('$nope')).toThrow('unknown name');
+    expect(() => len('ply')).toThrow('parameters start with $');
+    expect(() => len('$loop')).toThrow('refers to itself');
+    expect(() => len('$a')).toThrow('refers to itself');
     expect(() => len('1 +')).toThrow('unexpected end');
     expect(() => len('2 )')).toThrow('unexpected ")"');
     expect(() => len('1/0')).toThrow('division by zero');
     expect(() => len('')).toThrow('empty');
+  });
+});
+
+describe('inName', () => {
+  it('a letter goes on with a name or word', () => {
+    for (const t of ['$', '$p', '$t1', '2*$ply', 'sqr', 'f']) expect(inName(t)).toBe(true);
+  });
+  it('else it is a command, also right after a unit', () => {
+    for (const t of ['', '5', '5mm', '2 * ', '3in', '$ply + ']) expect(inName(t)).toBe(false);
   });
 });
 

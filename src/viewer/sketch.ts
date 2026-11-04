@@ -11,6 +11,8 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { comboText, keysOf, pressed, role, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
+import { caret, caretHtml, restOf } from '../ui/complete';
+import { inName } from '../doc/expr';
 import { icon } from '../ui/icons';
 
 export type ToolKind = 'rect' | 'circle' | 'ngon' | 'line' | 'sphere';
@@ -188,7 +190,8 @@ export function pulled(p: Pulling, length: (text: string) => number | null) {
 /** Typing while pulling: into the depth or (Tab) the back; Backspace erases. Returns whether the key was used. */
 export function pullKey(e: KeyboardEvent, p: Pulling) {
   const k = p.side ? 'typedBack' : 'typed';
-  if (pressed(e, 'otherSide')) p.side = p.side ? 0 : 1;
+  if (pressed(e, 'otherSide') && restOf(p[k] ?? '')) p[k] += restOf(p[k]!); // a name showing: written out
+  else if (pressed(e, 'otherSide')) p.side = p.side ? 0 : 1;
   else if (pressed(e, 'erase')) p[k] = p[k]?.slice(0, -1) || undefined;
   else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) p[k] = (p[k] ?? '') + e.key;
   else return false;
@@ -609,14 +612,14 @@ export class SketchTool implements Tool {
   key(e: KeyboardEvent): boolean {
     const ph = this.phase;
     // a line's length or angle starts with a digit, so letters still snap, fix guides and switch tools
-    const sideTyping = ph.kind === 'polygon' && (ph.typed[ph.axis] !== undefined || /[\d.(-]/.test(e.key));
+    const sideTyping = ph.kind === 'polygon' && (ph.typed[ph.axis] !== undefined || /[\d.($-]/.test(e.key));
     const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull' || sideTyping);
     const more = pressed(e, 'moreSnaps');
     const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined); // not while typing a size
     const guide = this.hoveredGuide();
     // Measure while a size is typed: this tool waits, the value goes in (a line: its length or radius)
     if ((ph.kind === 'shape' && !(this.kind === 'ngon' && ph.axis === 1)) || ph.kind === 'pull' || (ph.kind === 'polygon' && ph.axis === 0)) {
-      if (pressed(e, 'measureValue') && !/[A-Za-z_]$/.test((ph.kind === 'pull' ? ph.typed : ph.typed[ph.axis]) ?? '')) {
+      if (pressed(e, 'measureValue') && !inName((ph.kind === 'pull' ? (ph.side ? ph.typedBack : ph.typed) : ph.typed[ph.axis]) ?? '')) {
         this.measuring = true;
         this.view.unlockPointer();
         this.host.measure(
@@ -636,7 +639,7 @@ export class SketchTool implements Tool {
       }
     }
     // To object while drawing a shape: the next click's distance goes into the size being typed (not a polygon's sides)
-    if (ph.kind === 'shape' && pressed(e, 'toObject') && !(this.kind === 'ngon' && ph.axis === 1) && !/[A-Za-z_]$/.test(ph.typed[ph.axis] ?? '')) {
+    if (ph.kind === 'shape' && pressed(e, 'toObject') && !(this.kind === 'ngon' && ph.axis === 1) && !inName(ph.typed[ph.axis] ?? '')) {
       this.reaching = true;
       this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
       this.aim(this.view.aimHere());
@@ -682,12 +685,14 @@ export class SketchTool implements Tool {
     } else if (ph.kind === 'shape') {
       if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
       else if (pressed(e, 'erase')) ph.typed[ph.axis] = ph.typed[ph.axis]?.slice(0, -1) || undefined;
+      else if (pressed(e, 'otherSide') && restOf(ph.typed[ph.axis] ?? '')) ph.typed[ph.axis] += restOf(ph.typed[ph.axis]!); // a name showing: written out
       else if (pressed(e, 'otherSide') && (this.kind === 'rect' || this.kind === 'ngon')) ph.axis = 1 - ph.axis;
       else if (pressed(e, 'confirm')) this.shapeDone();
       else return false;
     } else if (ph.kind === 'polygon') {
       if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
       else if (pressed(e, 'erase') && ph.typed[ph.axis] !== undefined) ph.typed[ph.axis] = ph.typed[ph.axis]!.slice(0, -1) || undefined;
+      else if (pressed(e, 'otherSide') && restOf(ph.typed[ph.axis] ?? '')) ph.typed[ph.axis] += restOf(ph.typed[ph.axis]!); // a name showing: written out
       else if (pressed(e, 'otherSide')) ph.axis = ph.arcEnd ? 0 : 1 - ph.axis; // a first arc's bulge: only its radius
       else if (pressed(e, 'confirm') && ph.typed.some((t) => t !== undefined)) this.corner(ph, ph.cur, false); // typed: Enter sets the point
       else if (pressed(e, 'confirm')) {
@@ -704,7 +709,7 @@ export class SketchTool implements Tool {
       } else return false;
       if (this.phase === ph && this.lastPoint) ph.cur = this.sideEnd(this.lastPoint[0], ph) ?? ph.cur; // typed values apply at once
     } else if (ph.kind === 'pull') {
-      if (pressed(e, 'toObject')) {
+      if (pressed(e, 'toObject') && !inName((ph.side ? ph.typedBack : ph.typed) ?? '')) {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
@@ -1184,7 +1189,7 @@ export class SketchTool implements Tool {
     }
     if (this.kind === 'ngon') {
       // typed: diameter (across the corners), then the number of sides
-      const sides = Math.max(3, Math.round(Number(ph.typed[1]) || 6));
+      const sides = Math.max(3, Math.round((ph.typed[1] === undefined ? 0 : this.host.number(ph.typed[1])) || 6));
       const half = Math.PI / sides;
       const snap = (deg: number) => (ph.shift ? Math.round(deg / 15) * 15 : deg);
       if (m === 'edge') {
@@ -1340,7 +1345,7 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     const fmt = (mm: number) => mm.toFixed(2);
     const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean, t = false) =>
-      labels.push([`${name} ${typed === undefined ? fmt(mm) : `${typed}▏`}`, at, active, t]);
+      labels.push([`${name} ${typed === undefined ? fmt(mm) : caret(typed)}`, at, active, t]);
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
       const open = ph.kind === 'polygon' ? (ph.held?.adds ? ph.held.at : ph.arcEnd ?? ph.cur) : ph.cur;
@@ -1359,7 +1364,7 @@ export class SketchTool implements Tool {
         // an arc: its radius in the pointer's note, its angle at its middle (a first arc's bulge: only its radius)
         const arc = arcOf(ph.pts[ph.pts.length - 1], ph.arc, open);
         if (arc) {
-          sideLength = `R ${ph.typed[0] === undefined ? fmt(arc.r) : `${ph.typed[0]}▏`}`;
+          sideLength = `R ${ph.typed[0] === undefined ? fmt(arc.r) : caret(ph.typed[0]!)}`;
           if (!ph.arcEnd) label('∠', ph.typed[1], (Math.abs(arc.a1 - arc.a0) * 180) / Math.PI, v3(toWorld(f, ...ph.arc)), ph.axis === 1);
         }
       } else if (ph.kind === 'polygon' && !ph.held) {
@@ -1369,9 +1374,9 @@ export class SketchTool implements Tool {
         const a = (deg(Math.atan2(dv, du) - ph.base) * Math.PI) / 180; // from the direction it counts from, the short way
         const at = v3(toWorld(f, ...last));
         const mm = 1 / this.view.pixelsPerMm(at);
-        sideLength = `L ${ph.typed[0] === undefined ? fmt(Math.hypot(du, dv)) : `${ph.typed[0]}▏`}`;
+        sideLength = `L ${ph.typed[0] === undefined ? fmt(Math.hypot(du, dv)) : caret(ph.typed[0]!)}`;
         const shown = `${+((a * 180) / Math.PI).toFixed(2)}°`;
-        angle = { text: `∠ ${ph.typed[1] === undefined ? shown : `${ph.typed[1]}▏`}`, active: ph.axis === 1, corner: last, end: ph.cur, base: ph.base, frame: f };
+        angle = { text: `∠ ${ph.typed[1] === undefined ? shown : caret(ph.typed[1]!)}`, active: ph.axis === 1, corner: last, end: ph.cur, base: ph.base, frame: f };
         // what it is measured from: a faint ray along that direction, and the arc from it to the side
         const arc = Array.from({ length: 25 }, (_, k) => ph.base + (a * k) / 24).map((t) => v3(toWorld(f, last[0] + ARC_PX * mm * Math.cos(t), last[1] + ARC_PX * mm * Math.sin(t))));
         const segs = [at, v3(toWorld(f, last[0] + 2 * ARC_PX * mm * Math.cos(ph.base), last[1] + 2 * ARC_PX * mm * Math.sin(ph.base))), ...arc.slice(1).flatMap((p, k) => [arc[k], p])];
@@ -1385,7 +1390,7 @@ export class SketchTool implements Tool {
       }
       if (profile.kind === 'ngon' && ph.kind === 'shape') {
         label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), ph.axis === 0);
-        labels.push([`Sides ${ph.typed[1] === undefined ? profile.sides : `${ph.typed[1]}▏`}`, v3(toWorld(f, profile.x, profile.y - profile.d / 2)), ph.axis === 1]);
+        labels.push([`Sides ${ph.typed[1] === undefined ? profile.sides : caret(ph.typed[1]!)}`, v3(toWorld(f, profile.x, profile.y - profile.d / 2)), ph.axis === 1]);
       }
     }
     if (this.snapped && ph.kind !== 'pull') {
@@ -1446,7 +1451,7 @@ export class SketchTool implements Tool {
    * it stays clear of the other labels, both lines, the pointer and its note; too tight there, just outside the angle.
    */
   private angleLabel(a: { text: string; active: boolean; corner: UV; end: UV; base: number; frame: Frame }, others: HTMLElement[], margin = 4) {
-    const el = Object.assign(document.createElement('div'), { className: `size-label${a.active ? ' active' : ''}`, textContent: a.text });
+    const el = Object.assign(document.createElement('div'), { className: `size-label${a.active ? ' active' : ''}`, innerHTML: caretHtml(a.text) });
     this.labels.append(el);
     const [w, h] = [el.offsetWidth / 2 + margin, el.offsetHeight / 2 + margin];
     const box = this.labels.getBoundingClientRect();
@@ -1602,7 +1607,7 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** The pointer's note while pulling (before typing a depth). */
 /** A size label (`active`: typed into); `t`: it says T reaches to an object for it. */
 export function sizeLabel(text: string, active: boolean, t = false) {
-  const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text });
+  const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: caretHtml(text) });
   if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }

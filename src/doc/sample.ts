@@ -172,7 +172,7 @@ export function sampleDoc(): Doc {
     visible: true,
     position: [ex(0), ex(0), ex(0)],
     features: [
-      { id: newId(), type: 'extrude', source: { kind: 'sketch', sketch: outline.id, shapes: outline.shapes.map((s) => s.id) }, depth: ex('ply'), mode: 'add', through: false },
+      { id: newId(), type: 'extrude', source: { kind: 'sketch', sketch: outline.id, shapes: outline.shapes.map((s) => s.id) }, depth: ex('$ply'), mode: 'add', through: false },
       { id: newId(), type: 'finish', mode: 'fillet', size: ex(8), edges: 'vertical', enabled: true, baked: false, skip: [] },
       { id: newId(), type: 'finish', mode: 'chamfer', size: ex(0.8), edges: 'top', enabled: true, baked: false, skip: [] },
     ],
@@ -209,9 +209,9 @@ export function sampleDoc(): Doc {
   };
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
-    schema: 31,
+    schema: 32,
     units: 'mm',
-    params: { ply: ex('4mm') },
+    params: { $ply: ex('4mm') },
     bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests()],
     sketches: [
       outline,

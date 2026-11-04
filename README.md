@@ -15,7 +15,7 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 - **Real threads**: click a hole's or shaft's edge and get an ISO metric thread cut into it, ready to print.
 - **Round, chamfer, cut and join**: fillets and chamfers stay editable; bodies cut, join or intersect each other and stay movable while they do.
 - **Cut in two**: split a body along a plane (turned around any edge), a sketch line or shape, a ball or a cylinder; keep both halves or just one.
-- **Type instead of fiddling**: every number can be a unit or a formula with named values (`2*ply + 10`); change `ply` once and everything that uses it follows. Names complete as you type.
+- **Type instead of fiddling**: every number can be a unit or a formula with named values (`2*$ply + 10`); change `$ply` once and everything that uses it follows. Names complete as you type.
 - **Snap to what matters**: corners, centres, middles, crossings, evenly spaced points along any line, and guide lines that extend an edge across the whole view.
 - **Move precisely**: drag along an axis, or press X, Y or Z (M: all three) and type a distance; rotate around any edge, line, circle or point; align parts to each other. Press T to take a distance from something you click, and calculate on with it (`T/2`).
 - **Joints**: hinges and sliders between parts, played back with ease in and out, and you keep modelling while a lid stands half open.
