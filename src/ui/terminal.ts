@@ -1,5 +1,6 @@
 import type { Doc } from '../doc/types';
 import { icon } from './icons';
+import type { PythonField } from './pythonField';
 import type { FromPython, ToPython } from './pythonWorker';
 import { canUseFolders, cleanName, listScripts, recallFolder, rememberFolder, removeScript, writeScript, type Script } from '../io/scriptFolder';
 
@@ -22,28 +23,24 @@ const OLD_STORE = 'makermaker.scripts';
 /**
  * The Python terminal, a drawer in `parent`: its tab in `tabs`, open across the view, lifting the other drawers
  * (`--drawers-up`). Pyodide loads in a worker when first opened. Two columns: the terminal (`cad` is the command API; Enter runs,
- * typing on when unfinished), beside it the script being edited; and the scripts. A script runs as one undo step.
+ * typing on when unfinished), beside it the script being edited, both in Monaco (colours, Tab completes); and the scripts. A script runs as one undo step.
  */
 export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: TerminalApi, changed: () => void) {
   const box = Object.assign(document.createElement('div'), { className: 'terminal', hidden: true });
   const grip = Object.assign(document.createElement('div'), { className: 'terminal-grip', title: 'Drag: the height of the terminal' });
   const output = Object.assign(document.createElement('pre'), { className: 'terminal-out' });
   const prompt = Object.assign(document.createElement('span'), { className: 'terminal-prompt', textContent: '>>>' });
-  const input = Object.assign(document.createElement('textarea'), { spellcheck: false, rows: 1 });
-  input.setAttribute('autocapitalize', 'off');
-  input.setAttribute('autocorrect', 'off');
   const line = Object.assign(document.createElement('div'), { className: 'terminal-line' });
   const stopButton = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('stop'), title: 'Click: Stop Python (Ctrl C): nothing changes, its variables are gone', hidden: true, onclick: () => stop() });
-  line.append(prompt, input, stopButton);
-  const scroll = Object.assign(document.createElement('div'), { className: 'terminal-scroll', onclick: () => getSelection()?.isCollapsed && input.focus() });
+  line.append(prompt, stopButton);
+  const scroll = Object.assign(document.createElement('div'), { className: 'terminal-scroll', onclick: () => getSelection()?.isCollapsed && input?.focus() });
   scroll.append(output, line);
   const button = (name: string, title: string, onclick: (e: MouseEvent) => void) => Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon(name), title, onclick });
   // the script being edited
   const editorName = Object.assign(document.createElement('span'), { className: 'script-title' });
-  const editorText = Object.assign(document.createElement('textarea'), { spellcheck: false, className: 'script-text' });
   const editorBar = Object.assign(document.createElement('div'), { className: 'script-bar' });
   const editor = Object.assign(document.createElement('div'), { className: 'script-editor', hidden: true });
-  editor.append(editorBar, editorText);
+  editor.append(editorBar);
   const main = Object.assign(document.createElement('div'), { className: 'terminal-main' });
   main.append(editor, scroll);
   // the scripts
@@ -66,9 +63,11 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     if (output.childElementCount > 500) output.firstElementChild!.remove();
     scroll.scrollTop = scroll.scrollHeight;
   };
+  /** The prompt and the script being edited, once Monaco is there. */
+  let input: PythonField | null = null;
+  let editorText: PythonField | null = null;
   const fit = () => {
-    input.rows = input.value.split('\n').length;
-    prompt.textContent = input.value.includes('\n') ? '...' : '>>>';
+    prompt.textContent = input!.value.includes('\n') ? '...' : '>>>';
     scroll.scrollTop = scroll.scrollHeight;
   };
 
@@ -78,6 +77,14 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   let sent: Doc | null = null;
   let running: ((m: Extract<FromPython, { kind: 'done' }>) => void) | null = null;
   let onFound: ((names: string[]) => void) | null = null;
+  /** What Python knows for a dotted word; nothing before it is ready or while it runs. */
+  const known = (word: string) =>
+    new Promise<string[]>((done) => {
+      onFound?.([]);
+      if (!ready || running) return done([]);
+      onFound = (names) => ((onFound = null), done(names));
+      tell({ kind: 'complete', word });
+    });
   let stopSoon = 0;
   const load = () => {
     if (worker) return worker;
@@ -108,8 +115,10 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     if (!running) return;
     worker!.terminate();
     [worker, ready, sent] = [null, false, null];
+    onFound?.([]);
     idle();
     print('Stopped: nothing was changed, Python starts over.', 'terminal-note');
+    load();
   };
 
   const past: string[] = [];
@@ -131,7 +140,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     });
   const run = async () => {
     if (running) return;
-    const source = input.value;
+    const source = input!.value;
     // a blank last line ends a block
     const text = /\n\s*$/.test(source) ? `${source.trimEnd()}\n` : source;
     if (!text.trim()) return;
@@ -140,46 +149,58 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     if (state === 'more') {
       output.lastChild?.remove(); // not run yet
       const indent = source.match(/(?:^|\n)( *)[^\n]*$/)?.[1] ?? '';
-      input.value = `${source}\n${indent}${source.trimEnd().endsWith(':') ? '    ' : ''}`;
+      input!.value = `${source}\n${indent}${source.trimEnd().endsWith(':') ? '    ' : ''}`;
+      input!.toEnd();
       return fit();
     }
     past.push(source);
     back = past.length;
-    if (input.value === source) input.value = '';
+    if (input!.value === source) input!.value = '';
     fit();
     changed();
   };
-  const complete = () => {
-    if (!ready || running) return;
-    const end = input.selectionStart;
-    const word = input.value.slice(0, end).match(/[\w.]+$/)?.[0];
-    if (!word) return input.setRangeText('    ', end, end, 'end'), fit();
-    onFound = (found) => {
-      if (!found.length) return;
-      const same = found.reduce((a, b) => {
-        let k = 0;
-        while (k < a.length && a[k] === b[k]) k++;
-        return a.slice(0, k);
-      });
-      input.setRangeText(same.slice(word.length), end, end, 'end');
-      if (found.length > 1) print(found.join('  '), 'terminal-note');
-    };
-    tell({ kind: 'complete', word });
+  /** Both fields, made when the drawer first opens (Monaco loads then). */
+  const fields = async () => {
+    const { pythonCompletion, pythonField } = await import('./pythonField');
+    pythonCompletion(known);
+    const prompted = (input = pythonField('python-prompt', true));
+    line.insertBefore(prompted.el, stopButton);
+    prompted.onHeight((px) =>
+      requestAnimationFrame(() => {
+        prompted.el.style.height = `${px}px`;
+        scroll.scrollTop = scroll.scrollHeight;
+      }),
+    );
+    prompted.onChange(fit);
+    prompted.onKey((e) => {
+      const { first, last, noSelection, suggesting, before } = prompted.state();
+      if (e.key === 'c' && e.ctrlKey && running && noSelection) stop();
+      else if (e.key === 'Enter' && !e.shiftKey) void run();
+      else if (e.key === 'Tab' && !suggesting && /[\w.]$/.test(before)) prompted.suggest();
+      else if (e.key === 'Escape' && !suggesting) toggle(false);
+      else if (e.key === 'ArrowUp' && !suggesting && first && back > 0) ((prompted.value = past[--back]), prompted.toEnd(), fit());
+      else if (e.key === 'ArrowDown' && !suggesting && last && back < past.length) ((prompted.value = past[++back] ?? ''), prompted.toEnd(), fit());
+      else if (e.key === 'l' && e.ctrlKey) output.replaceChildren();
+      else return false;
+      return true;
+    });
+    const script = (editorText = pythonField('script-text'));
+    editor.append(script.el);
+    script.onChange(() => {
+      if (!current) return;
+      current.text = script.value;
+      unsaved = current;
+      clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => void flush(), 400);
+    });
+    script.onKey((e) => {
+      if (e.key === 'c' && e.ctrlKey && running && script.state().noSelection) stop();
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) current && void play(current);
+      else if (e.key === 'Escape' && !script.state().suggesting) toggle(false);
+      else return false;
+      return true;
+    });
   };
-  input.onkeydown = (e) => {
-    const firstLine = !input.value.slice(0, input.selectionStart).includes('\n');
-    const lastLine = !input.value.slice(input.selectionEnd).includes('\n');
-    if (e.key === 'c' && e.ctrlKey && running && input.selectionStart === input.selectionEnd) e.preventDefault(), stop();
-    else if (e.key === 'Enter' && !e.shiftKey) e.preventDefault(), run();
-    else if (e.key === 'Tab') e.preventDefault(), complete();
-    else if (e.key === 'Escape') toggle(false);
-    else if (e.key === 'ArrowUp' && firstLine && back > 0) e.preventDefault(), (input.value = past[--back]), fit();
-    else if (e.key === 'ArrowDown' && lastLine && back < past.length) e.preventDefault(), (input.value = past[++back] ?? ''), fit();
-    else if (e.key === 'l' && e.ctrlKey) e.preventDefault(), output.replaceChildren();
-    else return void setTimeout(fit);
-    e.stopPropagation();
-  };
-  input.oninput = fit;
   /** The other drawers ride on top of the terminal. */
   const lift = () => parent.style.setProperty('--drawers-up', box.hidden ? '0px' : `${box.offsetHeight}px`);
   grip.onpointerdown = (down) => {
@@ -196,7 +217,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     box.hidden = !open;
     drawerEl.classList.toggle('open', open);
     lift();
-    if (open) (current ? editorText : input).focus(), load(), void start();
+    if (open) load(), void start();
     else void flush();
     changed();
   };
@@ -239,9 +260,9 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     editor.hidden = !s;
     if (s) {
       editorName.textContent = s.name;
-      editorText.value = s.text;
-      editorText.focus();
-    } else input.focus();
+      editorText!.value = s.text;
+      editorText!.focus();
+    } else input!.focus();
     markOpen();
   };
   /** The folder read again: changes made elsewhere show, also in the editor. */
@@ -253,11 +274,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     if (current && !again) open(null);
     else if (again) {
       current = again;
-      if (editorText.value !== again.text) {
-        const at = editorText.selectionStart;
-        editorText.value = again.text;
-        editorText.setSelectionRange(at, at);
-      }
+      if (editorText!.value !== again.text) editorText!.value = again.text;
     }
     showList();
   };
@@ -301,8 +318,10 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const needFolder = async () => !!dir || (waiting ? reopen() : choose());
   let started = false;
   const start = async () => {
-    if (started) return void rescan();
+    if (started) return (current ? editorText : input)?.focus(), void rescan();
     started = true;
+    await fields();
+    input!.focus();
     const kept = canUseFolders() ? await recallFolder().catch(() => undefined) : undefined;
     if (kept && (await kept.queryPermission({ mode: 'readwrite' })) === 'granted') await connect(kept, false);
     else {
@@ -317,30 +336,6 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     button('play', 'Run this script (⌘ or Ctrl + Enter): one undo step', () => current && void play(current)),
     button('close', 'Close the editor: the script stays', () => open(null)),
   );
-  editorText.oninput = () => {
-    if (!current) return;
-    current.text = editorText.value;
-    unsaved = current;
-    clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => void flush(), 400);
-  };
-  editorText.onkeydown = (e) => {
-    const at = editorText.selectionStart;
-    if (e.key === 'c' && e.ctrlKey && running && editorText.selectionStart === editorText.selectionEnd) stop();
-    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) current && void play(current);
-    else if (e.key === 'Enter') {
-      const before = editorText.value.slice(0, at);
-      const last = before.slice(before.lastIndexOf('\n') + 1);
-      editorText.setRangeText(`\n${last.match(/^ */)![0]}${last.trimEnd().endsWith(':') ? '    ' : ''}`, at, editorText.selectionEnd, 'end');
-      editorText.dispatchEvent(new Event('input'));
-    } else if (e.key === 'Tab') {
-      editorText.setRangeText('    ', at, editorText.selectionEnd, 'end');
-      editorText.dispatchEvent(new Event('input'));
-    } else if (e.key === 'Escape') toggle(false);
-    else return;
-    e.preventDefault();
-    e.stopPropagation();
-  };
   const renameIn = (s: Script, label: HTMLElement) => {
     const field = Object.assign(document.createElement('input'), { value: s.name, spellcheck: false, className: 'script-rename' });
     let done = false;

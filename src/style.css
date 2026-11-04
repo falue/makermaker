@@ -2397,15 +2397,6 @@ section > h4 .segmented button {
 .script-text {
   flex: 1;
   min-height: 0;
-  padding: 2px 10px 8px;
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: var(--text);
-  white-space: pre;
-  overflow: auto;
-  font: 12px/1.5 var(--mono, ui-monospace, Menlo, monospace);
 }
 .scripts {
   min-width: 0;
@@ -2486,14 +2477,7 @@ section > h4 .segmented button {
   flex: none;
   color: var(--muted);
 }
-.terminal-line textarea {
+.python-prompt {
   flex: 1;
   min-width: 0;
-  padding: 0;
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
 }

@@ -166,7 +166,7 @@ Later goals (2026-11-02):
 
 - [x] **Central CAD command API** (2026-11-03: the command table in src/api/commands.ts and `window.makermaker`; more commands and the GUI going through it still to come): all modeling actions available through one clean TypeScript API, used by both the GUI and scripting. Commands create, edit and select bodies, sketches, features, materials, transforms, booleans, bevels, holes, etc. Kept independent from the UI and the geometry kernel where possible. Wanted before rebindable hotkeys and before many more tools (they would use its command table).
 - [ ] **LLM control:** an API through which an LLM can control everything.
-- [ ] **Python scripting with an editor:** Monaco Editor plus Pyodide for in-browser Python. The command API exposed as a simple Python module such as `cad`, so scripts can do `cad.box(...)`, `cad.move(...)`, `cad.bevel(...)` and access the selected bodies and features. Run button, console output, errors, autocomplete, offline caching. (Both are new dependencies: approve when the time comes.)
+- [x] **Python scripting with an editor:** Monaco Editor plus Pyodide for in-browser Python. The command API exposed as a simple Python module such as `cad`, so scripts can do `cad.box(...)`, `cad.move(...)`, `cad.bevel(...)` and access the selected bodies and features. Run button, console output, errors, autocomplete, offline caching. (Both are new dependencies: approve when the time comes.)
 
 Later goals (2026-11-02, from the design talks; STATUS.md → "CAD goals" lists them in order):
 
