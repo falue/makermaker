@@ -1193,9 +1193,27 @@ export class Viewer implements ToolView {
     };
     const help = this.helped();
     if (help) add(pointHandles(help.shape), help); // first: they win over the box's handles
-    const h = this.handled();
-    if (h) add(handlesOf(h.shape, reachPx / this.pixelsPerMm(new THREE.Vector3(...toWorld(h.sketch.frame, ...centre(h.shape))))), h);
+    const h = this.boxHover ? this.handled() : null;
+    if (h) add(this.boxHandles(h, reachPx), h);
     return out;
+  }
+
+  private boxHandles(h: { sketch: ViewSketch; shape: DrawnProfile & { id: string } }, reachPx = 26) {
+    return handlesOf(h.shape, reachPx / this.pixelsPerMm(new THREE.Vector3(...toWorld(h.sketch.frame, ...centre(h.shape)))));
+  }
+
+  /** The pointer is over the selected shape's box or its handles: only then they show and take hold. */
+  private boxHover = false;
+  private hoverBox(e: MouseEvent) {
+    const h = this.handled();
+    const r = this.el.getBoundingClientRect();
+    const seen = h ? this.boxHandles(h).map(({ at }) => this.toScreen(new THREE.Vector3(...toWorld(h.sketch.frame, ...at)))) : [];
+    const [x, y] = [e.clientX - r.left, e.clientY - r.top];
+    const near = 14; // px around the handles
+    const over = !!seen.length && x > Math.min(...seen.map((p) => p[0])) - near && x < Math.max(...seen.map((p) => p[0])) + near && y > Math.min(...seen.map((p) => p[1])) - near && y < Math.max(...seen.map((p) => p[1])) + near;
+    if (over === this.boxHover) return false;
+    this.boxHover = over;
+    return true;
   }
 
   /** The line or polygon of the open sketch under the pointer: its points and curve handles show, for the pointer tool only. */
@@ -1209,6 +1227,7 @@ export class Viewer implements ToolView {
   /** Follows the pointer: stays on a shape while over its outline or one of its handles. */
   private hoverHelp(e: MouseEvent) {
     if (this.tool || this.edit || !this.activeSketch) return;
+    if (this.hoverBox(e)) this.renderSketches();
     const r = this.el.getBoundingClientRect();
     const onHandle = this.handles().some((h) => {
       if (h.handle.kind === 'resize' || h.handle.kind === 'rotate') return false;
