@@ -2710,10 +2710,7 @@ export class Viewer implements ToolView {
    * and they stop at `maxPairs` triangle pairs tried: a snapping aid must not freeze a big assembly.
    */
   private crossEdges(maxTriangles = 300_000, maxPairs = 50_000_000) {
-    const shown = [...this.bodies].flatMap(([id, g]) => {
-      const solid = g.children.find((c) => c instanceof THREE.Mesh) as THREE.Mesh | undefined;
-      return solid && !this.hidden.has(id) && !this.cutters.has(id) ? [{ id, g: (g.updateMatrix(), g), solid }] : [];
-    });
+    const shown = this.crossingBodies();
     const key = shown.map((b) => `${b.id} ${b.solid.geometry.id} ${b.g.matrix.elements.join()}`).join('|') + JSON.stringify(this.workPlanes.map((w) => [w.frame, w.rect]));
     if (this.crossings?.key === key) return this.crossings;
     const lines: NonNullable<Viewer['crossings']>['lines'] = [];
@@ -2739,6 +2736,34 @@ export class Viewer implements ToolView {
           }
         for (const line of chained([...pieces.values()])) lines.push({ body: shown[i].id, segs: line, cut: true });
       }
+    lines.push(...this.planeEdges());
+    const ends = lines.flatMap(({ segs }) => (segs[0][0].distanceTo(segs.at(-1)![1]) > 1e-6 ? [segs[0][0], segs.at(-1)![1]] : []));
+    return (this.crossings = { key, lines, ends });
+  }
+
+  /** The bodies that cross: shown, no cutters. */
+  private crossingBodies() {
+    return [...this.bodies].flatMap(([id, g]) => {
+      const solid = g.children.find((c) => c instanceof THREE.Mesh) as THREE.Mesh | undefined;
+      return solid && !this.hidden.has(id) && !this.cutters.has(id) ? [{ id, g: (g.updateMatrix(), g), solid }] : [];
+    });
+  }
+
+  /** Where a work plane cuts each body: kept per plane and body while neither changes. */
+  private planeCuts = new Map<string, { key: string; segs: [THREE.Vector3, THREE.Vector3][][] }>();
+  private planeCutKept(w: { id: string; plane: THREE.Plane; clips: THREE.Plane[] }, b: ReturnType<Viewer['crossingBodies']>[number]) {
+    const id = `${w.id} ${b.id}`;
+    const key = `${b.solid.geometry.id} ${b.g.matrix.elements.join()} ${w.plane.normal.toArray()} ${w.plane.constant} ${w.clips.map((c) => c.constant)}`;
+    let kept = this.planeCuts.get(id);
+    if (kept?.key !== key) this.planeCuts.set(id, (kept = { key, segs: planeCut(b.solid.geometry, b.g.matrix, w.plane, w.clips) }));
+    return kept.segs;
+  }
+
+  /** The work planes' lines: across the bodies and each other. */
+  private planeEdges() {
+    const lines: NonNullable<Viewer['crossings']>['lines'] = [];
+    if (!this.workPlanes.length) return lines;
+    const shown = this.crossingBodies();
     // work planes: their planes and the four sides of their rectangles (clipping planes keep their inside)
     const planes = this.workPlanes.map((w) => {
       const [o, x, y, n] = [w.frame.o, w.frame.x, w.frame.y, w.frame.n].map((v) => new THREE.Vector3(...v));
@@ -2746,7 +2771,7 @@ export class Viewer implements ToolView {
       const [u0, v0, u1, v1] = w.rect;
       return { id: w.id, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n, o), clips: [side(x, u0), side(x.clone().negate(), -u1), side(y, v0), side(y.clone().negate(), -v1)] };
     });
-    for (const w of planes) for (const b of shown) for (const segs of planeCut(b.solid.geometry, b.g.matrix, w.plane, w.clips)) lines.push({ body: b.id, segs, cut: true, plane: true });
+    for (const w of planes) for (const b of shown) for (const segs of this.planeCutKept(w, b)) lines.push({ body: b.id, segs, cut: true, plane: true });
     for (let i = 0; i < planes.length; i++)
       for (let j = i + 1; j < planes.length; j++) {
         const [p, q] = [planes[i].plane, planes[j].plane];
@@ -2764,19 +2789,19 @@ export class Viewer implements ToolView {
         }
         if (hi - lo > 1e-6) lines.push({ body: planes[i].id, segs: [[at.clone().addScaledVector(dir, lo), at.clone().addScaledVector(dir, hi)]], cut: true, plane: true });
       }
-    const ends = lines.flatMap(({ segs }) => (segs[0][0].distanceTo(segs.at(-1)![1]) > 1e-6 ? [segs[0][0], segs.at(-1)![1]] : []));
-    return (this.crossings = { key, lines, ends });
+    return lines;
   }
 
-  /** The work planes' crossing lines drawn green, redrawn when they change. */
+  /** The work planes' crossing lines drawn green, redrawn when they change; what bodies cross of each other is left to the snapping that asks for it. */
   private drawCrossings() {
-    const c = this.crossEdges();
-    if (this.crossMark.userData.key === c.key) return;
+    const lines = this.planeEdges();
+    const key = lines.map((l) => l.segs.flat().map((v) => v.toArray().join()).join(' ')).join('|');
+    if (this.crossMark.userData.key === key) return;
     for (const o of this.crossMark.children) ((o as THREE.LineSegments).geometry.dispose(), ((o as THREE.LineSegments).material as THREE.Material).dispose());
     this.crossMark.clear();
     if (!this.crossMark.parent) this.scene.add(this.crossMark);
-    this.crossMark.userData.key = c.key;
-    const segs = c.lines.filter((l) => l.plane).flatMap((l) => l.segs.flat());
+    this.crossMark.userData.key = key;
+    const segs = lines.flatMap((l) => l.segs.flat());
     if (segs.length) this.crossMark.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(segs), new THREE.LineBasicMaterial({ color: 0x2fae5a })));
   }
 
