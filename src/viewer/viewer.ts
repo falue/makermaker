@@ -1550,12 +1550,12 @@ export class Viewer implements ToolView {
 
   private measureLine = new THREE.Group();
 
-  /** The measurement's axes as lines (`key` X, Y, Z), and its straight line (L). */
-  private measureLegs: { key: string; a: THREE.Vector3; b: THREE.Vector3; line: LineSegments2 }[] = [];
+  /** The measurement's axes as lines (`key` X, Y, Z; `colours`: the origin's, shown when lit), and its orange straight line (L, or the one axis it runs along). */
+  private measureLegs: { key: string; a: THREE.Vector3; b: THREE.Vector3; line: LineSegments2; colours?: Float32Array }[] = [];
 
   /**
-   * A measurement: marks at `a` and `b`, between them the way along each axis it covers, in the origin's style, and the
-   * straight line in orange (one axis only: that is the same line, left out). Returns those keys, in that order (null: all gone).
+   * A measurement: marks at `a` and `b`, between them the straight line in orange and, thin and grey, the way along
+   * each axis it covers (one axis only: the straight line is that one). Returns those keys, axes first (null: all gone).
    */
   showMeasureLine(a: THREE.Vector3 | null, b: THREE.Vector3 | null = null) {
     for (const o of this.measureLine.children) ((o as THREE.Line).geometry.dispose(), ((o as THREE.Line).material as THREE.Material).dispose());
@@ -1564,32 +1564,41 @@ export class Viewer implements ToolView {
     if (!this.measureLine.parent) this.scene.add(this.measureLine);
     if (a) this.measureLine.add(Object.assign(marks(b ? [a, b] : [a], 0xff8c1a, 9), { renderOrder: 1e6 }));
     if (a && b) {
-      const helper = new THREE.AxesHelper(1);
-      const colours = helper.geometry.attributes.color.array as Float32Array;
-      const add = (key: string, from: THREE.Vector3, to: THREE.Vector3, material: LineMaterial) => {
+      const add = (key: string, from: THREE.Vector3, to: THREE.Vector3, colours?: Float32Array) => {
+        const material = new LineMaterial({ ...(colours ? { vertexColors: true } : { color: 0xff8c1a }), depthTest: false, depthWrite: false, transparent: true });
         material.resolution.set(this.el.clientWidth, this.el.clientHeight);
         const line = Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions([...from.toArray(), ...to.toArray()]), material), { renderOrder: 1e6 });
-        if (material.vertexColors) line.geometry.setColors(colours.slice('XYZ'.indexOf(key) * 6, 'XYZ'.indexOf(key) * 6 + 6));
         this.measureLine.add(line);
-        this.measureLegs.push({ key, a: from, b: to, line });
+        this.measureLegs.push({ key, a: from, b: to, line, colours });
       };
-      const at = a.clone();
-      for (const k of [0, 1, 2]) {
-        if (Math.abs(b.getComponent(k) - a.getComponent(k)) < 1e-4) continue;
-        const next = at.clone().setComponent(k, b.getComponent(k));
-        add('XYZ'[k], at.clone(), next, new LineMaterial({ vertexColors: true, linewidth: 3, depthTest: false, depthWrite: false, transparent: true }));
-        at.copy(next);
+      const covered = [0, 1, 2].filter((k) => Math.abs(b.getComponent(k) - a.getComponent(k)) >= 1e-4);
+      if (covered.length === 1) add('XYZ'[covered[0]], a, b);
+      else {
+        const helper = new THREE.AxesHelper(1);
+        const colours = helper.geometry.attributes.color.array as Float32Array;
+        const at = a.clone();
+        for (const k of covered) {
+          const next = at.clone().setComponent(k, b.getComponent(k));
+          add('XYZ'[k], at.clone(), next, colours.slice(k * 6, k * 6 + 6));
+          at.copy(next);
+        }
+        helper.dispose();
+        add('L', a, b);
       }
-      helper.dispose();
-      if (this.measureLegs.length !== 1) add('L', a, b, new LineMaterial({ color: 0xff8c1a, linewidth: 1.5, depthTest: false, depthWrite: false, transparent: true }));
+      this.lightMeasureLeg(null);
     }
     this.render();
     return this.measureLegs.map((l) => l.key);
   }
 
-  /** One of the measurement's lines thicker (null: none). */
+  /** One of the measurement's lines lit: an axis thick in its colours (the others thin and grey), the orange one thicker; null: none. */
   lightMeasureLeg(key: string | null) {
-    for (const l of this.measureLegs) l.line.material.linewidth = (l.key === 'L' ? 1.5 : 3) * (l.key === key ? 2.5 : 1);
+    const grey = new THREE.Color(0x8a8f98).toArray();
+    for (const l of this.measureLegs) {
+      const lit = l.key === key;
+      l.line.material.linewidth = l.colours ? (lit ? 3 : 1) : lit ? 3.5 : 1.5;
+      if (l.colours) l.line.geometry.setColors(lit ? l.colours : [...grey, ...grey]);
+    }
     this.render();
   }
 
