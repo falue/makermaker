@@ -357,6 +357,11 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
           label,
           button('play', 'Run: one undo step', stop(() => void play(s))),
           button('edit', 'Rename', stop(() => renameIn(s, label))),
+          button('save', 'Download as a .py file', stop(() => {
+            const url = URL.createObjectURL(new Blob([s.text], { type: 'text/x-python' }));
+            Object.assign(document.createElement('a'), { href: url, download: `${s.name}.py` }).click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          })),
           button('delete', 'Delete (Undo comes in its place)', stop(() => {
             const at = scripts.indexOf(s);
             scripts = scripts.filter((x) => x !== s);
@@ -380,6 +385,32 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     );
     markOpen();
   };
+  /** Text files become scripts, named after them; the last one opens. */
+  const upload = async (files: Iterable<File>) => {
+    let last: Script | null = null;
+    for (const f of files) {
+      last = { id: crypto.randomUUID(), name: freeName(f.name.replace(/\.py$/i, '')), text: await f.text() };
+      scripts.push(last);
+    }
+    if (!last) return;
+    keep();
+    showList();
+    open(last);
+  };
+  const picker = Object.assign(document.createElement('input'), { type: 'file', accept: '.py,text/x-python,text/plain', multiple: true, hidden: true });
+  picker.onchange = () => {
+    void upload([...(picker.files ?? [])]); // a copy: clearing the field empties its list
+    picker.value = '';
+  };
+  side.append(picker);
+  side.ondragover = (e) => (e.preventDefault(), e.stopPropagation());
+  // dropped here they are scripts, not something to import into the design
+  side.ondrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void upload([...(e.dataTransfer?.files ?? [])]);
+  };
+  head.append(button('import', 'Upload .py files (or drop them on this list)', () => picker.click()));
   head.append(button('new', 'New script', () => {
     const s: Script = { id: crypto.randomUUID(), name: freeName('New script'), text: '' };
     scripts.push(s);

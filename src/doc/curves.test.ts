@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { arcOf, area, bakeTurn, bounds, closedLoop, flattened, inside, mapPoints, sideDirs, sidesOf } from './profiles';
 import { lineFaces } from './arrangement';
-import { centreMoved, controlMoved, handlesOf, isSmooth, pointMoved, smoothToggled } from '../viewer/shapes';
+import { centreMoved, controlMoved, isSmooth, pointHandles, pointMoved, smoothToggled } from '../viewer/shapes';
 import type { Curve } from './types';
 
 type UV = [number, number];
@@ -149,7 +149,7 @@ describe('editing points and handles', () => {
     const after = { kind: 'line' as const, pts: [[0, 0], [10, 0], [20, 10]] as UV[], curves: [null, { mid: [10 + k, 10 - k] }] as (Curve | null)[] };
 
     it('is a handle', () => {
-      const h = handlesOf(after, 5).find((x) => x.handle.kind === 'centre')!;
+      const h = pointHandles(after).find((x) => x.handle.kind === 'centre')!;
       expect(h.at[0]).toBeCloseTo(10);
       expect(h.at[1]).toBeCloseTo(10);
     });

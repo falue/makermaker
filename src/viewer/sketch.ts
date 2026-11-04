@@ -603,17 +603,6 @@ export class SketchTool implements Tool {
     return this.mode?.kind === 'plane';
   }
 
-  /** A drawing tool on, nothing being drawn. */
-  idle() {
-    return !!this.kind && this.phase.kind === 'hover';
-  }
-
-  /** A handle is taken instead: no snap mark, note or guide from where the pointer was. */
-  letGo() {
-    this.snapped = this.snapLine = this.snapWhat = this.snapKey = this.snapSeg = this.snapPoint = null;
-    this.update();
-  }
-
   /** Double-click: the line ends here, open (the first click set the point, the second none: see `corner`). */
   dblclick() {
     if (this.phase.kind === 'polygon' && this.phase.pts.length >= 2) this.finishLine();

@@ -13,7 +13,7 @@ import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { arcOf, area, bounds, centre, edgeDistance, flattened, inside, bakeTurn, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
-import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, moved, pointMoved, resized, rotated, sizeOf, smoothToggled, type Handle } from './shapes';
+import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, moved, pointHandles, pointMoved, resized, rotated, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
 import { FacePullTool, type PullLook } from './faces';
 import { icon } from '../ui/icons';
@@ -168,6 +168,9 @@ function faceOf(hit: THREE.Intersection) {
   while (k < groups.length && !(at >= groups[k] && at < groups[k] + groups[k + 1])) k += 2;
   return k / 2;
 }
+
+/** A line's points, curve handles and arc middles while hovered. */
+const HELP_COLOR = 0x8b5cf6;
 
 /** The origin: AxesHelper's lines and colours, thick and over everything. */
 function originLines(size = 30, px = 3) {
@@ -623,24 +626,26 @@ export class Viewer implements ToolView {
           this.downOnPart = true;
           return e.stopPropagation();
         }
-        // a drawing tool waiting: curve handles and arc middles can be dragged (a line's points start a new line, as usual)
-        if (e.button === 0 && this.toolIdle() && this.startHandle(e, ['control', 'centre'])) return (this.tool as SketchTool).letGo(), e.stopPropagation();
         if (this.tool?.down(e)) {
           this.toolPress = true;
           canvas.setPointerCapture(e.pointerId);
           e.stopPropagation();
-          this.renderSketches(); // the handles go while drawing
         } else this.down(e);
       },
       { capture: true },
     );
     // the Ctrl preview goes when Ctrl is let go or the pointer leaves the view
     const unpreview = () => !this.tool && !this.facePick && (this.markEdge(), this.markFace());
-    canvas.addEventListener('pointerleave', () => ((this.hover = null), unpreview(), this.markSketch(null)));
+    canvas.addEventListener('pointerleave', () => {
+      this.hover = null;
+      unpreview();
+      this.markSketch(null);
+      if (this.helpShape && !this.edit) ((this.helpShape = null), this.renderSketches());
+    });
     addEventListener('keyup', (e) => (e.key === 'Control' || e.key === 'Alt') && unpreview());
     canvas.addEventListener('pointermove', (e) => {
       this.hover = e;
-      if (!e.buttons) this.hoverRow(e);
+      if (!e.buttons) this.hoverRow(e), this.hoverHelp(e);
       if (this.planeDrag) return this.dragSide(e);
       if (this.edit) return this.move(e);
       if (this.planeEdit) canvas.style.cursor = this.planeSide(e) >= 0 ? 'grab' : '';
@@ -1168,27 +1173,54 @@ export class Viewer implements ToolView {
     return s && p ? { sketch: s, shape: { ...p, ...this.overrides.get(p.id) } as DrawnProfile & { id: string } } : null;
   }
 
-  /** A double-click on a point of the single selected polygon or line: smooth to sharp, or back. True: it was on one. */
+  /** A double-click on a point of the polygon or line hovered: smooth to sharp, or back. True: it was on one. */
   private toggleSmooth(e: MouseEvent) {
-    const h = this.handled();
-    if (!h || (h.shape.kind !== 'polygon' && h.shape.kind !== 'line')) return false;
     const r = this.el.getBoundingClientRect();
     const grab = this.handles().find((g) => {
       const [x, y] = this.toScreen(g.world);
       return g.handle.kind === 'point' && Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
     });
-    if (grab?.handle.kind !== 'point') return false;
-    this.host.setShapes(h.sketch.id, [{ id: h.shape.id, profile: smoothToggled(h.shape, grab.handle.i) }]);
+    if (grab?.handle.kind !== 'point' || (grab.shape.kind !== 'polygon' && grab.shape.kind !== 'line')) return false;
+    this.host.setShapes(grab.sketch.id, [{ id: grab.shape.id, profile: smoothToggled(grab.shape, grab.handle.i) }]);
     return true;
   }
 
   /** Handles of the single selected shape: plane coordinates, screen position, kind. */
   private handles(reachPx = 26) {
+    const out: { at: [number, number]; handle: Handle; world: THREE.Vector3; shape: DrawnProfile & { id: string }; sketch: ViewSketch }[] = [];
+    const add = (list: { at: [number, number]; handle: Handle }[], h: { sketch: ViewSketch; shape: DrawnProfile & { id: string } }) => {
+      for (const { at, handle } of list) out.push({ at, handle, world: new THREE.Vector3(...toWorld(h.sketch.frame, ...at)), ...h });
+    };
+    const help = this.helped();
+    if (help) add(pointHandles(help.shape), help); // first: they win over the box's handles
     const h = this.handled();
-    if (!h) return [];
-    const f = h.sketch.frame;
-    const reach = reachPx / this.pixelsPerMm(new THREE.Vector3(...toWorld(f, ...centre(h.shape))));
-    return handlesOf(h.shape, reach).map(({ at, handle }) => ({ at, handle, world: new THREE.Vector3(...toWorld(f, ...at)) }));
+    if (h) add(handlesOf(h.shape, reachPx / this.pixelsPerMm(new THREE.Vector3(...toWorld(h.sketch.frame, ...centre(h.shape))))), h);
+    return out;
+  }
+
+  /** The line or polygon of the open sketch under the pointer: its points and curve handles show, for the pointer tool only. */
+  private helpShape: string | null = null;
+  private helped() {
+    const s = this.sketches.find((v) => v.id === this.activeSketch);
+    const p = this.tool ? undefined : s?.shapes.find((q) => q.id === this.helpShape);
+    return s && p ? { sketch: s, shape: { ...p, ...this.overrides.get(p.id) } as DrawnProfile & { id: string } } : null;
+  }
+
+  /** Follows the pointer: stays on a shape while over its outline or one of its handles. */
+  private hoverHelp(e: MouseEvent) {
+    if (this.tool || this.edit || !this.activeSketch) return;
+    const r = this.el.getBoundingClientRect();
+    const onHandle = this.handles().some((h) => {
+      if (h.handle.kind === 'resize' || h.handle.kind === 'rotate') return false;
+      const [x, y] = this.toScreen(h.world);
+      return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 10;
+    });
+    if (onHandle) return;
+    const at = this.shapeAt(this.ray(e), this.focus ? undefined : this.frontHit(e)?.distance);
+    const s = this.sketches.find((v) => v.id === this.activeSketch);
+    const q = at && at.sketch === s?.id && at.edge < Infinity ? s.shapes.find((x) => x.id === at.shape) : undefined;
+    const id = q && (q.kind === 'line' || q.kind === 'polygon') ? q.id : null;
+    if (id !== this.helpShape) ((this.helpShape = id), this.renderSketches());
   }
 
   /** Sketch outlines (the selected sketch darker, its selected shapes orange) and the handles of a single selected shape. */
@@ -1212,21 +1244,20 @@ export class Viewer implements ToolView {
       }
     }
     const refs = this.tool ? [] : this.refMarks();
-    // a drawing tool waiting: only a curve's points and handles
-    const handles = this.drag?.moved || (this.tool && !this.toolIdle()) ? [] : this.handles().filter((h) => !this.tool || !['resize', 'rotate'].includes(h.handle.kind));
+    const handles = this.tool || this.drag?.moved ? [] : this.handles();
     const resize = handles.filter((h) => h.handle.kind === 'resize').map((h) => h.world);
     const turn = handles.filter((h) => h.handle.kind === 'rotate').map((h) => h.world);
     if (resize.length) this.sketchView.add(marks(resize, 0xff8c1a));
     const points = handles.filter((h) => h.handle.kind === 'point').map((h) => h.world);
     const controls = handles.filter((h) => h.handle.kind === 'control' || h.handle.kind === 'centre');
-    if (points.length) this.sketchView.add(marks(points, 0xff8c1a));
+    if (points.length) this.sketchView.add(marks(points, HELP_COLOR));
     if (controls.length) {
       // each handle on a thin line from the point it pulls at; an arc's middle on its two radii (the handle on the arc: none)
-      const h = this.handled()!;
+      const h = this.helped()!;
       const q = bakeTurn(h.shape as Extract<DrawnProfile, { pts: [number, number][] }>);
       const on = (k: number) => new THREE.Vector3(...toWorld(h.sketch.frame, ...q.pts[k % q.pts.length]));
       const stems = controls.flatMap(({ handle: c, world }) => (c.kind === 'centre' ? [world, on(c.i), world, on(c.i + 1)] : c.kind !== 'control' || c.which === 'mid' ? [] : [world, on(c.which === 'c1' ? c.i : c.i + 1)]));
-      this.sketchView.add(marks(controls.map((c) => c.world), 0xff8c1a, 7), new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stems), new THREE.LineBasicMaterial({ color: 0xff8c1a, depthTest: false })));
+      this.sketchView.add(marks(controls.map((c) => c.world), HELP_COLOR, 7), new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stems), new THREE.LineBasicMaterial({ color: HELP_COLOR, depthTest: false })));
     }
     if (turn.length) {
       // the line reaches in to the point the shape turns around (its centre), marked with a ring
@@ -3868,28 +3899,22 @@ export class Viewer implements ToolView {
     });
   }
 
-  /** A press on a handle of the single selected shape (of `kinds`) starts dragging it. True: it did. */
-  private startHandle(e: PointerEvent, kinds?: Handle['kind'][]) {
+  /** A press on a handle starts dragging it. True: it did. */
+  private startHandle(e: PointerEvent) {
     const r = this.el.getBoundingClientRect();
     const grab = this.handles().find((h) => {
       const [x, y] = this.toScreen(h.world);
-      return (!kinds || kinds.includes(h.handle.kind)) && Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
+      return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
     });
-    const held = this.handled();
-    if (!grab || !held) return false;
+    if (!grab) return false;
     this.downAt = { x: e.clientX, y: e.clientY };
-    const q0 = uvOf(held.sketch.frame, planeHit(this.raycaster(e).ray, held.sketch.frame) ?? grab.world);
+    const q0 = uvOf(grab.sketch.frame, planeHit(this.raycaster(e).ray, grab.sketch.frame) ?? grab.world);
     const h = grab.handle;
-    this.edit = { sketch: held.sketch, start: held.shape, handle: h, q0, a0: angleAt(held.shape, q0), typed: [], axis: h.kind === 'resize' && !h.sx ? 1 : 0, last: null, next: null };
+    this.edit = { sketch: grab.sketch, start: grab.shape, handle: h, q0, a0: angleAt(grab.shape, q0), typed: [], axis: h.kind === 'resize' && !h.sx ? 1 : 0, last: null, next: null };
     this.downOnPart = true;
     this.controls.enabled = false;
     this.renderer.domElement.setPointerCapture(e.pointerId);
     return true;
-  }
-
-  /** A drawing tool is on, nothing being drawn. */
-  private toolIdle() {
-    return this.tool instanceof SketchTool && this.tool.idle();
   }
 
   private startDrag(e: PointerEvent, ray: THREE.Ray, start: THREE.Vector3, o: Pick<Drag, 'axes' | 'lead' | 'plane' | 'only' | 'apply' | 'end'>) {

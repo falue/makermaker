@@ -37,8 +37,8 @@ function arcCentre(q: Extract<DrawnProfile, { pts: UV[] }>, i: number, mid: UV):
   return arc ? [{ at: arc.c, handle: { kind: 'centre', i } }] : [];
 }
 
-/** A polygon's or line's points and curve handles, as they lie (these go first: they win over the box's handles). */
-function pointHandles(p: DrawnProfile): { at: UV; handle: Handle }[] {
+/** A polygon's or line's points and curve handles, as they lie. */
+export function pointHandles(p: DrawnProfile): { at: UV; handle: Handle }[] {
   if (p.kind !== 'polygon' && p.kind !== 'line') return [];
   const q = bakeTurn(p);
   return [
@@ -63,7 +63,7 @@ export function handlesOf(p: DrawnProfile, reach: number): { at: UV; handle: Han
   };
   const round = p.kind === 'circle' || p.kind === 'ngon'; // resized evenly: edge handles only
   const dirs = round ? [[1, 0], [0, 1], [-1, 0], [0, -1]] : [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
-  const out: { at: UV; handle: Handle }[] = [...pointHandles(p), ...dirs.map(([sx, sy]): { at: UV; handle: Handle } => ({ at: at(sx * half[0], sy * half[1]), handle: { kind: 'resize', sx, sy } }))];
+  const out: { at: UV; handle: Handle }[] = dirs.map(([sx, sy]) => ({ at: at(sx * half[0], sy * half[1]), handle: { kind: 'resize', sx, sy } }));
   if (p.kind !== 'circle' && p.kind !== 'line') out.push({ at: at(0, half[1] + reach), handle: { kind: 'rotate' } });
   return out;
 }
