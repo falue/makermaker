@@ -2910,7 +2910,7 @@ function fingersPanel(body: string, id: string, fresh = false) {
  * values in a panel at the top of the view; a click on one copies it. Goes on until Esc.
  */
 /**
- * Measure. With `use` another tool or field waits for it: a click on a length measured hands it over (mm) and ends this tool.
+ * Distance measure. With `use` another tool or field waits for it: a click on a length measured hands it over (mm) and ends this tool.
  */
 function measureTool(use?: (mm: number) => void, done?: () => void) {
   const u = history.current.units;
@@ -2947,9 +2947,9 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     const { area, sides } = viewer.faceSize(faces[0]);
     show([['Area', area, true], ...(sides ? ([['L', sides[0]], ['B', sides[1]]] as [string, number][]) : [])]);
   };
-  // Esc ends this only, not what waits for it
+  // Esc ends this only, not what waits for it; so does its own key, outside a field
   const keys = (e: KeyboardEvent) => {
-    if (!pressed(e, 'cancel')) return;
+    if (!pressed(e, 'cancel') && (!pressed(e, 'measureValue') || e.target instanceof HTMLInputElement)) return;
     e.stopImmediatePropagation();
     e.preventDefault();
     close();
@@ -3010,7 +3010,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
       false,
       'alt',
     );
-  toolHint = `Measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · ${use ? 'click a value: it goes in, back to where you were' : 'click a value: copied'} · [Esc] ${use ? 'goes back' : 'stops'}`;
+  toolHint = `Distance measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · ${use ? 'click a value: it goes in, back to where you were' : 'click a value: copied'} · [Esc] ${use ? 'goes back' : 'stops'}`;
   viewer.aiming = (a) => tips.cursorTip(a?.what ?? null);
   show([], 'Click a point, or Alt-click an edge or face');
   document.body.append(box);
@@ -5920,6 +5920,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'open')) run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
   else if (pressed(e, 'terminal')) terminal.toggle();
+  else if (pressed(e, 'measureValue')) measureTool();
   else if (pending && pressed(e, 'confirm')) pending.apply?.();
   else if (pending && pressed(e, 'cancel')) cancelPending(), render();
   else if (pressed(e, 'undo')) undo();

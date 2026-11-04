@@ -443,9 +443,9 @@ export function toObjectButton(onclick: () => void, title: string, measure?: () 
   return measure ? h('span', { className: 'to-tools' }, target, measureButton(measure)) : target;
 }
 
-/** The Measure tool for a field (it keeps the focus): D does the same. */
+/** The Distance measure tool for a field (it keeps the focus): D does the same. */
 export function measureButton(onclick: () => void) {
-  return h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'D: measure · click a length there: it goes into this field', onmousedown: (e: Event) => e.preventDefault(), onclick });
+  return h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'D: Distance measure · click a length there: it goes into this field', onmousedown: (e: Event) => e.preventDefault(), onclick });
 }
 
 /** A one-character label (×, ⇄, ✎) makes an icon button: no outline. */
@@ -561,7 +561,7 @@ function editbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout menu align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
-    tool('measure', 'Measure: click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
+    tool('measure', 'Distance measure (D): click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
   ];
 }
 

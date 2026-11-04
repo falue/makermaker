@@ -211,7 +211,7 @@ export function pullBy(view: ToolView, e: PointerEvent, normal: V3, middle: THRE
 }
 
 export interface ToolHost {
-  /** The Measure tool, this one waiting: `use` gets the length taken, `done` runs when it ends either way. */
+  /** The Distance measure tool, this one waiting: `use` gets the length taken, `done` runs when it ends either way. */
   measure(use: (mm: number) => void, done: () => void): void;
   /** A typed size in mm (expressions and units allowed), or null if invalid. */
   length(text: string): number | null;
@@ -1468,7 +1468,7 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** A size label (`active`: typed into); `t`: it says T reaches to an object for it. */
 export function sizeLabel(text: string, active: boolean, t = false) {
   const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, textContent: text });
-  if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: measure' }));
+  if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }
 /** Radius (px) of the arc showing what a side's angle is measured from. */
