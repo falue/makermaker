@@ -26,7 +26,7 @@ import { chainOf, unitAt } from './doc/shapegroups';
 import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
-import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
+import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64 } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
 import { describe as describeCommands, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
@@ -5582,8 +5582,8 @@ async function previewOf(image: Blob, width = 320, type = 'image/jpeg') {
 }
 
 /**
- * Imports an OBJ or STL file's triangles as a mesh body at the origin (it stays a mesh). They have no unit: `unit` is
- * the guess, and a dialog lets it be changed while the body shows at that size.
+ * Imports a mesh file's triangles as a mesh body at the origin (it stays a mesh). Most have no unit: `unit` is the
+ * guess or what the file says, and a dialog lets it be changed while the body shows at that size.
  */
 function importMesh(name: string, { vertices, triangles }: { vertices: Float32Array; triangles: Uint32Array }, unit: Unit = 'mm') {
   const doc = history.current;
@@ -5681,10 +5681,10 @@ addEventListener(
   { capture: true },
 );
 
-const IMPORTS = ['.step', '.stp', '.stl', '.obj', '.svg', '.dxf', ...PICTURES];
+const IMPORTS = ['.step', '.stp', '.stl', '.obj', '.3mf', '.glb', '.svg', '.dxf', ...PICTURES];
 
 /**
- * Imports a file by its extension; false: not one it takes. STEP, STL and OBJ become bodies; SVG and DXF a sketch,
+ * Imports a file by its extension; false: not one it takes. STEP and meshes become bodies; SVG and DXF a sketch,
  * 1:1, and pictures an image to calibrate: on what lies at client point `at` (a work plane, a flat face, else the
  * ground; none: the ground at the origin), a drawing centred there.
  */
@@ -5697,6 +5697,11 @@ function importFile(f: File, at?: { x: number; y: number }) {
     if (ext === '.svg' || ext === '.dxf') return importDrawing(f.name, ext === '.svg' ? svgShapes(await f.text()) : dxfShapes(await f.text()), target);
     if (PICTURES.includes(ext)) return importPicture(f, target.frame, target.point);
     if (ext === '.stl') return importMesh(f.name, parseStl(await f.arrayBuffer()));
+    if (ext === '.glb') return importMesh(f.name, await parseGlb(await f.arrayBuffer()), 'm');
+    if (ext === '.3mf') {
+      const { unit, ...mesh } = parse3mf(await f.arrayBuffer());
+      return importMesh(f.name, mesh, unit);
+    }
     if (ext !== '.obj') return importStep(f.name, await f.text());
     const text = await f.text();
     const kind = objKind(text);

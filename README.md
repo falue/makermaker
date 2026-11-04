@@ -23,7 +23,7 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 - **Groups**: nest, fold and turn groups of parts with their own origin; sketches are sketch groups with nested sub-groups, opened by double-click like in Illustrator.
 - **Import** with the import button or by dropping a file:
   - **STEP** (`.step`, `.stp`) becomes a real solid: round and chamfer its edges, cut or join it with other parts, sketch on its faces, export it. It has no history to edit, and its faces cannot be pushed or pulled yet.
-  - **STL** and **OBJ** stay meshes: move, group, colour, section and render them; no cutting, joining or export yet. Tiny meshes (no unit in the file) are scaled up, the scale stays editable.
+  - **STL**, **OBJ**, **3MF** and **GLB** stay meshes: move, group, colour, section and render them; no cutting, joining or export yet. Tiny meshes (no unit in the file) are scaled up, the scale stays editable.
 - **Export**: STEP for other CAD tools, STL for the 3D printer, SVG outlines for the laser.
 - **Render**: snapshots and nicer path-traced renders of saved views, queued, downloaded automatically, and rendered again on demand when the model changed.
 
