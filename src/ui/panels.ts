@@ -868,7 +868,7 @@ function left(ctx: UIContext): Node[] {
     ctx.commit({ ...doc, params: { ...doc.params, [name]: { e: m[2], u: doc.units } } });
   });
   addParam.placeholder = '$name = expression';
-  addParam.dataset.complete = '';
+  Object.assign(addParam.dataset, { complete: '', noMeasure: '' }); // a name is typed here: D is a letter
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, L) to start a body.')];
   // a list: its heading always in reach, its contents scrolling below it
