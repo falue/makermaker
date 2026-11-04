@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BASE, extent, toWorld, type Frame, type V3 } from '../doc/frames';
-import { arcOf, centre, corners, curved, flattened, inside, nesting, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
+import { arcOf, area, centre, corners, curved, flattened, inside, nesting, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, Curve, ShapeGroup, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
@@ -726,7 +726,7 @@ export class SketchTool implements Tool {
   private hoverHint(target?: Target) {
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
     const m = this.drawMode();
-    const how = this.kind === 'line' ? ({ polygon: 'Click points', bezier: 'Click points, drag for smooth ones', arc: 'Click a start and an end, then the bulge' }[m?.id ?? ''] ?? 'Click two points') : m?.lines ? 'Click a line' : m && m.clicks > 2 ? 'Click three times' : 'Drag (or click twice)';
+    const how = this.kind === 'line' ? ({ polygon: 'Click points', bezier: 'Click points, drag to pull handles', arc: 'Click a start and an end, then the bulge' }[m?.id ?? ''] ?? 'Click two points') : m?.lines ? 'Click a line' : m && m.clicks > 2 ? 'Click three times' : 'Drag (or click twice)';
     const modes = m ? ` · ${m.name} ([Alt], or the tool's key or button again: the next mode)` : '';
     if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]}${modes} · [R] [C] [L] switch · snaps to corners and centres · [A] / [Shift A] more / fewer snap points on a line · [Ctrl] grid · [Esc] stops drawing shapes`;
     return `${how} to draw ${NAMES[this.kind!]}${modes}${target ? ` · on ${target.name}` : ''} · [Ctrl] precise · right-drag turns the view · [Esc] stops`;
@@ -1092,16 +1092,37 @@ export class SketchTool implements Tool {
     const a = ph.pts[ph.pts.length - 1];
     const third = (from: UV, to: UV): UV => [from[0] + (to[0] - from[0]) / 3, from[1] + (to[1] - from[1]) / 3];
     const l = Math.hypot(end[0] - a[0], end[1] - a[1]);
-    // on from a line or an arc: along it; a sharp bezier point: towards the end
-    const on = ph.pts.length > 1 && !(ph.curves.at(-1) && 'c1' in ph.curves.at(-1)!);
+    const before = ph.curves.at(-1);
+    const across = this.acrossLast(ph, end);
+    // pulled, else smooth through the last point; on from a line or an arc: along it
+    const on = ph.pts.length > 1 && !(before && 'c1' in before);
     const t = on ? this.dirInto(ph) : 0;
-    const c1: UV = ph.out ?? (on ? [a[0] + (Math.cos(t) * l) / 3, a[1] + (Math.sin(t) * l) / 3] : third(a, end));
+    const c1: UV = ph.out ?? (across ? [a[0] + across[0] * l / 3, a[1] + across[1] * l / 3] : on ? [a[0] + (Math.cos(t) * l) / 3, a[1] + (Math.sin(t) * l) / 3] : third(a, end));
     const pull = ph.held?.pull;
     const first = ph.curves[0];
-    // a handle pulled at the end mirrors there; closing on a pulled start: smooth through it
+    // a handle pulled at the end mirrors there; closing: smooth through the start
     const c2: UV = pull ? [end[0] * 2 - pull[0], end[1] * 2 - pull[1]] : closes && first && 'c1' in first ? [end[0] * 2 - first.c1[0], end[1] * 2 - first.c1[1]] : third(end, a);
-    const off = (p: UV) => Math.abs((end[0] - a[0]) * (p[1] - a[1]) - (end[1] - a[1]) * (p[0] - a[0])) / (l || 1);
-    return off(c1) < 1e-6 && off(c2) < 1e-6 ? null : { c1, c2 };
+    return { c1, c2 };
+  }
+
+  /** A bezier point clicked, not pulled, is smooth: the direction (unit) its handles lie in, from the point before it to `end`; null: none to turn. */
+  private acrossLast(ph: Extract<Phase, { kind: 'polygon' }>, end: UV): UV | null {
+    const n = ph.pts.length;
+    const before = ph.curves[n - 2];
+    if (this.drawMode()?.id !== 'bezier' || ph.out || n < 2 || !before || !('c1' in before)) return null;
+    const [x, y] = [end[0] - ph.pts[n - 2][0], end[1] - ph.pts[n - 2][1]];
+    const l = Math.hypot(x, y);
+    return l > 1e-6 ? [x / l, y / l] : null;
+  }
+
+  /** The sides so far, the side before the open one bent to run smoothly on towards `end`. */
+  private bentSides(ph: Extract<Phase, { kind: 'polygon' }>, end: UV): (Curve | null)[] {
+    const across = this.acrossLast(ph, end);
+    if (!across) return ph.curves;
+    const n = ph.pts.length;
+    const [a, b] = [ph.pts[n - 2], ph.pts[n - 1]];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) / 3;
+    return [...ph.curves.slice(0, -1), { ...(ph.curves[n - 2] as { c1: UV; c2: UV }), c2: [b[0] - across[0] * l, b[1] - across[1] * l] }];
   }
 
   /**
@@ -1123,7 +1144,9 @@ export class SketchTool implements Tool {
       this.tangentArc(ph, end);
     }
     const curve = this.openCurve(ph, end, closes);
-    if (closes && !curve && ph.pts.length < 3 && !ph.curves.some(Boolean)) return this.host.hint('Two straight sides enclose nothing: one more point, or a curve · ' + lineHint(mode));
+    const sides = [...this.bentSides(ph, end), curve];
+    if (closes && area({ kind: 'polygon', pts: ph.pts, curves: sides, r: 0, rot: 0 }) < 0.01) return this.host.hint('That encloses nothing: one more point, or pull a handle · ' + lineHint(mode));
+    ph.curves = sides.slice(0, -1);
     if (closes && ph.held?.pull && ph.curves[0] && 'c1' in ph.curves[0]) ph.curves[0] = { ...ph.curves[0], c1: ph.held.pull };
     ph.curves.push(curve);
     if (closes) return this.closeLine();
@@ -1350,7 +1373,7 @@ export class SketchTool implements Tool {
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
       const open = ph.kind === 'polygon' ? (ph.held?.adds ? ph.held.at : ph.arcEnd ?? ph.cur) : ph.cur;
-      const drawing: DrawnProfile = ph.kind === 'shape' ? this.shape(ph) : { kind: 'line', pts: [...ph.pts, open], curves: [...ph.curves, ph.held && !ph.held.adds ? null : this.openCurve(ph, open, ph.held?.closes)] };
+      const drawing: DrawnProfile = ph.kind === 'shape' ? this.shape(ph) : { kind: 'line', pts: [...ph.pts, open], curves: [...this.bentSides(ph, open), ph.held && !ph.held.adds ? null : this.openCurve(ph, open, ph.held?.closes)] };
       const profile = { ...drawing, construction: this.host.construction() }; // dashed while drawing construction lines
       this.view.overlay.add(outline(profile, f));
       if (profile.kind === 'rect' && ph.kind === 'shape') {
@@ -1534,7 +1557,7 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
   line: [
     { id: 'single', name: 'Line: one line per two clicks', clicks: 2 },
     { id: 'polygon', name: 'Line: free polygon, point by point', clicks: 2 },
-    { id: 'bezier', name: 'Line: bezier curve (click: sharp, drag: smooth)', clicks: 2 },
+    { id: 'bezier', name: 'Line: bezier curve (click: a smooth point, drag: pull its handles)', clicks: 2 },
     { id: 'arc', name: 'Line: round arcs, each on from the last', clicks: 2 },
   ],
   ngon: [
@@ -1598,7 +1621,7 @@ function bisector([a1, b1]: [UV, UV], [a2, b2]: [UV, UV], p: UV): { o: UV; v: UV
 /** What the line tool says while drawing, by its mode. */
 function lineHint(mode?: string) {
   const end = '[Alt] or [L] next mode · a click on the start closes it · [Enter], [Esc] or double-click finishes · [Backspace] removes the last';
-  if (mode === 'bezier') return `Click: a sharp point, drag: a smooth one with handles · [Shift] handle in angle steps, [Ctrl] precise · ${end}`;
+  if (mode === 'bezier') return `Click: a smooth point, drag: pull its handles · [Shift] handle in angle steps, [Ctrl] precise · ${end}`;
   if (mode === 'arc') return `Click the arc's end, or type its radius · [Tab] its angle, [Enter] · [Shift] angle steps · ${end}`;
   const how = 'or type a length · [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it';
   return mode === 'polygon' ? `Click the next point, ${how} · ${end}` : `Click the end point, ${how} · [Alt] or [L] next mode · [Esc] cancels`;
