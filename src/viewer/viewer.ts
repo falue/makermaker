@@ -1550,14 +1550,72 @@ export class Viewer implements ToolView {
 
   private measureLine = new THREE.Group();
 
-  /** A measurement: an orange line from `a` to `b` with marks at both ends (null: gone). */
+  /** The measurement's axes as lines (`key` X, Y, Z), and its straight line (L). */
+  private measureLegs: { key: string; a: THREE.Vector3; b: THREE.Vector3; line: LineSegments2 }[] = [];
+
+  /**
+   * A measurement: marks at `a` and `b`, between them the way along each axis it covers, in the origin's style, and the
+   * straight line in orange (one axis only: that is the same line, left out). Returns those keys, in that order (null: all gone).
+   */
   showMeasureLine(a: THREE.Vector3 | null, b: THREE.Vector3 | null = null) {
     for (const o of this.measureLine.children) ((o as THREE.Line).geometry.dispose(), ((o as THREE.Line).material as THREE.Material).dispose());
     this.measureLine.clear();
+    this.measureLegs = [];
     if (!this.measureLine.parent) this.scene.add(this.measureLine);
     if (a) this.measureLine.add(Object.assign(marks(b ? [a, b] : [a], 0xff8c1a, 9), { renderOrder: 1e6 }));
-    if (a && b) this.measureLine.add(Object.assign(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), new THREE.LineBasicMaterial({ color: 0xff8c1a, depthTest: false })), { renderOrder: 1e6 }));
+    if (a && b) {
+      const helper = new THREE.AxesHelper(1);
+      const colours = helper.geometry.attributes.color.array as Float32Array;
+      const add = (key: string, from: THREE.Vector3, to: THREE.Vector3, material: LineMaterial) => {
+        material.resolution.set(this.el.clientWidth, this.el.clientHeight);
+        const line = Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions([...from.toArray(), ...to.toArray()]), material), { renderOrder: 1e6 });
+        if (material.vertexColors) line.geometry.setColors(colours.slice('XYZ'.indexOf(key) * 6, 'XYZ'.indexOf(key) * 6 + 6));
+        this.measureLine.add(line);
+        this.measureLegs.push({ key, a: from, b: to, line });
+      };
+      const at = a.clone();
+      for (const k of [0, 1, 2]) {
+        if (Math.abs(b.getComponent(k) - a.getComponent(k)) < 1e-4) continue;
+        const next = at.clone().setComponent(k, b.getComponent(k));
+        add('XYZ'[k], at.clone(), next, new LineMaterial({ vertexColors: true, linewidth: 3, depthTest: false, depthWrite: false, transparent: true }));
+        at.copy(next);
+      }
+      helper.dispose();
+      if (this.measureLegs.length !== 1) add('L', a, b, new LineMaterial({ color: 0xff8c1a, linewidth: 1.5, depthTest: false, depthWrite: false, transparent: true }));
+    }
     this.render();
+    return this.measureLegs.map((l) => l.key);
+  }
+
+  /** One of the measurement's lines thicker (null: none). */
+  lightMeasureLeg(key: string | null) {
+    for (const l of this.measureLegs) l.line.material.linewidth = (l.key === 'L' ? 1.5 : 3) * (l.key === key ? 2.5 : 1);
+    this.render();
+  }
+
+  /** The measurement's line under the pointer (within `px`; not near its two ends, where a click takes that point as usual); null: none. */
+  measureLegAt(e: MouseEvent, px = 7, endPx = 10) {
+    const legs = this.measureLegs;
+    if (!legs.length) return null;
+    const r = this.el.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
+    const near = (v: THREE.Vector3) => {
+      const [x, y] = this.toScreen(v);
+      return Math.hypot(mx - x, my - y) < endPx;
+    };
+    const axes = legs.filter((l) => l.key !== 'L');
+    if (near(legs[0].a) || near(axes.at(-1)?.b ?? legs[0].b)) return null;
+    let best: string | null = null;
+    let nearest = px;
+    for (const l of legs) {
+      const [ax, ay] = this.toScreen(l.a);
+      const [bx, by] = this.toScreen(l.b);
+      const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+      const k = len2 ? Math.max(0, Math.min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)) : 0;
+      const d = Math.hypot(mx - ax - k * (bx - ax), my - ay - k * (by - ay));
+      if (d < nearest) [best, nearest] = [l.key, d];
+    }
+    return best;
   }
 
   private partMarks: THREE.Mesh[] = [];
@@ -2453,6 +2511,7 @@ export class Viewer implements ToolView {
     this.renderer.setSize(w, h);
     this.dropComposer();
     (this.axes.material as LineMaterial).resolution.set(w, h);
+    for (const l of this.measureLegs) l.line.material.resolution.set(w, h);
     this.updateFrustums(w / h);
     this.render();
   }

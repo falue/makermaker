@@ -2922,7 +2922,14 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel measure' });
   box.onmousedown = (e) => e.preventDefault(); // the field waiting for the value keeps the focus
   // [label, mm (an area: mm²)]
-  const show = (items: [string, number, boolean?][], note = '') =>
+  // each value's button by its label, and the line in the view it belongs to: hovering either lights both
+  const buttons = new Map<string, HTMLButtonElement>();
+  const light = (key: string | null) => {
+    viewer.lightMeasureLeg(key);
+    for (const [k, b] of buttons) b.classList.toggle('lit', k === key);
+  };
+  const show = (items: [string, number, boolean?][], note = '') => {
+    buttons.clear();
     box.replaceChildren(
       ...(note ? [Object.assign(document.createElement('span'), { className: 'hint', textContent: note })] : []),
       ...items.map(([label, mm, area]) => {
@@ -2933,9 +2940,13 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           ? panelButton('', `Use ${text}: it goes in the field`, () => (close(), use(mm)))
           : panelButton('', 'Click: copy', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
         b.innerHTML = shown;
+        b.onmouseenter = () => light(label);
+        b.onmouseleave = () => light(null);
+        buttons.set(label, b);
         return b;
       }),
     );
+  };
   // at the top of the view, under the panel of what waits for it
   const place = () => {
     atTop(box);
@@ -2957,11 +2968,45 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     close();
   };
   addEventListener('keydown', keys, { capture: true });
+  // the measurement's lines in the view: hovered as its buttons are, a press does what its button does
+  const legAt = (e: PointerEvent) => {
+    const k = e.target instanceof HTMLCanvasElement && viewer.el.contains(e.target) && !e.altKey && !e.shiftKey ? viewer.measureLegAt(e) : null;
+    if (!k) return null;
+    // a corner, a middle or a centre there is the next point, as usual
+    const what = viewer.aimAt(e)?.what;
+    return what && !what.startsWith('on ') ? null : k;
+  };
+  let onLeg: string | null = null;
+  const legHover = (e: PointerEvent) => {
+    const k = e.buttons ? null : legAt(e);
+    if (k !== onLeg) {
+      light((onLeg = k));
+      (e.target as HTMLElement).style.cursor = k ? 'pointer' : '';
+      if (!k) tips.cursorTip(null);
+    }
+    if (!k) return;
+    e.stopPropagation(); // what a click takes is not marked meanwhile
+    viewer.aimAt(null);
+    tips.cursorTip(`${k}\n${buttons.get(k)?.title}`);
+  };
+  const legPress = (e: PointerEvent) => {
+    const k = e.button === 0 ? legAt(e) : null;
+    if (!k) return;
+    e.stopPropagation();
+    e.preventDefault();
+    addEventListener('pointerup', (u) => u.stopPropagation(), { capture: true, once: true });
+    buttons.get(k)?.click();
+  };
+  addEventListener('pointermove', legHover, { capture: true });
+  addEventListener('pointerdown', legPress, { capture: true });
   const hintBefore = toolHint;
   const close = () => {
     if (!box.isConnected) return; // ending the pick comes back here
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
+    removeEventListener('pointermove', legHover, { capture: true });
+    removeEventListener('pointerdown', legPress, { capture: true });
+    viewer.el.querySelector('canvas')!.style.cursor = '';
     viewer.cancelFacePick();
     viewer.aiming = null;
     viewer.aimAt(null);
@@ -2997,8 +3042,8 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           if (edges.length || faces.length) [edges, faces] = [[], []], viewer.showMeasured([], []);
           if (last) {
             const d = p.clone().sub(last);
-            show([['X', d.x], ['Y', d.y], ['Z', d.z], ['L', d.length()]]);
-            viewer.showMeasureLine(last, p);
+            const values: Record<string, number> = { X: d.x, Y: d.y, Z: d.z, L: d.length() };
+            show(viewer.showMeasureLine(last, p)!.map((k) => [k, values[k]]));
           } else {
             viewer.showMeasureLine(p);
             show(face.edge ? [['Edge', face.edge.length]] : [], 'Click the next point');
@@ -3012,7 +3057,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
       false,
       'alt',
     );
-  toolHint = `Distance measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · ${use ? 'click a value: it goes in, back to where you were' : 'click a value: copied'} · [Esc] ${use ? 'goes back' : 'stops'}`;
+  toolHint = `Distance measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · ${use ? 'click a value or its line in the view: it goes in, back to where you were' : 'click a value or its line in the view: copy'} · [Esc] ${use ? 'goes back' : 'stops'}`;
   viewer.aiming = (a) => tips.cursorTip(a?.what ?? null);
   show([], 'Click a point, or Alt-click an edge or face');
   document.body.append(box);

@@ -1847,6 +1847,10 @@ button.icon.tool-op {
 #right .info dt {
   color: var(--muted);
 }
+.axis-move.measure button.lit {
+  outline: 2px solid #ff8c1a;
+  outline-offset: 1px;
+}
 #right .info .measures {
   cursor: help;
 }
