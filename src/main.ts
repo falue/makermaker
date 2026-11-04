@@ -5583,7 +5583,7 @@ function importStep(name: string, data: string) {
 }
 
 const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
-/** A field's value measured instead of typed (G, or the button by To object): goes in at the cursor. */
+/** A field's value measured instead of typed (D, or the button by To object): goes in at the cursor. */
 function measureInto(field: HTMLInputElement) {
   measureTool((mm) => {
     field.focus();
@@ -5600,7 +5600,7 @@ addEventListener('focusin', (e) => {
 });
 const measureField = () => lastField?.isConnected && measureInto(lastField);
 
-// G in a value field, where T would work (not in the middle of a name, nor where a parameter could begin): measure it
+// D in a value field, where T would work (not in the middle of a name, nor where a parameter could begin): measure it
 addEventListener(
   'keydown',
   (e) => {

@@ -443,9 +443,9 @@ export function toObjectButton(onclick: () => void, title: string, measure?: () 
   return measure ? h('span', { className: 'to-tools' }, target, measureButton(measure)) : target;
 }
 
-/** The Measure tool for a field (it keeps the focus): G does the same. */
+/** The Measure tool for a field (it keeps the focus): D does the same. */
 export function measureButton(onclick: () => void) {
-  return h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'G: measure · click a length there: it goes into this field', onmousedown: (e: Event) => e.preventDefault(), onclick });
+  return h('button', { className: 'to-object', innerHTML: icon('measure'), title: 'D: measure · click a length there: it goes into this field', onmousedown: (e: Event) => e.preventDefault(), onclick });
 }
 
 /** A one-character label (×, ⇄, ✎) makes an icon button: no outline. */
