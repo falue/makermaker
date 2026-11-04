@@ -1743,6 +1743,14 @@ button.primary.wide {
 .typed-rest {
   color: var(--muted);
 }
+.typed-caret {
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  vertical-align: -0.1em;
+  border-left: 1.5px solid currentColor;
+  margin-right: -1.5px;
+}
 .completion .result {
   opacity: 0.75;
 }

@@ -11,8 +11,8 @@ export function restOf(text: string) {
 /** What is typed while drawing or dragging (no field there), as a label shows it: the caret, then what Tab would add. */
 export const caret = (typed: string) => `${typed}▏${restOf(typed)}`;
 
-/** A label's text as HTML: what comes after the caret in grey. */
-export const caretHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/▏(\w+)/g, '▏<span class="typed-rest">$1</span>');
+/** A label's text as HTML: the caret takes no room (the glyph's is wide), what comes after it in grey. */
+export const caretHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/▏(\w*)/g, '<span class="typed-caret"></span><span class="typed-rest">$1</span>');
 
 /**
  * Parameter names completed in value fields (inputs with `data-complete`): after a `$`, the rest of the first name that

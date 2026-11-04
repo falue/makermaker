@@ -1608,7 +1608,7 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** The pointer's note while pulling (before typing a depth). */
 /** A size label (`active`: typed into); `t`: it says T reaches to an object for it. */
 export function sizeLabel(text: string, active: boolean, t = false) {
-  const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: `<span>${axisHtml(caretHtml(text))}</span>` }); // one span: the label's gap stays out of the text
+  const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: axisHtml(caretHtml(text)) });
   if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }
