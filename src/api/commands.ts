@@ -1,4 +1,5 @@
 import { assignMaterial, changeLook, findMaterial } from '../doc/materials';
+import { ownersOf } from '../doc/groups';
 import { ex, newId, unturned } from '../doc/sample';
 import type { Body, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
 
@@ -81,14 +82,14 @@ const named: Param = { name: 'name', type: 'string', doc: 'its name in the list'
 
 export const COMMANDS: Record<string, Command> = {
   list: {
-    doc: 'What the design holds: bodies (id, name, position, steps), sketches (id, name, shapes), groups, work planes, images, parameters.',
+    doc: 'What the design holds: bodies (id, name, group, owner: the body a tool body cuts, position, steps), sketches (id, name, shapes), groups, work planes, images, parameters.',
     params: [],
-    run: (doc) => ({
+    run: (doc, _a, owners = ownersOf(doc)) => ({
       doc,
       result: {
         units: doc.units,
         parameters: Object.fromEntries(Object.entries(doc.params).map(([k, v]) => [k, v.e])),
-        bodies: doc.bodies.map((b) => ({ id: b.id, name: b.name, group: b.group, position: b.position.map((p) => p.e), visible: b.visible, steps: b.features.map((f) => f.type) })),
+        bodies: doc.bodies.map((b) => ({ id: b.id, name: b.name, group: b.group, owner: owners.get(b.id) ?? null, position: b.position.map((p) => p.e), visible: b.visible, steps: b.features.map((f) => f.type) })),
         sketches: doc.sketches.map((s) => ({ id: s.id, name: s.name, plane: s.plane.kind, shapes: s.shapes.map((q) => ({ id: q.id, kind: q.kind })) })),
         groups: doc.groups.map((g) => ({ id: g.id, name: g.name, parent: g.parent })),
         planes: doc.planes.map((w) => ({ id: w.id, name: w.name })),
@@ -156,14 +157,28 @@ export const COMMANDS: Record<string, Command> = {
     },
   },
   move: {
-    doc: 'Moves bodies by a distance (in their group’s coordinates).',
-    params: [{ name: 'ids', type: 'ids', doc: 'the bodies' }, { name: 'by', type: 'point3', doc: '[dx, dy, dz] mm' }],
+    doc: 'Moves bodies and groups by a distance (in their group’s coordinates; a group with all it holds).',
+    params: [{ name: 'ids', type: 'ids', doc: 'the bodies and groups' }, { name: 'by', type: 'point3', doc: '[dx, dy, dz] mm' }],
     run: (doc, a) => {
       const by = xyz(a.by);
-      const ids = a.ids as string[];
-      ids.forEach((id) => bodyOf(doc, id));
+      const [bodies, groups] = [new Set<string>(), new Set<string>()];
+      const take = (id: string) => {
+        const g = doc.groups.find((x) => x.id === id);
+        if (!g) return void (bodyOf(doc, id), bodies.add(id));
+        if (g.origin.kind === 'custom') return void groups.add(id); // what it holds sits in its coordinates
+        doc.bodies.filter((x) => x.group === id).forEach((x) => bodies.add(x.id));
+        doc.groups.filter((x) => x.parent === id).forEach((x) => take(x.id));
+      };
+      (a.ids as string[]).forEach(take);
       const add = (e: Expr, d: number): Expr => (d ? ex(/^[-+]?[\d.]+$/.test(e.e) ? String(+(Number(e.e) + d).toFixed(6)) : `(${e.e})+${d}`, e.u) : e);
-      return { doc: { ...doc, bodies: doc.bodies.map((b) => (ids.includes(b.id) ? { ...b, position: b.position.map((e, k) => add(e, by[k])) as Body['position'] } : b)) } };
+      const moved = (at: [Expr, Expr, Expr]) => at.map((e, k) => add(e, by[k])) as [Expr, Expr, Expr];
+      return {
+        doc: {
+          ...doc,
+          bodies: doc.bodies.map((b) => (bodies.has(b.id) ? { ...b, position: moved(b.position) } : b)),
+          groups: doc.groups.map((g) => (groups.has(g.id) && g.origin.kind === 'custom' ? { ...g, origin: { ...g.origin, position: moved(g.origin.position) } } : g)),
+        },
+      };
     },
   },
   place: {

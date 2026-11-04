@@ -6102,6 +6102,32 @@ const terminal = pythonTerminal(
       render();
       return true;
     },
+    async measures() {
+      await kernel.idle();
+      return Object.fromEntries(
+        history.current.bodies.flatMap((b) => {
+          const m = viewer.measure(b.id);
+          return m ? [[b.id, { volume: m.volume, min: m.box.min.toArray(), max: m.box.max.toArray() }]] : [];
+        }),
+      );
+    },
+    async snapshots(shots) {
+      busy.add('Snapshots');
+      render();
+      await kernel.idle();
+      await new Promise((done) => requestAnimationFrame(done)); // what the build brought is in the view
+      try {
+        const files: Record<string, Uint8Array> = {};
+        for (const { ids, from, name } of shots) files[`${project()}_${name.replace(/[\\/:*?"<>|]/g, '-')}.png`] = new Uint8Array(await (await viewer.snapshotOf(ids, from)).arrayBuffer());
+        // several as one zip: browsers stop a burst of downloads
+        const names = Object.keys(files);
+        if (names.length === 1) download(new Blob([files[names[0]] as BlobPart], { type: 'image/png' }), names[0]);
+        else download(new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: 'application/zip' }), `${project()}_snapshots.zip`);
+      } finally {
+        busy.delete('Snapshots');
+        render();
+      }
+    },
   },
   () => render(),
 );

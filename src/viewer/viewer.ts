@@ -2104,8 +2104,7 @@ export class Viewer implements ToolView {
    * Glides the camera (both, ortho and perspective; `ms` long, as views turn) to look at `target` turned as `turn`,
    * so far back (ortho: zoomed so) that all bodies are in view with a `margin`.
    */
-  private frameAll(target: THREE.Vector3, turn: THREE.Quaternion, ms = 600, margin = 1.1) {
-    const box = this.allBox();
+  private frameAll(target: THREE.Vector3, turn: THREE.Quaternion, ms = 600, margin = 1.1, box = this.allBox()) {
     const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(turn); // towards the camera
     const inverse = turn.clone().invert();
     const aspect = this.el.clientHeight ? this.el.clientWidth / this.el.clientHeight : 1;
@@ -2141,6 +2140,29 @@ export class Viewer implements ToolView {
       } else (this.controls.update(), this.render());
     };
     step(start);
+  }
+
+  /**
+   * Only bodies `ids`, framed, seen from direction `from` (towards the camera), as a snapshot; the view is put back.
+   */
+  async snapshotOf(ids: string[], from: [number, number, number]) {
+    const state = this.cameraState();
+    const hidden = [...this.bodies].filter(([id, g]) => !ids.includes(id) && g.visible);
+    hidden.forEach(([, g]) => (g.visible = false));
+    const box = new THREE.Box3();
+    for (const id of ids) {
+      const g = this.bodies.get(id);
+      if (g) box.expandByObject(g);
+    }
+    const pole = Math.abs(from[2]) > 0.999;
+    const dir = pole ? new THREE.Vector3(0, -1e-3, Math.sign(from[2])).normalize() : new THREE.Vector3(...from);
+    const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), this.camera.up));
+    this.frameAll(box.getCenter(new THREE.Vector3()), turn, 0, 1.15, box);
+    const image = await this.snapshot(2);
+    hidden.forEach(([, g]) => (g.visible = true));
+    this.setCameraState(state);
+    this.render();
+    return image;
   }
 
   /**

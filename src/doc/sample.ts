@@ -188,7 +188,7 @@ export function sampleDoc(): Doc {
     visible: true,
     position: [ex(110), ex(0), ex(0)],
     features: [
-      { id: base, type: 'extrude', source: { kind: 'own', plane: { kind: 'base', axis: 'xy', offset: ex(0) }, profiles: [circle(0, 0, 50)] }, depth: ex('2 * ply'), mode: 'add', through: false },
+      { id: base, type: 'extrude', source: { kind: 'own', plane: { kind: 'base', axis: 'xy', offset: ex(0) }, profiles: [circle(0, 0, 50)] }, depth: ex('2 * $ply'), mode: 'add', through: false },
       { id: newId(), type: 'extrude', source: { kind: 'own', plane: { kind: 'cap', feature: base }, profiles: [circle(0, 0, 8)] }, depth: ex(-4), mode: 'cut', through: false },
       { id: newId(), type: 'finish', mode: 'fillet', size: ex(2), edges: 'top', enabled: true, baked: false, skip: [] },
     ],

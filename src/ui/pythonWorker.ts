@@ -1,18 +1,25 @@
 import { loadPyodide } from 'pyodide';
 import { describe, runCommand } from '../api/commands';
-import type { Doc } from '../doc/types';
+import { contents, ownersOf } from '../doc/groups';
+import { paramLookup, resolve } from '../doc/resolve';
+import type { Doc, Expr } from '../doc/types';
 
 /**
  * Python off the page's thread, so an endless loop can be stopped. Commands are pure steps from one document to the
  * next, so `cad` runs them here on the design as it was when the run began; the page takes the outcome at its end.
  */
-export type ToPython = { kind: 'init'; indexURL: string } | { kind: 'run'; fn: '_step' | '_run'; text: string; doc?: Doc; selection: string[] } | { kind: 'complete'; word: string };
+type V3 = [number, number, number];
+/** A built body as the view has it. */
+export type Measured = { volume: number; min: V3; max: V3 };
+/** A picture to take when the run has been taken over. */
+export type Snapshot = { ids: string[]; from: V3; name: string };
+export type ToPython = { kind: 'init'; indexURL: string } | { kind: 'run'; fn: '_step' | '_run'; text: string; doc?: Doc; selection: string[]; measures?: Record<string, Measured> } | { kind: 'complete'; word: string };
 export type FromPython =
   | { kind: 'out'; text: string; error: boolean }
   | { kind: 'ready'; version: string }
   | { kind: 'found'; names: string[] }
   /** `doc`: changed; `selection`: changed; `moves`: undo (below 0) or redo steps past the run's start. */
-  | { kind: 'done'; state: string; doc?: Doc; selection?: string[]; moves: number; failedAfterChange: boolean };
+  | { kind: 'done'; state: string; doc?: Doc; selection?: string[]; moves: number; failedAfterChange: boolean; snapshots?: Snapshot[] };
 
 const PRELUDE = `
 import codeop, json, re, rlcompleter, sys, traceback, types
@@ -38,6 +45,16 @@ for _c in _list:
 cad.commands = lambda: [_c['name'] for _c in _list]
 cad.select = lambda *ids: _bridge.select(json.dumps(ids))
 cad.selection = lambda: json.loads(_bridge.selection())
+def _measure(id):
+    """A body's or group's volume (mm³) and box in the world: min, max, size, center (mm). Bodies are measured as built
+    when the run began; moves in this run count, new shapes count from the next run. Write measure in the run's text."""
+    return json.loads(_bridge.measure(id))
+def _snapshot(id, view='front', name=''):
+    """A picture of one body or group alone, framed, straight from a side: front, back, left, right, top or bottom.
+    Taken when the run has ended: a PNG download, several as one zip."""
+    _bridge.snapshot(id, view, name)
+cad.measure = _measure
+cad.snapshot = _snapshot
 cad.undo = _bridge.undo
 cad.redo = _bridge.redo
 sys.modules['cad'] = cad
@@ -110,6 +127,29 @@ let steps: Doc[] = [];
 let at = 0;
 let selection: string[] = [];
 let moves = 0;
+let measures: Record<string, Measured> = {};
+let snapshots: Snapshot[] = [];
+
+const VIEWS: Record<string, V3> = { front: [0, -1, 0], back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0], top: [0, 0, 1], bottom: [0, 0, -1] };
+
+/** Where a body's own origin lies: its position and its groups' (turns aside). */
+function placeOf(doc: Doc, id: string): V3 {
+  const lookup = paramLookup(doc.params);
+  const body = doc.bodies.find((b) => b.id === id)!;
+  const at = (p: [Expr, Expr, Expr]) => resolve(p, lookup, '', new Map()) as unknown as V3;
+  let out = at(body.position);
+  for (let g = doc.groups.find((x) => x.id === body.group); g; g = doc.groups.find((x) => x.id === g!.parent))
+    if (g.origin.kind === 'custom') out = out.map((v, k) => v + at((g!.origin as { position: [Expr, Expr, Expr] }).position)[k]) as V3;
+  return out;
+}
+
+/** The bodies `id` counts as: itself, or what a group holds, without tool bodies. */
+function bodiesIn(doc: Doc, id: string) {
+  const owners = ownersOf(doc);
+  if (doc.bodies.some((b) => b.id === id)) return [id];
+  if (!doc.groups.some((g) => g.id === id)) throw new Error(`no body or group "${id}"`);
+  return contents(doc, [id]).filter((x) => !owners.has(x) && doc.bodies.some((b) => b.id === x));
+}
 
 const bridge = {
   commands: () => JSON.stringify(describe()),
@@ -123,6 +163,32 @@ const bridge = {
       if (typeof result === 'string' && [...doc.bodies, ...doc.sketches, ...doc.groups].some((o) => o.id === result)) selection = [result];
     }
     return JSON.stringify(result ?? null);
+  },
+  measure(id: string) {
+    const doc = steps[at];
+    const found = bodiesIn(doc, id).filter((b) => measures[b]);
+    if (!found.length) throw new Error(`measure: nothing built in "${id}" when this run began; write the word measure in the run's text, new shapes count in the next run`);
+    let volume = 0;
+    const min: V3 = [Infinity, Infinity, Infinity];
+    const max: V3 = [-Infinity, -Infinity, -Infinity];
+    for (const b of found) {
+      const m = measures[b];
+      const [now, then] = [placeOf(doc, b), placeOf(base, b)];
+      volume += m.volume;
+      for (const k of [0, 1, 2]) {
+        min[k] = Math.min(min[k], m.min[k] + now[k] - then[k]);
+        max[k] = Math.max(max[k], m.max[k] + now[k] - then[k]);
+      }
+    }
+    return JSON.stringify({ volume, min, max, size: max.map((v, k) => v - min[k]), center: max.map((v, k) => (v + min[k]) / 2) });
+  },
+  snapshot(id: string, view: string, name: string) {
+    const from = VIEWS[view];
+    if (!from) throw new Error(`snapshot: a view of ${Object.keys(VIEWS).join(', ')}`);
+    const doc = steps[at];
+    const ids = bodiesIn(doc, id);
+    const own = [...doc.bodies, ...doc.groups].find((o) => o.id === id)!;
+    snapshots.push({ ids, from, name: name || own.name });
   },
   select: (ids: string) => void (selection = JSON.parse(ids)),
   selection: () => JSON.stringify(selection),
@@ -158,12 +224,13 @@ onmessage = async ({ data }: MessageEvent<ToPython>) => {
     return fn.destroy();
   }
   base = data.doc ?? base;
-  [steps, at, moves] = [[base], 0, 0];
+  [steps, at, moves, snapshots] = [[base], 0, 0, []];
+  if (data.measures) measures = data.measures;
   const before = (selection = data.selection);
   const state: string = fn(data.text);
   fn.destroy();
   flush();
   const changed = steps[at] !== base;
   if (state === 'error') post({ kind: 'done', state, moves: 0, failedAfterChange: changed });
-  else post({ kind: 'done', state, moves, failedAfterChange: false, ...(changed ? { doc: steps[at] } : {}), ...(selection !== before ? { selection } : {}) });
+  else post({ kind: 'done', state, moves, failedAfterChange: false, ...(changed ? { doc: steps[at] } : {}), ...(selection !== before ? { selection } : {}), ...(snapshots.length ? { snapshots } : {}) });
 };

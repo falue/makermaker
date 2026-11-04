@@ -15,6 +15,9 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Terminal
 - A script's result arriving while a tool is in the middle of a drag or a drawing is not held back. Not tested what that does to the drag.
 
+- `cad.measure` knows bodies as built when the run began: a shape changed in the same run is measured as it was. Its boxes ignore a group's turn when something moved in the run. It only gets its numbers if the run's text contains the word measure, so a helper function loaded from elsewhere would not.
+- `cad.move` on a group without its own origin moves its bodies, not sketches that have no body.
+
 ## Imports
 - 3MF and GLB arrive as one mesh body without colours; several parts in a file are not separated.
 

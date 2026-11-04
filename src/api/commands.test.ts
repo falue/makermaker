@@ -70,3 +70,12 @@ describe('shared', () => {
     expect(shared(old, { a: 1, l: [1] })).toEqual({ a: 1, l: [1] });
   });
 });
+
+describe('move', () => {
+  it('moves a group with what it holds, also a group inside it', () => {
+    const body = (id: string, group: string | null) => ({ id, group, position: [{ e: '1', u: 'mm' }, { e: '0', u: 'mm' }, { e: '0', u: 'mm' }] });
+    const doc = { ...empty(), bodies: [body('a', 'g'), body('b', 'h'), body('c', null)], groups: [{ id: 'g', parent: null, origin: { kind: 'parent' } }, { id: 'h', parent: 'g', origin: { kind: 'parent' } }] } as unknown as Doc;
+    const next = runCommand(doc, 'move', { ids: ['g'], by: [5, 0, 0] }).doc;
+    expect(next.bodies.map((b) => b.position[0].e)).toEqual(['6', '6', '1']);
+  });
+});

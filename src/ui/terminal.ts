@@ -1,7 +1,7 @@
 import type { Doc } from '../doc/types';
 import { icon } from './icons';
 import type { PythonField } from './pythonField';
-import type { FromPython, ToPython } from './pythonWorker';
+import type { FromPython, Measured, Snapshot, ToPython } from './pythonWorker';
 import { canUseFolders, cleanName, listScripts, recallFolder, rememberFolder, removeScript, writeScript, type Script } from '../io/scriptFolder';
 
 /** What the terminal reaches in the app (see `terminalApi` in main). */
@@ -10,6 +10,10 @@ export interface TerminalApi {
   selection(): string[];
   /** A run's outcome, taken unless the design changed since `start` (then false). */
   apply(start: Doc, outcome: { doc?: Doc; selection?: string[]; moves: number }): boolean;
+  /** The bodies as built, when all is built. */
+  measures(): Promise<Record<string, Measured>>;
+  /** Takes the pictures, when all is built. */
+  snapshots(shots: Snapshot[]): Promise<void>;
 }
 
 /** Written into an empty folder when it is first chosen. */
@@ -174,23 +178,32 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const past: string[] = [];
   let back = 0;
   /** Runs `text` through Python's `fn` as one undo step; its state. */
-  const batched = (fn: '_step' | '_run', text: string) =>
-    new Promise<string>((done) => {
-      load();
+  const batched = async (fn: '_step' | '_run', text: string) => {
+    load();
+    running = () => {}; // busy from here on
+    const measures = /\bmeasure\b/.test(text) ? await api.measures() : undefined;
+    return new Promise<string>((done) => {
       const start = api.doc();
-      tell({ kind: 'run', fn, text, selection: api.selection(), ...(start === sent ? {} : { doc: start }) });
+      tell({ kind: 'run', fn, text, selection: api.selection(), ...(start === sent ? {} : { doc: start }), ...(measures ? { measures } : {}) });
       sent = start;
       stopSoon = window.setTimeout(() => {
         stopButton.hidden = false;
         if (panes.closed) showPrompt(true); // its Stop
       }, 300);
-      running = (m) => {
-        idle();
+      running = async (m) => {
+        let taken = true;
         if (m.failedAfterChange) print('Nothing was changed: it failed before its end.', 'terminal-note');
-        else if (m.state !== 'error' && (m.doc || m.selection || m.moves) && !api.apply(start, m)) print('The design changed while this ran: nothing was changed. Run it again.', 'terminal-note');
+        else if (m.state !== 'error' && (m.doc || m.selection || m.moves)) taken = api.apply(start, m);
+        if (!taken) print('The design changed while this ran: nothing was changed. Run it again.', 'terminal-note');
+        else if (m.snapshots) {
+          print(`Taking ${m.snapshots.length} snapshot${m.snapshots.length > 1 ? 's' : ''}…`, 'terminal-note');
+          await api.snapshots(m.snapshots);
+        }
+        idle();
         done(m.state);
       };
     });
+  };
   const run = async () => {
     if (running) return;
     const source = input!.value;

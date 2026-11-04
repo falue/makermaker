@@ -31,7 +31,14 @@ export class Kernel {
       this.busy = false;
       if (this.waiting.size) this.send([...this.waiting.values()]);
       this.waiting.clear();
+      if (!this.busy) this.idlers.splice(0).forEach((done) => done());
     };
+  }
+
+  private idlers: (() => void)[] = [];
+  /** When all that was sent is built. */
+  idle() {
+    return new Promise<void>((done) => (this.busy ? this.idlers.push(done) : done()));
   }
 
   /** How closely bodies are meshed for the view (mm); all build anew at the next `build`. */
