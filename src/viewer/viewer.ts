@@ -624,7 +624,7 @@ export class Viewer implements ToolView {
           return e.stopPropagation();
         }
         // a drawing tool waiting: curve handles and arc middles can be dragged (a line's points start a new line, as usual)
-        if (e.button === 0 && this.toolIdle() && this.startHandle(e, ['control', 'centre'])) return e.stopPropagation();
+        if (e.button === 0 && this.toolIdle() && this.startHandle(e, ['control', 'centre'])) return (this.tool as SketchTool).letGo(), e.stopPropagation();
         if (this.tool?.down(e)) {
           this.toolPress = true;
           canvas.setPointerCapture(e.pointerId);
