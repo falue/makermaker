@@ -465,6 +465,7 @@ function update() {
     const resolved = [...shared, ...resolve(p.features, lookup, `bodies.${i}.features`, exprErrors)];
     return exprErrors.size === before ? [{ id: p.id, resolved, at: bodyPlace(p.id) }] : [];
   });
+  viewer.placed();
   const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
   // joints still playing stay where they are in their motion (another one stopping saves and redraws everything)
   if (playing.size) placeJoints(playingValues());
@@ -4091,7 +4092,7 @@ function placeJoints(values: Map<string, number>) {
     m.decompose(at, turn, new Vector3());
     viewer.setPlacement(b.id, at, turn);
   }
-  viewer.render();
+  viewer.placed(false);
 }
 
 /** One frame of the joints playing: their objects moved in the view only; at its max a joint that does not repeat stops. */

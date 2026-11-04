@@ -1815,12 +1815,17 @@ export class Viewer implements ToolView {
   }
 
   /** Where a body sits in the world: its origin and its turn (from turned groups). */
+  /** Places a body; `placed` (once, after all of them) brings the section along. */
   setPlacement(id: string, at: THREE.Vector3, turn: THREE.Quaternion) {
     const g = this.group(id);
     g.quaternion.copy(turn);
     if (!(this.drag?.moved && this.withOwned(this.selection).includes(id))) g.position.copy(at); // not while dragged
     g.updateMatrixWorld();
-    this.applySection();
+  }
+
+  /** After `setPlacement`s: the section follows; `rebound` false while animating (the bounds wait). */
+  placed(rebound = true) {
+    this.applySection(rebound);
   }
 
   /** Removes bodies that are no longer in the document. */
@@ -3312,10 +3317,24 @@ export class Viewer implements ToolView {
   /** The bodies in the object list's order (top first): in a section, a body higher up covers those below where they overlap. */
   listOrder: string[] = [];
 
+  /** The last section's materials: disposed a rebuild later, so the new ones (drawn by then) keep their compiled shaders. */
+  private retired: THREE.Material[] = [];
+  /** Where a section plane cuts each body: kept per body and plane until either changes. */
+  private capCuts = new Map<string, { key: string; segs: [THREE.Vector3, THREE.Vector3][][] }>();
+  private capCut(id: string, solid: THREE.Mesh, matrix: THREE.Matrix4, plane: THREE.Plane, others: THREE.Plane[]) {
+    const at = `${plane.normal.toArray()} ${plane.constant}`;
+    const key = `${solid.geometry.id} ${matrix.elements.join()} ${others.map((p) => [p.normal.toArray(), p.constant])}`;
+    let kept = this.capCuts.get(`${id} ${at}`);
+    if (kept?.key !== key) this.capCuts.set(`${id} ${at}`, (kept = { key, segs: planeCut(solid.geometry, matrix, plane, others) }));
+    return kept.segs;
+  }
+
   private applySection(rebound = true, cap = 1e4 /* mm, cap plane size */, hatchMm = 4, shade = 0.6, eps = 1e-3, line = 0x1d1f24) {
+    for (const m of this.retired) m.dispose();
+    this.retired = [];
     this.sectionView.traverse((o) => {
       if (!(o instanceof THREE.Mesh || o instanceof THREE.LineSegments)) return;
-      (o.material as THREE.Material).dispose();
+      this.retired.push(o.material as THREE.Material);
       if (o.userData.cap) o.geometry.dispose();
     });
     this.sectionView.clear();
@@ -3397,7 +3416,7 @@ export class Viewer implements ToolView {
           // where it lies now: bit 0x80 (its count cleared)
           last = sheet(new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false, ...stencil(0x80, THREE.NotEqualStencilFunc, 0x7f, THREE.ReplaceStencilOp) }), 0.4);
           g.updateMatrix();
-          segs.push(...planeCut(solid.geometry, g.matrix, plane, others).flat());
+          segs.push(...this.capCut(id, solid, g.matrix, plane, others).flat());
         }
         if (last) last.onAfterRender = (r) => r.clearStencil();
         // every body's cut outline, also where another covers it: a line where bodies meet
