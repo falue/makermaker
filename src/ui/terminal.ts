@@ -1,5 +1,6 @@
 import type { PyodideInterface } from 'pyodide';
 import { icon } from './icons';
+import { canUseFolders, cleanName, listScripts, recallFolder, rememberFolder, removeScript, writeScript, type Script } from '../io/scriptFolder';
 
 /** What the terminal's `cad` module reaches in the app (see `cad` in main). */
 export interface TerminalApi {
@@ -82,24 +83,13 @@ def _complete(word):
     return json.dumps(found)
 `;
 
-/** A saved script. */
-type Script = { id: string; name: string; text: string };
-
-/** The scripts, kept in this browser for every design; the first time, two to start from. */
-const STORE = 'makermaker.scripts';
-const STARTERS: Omit<Script, 'id'>[] = [
+/** Written into an empty folder when it is first chosen. */
+const STARTERS: Script[] = [
   { name: 'Row of boxes', text: "# five boxes, each taller\nfor k in range(5):\n    cad.box(20, 20, 10 + k * 10, at=[k * 30, 0, 0], name=f'Box {k + 1}')\n" },
   { name: 'Ring of cylinders', text: "import math\n\ncount = 8\nfor k in range(count):\n    a = 2 * math.pi * k / count\n    cad.cylinder(diameter=12, height=30, at=[60 * math.cos(a), 60 * math.sin(a), 0], name=f'Post {k + 1}')\n" },
 ];
-function loadScripts(): Script[] {
-  try {
-    const kept = localStorage.getItem(STORE);
-    if (kept) return JSON.parse(kept);
-  } catch {
-    // none kept
-  }
-  return STARTERS.map((s, k) => ({ ...s, id: `starter${k}` }));
-}
+/** Where scripts were kept in the browser before: moved into the first folder chosen. */
+const OLD_STORE = 'makermaker.scripts';
 
 /**
  * The Python terminal, a drawer in `parent`: its tab in `tabs`, open across the view, lifting the other drawers
@@ -256,37 +246,45 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     box.hidden = !open;
     drawerEl.classList.toggle('open', open);
     lift();
-    if (open) (current ? editorText : input).focus(), load();
+    if (open) (current ? editorText : input).focus(), load(), void start();
+    else void flush();
     changed();
   };
 
-  // the scripts: every change kept at once
-  let scripts = loadScripts();
+  // the scripts: files in a folder, written a moment after typing stops
+  let dir: FileSystemDirectoryHandle | null = null;
+  /** The folder remembered, its permission still to be given (that takes a click). */
+  let waiting: FileSystemDirectoryHandle | null = null;
+  let scripts: Script[] = [];
   let current: Script | null = null;
-  const keep = () => {
-    try {
-      localStorage.setItem(STORE, JSON.stringify(scripts));
-    } catch {
-      print('The scripts could not be kept in this browser.', 'terminal-error');
-    }
+  let unsaved: Script | null = null;
+  let saveTimer = 0;
+  const failed = (err: unknown) => print(`Scripts folder: ${(err as Error).message}`, 'terminal-error');
+  const flush = async () => {
+    clearTimeout(saveTimer);
+    const s = unsaved;
+    unsaved = null;
+    if (s && dir) await writeScript(dir, s).catch(failed);
   };
   const freeName = (name: string, except?: Script) => {
-    const taken = (n: string) => scripts.some((s) => s !== except && s.name === n);
+    const taken = (n: string) => scripts.some((s) => s !== except && s.name.toLowerCase() === n.toLowerCase());
     if (!taken(name)) return name;
     let k = 2;
     while (taken(`${name} ${k}`)) k++;
     return `${name} ${k}`;
   };
   const markOpen = () => {
-    for (const row of list.querySelectorAll<HTMLElement>('.script-row')) row.classList.toggle('on', row.dataset.id === current?.id);
+    for (const row of list.querySelectorAll<HTMLElement>('.script-row')) row.classList.toggle('on', row.dataset.name === current?.name);
   };
   const play = async (s: Script) => {
     const py = python ?? (await load());
+    await flush();
     print(`▶ ${s.name}`, 'terminal-echo');
     batched(py, '_run', s.text);
     changed();
   };
   const open = (s: Script | null) => {
+    void flush();
     current = s;
     editor.hidden = !s;
     if (s) {
@@ -296,6 +294,74 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     } else input.focus();
     markOpen();
   };
+  /** The folder read again: changes made elsewhere show, also in the editor. */
+  const rescan = async () => {
+    if (!dir) return showList();
+    await flush();
+    scripts = await listScripts(dir).catch((err) => (failed(err), scripts));
+    const again = current && scripts.find((s) => s.name === current!.name);
+    if (current && !again) open(null);
+    else if (again) {
+      current = again;
+      if (editorText.value !== again.text) {
+        const at = editorText.selectionStart;
+        editorText.value = again.text;
+        editorText.setSelectionRange(at, at);
+      }
+    }
+    showList();
+  };
+  /** A folder in use: what the browser kept moves into it; empty, it gets the starters. */
+  const connect = async (folder: FileSystemDirectoryHandle, chosen: boolean) => {
+    dir = folder;
+    waiting = null;
+    scripts = await listScripts(folder).catch((err) => (failed(err), []));
+    if (chosen) {
+      await rememberFolder(folder);
+      let moving: Script[] = [];
+      try {
+        moving = JSON.parse(localStorage.getItem(OLD_STORE) ?? '[]');
+      } catch {
+        // nothing readable to move
+      }
+      if (!moving.length && !scripts.length) moving = STARTERS;
+      for (const s of moving) {
+        const script = { name: freeName(cleanName(s.name)), text: s.text };
+        await writeScript(folder, script);
+        scripts.push(script);
+      }
+      localStorage.removeItem(OLD_STORE);
+    }
+    await rescan();
+  };
+  const choose = async () => {
+    const folder = await window.showDirectoryPicker!({ mode: 'readwrite', id: 'makermaker-scripts' }).catch(() => null); // cancelled: stays as it is
+    if (!folder) return false;
+    await flush();
+    open(null);
+    await connect(folder, true);
+    return true;
+  };
+  /** The remembered folder again, by a click. */
+  const reopen = async () => {
+    if (waiting && (await waiting.requestPermission({ mode: 'readwrite' })) === 'granted') await connect(waiting, false);
+    return !!dir;
+  };
+  /** A folder to work in: asked for now, if there is none. */
+  const needFolder = async () => !!dir || (waiting ? reopen() : choose());
+  let started = false;
+  const start = async () => {
+    if (started) return void rescan();
+    started = true;
+    const kept = canUseFolders() ? await recallFolder().catch(() => undefined) : undefined;
+    if (kept && (await kept.queryPermission({ mode: 'readwrite' })) === 'granted') await connect(kept, false);
+    else {
+      waiting = kept ?? null;
+      showList();
+    }
+  };
+  addEventListener('focus', () => !box.hidden && void rescan());
+  addEventListener('pagehide', () => void flush());
   editorBar.append(
     editorName,
     button('play', 'Run this script (⌘ or Ctrl + Enter): one undo step', () => current && void play(current)),
@@ -304,7 +370,9 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   editorText.oninput = () => {
     if (!current) return;
     current.text = editorText.value;
-    keep();
+    unsaved = current;
+    clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(() => void flush(), 400);
   };
   editorText.onkeydown = (e) => {
     const at = editorText.selectionStart;
@@ -325,56 +393,72 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const renameIn = (s: Script, label: HTMLElement) => {
     const field = Object.assign(document.createElement('input'), { value: s.name, spellcheck: false, className: 'script-rename' });
     let done = false;
-    const end = (save: boolean) => {
+    const end = async (save: boolean) => {
       if (done) return;
       done = true;
-      const name = field.value.trim();
-      if (save && name) {
-        s.name = freeName(name, s);
-        keep();
-        if (current === s) editorName.textContent = s.name;
+      const name = freeName(cleanName(field.value), s);
+      if (save && name && name !== s.name && dir) {
+        await flush();
+        try {
+          await writeScript(dir, { name, text: s.text });
+          await removeScript(dir, s.name);
+          s.name = name;
+          if (current === s) editorName.textContent = name;
+        } catch (err) {
+          failed(err);
+        }
       }
       showList();
     };
-    field.onblur = () => end(true);
+    field.onblur = () => void end(true);
     field.onclick = (e) => e.stopPropagation();
     field.onkeydown = (e) => {
       e.stopPropagation();
-      if (e.key === 'Enter') end(true);
-      else if (e.key === 'Escape') end(false);
+      if (e.key === 'Enter') void end(true);
+      else if (e.key === 'Escape') void end(false);
     };
     label.replaceWith(field);
     field.select();
   };
+  /** Instead of the list while there is no folder: what to do about it. */
+  const noFolder = () => {
+    const note = Object.assign(document.createElement('p'), { className: 'hint script-note' });
+    if (!canUseFolders()) return [Object.assign(note, { textContent: 'Scripts are files in a folder on disk: this browser cannot open folders, Chrome and Edge can.' })];
+    note.textContent = waiting ? `Your scripts are in "${waiting.name}".` : 'Scripts are .py files in a folder on disk.';
+    return [note, Object.assign(document.createElement('button'), { textContent: waiting ? `Open "${waiting.name}"` : 'Choose a folder', title: waiting ? 'Click: Allow this folder again' : 'Click: Pick the folder', onclick: () => void needFolder() })];
+  };
   const showList = () => {
+    folderButton.hidden = !canUseFolders();
+    folderButton.title = dir ? `Scripts folder: ${dir.name} · Click: Choose another` : 'Choose a folder for the scripts';
+    headName.textContent = dir ? `Scripts · ${dir.name}` : 'Scripts';
+    if (!dir) return list.replaceChildren(...noFolder());
     list.replaceChildren(
       ...scripts.map((s) => {
         const label = Object.assign(document.createElement('span'), { className: 'script-name', textContent: s.name });
         const row = Object.assign(document.createElement('div'), { className: 'script-row', title: 'Click: Edit · double-click: Rename', onclick: () => open(s), ondblclick: () => renameIn(s, label) });
-        row.dataset.id = s.id;
+        row.dataset.name = s.name;
         const stop = (act: () => void) => (e: MouseEvent) => (e.stopPropagation(), act());
         row.append(
           label,
           button('play', 'Run: one undo step', stop(() => void play(s))),
           button('edit', 'Rename', stop(() => renameIn(s, label))),
-          button('save', 'Download as a .py file', stop(() => {
+          button('save', 'Download a copy of this .py file', stop(() => {
             const url = URL.createObjectURL(new Blob([s.text], { type: 'text/x-python' }));
             Object.assign(document.createElement('a'), { href: url, download: `${s.name}.py` }).click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           })),
-          button('delete', 'Delete (Undo comes in its place)', stop(() => {
-            const at = scripts.indexOf(s);
-            scripts = scripts.filter((x) => x !== s);
-            keep();
+          button('delete', 'Delete the file (Undo comes in its place)', stop(async () => {
             if (current === s) open(null);
+            await flush();
+            await removeScript(dir!, s.name).catch(failed);
+            scripts = scripts.filter((x) => x !== s);
             const gone = Object.assign(document.createElement('div'), { className: 'script-row gone' });
             gone.append(Object.assign(document.createElement('span'), { className: 'script-name', textContent: `${s.name} deleted` }), Object.assign(document.createElement('button'), {
               textContent: 'Undo',
               title: 'Click: Bring it back',
-              onclick: () => {
-                scripts.splice(Math.min(at, scripts.length), 0, s);
-                keep();
-                showList();
+              onclick: async () => {
+                await writeScript(dir!, s).catch(failed);
+                await rescan();
               },
             }));
             row.replaceWith(gone);
@@ -386,16 +470,17 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     markOpen();
   };
   /** Text files become scripts, named after them; the last one opens. */
-  const upload = async (files: Iterable<File>) => {
-    let last: Script | null = null;
+  const upload = async (files: File[]) => {
+    if (!files.length || !(await needFolder())) return;
+    let last = '';
     for (const f of files) {
-      last = { id: crypto.randomUUID(), name: freeName(f.name.replace(/\.py$/i, '')), text: await f.text() };
-      scripts.push(last);
+      const s = { name: freeName(cleanName(f.name)), text: await f.text() };
+      await writeScript(dir!, s).catch(failed);
+      scripts.push(s);
+      last = s.name;
     }
-    if (!last) return;
-    keep();
-    showList();
-    open(last);
+    await rescan();
+    open(scripts.find((s) => s.name === last) ?? null);
   };
   const picker = Object.assign(document.createElement('input'), { type: 'file', accept: '.py,text/x-python,text/plain', multiple: true, hidden: true });
   picker.onchange = () => {
@@ -410,14 +495,17 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     e.stopPropagation();
     void upload([...(e.dataTransfer?.files ?? [])]);
   };
-  head.append(button('import', 'Upload .py files (or drop them on this list)', () => picker.click()));
-  head.append(button('new', 'New script', () => {
-    const s: Script = { id: crypto.randomUUID(), name: freeName('New script'), text: '' };
+  const headName = head.firstElementChild as HTMLElement;
+  const folderButton = button('open', 'Choose a folder for the scripts', () => void choose());
+  head.append(folderButton, button('import', 'Upload .py files into the folder (or drop them on this list)', () => picker.click()));
+  head.append(button('new', 'New script', async () => {
+    if (!(await needFolder())) return;
+    const s: Script = { name: freeName('New script'), text: '' };
+    await writeScript(dir!, s).catch(failed);
     scripts.push(s);
-    keep();
-    showList();
-    open(s);
+    await rescan();
+    open(scripts.find((x) => x.name === s.name) ?? null);
   }));
-  showList();
+
   return { toggle, isOpen: () => !box.hidden };
 }

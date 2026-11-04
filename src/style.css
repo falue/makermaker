@@ -2440,6 +2440,9 @@ section > h4 .segmented button {
   color: var(--muted);
   cursor: default;
 }
+.script-note {
+  margin: 4px 6px 6px;
+}
 .script-name {
   flex: 1;
   min-width: 0;

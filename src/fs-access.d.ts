@@ -7,6 +7,16 @@ interface FilePickerOptions {
 interface Window {
   showOpenFilePicker?(options?: FilePickerOptions): Promise<FileSystemFileHandle[]>;
   showSaveFilePicker?(options?: FilePickerOptions): Promise<FileSystemFileHandle>;
+  showDirectoryPicker?(options?: { id?: string; mode?: 'read' | 'readwrite' }): Promise<FileSystemDirectoryHandle>;
+}
+
+interface FileSystemHandle {
+  queryPermission(options?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
+  requestPermission(options?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
+}
+
+interface FileSystemDirectoryHandle {
+  values(): AsyncIterableIterator<FileSystemHandle>;
 }
 
 interface DataTransferItem {
