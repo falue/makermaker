@@ -563,6 +563,15 @@ describe('curved sides', () => {
     expect(volume([box, cut(3)]).v).toBeGreaterThan(0);
   });
 
+  it('an area closed by crossing lines is built from true curves: one round face, not many', () => {
+    const arch = { id: 'a', kind: 'line', pts: [[-10, 0], [10, 0]], curves: [{ mid: [0, 10] }] };
+    const floor = { id: 'b', kind: 'line', pts: [[-20, 2], [20, 2]] };
+    const { faces, v } = volume([{ id: 'e', type: 'extrude', plane: ground, profiles: [arch, floor], areas: [{ in: [], out: [], at: [0, 5] }], depth: 10, mode: 'add', through: false } as unknown as BuildFeature]);
+    expect(faces).toBe(4);
+    const chord = 2 * Math.sqrt(100 - 4);
+    expect(v).toBeCloseTo(10 * (100 * Math.acos(0.2) - 2 * (chord / 2)), 0);
+  });
+
   it('revolves and lofts a curved outline', () => {
     const half = { id: 'p', kind: 'polygon', pts: [[10, 0], [30, 0]], curves: [null, { mid: [20, 10] }], r: 0, rot: 0 };
     const ring = buildBody([{ id: 'r', type: 'revolve', plane: ground, profiles: [half], axis: { at: [0, 0], dir: [0, 1] }, angle: 360, mode: 'add' } as unknown as BuildFeature]);

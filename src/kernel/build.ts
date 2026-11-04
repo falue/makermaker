@@ -250,8 +250,8 @@ function area(byId: Map<string, Resolved<Profile>>, a: Area): Drawing {
 
 /** A face as a drawing: its outline, its holes cut out. */
 function faceDrawing(f: Face): Drawing {
-  const poly = (pts: [number, number][]) => pts.slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(pts[0])).close();
-  return f.holes.reduce((d, h) => d.cut(poly(h)), poly(f.outer));
+  const [outer, ...holes] = f.loops.map((l) => sidesDrawn(draw(l.pts[0]), l, true).close());
+  return holes.reduce((d, h) => d.cut(h), outer);
 }
 
 /** The picked areas together. */

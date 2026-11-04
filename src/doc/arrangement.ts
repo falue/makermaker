@@ -1,10 +1,61 @@
-import { flattened, inside, type DrawnProfile } from './profiles';
+import { arcOf, bakeTurn, curved, flattened, inside, sidesOf, type DrawnProfile } from './profiles';
+import type { Curve } from './types';
 
 type UV = [number, number];
-/** An enclosed face: its outline counter-clockwise, and the outlines of what lies inside it unconnected (holes). */
+/** A closed outline with its sides' true curves. */
+export type Loop = { pts: UV[]; curves: (Curve | null)[] };
+/** An enclosed face: its outline counter-clockwise, and the outlines of what lies inside it unconnected (holes), as points; `loops`: the outline and the holes with their true curves, to build from. */
 export interface Face {
   outer: UV[];
   holes: UV[][];
+  loops: Loop[];
+}
+
+/** A curved side a path's pieces come from: a bezier curve, or an arc (a circle's quarter too). */
+type Source = { a: UV; c1: UV; c2: UV; b: UV } | { a: UV; mid: UV; b: UV };
+/** A piece of a path along its curve, from `t0` to `t1` (0..1); null: straight. */
+type Along = { source: Source; t0: number; t1: number } | null;
+
+/** The point of an arc source at `t`. */
+function arcPoint(s: Extract<Source, { mid: UV }>, t: number): UV {
+  const arc = arcOf(s.a, s.mid, s.b);
+  if (!arc) return [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[1] + (s.b[1] - s.a[1]) * t];
+  const k = arc.a0 + (arc.a1 - arc.a0) * t;
+  return [arc.c[0] + arc.r * Math.cos(k), arc.c[1] + arc.r * Math.sin(k)];
+}
+
+/** The curve of `source` from `t0` to `t1` (either way round; a bezier's handles by blossoming). */
+function partOf(source: Source, t0: number, t1: number): Curve {
+  if ('mid' in source) return { mid: arcPoint(source, (t0 + t1) / 2) };
+  const { a, c1, c2, b } = source;
+  const lerp = (p: UV, q: UV, t: number): UV => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+  const blossom = (u: number, v: number, w: number) => {
+    const [p, q, r] = [lerp(a, c1, u), lerp(c1, c2, u), lerp(c2, b, u)];
+    return lerp(lerp(p, q, v), lerp(q, r, v), w);
+  };
+  return { c1: blossom(t0, t0, t1), c2: blossom(t0, t1, t1) };
+}
+
+/** A traced outline's pieces joined into true curves where they run on along one curve. */
+function loopOf(pts: UV[], along: Along[]): Loop {
+  const n = pts.length;
+  const runsOn = (i: number) => {
+    const [p, q] = [along[(i - 1 + n) % n], along[i]];
+    return !!p && !!q && p.source === q.source && Math.abs(p.t1 - q.t0) < 1e-9;
+  };
+  // from where a run starts (none: a curve closed on itself, from its first piece)
+  const first = Math.max(0, along.findIndex((_, i) => !runsOn(i)));
+  const out: Loop = { pts: [], curves: [] };
+  for (let k = 0; k < n; ) {
+    const i = (first + k) % n;
+    const here = along[i];
+    let m = 1;
+    while (here && k + m < n && runsOn((first + k + m) % n)) m++;
+    out.pts.push(pts[i]);
+    out.curves.push(here ? partOf(here.source, here.t0, along[(i + m - 1) % n]!.t1) : null);
+    k += m;
+  }
+  return out;
 }
 
 const cross = (a: UV, b: UV) => a[0] * b[1] - a[1] * b[0];
@@ -27,8 +78,9 @@ export const inFace = (f: Face, p: UV) => inPolygon(f.outer, p) && !f.holes.some
  * The faces that open lines and closed outlines enclose together: every segment is split where it meets another,
  * ends sticking out are dropped, and each enclosed face gets the unconnected outlines inside it as holes.
  */
-export function faces(paths: { pts: UV[]; closed: boolean }[], snap = 1e-6): Face[] {
+export function faces(paths: { pts: UV[]; closed: boolean; along?: Along[] }[], snap = 1e-6): Face[] {
   const segs = paths.flatMap(({ pts, closed }) => (closed ? pts : pts.slice(0, -1)).map((a, i): [UV, UV] => [a, pts[(i + 1) % pts.length]]));
+  const alongs = paths.flatMap(({ pts, closed, along }) => (closed ? pts : pts.slice(0, -1)).map((_, i) => along?.[i] ?? null));
   // where each segment is cut (along it, 0..1), by every other segment it meets
   const cuts = segs.map(() => [0, 1]);
   segs.forEach(([a, b], i) => {
@@ -59,9 +111,19 @@ export function faces(paths: { pts: UV[]; closed: boolean }[], snap = 1e-6): Fac
     if (p === q) return;
     for (const [x, y] of [[p, q], [q, p]]) (near.get(x) ?? near.set(x, new Set()).get(x)!).add(y);
   };
+  // what curve each edge lies on, either way round
+  const edgeOn = new Map<string, Along>();
   segs.forEach(([a, b], i) => {
-    const vs = [...new Set(cuts[i])].sort((x, y) => x - y).map((t) => vertex([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]));
-    vs.slice(1).forEach((v, k) => link(vs[k], v));
+    const ts = [...new Set(cuts[i])].sort((x, y) => x - y);
+    const vs = ts.map((t) => vertex([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]));
+    const on = alongs[i];
+    vs.slice(1).forEach((v, k) => {
+      link(vs[k], v);
+      if (!on) return;
+      const [t0, t1] = [ts[k], ts[k + 1]].map((u) => on.t0 + (on.t1 - on.t0) * u);
+      edgeOn.set(`${vs[k]},${v}`, { source: on.source, t0, t1 });
+      edgeOn.set(`${v},${vs[k]}`, { source: on.source, t0: t1, t1: t0 });
+    });
   });
   // ends sticking out enclose nothing
   for (let pruned = true; pruned; ) {
@@ -94,21 +156,42 @@ export function faces(paths: { pts: UV[]; closed: boolean }[], snap = 1e-6): Fac
   const part = new Map<number, number>();
   for (const v of around.keys())
     if (!part.has(v)) for (const stack = [v]; stack.length; ) for (const n of around.get(stack.pop()!)!) if (!part.has(n)) (part.set(n, v), stack.push(n));
-  const polys = cycles.map((c) => ({ pts: c.map((v) => at[v]), part: part.get(c[0]), area: signedArea(c.map((v) => at[v])) }));
+  const polys = cycles.map((c) => ({
+    pts: c.map((v) => at[v]),
+    part: part.get(c[0]),
+    area: signedArea(c.map((v) => at[v])),
+    loop: loopOf(c.map((v) => at[v]), c.map((v, i) => edgeOn.get(`${v},${c[(i + 1) % c.length]}`) ?? null)),
+  }));
   const out = polys.filter((p) => p.area > 1e-12).sort((p, q) => p.area - q.area);
-  const result = out.map((p) => ({ face: { outer: p.pts, holes: [] as UV[][] }, part: p.part }));
+  const result = out.map((p) => ({ face: { outer: p.pts, holes: [] as UV[][], loops: [p.loop] }, part: p.part }));
   for (const rim of polys.filter((p) => p.area < -1e-12)) {
     const host = result.find((r) => r.part !== rim.part && inPolygon(r.face.outer, rim.pts[0]));
-    host?.face.holes.push(rim.pts);
+    if (host) host.face.holes.push(rim.pts), host.face.loops.push(rim.loop);
   }
   return result.map((r) => r.face);
 }
 
 /** Points along a closed shape's outline (circles in `steps` pieces), or a line's points. */
-function pathOf(p: DrawnProfile, steps = 180): { pts: UV[]; closed: boolean } {
-  if (p.kind === 'line') return { pts: flattened(p), closed: false };
-  if (p.kind === 'circle') return { pts: Array.from({ length: steps }, (_, k): UV => [p.x + (p.d / 2) * Math.cos((2 * Math.PI * k) / steps), p.y + (p.d / 2) * Math.sin((2 * Math.PI * k) / steps)]), closed: true };
-  return { pts: flattened(p), closed: true };
+function pathOf(p: DrawnProfile, steps = 180): { pts: UV[]; closed: boolean; along?: Along[] } {
+  if (p.kind === 'circle') {
+    const on = (a: number): UV => [p.x + (p.d / 2) * Math.cos(a), p.y + (p.d / 2) * Math.sin(a)];
+    const quarter = Math.round(steps / 4);
+    const quarters = [0, 1, 2, 3].map((q): Source => ({ a: on((q * Math.PI) / 2), mid: on(((q + 0.5) * Math.PI) / 2), b: on(((q + 1) * Math.PI) / 2) }));
+    const along = Array.from({ length: quarter * 4 }, (_, k): Along => ({ source: quarters[Math.floor(k / quarter)], t0: (k % quarter) / quarter, t1: ((k % quarter) + 1) / quarter }));
+    return { pts: along.map((_, k) => on((2 * Math.PI * k) / (quarter * 4))), closed: true, along };
+  }
+  const path = { pts: flattened(p), closed: p.kind !== 'line' };
+  if (!curved(p) || (p.kind !== 'polygon' && p.kind !== 'line')) return path;
+  const q = bakeTurn(p);
+  return {
+    ...path,
+    along: sidesOf(q).flatMap((side, i) => {
+      const c = q.curves?.[i];
+      const [a, b] = [side[0], side[side.length - 1]];
+      const source: Source | null = side.length < 3 || !c ? null : 'c1' in c ? { a, c1: c.c1, c2: c.c2, b } : { a, mid: c.mid, b };
+      return side.slice(1).map((_, k): Along => source && { source, t0: k / (side.length - 1), t1: (k + 1) / (side.length - 1) });
+    }),
+  };
 }
 
 type Box = [number, number, number, number];

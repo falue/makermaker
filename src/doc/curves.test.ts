@@ -72,6 +72,33 @@ describe('curved sides', () => {
     const { faces } = lineFaces([arch, floor]);
     expect(faces).toHaveLength(1);
     expect(faces[0].at[1]).toBeGreaterThan(2);
+    // its outline: the floor's piece, and the arch's piece as one true arc on the same circle
+    const [loop] = faces[0].loops;
+    expect(loop.pts).toHaveLength(2);
+    const mid = loop.curves.find(Boolean) as { mid: UV };
+    expect(Math.hypot(...mid.mid)).toBeCloseTo(10);
+    expect(mid.mid[1]).toBeCloseTo(10);
+  });
+
+  it('a bezier curve cut by a line keeps a part of the same curve', () => {
+    const hill = { id: 'a', kind: 'line' as const, pts: [[0, 0], [30, 0]] as UV[], curves: [{ c1: [0, 20], c2: [30, 20] } as Curve] };
+    const floor = { id: 'b', kind: 'line' as const, pts: [[-5, 3], [35, 3]] as UV[] };
+    const [face] = lineFaces([hill, floor]).faces;
+    const [loop] = face.loops;
+    expect(loop.pts).toHaveLength(2);
+    const c = loop.curves.find(Boolean) as { c1: UV; c2: UV };
+    expect(c.c1).toBeTruthy();
+    // running along the curve: as high as the whole curve's top
+    const part = sidesOf({ kind: 'line', pts: [loop.pts[loop.curves.indexOf(c)], loop.pts[(loop.curves.indexOf(c) + 1) % 2]], curves: [c] })[0];
+    expect(Math.max(...part.map((p) => p[1]))).toBeCloseTo(15, 1);
+  });
+
+  it('a circle crossed by a line stays round', () => {
+    const disc = { id: 'c', kind: 'circle' as const, x: 0, y: 0, d: 20 };
+    const line = { id: 'l', kind: 'line' as const, pts: [[-20, 0], [20, 0]] as UV[] };
+    const { faces } = lineFaces([disc, line]);
+    expect(faces).toHaveLength(2);
+    expect(faces[0].loops[0].curves.filter(Boolean).length).toBeGreaterThanOrEqual(2);
   });
 });
 
