@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { arcOf, area, bakeTurn, bounds, closedLoop, flattened, inside, mapPoints, sideDirs, sidesOf, offsetPath } from './profiles';
 import { lineFaces } from './arrangement';
 import { centreMoved, controlMoved, isSmooth, pointHandles, pointMoved, smoothToggled } from '../viewer/shapes';
-import type { Curve } from './types';
+import { followSizes, sized } from './sizes';
+import type { Curve, Doc } from './types';
 
 type UV = [number, number];
 const halfDisc = { kind: 'polygon' as const, pts: [[-10, 0], [10, 0]] as UV[], curves: [null, { mid: [0, 10] as UV }], r: 0, rot: 0 };
@@ -233,5 +234,29 @@ describe('an arc tangent at both ends', () => {
     const q = centreMoved(corner, 1, [0, 0], 500);
     expect(q.pts[1][0]).toBeCloseTo(0);
     expect(q.pts[1][1]).toBeCloseTo(0);
+  });
+});
+
+describe('sides keep their formulas', () => {
+  const ex2 = (e: string) => ({ e, u: 'mm' as const });
+  const doc = (d: string) => ({ params: { $d: ex2(d) }, bodies: [], sketches: [{ shapes: [{ id: 'a', kind: 'line', pts: [[0, 0], [30, 0], [30, 10]], sizes: [{ l: ex2('$d*3') }, null] }, { id: 'b', kind: 'line', pts: [[0, 0], [10, 0], [20, 10]], curves: [null, { mid: [17.0711, 2.9289] }], sizes: [null, { d: ex2('$d*2') }] }, { id: 'c', kind: 'line', pts: [[0, 0], [10, 0]] }] }] }) as unknown as Doc;
+  it('a side follows its length, an arc its diameter, the rest stays', () => {
+    const prev = doc('10');
+    const next = followSizes({ ...prev, params: { $d: ex2('20') } }, prev);
+    const [a, b, c] = next.sketches[0].shapes as unknown as { pts: UV[]; curves?: ({ mid: UV } | null)[] }[];
+    expect(a.pts[1]).toEqual([60, 0]);
+    expect(a.pts[2]).toEqual([30, 10]);
+    expect(arcOf(b.pts[1], b.curves![1]!.mid, b.pts[2])!.r).toBeCloseTo(20, 2);
+    expect(c).toBe(prev.sketches[0].shapes[2]);
+  });
+  it('nothing happens while the parameters stay', () => {
+    const prev = doc('10');
+    const next = { ...prev, bodies: [] };
+    expect(followSizes(next, prev)).toBe(next);
+  });
+  it('an angle from its base', () => {
+    const p = sized({ kind: 'line', pts: [[0, 0], [10, 0]], sizes: [{ l: 10, deg: 90, base: 0 }] } as Parameters<typeof sized>[0]);
+    expect(p.pts[1][0]).toBeCloseTo(0);
+    expect(p.pts[1][1]).toBeCloseTo(10);
   });
 });

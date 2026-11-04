@@ -6,6 +6,8 @@ export class History<T> {
   constructor(
     public current: T,
     private limit = 200,
+    /** Whatever goes in passes through this first. */
+    private settled: (next: T, prev: T) => T = (next) => next,
   ) {}
 
   push(next: T) {
@@ -13,7 +15,7 @@ export class History<T> {
     this.past.push(this.current);
     if (this.past.length > this.limit) this.past.shift();
     this.future = [];
-    this.current = next;
+    this.current = this.settled(next, this.current);
   }
 
   /** How many steps undo can go back. */
@@ -23,7 +25,7 @@ export class History<T> {
 
   /** Replaces the current state without a new undo step (live edits such as scrubbing). */
   replace(next: T) {
-    this.current = next;
+    this.current = this.settled(next, this.current);
     this.future = [];
   }
 

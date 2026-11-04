@@ -42,6 +42,8 @@ export interface ViewSketch {
 export interface Drawn {
   profile: DrawnProfile;
   typed: Partial<Record<'w' | 'h' | 'd', string>>;
+  /** A line's sides, what was typed for each (its points are worked out from these again when a parameter changes). */
+  sides?: ({ l?: string; deg?: string; base?: number; d?: string } | null)[];
 }
 
 /** Where shapes go: an existing sketch, or a new one at `placement`; `body`: the body whose face it lies on. */
@@ -249,7 +251,7 @@ type Phase =
    * `held`: a bezier point pressed, its handle being pulled (`adds`: a new point, `closes`: on the line's start);
    * `arcEnd`: a first arc's end, its bulge still to come; `arc`: the open arc's middle.
    */
-  | { kind: 'polygon'; target: Target; pts: UV[]; curves: (Curve | null)[]; cur: UV; typed: (string | undefined)[]; axis: number; base: number; out: UV | null; held: { at: UV; px: [number, number]; pull: UV | null; adds: boolean; closes: boolean } | null; arcEnd: UV | null; arc: UV | null }
+  | { kind: 'polygon'; target: Target; pts: UV[]; curves: (Curve | null)[]; sides: NonNullable<Drawn['sides']>; cur: UV; typed: (string | undefined)[]; axis: number; base: number; out: UV | null; held: { at: UV; px: [number, number]; pull: UV | null; adds: boolean; closes: boolean } | null; arcEnd: UV | null; arc: UV | null }
   | ({ kind: 'pull'; target: Target; drawn: Drawn; shapes: DrawnProfile[] } & Pulling);
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
@@ -413,7 +415,7 @@ export class SketchTool implements Tool {
       if (this.drawMode()?.lines && !line) return this.host.hint('Circle tangent to two lines: click the first line · [Alt] another drawing mode'), true;
       this.phase =
         this.kind === 'line'
-          ? { kind: 'polygon', target, pts: [at], curves: [], cur: at, typed: [], axis: 0, base: 0, out: null, held: this.drawMode()?.id === 'bezier' ? { at, px: [e.clientX, e.clientY], pull: null, adds: false, closes: false } : null, arcEnd: null, arc: null }
+          ? { kind: 'polygon', target, pts: [at], curves: [], sides: [], cur: at, typed: [], axis: 0, base: 0, out: null, held: this.drawMode()?.id === 'bezier' ? { at, px: [e.clientX, e.clientY], pull: null, adds: false, closes: false } : null, arcEnd: null, arc: null }
           : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, shift: role(e, 'constrain'), pts: [], lines: line ? [line] : [] };
       this.host.hint(this.kind === 'line' ? lineHint(this.drawMode()?.id) : SHAPE_HINT);
     } else if (ph.kind === 'shape') {
@@ -704,6 +706,7 @@ export class SketchTool implements Tool {
       else if (pressed(e, 'erase') && ph.pts.length > 1) {
         ph.pts.pop();
         ph.curves.pop();
+        ph.sides.pop();
         ph.out = null;
         const n = ph.pts.length;
         ph.base = n > 1 ? this.dirInto(ph) : 0;
@@ -1150,6 +1153,8 @@ export class SketchTool implements Tool {
     ph.curves = sides.slice(0, -1);
     if (closes && ph.held?.pull && ph.curves[0] && 'c1' in ph.curves[0]) ph.curves[0] = { ...ph.curves[0], c1: ph.held.pull };
     ph.curves.push(curve);
+    const [typedSize, typedAngle] = ph.typed;
+    ph.sides.push(closes || (typedSize === undefined && typedAngle === undefined) ? null : curve ? ('mid' in curve && typedSize !== undefined ? { d: typedSize } : null) : { ...(typedSize !== undefined ? { l: typedSize } : {}), ...(typedAngle !== undefined ? { deg: typedAngle, base: ph.base } : {}) });
     if (closes) return this.closeLine();
     ph.pts.push(end);
     [ph.typed, ph.axis, ph.out, ph.arc, ph.arcEnd] = [[], 0, null, null, null];
@@ -1287,7 +1292,7 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     if (ph.kind !== 'polygon') return;
     const curves = ph.curves.some(Boolean) ? { curves: ph.curves } : {};
-    this.drawn(ph.target, { profile: { kind: 'polygon', pts: ph.pts, ...curves, r: 0, rot: 0 }, typed: {} });
+    this.drawn(ph.target, { profile: { kind: 'polygon', pts: ph.pts, ...curves, r: 0, rot: 0 }, typed: {}, sides: ph.sides });
   }
 
   /** Ends the line open at its points so far (never pulled: it stays flat). */
@@ -1297,7 +1302,7 @@ export class SketchTool implements Tool {
     const curves = ph.curves.some(Boolean) ? { curves: ph.curves } : {};
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
-    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts: ph.pts, ...curves }, typed: {} }, depth: 0, mode: 'add' });
+    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts: ph.pts, ...curves }, typed: {}, sides: ph.sides }, depth: 0, mode: 'add' });
   }
 
   /** A finished shape: in sketch mode or as a construction line it stays flat and drawing goes on, else pulling starts. */

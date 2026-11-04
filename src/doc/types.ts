@@ -1,5 +1,8 @@
 export type Unit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
 
+/** What a side of a line or polygon was told, its points following when a parameter changes: length, angle in degrees from `base` (radians), an arc's diameter. */
+export type SideSize = { l?: Expr; deg?: Expr; base?: number; d?: Expr };
+
 /** User-entered expression; bare numbers mean unit `u`, the display unit at entry time. */
 export interface Expr {
   e: string;
@@ -36,8 +39,8 @@ export type Profile = (
   | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr; rot: Expr }
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
   | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr }
-  | { id: string; kind: 'polygon'; pts: [number, number][]; curves?: (Curve | null)[]; r: Expr; rot: Expr }
-  | { id: string; kind: 'line'; pts: [number, number][]; curves?: (Curve | null)[] }
+  | { id: string; kind: 'polygon'; pts: [number, number][]; curves?: (Curve | null)[]; sizes?: (SideSize | null)[]; r: Expr; rot: Expr }
+  | { id: string; kind: 'line'; pts: [number, number][]; curves?: (Curve | null)[]; sizes?: (SideSize | null)[] }
 ) & {
   /** A construction line: drawn dashed, snapped to, never extruded. */
   construction?: boolean;

@@ -2,6 +2,7 @@ import { zipSync } from 'fflate';
 import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, evalQuantity, fmt, inName, isPlain, UNITS } from './doc/expr';
+import { followSizes, sideNow, sized } from './doc/sizes';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
@@ -23,7 +24,7 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
-import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -43,7 +44,7 @@ import { drawer } from './ui/drawer';
 import { keepInside } from './ui/inside';
 import { BUILT_IN_PHOTOS } from './ui/photospheres';
 import { ANGLE_STEPS, SketchTool, uvOf, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
-import { anchorAt, centreMoved, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
+import { anchorAt, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import type { ExtrudeTool, FaceItem } from './viewer/extrude';
 import { alongEdge, Viewer, type FinishPick, type PickedFace, type PickedPart, type TurnAxis, type Vec3 } from './viewer/viewer';
 
@@ -73,7 +74,7 @@ let settings = loadSettings();
 const lostEdges = new Map<string, Record<string, number>>();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
-const history = new History<Doc>(sampleDoc());
+const history = new History<Doc>(sampleDoc(), 200, followSizes);
 /** Selected objects (bodies and sketches) and, inside a single selected sketch, its selected shapes. */
 let selected: string[] = history.current.bodies.slice(0, 1).map((p) => p.id);
 let shapeSel: string[] = [];
@@ -811,6 +812,7 @@ function withShapes(doc: Doc, sketch: string, updates: { id: string; profile: Dr
       else if (key === 'curves') next.curves = roundCurves(v as (Curve | null)[]);
       else if (typeof v === 'number' && Math.abs(v - (old[key] as number)) > 1e-9) next[key] = UNITLESS.includes(key) ? ex(fmt(v)) : len(v, typed[key as 'w']);
     }
+    if (q.kind === 'polygon' || q.kind === 'line') next.sizes = sizesAfter(q, old as unknown as DrawnProfile, u.profile);
     return next as Profile;
   });
   return setIn(doc, ['sketches', String(k), 'shapes'], shapes);
@@ -2327,7 +2329,7 @@ function mirrorTool() {
         const copies = doc.sketches[k].shapes.filter((q) => shapeSel.includes(q.id)).map((q): Profile => {
           const p = shown.find((x) => x.id === q.id)!;
           const id = newId();
-          if (p.kind === 'line' || p.kind === 'polygon') return { ...q, id, ...(p.kind === 'polygon' ? { rot: ex(0) } : {}), ...(({ pts, curves }) => ({ pts, ...(curves ? { curves } : {}) }))(mapPoints(bakeTurn(p), flip)) } as Profile;
+          if (p.kind === 'line' || p.kind === 'polygon') return { ...q, id, ...((q as { sizes?: (SideSize | null)[] }).sizes ? { sizes: (q as { sizes: (SideSize | null)[] }).sizes.map((z) => z && (({ deg: _d, base: _b, ...keep }) => keep)(z)) } : {}), ...(p.kind === 'polygon' ? { rot: ex(0) } : {}), ...(({ pts, curves }) => ({ pts, ...(curves ? { curves } : {}) }))(mapPoints(bakeTurn(p), flip)) } as Profile;
           const [x, y] = flip([p.x, p.y]);
           const rot = p.kind === 'rect' ? { rot: ex(fmt(2 * deg - p.rot)) } : p.kind === 'ngon' ? { rot: ex(fmt(2 * deg - p.rot - 180)) } : {};
           return { ...q, id, x: len(x), y: len(y), ...rot } as Profile;
@@ -4387,12 +4389,17 @@ function profileOf(drawn: Drawn): Profile {
 const roundPts = (pts: [number, number][]) => pts.map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]);
 const roundCurves = (curves: (Curve | null)[]) => curves.map((c) => (!c ? null : 'c1' in c ? { c1: roundPts([c.c1])[0], c2: roundPts([c.c2])[0] } : { mid: roundPts([c.mid])[0] }));
 
-function shapeOf({ profile: p, typed: t }: Drawn): Profile {
+function shapeOf({ profile: p, typed: t, sides }: Drawn): Profile {
   const id = newId();
   if (p.kind === 'rect') return { id, kind: 'rect', x: len(p.x), y: len(p.y), w: len(p.w, t.w), h: len(p.h, t.h), r: len(p.r), rot: ex(fmt(p.rot)) };
   if (p.kind === 'circle') return { id, kind: 'circle', x: len(p.x), y: len(p.y), d: len(p.d, t.d) };
   if (p.kind === 'ngon') return { id, kind: 'ngon', x: len(p.x), y: len(p.y), d: len(p.d, t.d), sides: ex(fmt(p.sides)), rot: ex(fmt(p.rot)) };
-  const path = { pts: roundPts(p.pts), ...(p.curves ? { curves: roundCurves(p.curves) } : {}) };
+  const u = history.current.units;
+  const asked = (text: string | undefined) => (text === undefined ? {} : { e: text, u });
+  const sizes = sides?.map((c) =>
+    !c ? null : { ...(c.l !== undefined ? { l: asked(c.l) as Expr } : {}), ...(c.d !== undefined ? { d: asked(c.d) as Expr } : {}), ...(c.deg !== undefined ? { deg: ex(c.deg), base: c.base } : {}) },
+  );
+  const path = { pts: roundPts(p.pts), ...(p.curves ? { curves: roundCurves(p.curves) } : {}), ...(sizes?.some(Boolean) ? { sizes } : {}) };
   return p.kind === 'line' ? { id, kind: 'line', ...path } : { id, kind: 'polygon', ...path, r: len(p.r), rot: ex(fmt(p.rot)) };
 }
 
@@ -4492,6 +4499,19 @@ function plus(x: Expr, mm: number, by: number): Expr {
   return isPlain(x.e) ? len(mm + by) : { e: `${x.e} ${by < 0 ? '-' : '+'} ${fmt(Math.abs(by) / UNITS[x.u])}`, u: x.u };
 }
 
+/** A line's or polygon's sides' sizes after it changed from `old` to `next` (mm): as expressions, `+ delta`; an angle no longer right goes. */
+function sizesAfter(shape: Extract<Profile, { pts: unknown }>, old: DrawnProfile, next: DrawnProfile) {
+  if (!shape.sizes || !('pts' in old) || !('pts' in next) || old.pts.length !== next.pts.length) return undefined;
+  return shape.sizes.map((s, i) => {
+    if (!s) return null;
+    const [a, b] = [sideNow(old, i), sideNow(next, i)];
+    const { deg, base, ...out } = s;
+    if (out.l) out.l = plus(out.l, a.l, b.l - a.l);
+    if (out.d && a.d !== null && b.d !== null) out.d = plus(out.d, a.d, b.d - a.d);
+    return deg && Math.abs(a.dir - b.dir) < 1e-3 ? { ...out, deg, base } : out;
+  });
+}
+
 /**
  * `shape` changed from `old` to `next` (mm): `keep` values are written as typed, other changed lengths keep their
  * expressions (`+ delta`), corners are plain numbers.
@@ -4504,6 +4524,7 @@ function rewrite(shape: Profile, old: DrawnProfile, next: DrawnProfile, keep: Re
     else if (key === 'pts') out.pts = roundPts(v as [number, number][]);
     else if (key === 'curves') out.curves = roundCurves(v as (Curve | null)[]);
     else if (typeof v === 'number' && !UNITLESS.includes(key)) out[key] = plus(out[key] as Expr, was[key] as number, v - (was[key] as number));
+  if (shape.kind === 'polygon' || shape.kind === 'line') out.sizes = sizesAfter(shape, old, next);
   return out as Profile;
 }
 
@@ -4546,18 +4567,21 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
   update();
 }
 
-/** An arc of a line or polygon gets a diameter, moving as its middle handle does (a free arc stays at least as wide as its ends). */
-function arcDiameter(path: string[], side: number, value: Expr, live: boolean) {
+/** A size of a line's or polygon's side set (`d`: an arc's, moving as its middle handle does; a free arc stays at least as wide as its ends): its points follow, the formula stays. */
+function setSide(path: string[], side: number, key: 'l' | 'deg' | 'd', value: Expr, live: boolean) {
   const doc = history.current;
-  const shape = getIn(doc, path) as Profile;
-  const lookup = paramLookup(doc.params);
+  const shape = getIn(doc, path) as Extract<Profile, { pts: unknown }>;
+  const sizes = Array.from({ length: shape.pts.length }, (_, k) => shape.sizes?.[k] ?? null);
+  sizes[side] = { ...sizes[side], [key]: value };
   const errors = new Map<string, string>();
-  const d = resolve(value, lookup, 'd', errors) as number;
-  if (errors.size) return fail(errors.get('d')!);
-  if (!(d > 0)) return fail('A diameter above 0');
-  const old = resolve(shape, lookup, '', new Map()) as DrawnProfile;
-  if (old.kind !== 'polygon' && old.kind !== 'line') return;
-  const changed = setIn(doc, path, rewrite(shape, old, centreMoved(old, side, [0, 0], d / 2)));
+  const asked = resolve({ ...shape, sizes }, paramLookup(doc.params), '', errors) as unknown as Extract<DrawnProfile, { pts: unknown }>;
+  if (errors.size) return fail([...errors.values()][0]);
+  if (key !== 'deg' && !(asked.sizes![side]![key]! > 0)) return fail(`${key === 'd' ? 'A diameter' : 'A length'} above 0`);
+  const next = sized(asked);
+  // a plain number it could not reach: what it reached
+  const reached = sideNow(next, side).d;
+  if (key === 'd' && reached !== null && isPlain(value.e)) sizes[side] = { ...sizes[side], d: len(reached) };
+  const changed = setIn(doc, path, { ...shape, sizes, pts: roundPts(next.pts), ...(next.curves ? { curves: roundCurves(next.curves) } : {}) });
   if (live) history.replace(changed);
   else history.push(changed);
   update();
@@ -5185,7 +5209,7 @@ function render() {
       return { x, y, w, h, centred: centred(p, ref) };
     },
     transformShape,
-    arcDiameter,
+    setSide,
     setDrawConstruction(on) {
       drawConstruction = on;
     },

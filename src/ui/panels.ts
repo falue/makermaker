@@ -197,8 +197,8 @@ export interface UIContext {
   /** The shape at `path`: its reference point and own size (mm); `centred`: the reference point is its stored centre. */
   measure(path: string[]): { x: number; y: number; w: number; h: number; centred: boolean };
   transformShape(path: string[], field: ShapeField, value: Expr, live: boolean): void;
-  /** Sets the diameter of the arc on side `side` of the line or polygon at `path`. */
-  arcDiameter(path: string[], side: number, value: Expr, live: boolean): void;
+  /** Sets a size of side `side` of the line or polygon at `path`: its length, angle or an arc's diameter. */
+  setSide(path: string[], side: number, key: 'l' | 'deg' | 'd', value: Expr, live: boolean): void;
   duplicate(): void;
   remove(): void;
   newDoc(): void;
@@ -1314,13 +1314,16 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
     exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
   const pf = (key: string, label: string, raw = false) => exprField(ctx, `${path}.${key}`, label, raw);
   const row = (...cells: HTMLElement[]) => h('div', { className: 'trio' }, ...cells);
-  // its arcs' diameters; the points stay numbers, so a formula is used once
-  const arcs = p.kind === 'polygon' || p.kind === 'line' ? p.curves?.flatMap((c, side) => {
+  // its arcs' diameters, and the lengths and angles sides were given: formulas stay, the points follow
+  const sideRows = p.kind === 'polygon' || p.kind === 'line' ? p.pts.flatMap((_, side) => {
+    const c = p.curves?.[side];
     const arc = c && 'mid' in c ? arcOf(p.pts[side], c.mid, p.pts[(side + 1) % p.pts.length]) : null;
-    return arc ? [{ side, d: +(arc.r * 2).toFixed(3) }] : []; // from rounded points: 60.0001 is 60
-  }) ?? [] : [];
-  const arcFields = arcs.map(({ side, d }, k) => exprField(ctx, `${path}.@arc${side}`, arcs.length > 1 ? `Ø ${k + 1}` : 'Ø', false, { value: mm(d), set: (x, live) => ctx.arcDiameter(keys, side, x, live) }));
-  const arcRows = Array.from({ length: Math.ceil(arcFields.length / 3) }, (_, k) => row(...arcFields.slice(k * 3, k * 3 + 3)));
+    const size = p.sizes?.[side];
+    const set = (key: 'l' | 'deg' | 'd', label: string, value: Expr, raw = false) => exprField(ctx, `${path}.@side${side}${key}`, label, raw, { value, set: (x, live) => ctx.setSide(keys, side, key, x, live) });
+    if (arc) return [set('d', `Ø ${side + 1}`, size?.d ?? mm(+(arc.r * 2).toFixed(3)))];
+    return [...(size?.l ? [set('l', `L ${side + 1}`, size.l)] : []), ...(size?.deg ? [set('deg', `∠ ${side + 1}`, size.deg, true)] : [])];
+  }) : [];
+  const arcRows = Array.from({ length: Math.ceil(sideRows.length / 3) }, (_, k) => row(...sideRows.slice(k * 3, k * 3 + 3)));
   const shape = (...rows: HTMLElement[]) => [h('div', { className: 'shape-fields' }, refGrid(ctx, p.id), h('div', {}, ...rows, ...arcRows))];
   const pos = [tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
   if (p.kind === 'circle') return shape(row(...pos, tf('d', 'Ø', stored('d'))));

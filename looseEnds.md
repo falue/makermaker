@@ -4,6 +4,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 
 ## Lines and polygons
 - A point follows a parameter only through a side's typed length, angle or diameter; points clicked freely stay fixed, so what follows a changed side does not move along with it.
+- A typed sweep angle of an arc is used once (its diameter stays). `cad.line` and `cad.polygon` take plain points, no side formulas.
+- A turned polygon following a parameter turns around its new middle, so it can shift a little.
 
 ## Curves
 - Tangency is held only by an arc's middle between two straight sides. Moving a point, or an arc next to a curved side, does not hold it.
