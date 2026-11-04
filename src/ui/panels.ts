@@ -471,7 +471,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('laser', 'Export for the laser: the selected bodies (else all shown ones) listed, untick any; each the outline of a flat face (its biggest, or one clicked) at 1:1 without fillets and chamfers, kerf allowed for; SVG or DXF, several zipped', ctx.exportLaser),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),
     tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),
-    tool('terminal', 'Python terminal (I): model by typing, cad.box(80, 60, 40)', ctx.terminal.toggle, ctx.terminal.open),
+    tool('terminal', 'Python terminal and scripts (I): model by typing, cad.box(80, 60, 40)', ctx.terminal.toggle, ctx.terminal.open),
     tool('theme', 'Light / dark', ctx.toggleTheme),
     h('a', { className: 'link', href: 'https://github.com/falue/makermaker', target: '_blank', rel: 'noopener', title: 'Source code on GitHub', innerHTML: GITHUB }),
     h('a', { className: 'link', href: 'https://buymeacoffee.com/falue', target: '_blank', rel: 'noopener', title: 'Support MAKERMAKER' }, '☕ Buy me a coffee'),

@@ -1,4 +1,5 @@
 import type { PyodideInterface } from 'pyodide';
+import { icon } from './icons';
 
 /** What the terminal's `cad` module reaches in the app (see `cad` in main). */
 export interface TerminalApi {
@@ -65,6 +66,15 @@ def _step(source):
         _report()
         return 'error'
 
+def _run(source):
+    """Runs a whole script: 'error' if it failed, else 'done'."""
+    try:
+        exec(compile(source, '<cad>', 'exec'), _ns)
+        return 'done'
+    except BaseException:
+        _report()
+        return 'error'
+
 def _complete(word):
     found = []
     while (name := _completer.complete(word, len(found))) is not None:
@@ -72,8 +82,31 @@ def _complete(word):
     return json.dumps(found)
 `;
 
-/** The Python terminal: at the bottom of `parent`, Pyodide loaded when first opened. `cad` is the command API; Enter runs, typing on when unfinished. */
-export function pythonTerminal(parent: HTMLElement, api: TerminalApi, changed: () => void) {
+/** A saved script. */
+type Script = { id: string; name: string; text: string };
+
+/** The scripts, kept in this browser for every design; the first time, two to start from. */
+const STORE = 'makermaker.scripts';
+const STARTERS: Omit<Script, 'id'>[] = [
+  { name: 'Row of boxes', text: "# five boxes, each taller\nfor k in range(5):\n    cad.box(20, 20, 10 + k * 10, at=[k * 30, 0, 0], name=f'Box {k + 1}')\n" },
+  { name: 'Ring of cylinders', text: "import math\n\ncount = 8\nfor k in range(count):\n    a = 2 * math.pi * k / count\n    cad.cylinder(diameter=12, height=30, at=[60 * math.cos(a), 60 * math.sin(a), 0], name=f'Post {k + 1}')\n" },
+];
+function loadScripts(): Script[] {
+  try {
+    const kept = localStorage.getItem(STORE);
+    if (kept) return JSON.parse(kept);
+  } catch {
+    // none kept
+  }
+  return STARTERS.map((s, k) => ({ ...s, id: `starter${k}` }));
+}
+
+/**
+ * The Python terminal, a drawer in `parent`: its tab in `tabs`, open across the view, lifting the other drawers
+ * (`--drawers-up`). Pyodide loads when first opened. Two columns: the terminal (`cad` is the command API; Enter runs,
+ * typing on when unfinished), beside it the script being edited; and the scripts. A script runs as one undo step.
+ */
+export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: TerminalApi, changed: () => void) {
   const box = Object.assign(document.createElement('div'), { className: 'terminal', hidden: true });
   const grip = Object.assign(document.createElement('div'), { className: 'terminal-grip', title: 'Drag: the height of the terminal' });
   const output = Object.assign(document.createElement('pre'), { className: 'terminal-out' });
@@ -85,8 +118,28 @@ export function pythonTerminal(parent: HTMLElement, api: TerminalApi, changed: (
   line.append(prompt, input);
   const scroll = Object.assign(document.createElement('div'), { className: 'terminal-scroll', onclick: () => getSelection()?.isCollapsed && input.focus() });
   scroll.append(output, line);
-  box.append(grip, scroll);
+  const button = (name: string, title: string, onclick: (e: MouseEvent) => void) => Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon(name), title, onclick });
+  // the script being edited
+  const editorName = Object.assign(document.createElement('span'), { className: 'script-title' });
+  const editorText = Object.assign(document.createElement('textarea'), { spellcheck: false, className: 'script-text' });
+  const editorBar = Object.assign(document.createElement('div'), { className: 'script-bar' });
+  const editor = Object.assign(document.createElement('div'), { className: 'script-editor', hidden: true });
+  editor.append(editorBar, editorText);
+  const main = Object.assign(document.createElement('div'), { className: 'terminal-main' });
+  main.append(editor, scroll);
+  // the scripts
+  const list = Object.assign(document.createElement('div'), { className: 'script-list' });
+  const side = Object.assign(document.createElement('div'), { className: 'scripts' });
+  const head = Object.assign(document.createElement('div'), { className: 'scripts-head' });
+  head.append(Object.assign(document.createElement('span'), { textContent: 'Scripts' }));
+  side.append(head, list);
+  const cols = Object.assign(document.createElement('div'), { className: 'terminal-cols' });
+  cols.append(main, side);
+  box.append(grip, cols);
   parent.append(box);
+  const drawerEl = Object.assign(document.createElement('div'), { className: 'drawer' });
+  drawerEl.append(Object.assign(document.createElement('button'), { className: 'drawer-tab', innerHTML: `${icon('chevron')}<span>Python terminal</span>`, title: 'Show or hide the Python terminal (I)', onclick: () => toggle() }));
+  tabs.prepend(drawerEl);
 
   const print = (text: string, kind = '') => {
     const part = Object.assign(document.createElement('span'), { className: kind, textContent: text.endsWith('\n') ? text : `${text}\n` });
@@ -125,21 +178,26 @@ export function pythonTerminal(parent: HTMLElement, api: TerminalApi, changed: (
 
   const past: string[] = [];
   let back = 0;
-  const run = async () => {
-    const py = python ?? (await load());
-    const source = input.value;
-    // a blank last line ends a block
-    const text = /\n\s*$/.test(source) ? `${source.trimEnd()}\n` : source;
-    if (!text.trim()) return;
-    const step = py.globals.get('_step');
+  /** Runs `text` through Python's `fn` as one undo step; its state. */
+  const batched = (py: PyodideInterface, fn: string, text: string) => {
+    const step = py.globals.get(fn);
     let state = '';
-    print(source.split('\n').map((l, k) => `${k ? '...' : '>>>'} ${l}`).join('\n'), 'terminal-echo');
     const dropped = api.batch(() => {
       state = step(text);
       return state !== 'error';
     });
     if (dropped) print('Nothing was changed: it failed before its end.', 'terminal-note');
     step.destroy();
+    return state;
+  };
+  const run = async () => {
+    const py = python ?? (await load());
+    const source = input.value;
+    // a blank last line ends a block
+    const text = /\n\s*$/.test(source) ? `${source.trimEnd()}\n` : source;
+    if (!text.trim()) return;
+    print(source.split('\n').map((l, k) => `${k ? '...' : '>>>'} ${l}`).join('\n'), 'terminal-echo');
+    const state = batched(py, '_step', text);
     if (state === 'more') {
       output.lastChild?.remove(); // not run yet
       const indent = source.match(/(?:^|\n)( *)[^\n]*$/)?.[1] ?? '';
@@ -182,17 +240,153 @@ export function pythonTerminal(parent: HTMLElement, api: TerminalApi, changed: (
     e.stopPropagation();
   };
   input.oninput = fit;
+  /** The other drawers ride on top of the terminal. */
+  const lift = () => parent.style.setProperty('--drawers-up', box.hidden ? '0px' : `${box.offsetHeight}px`);
   grip.onpointerdown = (down) => {
     grip.setPointerCapture(down.pointerId);
     const start = box.offsetHeight;
-    grip.onpointermove = (m) => (box.style.height = `${Math.max(80, Math.min(parent.clientHeight - 40, start + down.clientY - m.clientY))}px`);
+    grip.onpointermove = (m) => {
+      box.style.height = `${Math.max(120, Math.min(parent.clientHeight - 60, start + down.clientY - m.clientY))}px`;
+      lift();
+    };
     grip.onpointerup = () => (grip.onpointermove = grip.onpointerup = null);
   };
 
   const toggle = (open = box.hidden) => {
     box.hidden = !open;
-    if (open) input.focus(), load();
+    drawerEl.classList.toggle('open', open);
+    lift();
+    if (open) (current ? editorText : input).focus(), load();
     changed();
   };
+
+  // the scripts: every change kept at once
+  let scripts = loadScripts();
+  let current: Script | null = null;
+  const keep = () => {
+    try {
+      localStorage.setItem(STORE, JSON.stringify(scripts));
+    } catch {
+      print('The scripts could not be kept in this browser.', 'terminal-error');
+    }
+  };
+  const freeName = (name: string, except?: Script) => {
+    const taken = (n: string) => scripts.some((s) => s !== except && s.name === n);
+    if (!taken(name)) return name;
+    let k = 2;
+    while (taken(`${name} ${k}`)) k++;
+    return `${name} ${k}`;
+  };
+  const markOpen = () => {
+    for (const row of list.querySelectorAll<HTMLElement>('.script-row')) row.classList.toggle('on', row.dataset.id === current?.id);
+  };
+  const play = async (s: Script) => {
+    const py = python ?? (await load());
+    print(`▶ ${s.name}`, 'terminal-echo');
+    batched(py, '_run', s.text);
+    changed();
+  };
+  const open = (s: Script | null) => {
+    current = s;
+    editor.hidden = !s;
+    if (s) {
+      editorName.textContent = s.name;
+      editorText.value = s.text;
+      editorText.focus();
+    } else input.focus();
+    markOpen();
+  };
+  editorBar.append(
+    editorName,
+    button('play', 'Run this script (⌘ or Ctrl + Enter): one undo step', () => current && void play(current)),
+    button('close', 'Close the editor: the script stays', () => open(null)),
+  );
+  editorText.oninput = () => {
+    if (!current) return;
+    current.text = editorText.value;
+    keep();
+  };
+  editorText.onkeydown = (e) => {
+    const at = editorText.selectionStart;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) current && void play(current);
+    else if (e.key === 'Enter') {
+      const before = editorText.value.slice(0, at);
+      const last = before.slice(before.lastIndexOf('\n') + 1);
+      editorText.setRangeText(`\n${last.match(/^ */)![0]}${last.trimEnd().endsWith(':') ? '    ' : ''}`, at, editorText.selectionEnd, 'end');
+      editorText.dispatchEvent(new Event('input'));
+    } else if (e.key === 'Tab') {
+      editorText.setRangeText('    ', at, editorText.selectionEnd, 'end');
+      editorText.dispatchEvent(new Event('input'));
+    } else if (e.key === 'Escape') toggle(false);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const renameIn = (s: Script, label: HTMLElement) => {
+    const field = Object.assign(document.createElement('input'), { value: s.name, spellcheck: false, className: 'script-rename' });
+    let done = false;
+    const end = (save: boolean) => {
+      if (done) return;
+      done = true;
+      const name = field.value.trim();
+      if (save && name) {
+        s.name = freeName(name, s);
+        keep();
+        if (current === s) editorName.textContent = s.name;
+      }
+      showList();
+    };
+    field.onblur = () => end(true);
+    field.onclick = (e) => e.stopPropagation();
+    field.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') end(true);
+      else if (e.key === 'Escape') end(false);
+    };
+    label.replaceWith(field);
+    field.select();
+  };
+  const showList = () => {
+    list.replaceChildren(
+      ...scripts.map((s) => {
+        const label = Object.assign(document.createElement('span'), { className: 'script-name', textContent: s.name });
+        const row = Object.assign(document.createElement('div'), { className: 'script-row', title: 'Click: Edit · double-click: Rename', onclick: () => open(s), ondblclick: () => renameIn(s, label) });
+        row.dataset.id = s.id;
+        const stop = (act: () => void) => (e: MouseEvent) => (e.stopPropagation(), act());
+        row.append(
+          label,
+          button('play', 'Run: one undo step', stop(() => void play(s))),
+          button('edit', 'Rename', stop(() => renameIn(s, label))),
+          button('delete', 'Delete (Undo comes in its place)', stop(() => {
+            const at = scripts.indexOf(s);
+            scripts = scripts.filter((x) => x !== s);
+            keep();
+            if (current === s) open(null);
+            const gone = Object.assign(document.createElement('div'), { className: 'script-row gone' });
+            gone.append(Object.assign(document.createElement('span'), { className: 'script-name', textContent: `${s.name} deleted` }), Object.assign(document.createElement('button'), {
+              textContent: 'Undo',
+              title: 'Click: Bring it back',
+              onclick: () => {
+                scripts.splice(Math.min(at, scripts.length), 0, s);
+                keep();
+                showList();
+              },
+            }));
+            row.replaceWith(gone);
+          })),
+        );
+        return row;
+      }),
+    );
+    markOpen();
+  };
+  head.append(button('new', 'New script', () => {
+    const s: Script = { id: crypto.randomUUID(), name: freeName('New script'), text: '' };
+    scripts.push(s);
+    keep();
+    showList();
+    open(s);
+  }));
+  showList();
   return { toggle, isOpen: () => !box.hidden };
 }

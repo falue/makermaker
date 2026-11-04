@@ -3968,7 +3968,10 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
  */
 const jointsBox = Object.assign(document.createElement('div'), { className: 'joints-box' });
 const jointsDrawer = drawer('Joint animation', 'right', jointsBox);
-viewer.el.append(jointsDrawer);
+// the drawers at the bottom right, side by side
+const rightDrawers = Object.assign(document.createElement('div'), { className: 'drawers-right' });
+rightDrawers.append(jointsDrawer);
+viewer.el.append(rightDrawers);
 let jointsKey = '';
 /**
  * Joints playing: their phase (0 → 1 from min to max, 1 → 2 back), where a single play stops (1 or 2), the last
@@ -6063,7 +6066,7 @@ const cad = {
 };
 (window as unknown as { makermaker: typeof cad }).makermaker = cad;
 
-const terminal = pythonTerminal(document.querySelector<HTMLElement>('#stage')!, cad, () => render());
+const terminal = pythonTerminal(viewer.el, rightDrawers, cad, () => render());
 
 let pasteSoon = 0;
 // ⌘V with a file in the clipboard (a picture copied elsewhere): imported where the pointer is

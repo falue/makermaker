@@ -32,7 +32,7 @@ export const KEYS = {
   open: { chapter: 'File', name: 'Open', order: 11, default: [{ key: 'o', mod: true }], hint: 'Open a design file' },
   undo: { chapter: 'Edit', name: 'Undo', order: 20, default: [{ key: 'z', mod: true, shift: false }], hint: 'Undo the last step' },
   redo: { chapter: 'Edit', name: 'Redo', order: 21, default: [{ key: 'z', mod: true, shift: true }, { key: 'y', mod: true }], hint: 'Redo the step undone' },
-  terminal: { chapter: 'View', name: 'Python terminal', order: 29, default: [{ key: 'i' }], hint: 'Open or close the Python terminal' },
+  terminal: { chapter: 'View', name: 'Python terminal', order: 29, default: [{ key: 'i' }], hint: 'Open or close the Python terminal and its scripts' },
   fit: { chapter: 'View', name: 'Fit', order: 30, default: [{ key: 'f' }], hint: 'Move the camera back or forth, as it looks now, until everything is in view' },
   home: { chapter: 'View', name: 'Home', order: 30.5, default: [{ key: 'h' }], hint: 'Everything framed from the front-right corner' },
   cycle: { chapter: 'View', name: 'Next body under the pointer', order: 31, default: [{ key: 'tab', shift: false }], hint: 'Select the next body under the pointer (typing a size: Tab switches the side instead)' },
