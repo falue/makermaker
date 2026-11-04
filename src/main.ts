@@ -3037,7 +3037,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           if (edges.length || faces.length) [edges, faces] = [[], []], viewer.showMeasured([], []);
           if (last) {
             const d = p.clone().sub(last);
-            const values: Record<string, number> = { X: d.x, Y: d.y, Z: d.z, L: d.length() };
+            const values: Record<string, number> = { X: Math.abs(d.x), Y: Math.abs(d.y), Z: Math.abs(d.z), L: d.length() };
             show(viewer.showMeasureLine(last, p)!.map((k) => [k, values[k]]));
           } else {
             viewer.showMeasureLine(p);
