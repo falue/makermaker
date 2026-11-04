@@ -41,8 +41,39 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const editorBar = Object.assign(document.createElement('div'), { className: 'script-bar' });
   const editor = Object.assign(document.createElement('div'), { className: 'script-editor', hidden: true });
   editor.append(editorBar);
+  // the panes: what is kept in this browser, and the borders between them, dragged as the view's
+  const panes = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('makermaker.terminalPanes') ?? '{}') as { closed?: boolean; editor?: number; scripts?: number };
+    } catch {
+      return {};
+    }
+  })();
+  const keep = () => {
+    try {
+      localStorage.setItem('makermaker.terminalPanes', JSON.stringify(panes));
+    } catch {
+      // only a convenience
+    }
+  };
+  const paneBorder = (title: string, from: () => number, to: (px: number) => void, sign: 1 | -1) => {
+    const border = Object.assign(document.createElement('div'), { className: 'view-border column terminal-border', title });
+    border.onpointerdown = (down) => {
+      border.setPointerCapture(down.pointerId);
+      border.classList.add('dragged');
+      const start = from();
+      border.onpointermove = (m) => (to(start + sign * (m.clientX - down.clientX)), layout());
+      border.onpointerup = () => {
+        border.onpointermove = border.onpointerup = null;
+        border.classList.remove('dragged');
+        keep();
+      };
+    };
+    return border;
+  };
+  const editorBorder = paneBorder('Drag: the width of the script', () => editor.offsetWidth, (px) => (panes.editor = Math.max(160, Math.min(main.clientWidth - 160, px))), 1);
   const main = Object.assign(document.createElement('div'), { className: 'terminal-main' });
-  main.append(editor, scroll);
+  main.append(editor, editorBorder, scroll);
   // the scripts
   const list = Object.assign(document.createElement('div'), { className: 'script-list' });
   const side = Object.assign(document.createElement('div'), { className: 'scripts' });
@@ -50,7 +81,25 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   head.append(Object.assign(document.createElement('span'), { textContent: 'Scripts' }));
   side.append(head, list);
   const cols = Object.assign(document.createElement('div'), { className: 'terminal-cols' });
-  cols.append(main, side);
+  const scriptsBorder = paneBorder('Drag: the width of the scripts', () => side.offsetWidth, (px) => (panes.scripts = Math.max(120, Math.min(cols.clientWidth - 200, px))), -1);
+  cols.append(main, scriptsBorder, side);
+  /** The panes as they are now: no prompt and no script open leaves the scripts all the room. */
+  const layout = () => {
+    const open = !editor.hidden;
+    scroll.hidden = !!panes.closed;
+    editorBorder.hidden = !!panes.closed || !open;
+    main.hidden = scriptsBorder.hidden = !!panes.closed && !open;
+    editor.style.flex = panes.editor && !panes.closed ? `0 0 ${panes.editor}px` : '1';
+    side.style.flex = main.hidden ? '1' : `0 0 ${panes.scripts ?? 220}px`;
+    promptButton.classList.toggle('on', !panes.closed);
+    promptButton.title = panes.closed ? 'Click: Open the Python prompt' : 'Click: Close the Python prompt: scripts stay';
+  };
+  const showPrompt = (show: boolean) => {
+    panes.closed = !show;
+    keep();
+    layout();
+    if (show) input?.focus();
+  };
   box.append(grip, cols);
   parent.append(box);
   const drawerEl = Object.assign(document.createElement('div'), { className: 'drawer' });
@@ -58,6 +107,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   tabs.prepend(drawerEl);
 
   const print = (text: string, kind = '') => {
+    if (kind === 'terminal-error' && panes.closed) showPrompt(true); // never unseen
     const part = Object.assign(document.createElement('span'), { className: kind, textContent: text.endsWith('\n') ? text : `${text}\n` });
     output.append(part);
     if (output.childElementCount > 500) output.firstElementChild!.remove();
@@ -130,7 +180,10 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
       const start = api.doc();
       tell({ kind: 'run', fn, text, selection: api.selection(), ...(start === sent ? {} : { doc: start }) });
       sent = start;
-      stopSoon = window.setTimeout(() => (stopButton.hidden = false), 300);
+      stopSoon = window.setTimeout(() => {
+        stopButton.hidden = false;
+        if (panes.closed) showPrompt(true); // its Stop
+      }, 300);
       running = (m) => {
         idle();
         if (m.failedAfterChange) print('Nothing was changed: it failed before its end.', 'terminal-note');
@@ -258,11 +311,12 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     void flush();
     current = s;
     editor.hidden = !s;
+    layout();
     if (s) {
       editorName.textContent = s.name;
       editorText!.value = s.text;
       editorText!.focus();
-    } else input!.focus();
+    } else if (!panes.closed) input!.focus();
     markOpen();
   };
   /** The folder read again: changes made elsewhere show, also in the editor. */
@@ -318,10 +372,10 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const needFolder = async () => !!dir || (waiting ? reopen() : choose());
   let started = false;
   const start = async () => {
-    if (started) return (current ? editorText : input)?.focus(), void rescan();
+    if (started) return (current ? editorText : panes.closed ? null : input)?.focus(), void rescan();
     started = true;
     await fields();
-    input!.focus();
+    (panes.closed ? side : input!).focus();
     const kept = canUseFolders() ? await recallFolder().catch(() => undefined) : undefined;
     if (kept && (await kept.queryPermission({ mode: 'readwrite' })) === 'granted') await connect(kept, false);
     else {
@@ -443,7 +497,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   };
   const headName = head.firstElementChild as HTMLElement;
   const folderButton = button('open', 'Choose a folder for the scripts', () => void choose());
-  head.append(folderButton, button('import', 'Upload .py files into the folder (or drop them on this list)', () => picker.click()));
+  const promptButton = button('terminal', '', () => showPrompt(!!panes.closed));
+  head.append(promptButton, folderButton, button('import', 'Upload .py files into the folder (or drop them on this list)', () => picker.click()));
   head.append(button('new', 'New script', async () => {
     if (!(await needFolder())) return;
     const s: Script = { name: freeName('New script'), text: '' };
@@ -452,6 +507,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     await rescan();
     open(scripts.find((x) => x.name === s.name) ?? null);
   }));
+
+  layout();
 
   return { toggle, isOpen: () => !box.hidden };
 }
