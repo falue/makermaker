@@ -323,3 +323,16 @@ export function runCommand(doc: Doc, name: string, args: Args = {}): Result {
 /** The commands as a list of tool descriptions (for scripts and LLMs): name, what it does, its parameters. */
 export const describe = () => Object.entries(COMMANDS).map(([name, c]) => ({ name, doc: c.doc, params: c.params }));
 
+/** `next`, a copy from a worker, reusing what is unchanged from `old`: history stays small, big meshes stay one string. */
+export function shared<T>(old: T, next: T): T {
+  if (old === next || typeof old !== 'object' || typeof next !== 'object' || !old || !next || Array.isArray(old) !== Array.isArray(next)) return next;
+  const [a, b] = [old as Record<string, unknown>, next as Record<string, unknown>];
+  const out = (Array.isArray(next) ? [] : {}) as Record<string, unknown>;
+  const keys = Object.keys(b);
+  let same = keys.length === Object.keys(a).length;
+  for (const k of keys) {
+    out[k] = shared(a[k], b[k]);
+    same &&= out[k] === a[k];
+  }
+  return same ? old : (out as T);
+}

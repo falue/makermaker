@@ -183,7 +183,7 @@ Later goals (2026-11-03):
 Later goals (2026-11-03, second round):
 
 - [ ] **Move along any direction:** objects move parallel to any edge, line or work plane, not only along X / Y / Z.
-- [ ] **One way to set a plane at an angle:** the Cut tool, work planes and Draft share one control for it.
+- [x] **One way to set a plane at an angle:** the Cut tool, work planes and Draft share one control for it.
 
 Built 2026-11-03 (second round): Draft; booleans with every kind of body (a test matrix); rebindable hotkeys and modifier roles; laser export with face choice, kerf, SVG / DXF; 3D print checks and 3MF; images with calibration, SVG / DXF as sketches; extra views; the command API.
 

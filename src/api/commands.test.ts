@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Doc } from '../doc/types';
-import { COMMANDS, describe as tools, runCommand } from './commands';
+import { COMMANDS, describe as tools, runCommand, shared } from './commands';
 
 const empty = (): Doc => ({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] });
 
@@ -50,5 +50,23 @@ describe('commands', () => {
     const list = tools();
     expect(list.length).toBe(Object.keys(COMMANDS).length);
     for (const t of list) expect(t.doc.length).toBeGreaterThan(10);
+  });
+});
+
+describe('shared', () => {
+  it('reuses what did not change, also in a copy', () => {
+    const old = { a: { b: [1, 2] }, c: { d: 'x' } };
+    const next = structuredClone(old);
+    expect(shared(old, next)).toBe(old);
+    next.c.d = 'y';
+    const out = shared(old, next);
+    expect(out).not.toBe(old);
+    expect(out.a).toBe(old.a);
+    expect(out).toEqual(next);
+  });
+  it('notices removed keys and shorter arrays', () => {
+    const old: { a?: number; l: number[] } = { a: 1, l: [1, 2] };
+    expect(shared(old, { l: [1, 2] })).toEqual({ l: [1, 2] });
+    expect(shared(old, { a: 1, l: [1] })).toEqual({ a: 1, l: [1] });
   });
 });

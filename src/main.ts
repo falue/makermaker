@@ -28,7 +28,7 @@ import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
 import { extents, meshBody, objKind, parseObj, parseStl, toBase64 } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
-import { describe as describeCommands, runCommand, type Args } from './api/commands';
+import { describe as describeCommands, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
@@ -6013,60 +6013,45 @@ addEventListener('keydown', (e) => {
  * The command API at work in the app (see src/api/commands.ts): each command one undo step, and what it made
  * selected. `window.makermaker` in the browser console (scripts and LLM tools will go through it).
  */
-/** The document while a script runs: its commands gather here. */
-let scripted: Doc | null = null;
-
 const cad = {
   /** Every command: its name, what it does, its parameters. */
   commands: describeCommands,
   /** Runs a command; its result (a new object's id, or what `list` tells). */
   run(name: string, args: Args = {}) {
-    const from = scripted ?? history.current;
+    const from = history.current;
     const { doc, result } = runCommand(from, name, args);
     if (doc === from) return result;
     if (typeof result === 'string' && [...doc.bodies, ...doc.sketches, ...doc.groups].some((o) => o.id === result)) [selected, shapeSel] = [[result], []];
-    if (scripted) scripted = doc;
-    else commit(doc);
+    commit(doc);
     return result;
   },
   select(ids: string[]) {
     [selected, shapeSel] = [ids, []];
-    if (!scripted) showSelection();
-  },
-  /** Runs `step`: what its commands did is one undo step and one build; it returns false: dropped (the result: dropped anything). */
-  batch(step: () => boolean): boolean {
-    const before = selected;
-    scripted = history.current;
-    let [ok, dropped] = [false, false];
-    try {
-      ok = step();
-    } finally {
-      const doc = scripted;
-      scripted = null;
-      if (ok && doc !== history.current) commit(doc);
-      if (!ok) selected = before;
-      showSelection();
-      render();
-      dropped = !ok && doc !== history.current;
-    }
-    return dropped;
+    showSelection();
   },
   selection: () => [...selected],
-  // in a script: what it did so far is kept first
-  undo() {
-    if (scripted && scripted !== history.current) commit(scripted);
-    undo();
-    if (scripted) scripted = history.current;
-  },
-  redo() {
-    if (scripted && scripted !== history.current) commit(scripted);
-    undo(true);
-    if (scripted) scripted = history.current;
-  },
+  undo: () => undo(),
+  redo: () => undo(true),
 };
 (window as unknown as { makermaker: typeof cad }).makermaker = cad;
 
-const terminal = pythonTerminal(viewer.el, rightDrawers, cad, () => render());
+const terminal = pythonTerminal(
+  viewer.el,
+  rightDrawers,
+  {
+    doc: () => history.current,
+    selection: cad.selection,
+    apply(start, { doc, selection, moves }) {
+      if (history.current !== start) return false;
+      if (doc) commit(shared(start, doc));
+      for (let k = 0; k < Math.abs(moves); k++) undo(moves > 0);
+      if (selection) cad.select(selection);
+      render();
+      return true;
+    },
+  },
+  () => render(),
+);
 
 let pasteSoon = 0;
 // ⌘V with a file in the clipboard (a picture copied elsewhere): imported where the pointer is

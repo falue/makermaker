@@ -1,87 +1,15 @@
-import type { PyodideInterface } from 'pyodide';
+import type { Doc } from '../doc/types';
 import { icon } from './icons';
+import type { FromPython, ToPython } from './pythonWorker';
 import { canUseFolders, cleanName, listScripts, recallFolder, rememberFolder, removeScript, writeScript, type Script } from '../io/scriptFolder';
 
-/** What the terminal's `cad` module reaches in the app (see `cad` in main). */
+/** What the terminal reaches in the app (see `terminalApi` in main). */
 export interface TerminalApi {
-  commands(): { name: string; doc: string; params: { name: string; doc: string; optional?: boolean }[] }[];
-  run(name: string, args: Record<string, unknown>): unknown;
-  /** Runs `step`; what its commands did is one undo step and one build, or dropped when it returns false (the result: dropped anything). */
-  batch(step: () => boolean): boolean;
-  select(ids: string[]): void;
+  doc(): Doc;
   selection(): string[];
-  undo(): void;
-  redo(): void;
+  /** A run's outcome, taken unless the design changed since `start` (then false). */
+  apply(start: Doc, outcome: { doc?: Doc; selection?: string[]; moves: number }): boolean;
 }
-
-const PRELUDE = `
-import codeop, json, re, rlcompleter, sys, traceback, types
-import makermaker_bridge as _bridge
-
-cad = types.ModuleType('cad', 'The modelling commands. cad.commands() lists them, help(cad.box) tells about one.')
-
-def _command(name, doc, params):
-    names = [p['name'] for p in params]
-    def run(*args, **kw):
-        if len(args) > len(names):
-            raise TypeError(f'{name}: takes {", ".join(names) or "nothing"}')
-        return json.loads(_bridge.run(name, json.dumps({**dict(zip(names, args)), **kw})))
-    run.__name__ = name
-    run.__qualname__ = 'cad.' + name
-    lines = [f"  {p['name']}{' (optional)' if p.get('optional') else ''}: {p['doc']}" for p in params]
-    run.__doc__ = doc + ('\\n\\n' + '\\n'.join(lines) if lines else '')
-    return run
-
-_list = json.loads(_bridge.commands())
-for _c in _list:
-    setattr(cad, _c['name'], _command(_c['name'], _c['doc'], _c['params']))
-cad.commands = lambda: [_c['name'] for _c in _list]
-cad.select = lambda *ids: _bridge.select(json.dumps(ids))
-cad.selection = lambda: json.loads(_bridge.selection())
-cad.undo = _bridge.undo
-cad.redo = _bridge.redo
-sys.modules['cad'] = cad
-
-_ns = {'__name__': '__main__', 'cad': cad}
-_completer = rlcompleter.Completer(_ns)
-
-def _report():
-    kind, error, tb = sys.exc_info()
-    frames = [f for f in traceback.extract_tb(tb) if f.filename == '<cad>']
-    # a command's complaint, as it is
-    message = [re.sub(r'^.*JsException: Error: ', '', m) for m in traceback.format_exception_only(kind, error)]
-    sys.stderr.write(''.join(traceback.format_list(frames) + message))
-
-def _step(source):
-    """Runs what was typed: 'more' if it goes on, 'error' if it failed, else 'done'."""
-    try:
-        try:
-            code = codeop.compile_command(source, '<cad>', 'single')
-        except SyntaxError:
-            code = compile(source, '<cad>', 'exec')  # several statements at once, pasted
-        if code is None:
-            return 'more'
-        exec(code, _ns)
-        return 'done'
-    except BaseException:
-        _report()
-        return 'error'
-
-def _run(source):
-    """Runs a whole script: 'error' if it failed, else 'done'."""
-    try:
-        exec(compile(source, '<cad>', 'exec'), _ns)
-        return 'done'
-    except BaseException:
-        _report()
-        return 'error'
-
-def _complete(word):
-    found = []
-    while (name := _completer.complete(word, len(found))) is not None:
-        found.append(name)
-    return json.dumps(found)
-`;
 
 /** Written into an empty folder when it is first chosen. */
 const STARTERS: Script[] = [
@@ -93,7 +21,7 @@ const OLD_STORE = 'makermaker.scripts';
 
 /**
  * The Python terminal, a drawer in `parent`: its tab in `tabs`, open across the view, lifting the other drawers
- * (`--drawers-up`). Pyodide loads when first opened. Two columns: the terminal (`cad` is the command API; Enter runs,
+ * (`--drawers-up`). Pyodide loads in a worker when first opened. Two columns: the terminal (`cad` is the command API; Enter runs,
  * typing on when unfinished), beside it the script being edited; and the scripts. A script runs as one undo step.
  */
 export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: TerminalApi, changed: () => void) {
@@ -105,7 +33,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   input.setAttribute('autocapitalize', 'off');
   input.setAttribute('autocorrect', 'off');
   const line = Object.assign(document.createElement('div'), { className: 'terminal-line' });
-  line.append(prompt, input);
+  const stopButton = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('stop'), title: 'Click: Stop Python (Ctrl C): nothing changes, its variables are gone', hidden: true, onclick: () => stop() });
+  line.append(prompt, input, stopButton);
   const scroll = Object.assign(document.createElement('div'), { className: 'terminal-scroll', onclick: () => getSelection()?.isCollapsed && input.focus() });
   scroll.append(output, line);
   const button = (name: string, title: string, onclick: (e: MouseEvent) => void) => Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon(name), title, onclick });
@@ -134,6 +63,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const print = (text: string, kind = '') => {
     const part = Object.assign(document.createElement('span'), { className: kind, textContent: text.endsWith('\n') ? text : `${text}\n` });
     output.append(part);
+    if (output.childElementCount > 500) output.firstElementChild!.remove();
     scroll.scrollTop = scroll.scrollHeight;
   };
   const fit = () => {
@@ -142,52 +72,71 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     scroll.scrollTop = scroll.scrollHeight;
   };
 
-  let python: PyodideInterface | null = null;
-  let loading: Promise<PyodideInterface> | null = null;
-  const load = () =>
-    (loading ??= (async () => {
-      print('Loading Python…', 'terminal-note');
-      const { loadPyodide } = await import('pyodide');
-      const py = await loadPyodide({ indexURL: new URL('pyodide/', document.baseURI).href });
-      py.setStdout({ batched: (text) => print(text) });
-      py.setStderr({ batched: (text) => print(text, 'terminal-error') });
-      py.registerJsModule('makermaker_bridge', {
-        commands: () => JSON.stringify(api.commands()),
-        run: (name: string, args: string) => JSON.stringify(api.run(name, JSON.parse(args)) ?? null),
-        select: (ids: string) => api.select(JSON.parse(ids)),
-        selection: () => JSON.stringify(api.selection()),
-        undo: api.undo,
-        redo: api.redo,
-      });
-      py.runPython(PRELUDE);
-      print(`Python ${py.runPython('sys.version.split()[0]')} · cad is ready: cad.box(80, 60, 40) · cad.commands() lists all · help(cad.box) tells about one`, 'terminal-note');
-      python = py;
-      changed();
-      return py;
-    })());
+  let worker: Worker | null = null;
+  let ready = false;
+  /** The design the worker holds, so an unchanged one is not sent again. */
+  let sent: Doc | null = null;
+  let running: ((m: Extract<FromPython, { kind: 'done' }>) => void) | null = null;
+  let onFound: ((names: string[]) => void) | null = null;
+  let stopSoon = 0;
+  const load = () => {
+    if (worker) return worker;
+    print('Loading Python…', 'terminal-note');
+    worker = new Worker(new URL('./pythonWorker.ts', import.meta.url), { type: 'module' });
+    worker.onerror = (e) => print(`Python: ${e.message}`, 'terminal-error');
+    worker.onmessage = ({ data }: MessageEvent<FromPython>) => {
+      if (data.kind === 'out') print(data.text, data.error ? 'terminal-error' : '');
+      else if (data.kind === 'found') onFound?.(data.names);
+      else if (data.kind === 'done') running?.(data);
+      else {
+        ready = true;
+        print(`Python ${data.version} · cad is ready: cad.box(80, 60, 40) · cad.commands() lists all · help(cad.box) tells about one`, 'terminal-note');
+        changed();
+      }
+    };
+    tell({ kind: 'init', indexURL: new URL('pyodide/', document.baseURI).href });
+    return worker;
+  };
+  const tell = (message: ToPython) => worker!.postMessage(message);
+  const idle = () => {
+    running = null;
+    clearTimeout(stopSoon);
+    stopButton.hidden = true;
+  };
+  /** Ends what runs: the worker goes, and Python's variables with it. */
+  const stop = () => {
+    if (!running) return;
+    worker!.terminate();
+    [worker, ready, sent] = [null, false, null];
+    idle();
+    print('Stopped: nothing was changed, Python starts over.', 'terminal-note');
+  };
 
   const past: string[] = [];
   let back = 0;
   /** Runs `text` through Python's `fn` as one undo step; its state. */
-  const batched = (py: PyodideInterface, fn: string, text: string) => {
-    const step = py.globals.get(fn);
-    let state = '';
-    const dropped = api.batch(() => {
-      state = step(text);
-      return state !== 'error';
+  const batched = (fn: '_step' | '_run', text: string) =>
+    new Promise<string>((done) => {
+      load();
+      const start = api.doc();
+      tell({ kind: 'run', fn, text, selection: api.selection(), ...(start === sent ? {} : { doc: start }) });
+      sent = start;
+      stopSoon = window.setTimeout(() => (stopButton.hidden = false), 300);
+      running = (m) => {
+        idle();
+        if (m.failedAfterChange) print('Nothing was changed: it failed before its end.', 'terminal-note');
+        else if (m.state !== 'error' && (m.doc || m.selection || m.moves) && !api.apply(start, m)) print('The design changed while this ran: nothing was changed. Run it again.', 'terminal-note');
+        done(m.state);
+      };
     });
-    if (dropped) print('Nothing was changed: it failed before its end.', 'terminal-note');
-    step.destroy();
-    return state;
-  };
   const run = async () => {
-    const py = python ?? (await load());
+    if (running) return;
     const source = input.value;
     // a blank last line ends a block
     const text = /\n\s*$/.test(source) ? `${source.trimEnd()}\n` : source;
     if (!text.trim()) return;
     print(source.split('\n').map((l, k) => `${k ? '...' : '>>>'} ${l}`).join('\n'), 'terminal-echo');
-    const state = batched(py, '_step', text);
+    const state = await batched('_step', text);
     if (state === 'more') {
       output.lastChild?.remove(); // not run yet
       const indent = source.match(/(?:^|\n)( *)[^\n]*$/)?.[1] ?? '';
@@ -196,31 +145,32 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     }
     past.push(source);
     back = past.length;
-    input.value = '';
+    if (input.value === source) input.value = '';
     fit();
     changed();
   };
   const complete = () => {
-    if (!python) return;
+    if (!ready || running) return;
     const end = input.selectionStart;
     const word = input.value.slice(0, end).match(/[\w.]+$/)?.[0];
     if (!word) return input.setRangeText('    ', end, end, 'end'), fit();
-    const fn = python.globals.get('_complete');
-    const found: string[] = JSON.parse(fn(word));
-    fn.destroy();
-    if (!found.length) return;
-    const same = found.reduce((a, b) => {
-      let k = 0;
-      while (k < a.length && a[k] === b[k]) k++;
-      return a.slice(0, k);
-    });
-    input.setRangeText(same.slice(word.length), end, end, 'end');
-    if (found.length > 1) print(found.join('  '), 'terminal-note');
+    onFound = (found) => {
+      if (!found.length) return;
+      const same = found.reduce((a, b) => {
+        let k = 0;
+        while (k < a.length && a[k] === b[k]) k++;
+        return a.slice(0, k);
+      });
+      input.setRangeText(same.slice(word.length), end, end, 'end');
+      if (found.length > 1) print(found.join('  '), 'terminal-note');
+    };
+    tell({ kind: 'complete', word });
   };
   input.onkeydown = (e) => {
     const firstLine = !input.value.slice(0, input.selectionStart).includes('\n');
     const lastLine = !input.value.slice(input.selectionEnd).includes('\n');
-    if (e.key === 'Enter' && !e.shiftKey) e.preventDefault(), run();
+    if (e.key === 'c' && e.ctrlKey && running && input.selectionStart === input.selectionEnd) e.preventDefault(), stop();
+    else if (e.key === 'Enter' && !e.shiftKey) e.preventDefault(), run();
     else if (e.key === 'Tab') e.preventDefault(), complete();
     else if (e.key === 'Escape') toggle(false);
     else if (e.key === 'ArrowUp' && firstLine && back > 0) e.preventDefault(), (input.value = past[--back]), fit();
@@ -277,10 +227,10 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     for (const row of list.querySelectorAll<HTMLElement>('.script-row')) row.classList.toggle('on', row.dataset.name === current?.name);
   };
   const play = async (s: Script) => {
-    const py = python ?? (await load());
+    if (running) return print('Python is still running: wait, or stop it.', 'terminal-note');
     await flush();
     print(`▶ ${s.name}`, 'terminal-echo');
-    batched(py, '_run', s.text);
+    await batched('_run', s.text);
     changed();
   };
   const open = (s: Script | null) => {
@@ -376,7 +326,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   };
   editorText.onkeydown = (e) => {
     const at = editorText.selectionStart;
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) current && void play(current);
+    if (e.key === 'c' && e.ctrlKey && running && editorText.selectionStart === editorText.selectionEnd) stop();
+    else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) current && void play(current);
     else if (e.key === 'Enter') {
       const before = editorText.value.slice(0, at);
       const last = before.slice(before.lastIndexOf('\n') + 1);
