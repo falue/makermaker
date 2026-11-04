@@ -2987,7 +2987,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     if (!k) return;
     e.stopPropagation(); // what a click takes is not marked meanwhile
     viewer.aimAt(null);
-    tips.cursorTip(`${k}\n${buttons.get(k)?.title}`);
+    tips.cursorTip(`Click: ${use ? 'Use' : 'Copy'} ${k}`);
   };
   const legPress = (e: PointerEvent) => {
     const k = e.button === 0 ? legAt(e) : null;
