@@ -2031,12 +2031,13 @@ export class Viewer implements ToolView {
     if (look && needsUv(look)) boxUv((solid as THREE.Mesh).geometry);
     const cutter = this.cutters.has(id);
     const dropped = !cutter && this.dropped.has(id);
-    const faded = dropped || (!cutter && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id)));
+    const missed = !cutter && this.missed.has(id);
+    const faded = dropped || missed || (!cutter && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id)));
     (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : this.materialOf(id);
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
     // in sketch mode and the cut tool see-through bodies hide each other: their depth, drawn before the see-through
     // colours (sections and picking skip it); fading around a group's objects shows what lies inside
-    const hides = faded && (dropped || !!this.focus);
+    const hides = faded && (dropped || missed || !!this.focus);
     const g = this.bodies.get(id)!;
     let depth = g.children.find((c) => c.userData.depth);
     if (hides && !depth) {
@@ -2049,12 +2050,14 @@ export class Viewer implements ToolView {
   }
 
   private dropped = new Set<string>();
+  private missed = new Set<string>();
   private kept: Set<string> | null = null;
   private droppedFill = new THREE.MeshStandardMaterial({ color: 0xe5484d, roughness: 0.7, transparent: true, opacity: 0.35, depthWrite: false });
 
-  /** Bodies `ids` see-through in the cut's red (to be deleted), the others as they are. */
-  setDropped(ids: string[]) {
+  /** Bodies `ids` see-through in the cut's red (to be deleted), `missed` faded (the cut leaves them as they are), the others as they are. */
+  setDropped(ids: string[], missed: string[] = []) {
     this.dropped = new Set(ids);
+    this.missed = new Set(missed);
     for (const id of this.bodies.keys()) this.dress(id);
     this.render();
   }
@@ -3456,7 +3459,7 @@ export class Viewer implements ToolView {
     }
     const s = this.sketchShapeAt(e, hit);
     const sketch = s ? { sketch: { id: s.sketch.id, shape: s.q.id } } : {};
-    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), item: this.faceItem(hit), ...sketch });
+    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), item: this.faceItem(hit), adds: role(e, 'add'), ...sketch });
     // a body cut open by a section: its cut face (only back faces are hit through it)
     const behind = this.intersect(this.raycaster(e))[0];
     const cut = behind && this.cutPlane(e);

@@ -12,8 +12,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The starting number of fingers comes from the bodies' boxes in the world, so it is off for plates at a slant.
 
 ## Cut and sections
-- Cutting several bodies needs them selected first: with none selected a click picks one.
-- A body not crossed shows as an error for a moment during the preview of a cut; it is left whole when the cut is kept.
 - A section's axis shows only while it is being picked; there is no way back to its own line except a new section.
 
 ## Measuring

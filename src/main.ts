@@ -418,6 +418,7 @@ const kernel = new Kernel((results, done) => {
     }
   }
   if (done) viewer.holdFit(false);
+  cutting?.refresh();
   render();
 });
 
@@ -1549,12 +1550,17 @@ function cutTool(note = '') {
     const y = n.clone().cross(x);
     viewer.showCut([[o.clone().sub(x).sub(y), o.clone().add(x).sub(y), o.clone().add(x).add(y), o.clone().sub(x).add(y)]]);
   };
-  toolHint = note + 'Click where to cut · [Esc] done · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Esc] cancels';
+  toolHint = note + 'Click where to cut · [Esc] done · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Shift]-click a body: cut it too, or not · [Esc] cancels';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
     viewer.showCut(null);
     if (!face) return render();
+    // Shift on a body: it joins the bodies cut, or leaves them
+    if (face.adds && face.body && !face.sketch) {
+      selected = bodies.includes(face.body) ? bodies.filter((b) => b !== face.body) : [...bodies, face.body];
+      return cutTool(note);
+    }
     const each = (cutter: (pl: ReturnType<typeof bodyPlace>) => SplitFeature['cutter']) => cutPanel(bodies, new Map(bodies.map((b) => [b, cutter(bodyPlace(b))])));
     if (face.sketch?.shape) return each(() => ({ kind: 'shape', sketch: face.sketch!.id, shape: face.sketch!.shape!, offset: len(0) }));
     const round = roundCutter(face);
@@ -1569,8 +1575,8 @@ function cutTool(note = '') {
   }, false, true, null, true);
 }
 
-/** While a cut is set up: its chunk B, not listed until the cut is kept. */
-let cutting: { chunks: string[] } | null = null;
+/** While a cut is set up: its chunks B, not listed until the cut is kept; the bodies cut; `refresh` shows them anew as built. */
+let cutting: { chunks: string[]; bodies: string[]; refresh: () => void } | null = null;
 /** What the last cut kept: the next one starts with it. */
 let cutKeep: 'both' | 'A' | 'B' = 'both';
 
@@ -1620,7 +1626,13 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
     return [own, ...parts.filter((q) => q.body === x.id).map((q) => q.chunk)];
   }) });
   const chunkIds = parts.map((q) => q.chunk.id);
-  cutting = { chunks: chunkIds };
+  // a body the cut does not cross (an error in its build or its chunk's) stays as it is: faded, no error shown
+  const refresh = () => {
+    const missed = parts.filter((q) => kernelErrors.has(q.chunk.id) || kernelErrors.has(q.body));
+    const hit = parts.filter((q) => !missed.includes(q));
+    viewer.setDropped(keep === 'A' ? hit.map((q) => q.chunk.id) : keep === 'B' ? hit.map((q) => q.body) : [], missed.flatMap((q) => [q.body, q.chunk.id]));
+  };
+  cutting = { chunks: chunkIds, bodies, refresh };
   [selected, shapeSel] = [bodies, []];
   const hint = `Cut${bodies.length > 1 ? ` ${bodies.length} bodies` : ''}: set the offset, pick what stays · type or scrub it, T: to object${cutter.kind === 'plane' ? ' · the turn (Set axis: what it turns around)' : ''} · [Enter] cuts, then the next · [Esc] leaves them as they were`;
   toolHint = hint;
@@ -1642,7 +1654,7 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
       history.replace({ ...doc, bodies: next });
       update();
     }
-    viewer.setDropped(keep === 'A' ? chunkIds : keep === 'B' ? bodies : []);
+    refresh();
     surface(c);
   };
   /** A plane's axis in the world: the one set, else its own x through its point. */
@@ -5790,7 +5802,7 @@ function render() {
     doc: cutting ? { ...doc, bodies: doc.bodies.filter((b) => !cutting!.chunks.includes(b.id)) } : doc,
     selected,
     exprErrors,
-    kernelErrors: new Map([...kernelErrors, ...linkErrors]),
+    kernelErrors: new Map([...kernelErrors, ...linkErrors].filter(([id]) => !cutting || ![...cutting.bodies, ...cutting.chunks].includes(id))),
     lostEdges: (body, feature) => lostEdges.get(body)?.[feature] ?? 0,
     title: file.name,
     dirty: doc !== file.saved,
