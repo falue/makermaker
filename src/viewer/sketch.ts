@@ -9,7 +9,7 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import { comboText, keysOf, pressed, role, type ModEvent } from '../ui/keys';
+import { comboText, keysOf, pressed, role, type Action, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import { inName } from '../doc/expr';
@@ -351,9 +351,12 @@ export class SketchTool implements Tool {
     addEventListener('keyup', this.shiftUp);
     this.host.hint(this.hoverHint());
     this.update();
+    const m = this.drawMode();
+    if (m) showMode(view.el, kind!, m);
   }
 
   dispose() {
+    this.view.el.querySelector('.mode-note')?.remove();
     clearTimeout(this.dwell.timer);
     removeEventListener('keyup', this.shiftUp);
     this.view.aimAt(null);
@@ -1573,10 +1576,10 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
   ],
 };
 
-/** The drawing mode's pictogram and name, top left in the view for a moment. */
+/** The drawing mode's pictogram, name and how to change it, top left in the view for a moment. */
 function showMode(el: HTMLElement, kind: ToolKind, m: Mode, ms = 3000) {
   el.querySelector('.mode-note')?.remove();
-  const note = Object.assign(document.createElement('div'), { className: 'mode-note', innerHTML: `${icon(`${kind}-${m.id}`)}<span>${m.name}</span>` });
+  const note = Object.assign(document.createElement('div'), { className: 'mode-note', innerHTML: `${icon(`${kind}-${m.id}`)}<span>${m.name}<small>Change with ${comboText(keysOf(kind as Action)[0])} or Alt</small></span>` });
   el.append(note);
   setTimeout(() => note.remove(), ms);
 }
