@@ -644,8 +644,9 @@ const fullness = (k: number) => Math.max(-4, Math.min(4, k));
  * A box joint: where the body and the other overlap, sliced across the overlap's longest side into fingers (`width`
  * above 0: exactly that long from the low end, or from `from` both ways, the rest at the ends; else `count` equal
  * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`), each cut
- * `clearance` / 2 wider on both sides. Two standing square to each other where one only touches or partly reaches into
- * the other (boxes, along an axis): the joint fills the whole meeting place, through the thinner one there, both grown.
+ * `clearance` / 2 wider on both sides. Two standing square to each other where one only touches (a face or an edge) or
+ * partly reaches into the other (boxes, along an axis): the joint fills the whole meeting place, through the thinner one
+ * there along each such axis, both grown.
  */
 function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   if (!shape) throw new Error('nothing to joint yet');
@@ -653,7 +654,7 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   const [[la, ha], [lb, hb]] = [shape.boundingBox.bounds, other.boundingBox.bounds];
   const gaps = [0, 1, 2].map((a) => Math.max(lb[a] - ha[a], la[a] - hb[a]));
   if (gaps.some((g) => g > EPS)) throw new Error('the two bodies do not touch: move one onto or into the other');
-  if (gaps.filter((g) => g > -EPS).length > 1) throw new Error('the two bodies meet only along an edge: put one onto or into the other');
+  if (gaps.every((g) => g > -EPS)) throw new Error('the two bodies meet only at a corner: put one onto or into the other');
   // per axis: one range holds the other, or they only partly cover each other
   const holds = (a: number) => (la[a] <= lb[a] + EPS && ha[a] >= hb[a] - EPS) || (lb[a] <= la[a] + EPS && hb[a] >= ha[a] - EPS);
   const partly = [0, 1, 2].some((a) => !holds(a));

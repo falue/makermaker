@@ -190,6 +190,14 @@ describe('buildBody', () => {
     expect(measureVolume(grown)).toBeCloseTo(4 * 60 * 40 + 7 * slice - 4 * slice, 0);
     grown.delete();
     expect(() => buildBody([sheet, on([base(100)], false, -5)])).toThrow();
+    // meeting only along an edge (the sheet beside the plate's end, on top of it): both grow into the corner between them
+    const at = (features: BuildFeature[], first: boolean, d: number) => ({ ...(fingers(features, first) as object), place: { offset: [d, 0, d], axis: [0, 0, 1], angle: 0 } }) as BuildFeature;
+    const plateEdge = buildBody([base(100), at([sheet], true, 4)]);
+    expect(measureVolume(plateEdge)).toBeCloseTo(100 * 60 * 4 + 7 * slice - 3 * slice, 0);
+    plateEdge.delete();
+    const sheetEdge = buildBody([sheet, at([base(100)], false, -4)]);
+    expect(measureVolume(sheetEdge)).toBeCloseTo(4 * 60 * 40 + 7 * slice - 4 * slice, 0);
+    sheetEdge.delete();
     // the sheet reaching only 2 into the plate: it grows the other 2 through it
     const partly = buildBody([sheet, on([base(100)], false, -2)]);
     expect(measureVolume(partly)).toBeCloseTo(4 * 60 * 40 + 4 * 60 * 2 - 4 * slice, 0);
