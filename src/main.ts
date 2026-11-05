@@ -1493,15 +1493,10 @@ function cutTool(note = '') {
   }
   [selected, shapeSel] = [bodies, []];
   showSelection();
-  toolHint = note + 'Click where to cut · [Esc] done · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Esc] cancels';
-  render();
-  viewer.pickFace((face) => {
-    toolHint = null;
-    if (!face) return render();
-    const each = (cutter: (pl: ReturnType<typeof bodyPlace>) => SplitFeature['cutter']) => cutPanel(bodies, new Map(bodies.map((b) => [b, cutter(bodyPlace(b))])));
-    if (face.sketch?.shape) return each(() => ({ kind: 'shape', sketch: face.sketch!.id, shape: face.sketch!.shape!, offset: len(0) }));
-    // another body that is a ball or a cylinder (one circle pulled): along its surface
-    const other = !bodies.includes(face.body!) ? doc.bodies.find((b) => b.id === face.body)?.features : undefined;
+  // another body that is a ball or a cylinder (one circle pulled): along its surface
+  const roundCutter = (face: PickedFace) => {
+    if (bodies.includes(face.body!)) return null;
+    const other = doc.bodies.find((b) => b.id === face.body)?.features;
     const [solid] = other?.length === 1 ? (built.get(face.body!) ?? []) : [];
     const there = bodyPlace(face.body!);
     if (other?.[0].type === 'sphere') {
@@ -1511,11 +1506,37 @@ function cutTool(note = '') {
     const pulled = solid?.type === 'extrude' && solid.mode === 'add' && !solid.through && solid.profiles.length === 1 ? solid : null;
     const circle = pulled?.profiles[0];
     const f = pulled && frames([pulled]).get(pulled.id);
-    if (pulled && circle?.kind === 'circle' && f) {
-      const [from, to] = extent(pulled.depth, pulled.back);
-      const c = inWorld(there, toWorld(moved(f, scale(f.n, from)), circle.x, circle.y));
-      return each((pl) => ({ kind: 'cylinder', c: unplaced(pl, c), dir: unplaced(pl, inWorld(there, f.n, true), true), h: to - from, d: len(circle.d), offset: len(0) }));
-    }
+    if (!pulled || circle?.kind !== 'circle' || !f) return null;
+    const [from, to] = extent(pulled.depth, pulled.back);
+    return { kind: 'cylinder' as const, c: inWorld(there, toWorld(moved(f, scale(f.n, from)), circle.x, circle.y)), d: circle.d, typed: len(circle.d), dir: inWorld(there, f.n, true), h: to - from };
+  };
+  // while choosing: what a click would cut along, red, through the bodies
+  const whole = bodies.reduce((box, b) => { const m = viewer.measure(b)?.box; return m ? box.union(m) : box; }, new Box3());
+  viewer.faceAim = (face) => {
+    if (!face || whole.isEmpty()) return viewer.showCut(null);
+    const round = roundCutter(face);
+    if (round) return viewer.showCut({ at: new Vector3(...round.c), r: round.d / 2, dir: round.dir && new Vector3(...round.dir), h: round.h });
+    const n = face.normal.clone().normalize();
+    const size = whole.getSize(new Vector3()).length() * 0.6;
+    const mid = whole.getCenter(new Vector3());
+    const o = mid.clone().addScaledVector(n, face.point.clone().sub(mid).dot(n)); // the bodies' middle on the plane
+    const x = new Vector3(0, 0, 1).cross(n);
+    if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+    x.normalize().multiplyScalar(size);
+    const y = n.clone().cross(x);
+    viewer.showCut([[o.clone().sub(x).sub(y), o.clone().add(x).sub(y), o.clone().add(x).add(y), o.clone().sub(x).add(y)]]);
+  };
+  toolHint = note + 'Click where to cut · [Esc] done · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Esc] cancels';
+  render();
+  viewer.pickFace((face) => {
+    toolHint = null;
+    viewer.showCut(null);
+    if (!face) return render();
+    const each = (cutter: (pl: ReturnType<typeof bodyPlace>) => SplitFeature['cutter']) => cutPanel(bodies, new Map(bodies.map((b) => [b, cutter(bodyPlace(b))])));
+    if (face.sketch?.shape) return each(() => ({ kind: 'shape', sketch: face.sketch!.id, shape: face.sketch!.shape!, offset: len(0) }));
+    const round = roundCutter(face);
+    if (round?.kind === 'sphere') return each((pl) => ({ kind: 'sphere', c: unplaced(pl, round.c), d: structuredClone(round.typed), offset: len(0) }));
+    if (round?.kind === 'cylinder') return each((pl) => ({ kind: 'cylinder', c: unplaced(pl, round.c), dir: unplaced(pl, round.dir!, true), h: round.h, d: round.typed, offset: len(0) }));
     // on the face clicked (its normal into the body), or the plane facing you
     const n = face.normal.clone().normalize();
     const x = new Vector3(0, 0, 1).cross(n);

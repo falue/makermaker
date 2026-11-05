@@ -668,6 +668,7 @@ export class Viewer implements ToolView {
           this.aimAt(null);
           this.markEdge();
           this.markFace();
+          this.faceAim?.({ point: plane.point, normal: new THREE.Vector3(...plane.frame.n) });
           return void this.aiming?.({ at: plane.point, what: 'on work plane' });
         }
         if (this.quietPick && this.pickParts === 'lit') {
@@ -691,6 +692,7 @@ export class Viewer implements ToolView {
         const hit = this.frontHit(e);
         const s = this.sketchShapeAt(e, hit);
         this.markSketch(s);
+        this.faceAim?.(hit && !s ? { point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId } : null);
         return this.markFace(s ? undefined : hit);
       }
       if (!this.tool && !this.drag && !e.buttons) {
@@ -1479,6 +1481,9 @@ export class Viewer implements ToolView {
     this.locked = false;
     if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock();
   }
+
+  /** Picking a face: told the face a click would take (null: none); ends with the pick. */
+  faceAim: ((face: PickedFace | null) => void) | null = null;
 
   /** The next click on a body picks a face (null: Esc). */
   /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too; `parts`: see `pickParts`. */
@@ -3332,8 +3337,9 @@ export class Viewer implements ToolView {
       geo.setAttribute('position', new THREE.BufferAttribute(points, 3));
       mark = new THREE.Mesh(
         geo,
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, depthTest: false, depthWrite: false, side: THREE.DoubleSide }),
       );
+      mark.renderOrder = 1e5; // over everything, what lies under it seen through
       mesh.parent!.add(mark);
     }
     this.render();
@@ -3550,6 +3556,7 @@ export class Viewer implements ToolView {
   private endFacePick(face: PickedFace | null) {
     const done = this.facePick;
     this.facePick = null;
+    this.faceAim = null;
     this.markSketch(null);
     this.markFace();
     if (this.pickParts) this.markEdge();
