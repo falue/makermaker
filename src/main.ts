@@ -625,7 +625,7 @@ function update() {
     ),
   );
   viewer.setPhotos([...BUILT_IN_PHOTOS, ...allPhotos()]);
-  viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: owner.has(b.id) })));
+  viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: owner.has(b.id), outlined: b.visible && !hideAll.objects && shownIn(b.group) && doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id && f.free)) })));
   viewer.select(contents(doc, selected), groupKept(doc));
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
@@ -4332,10 +4332,13 @@ function listedElsewhere(doc: Doc, ids: string[], under?: string): Doc {
   const owner = ownersOf(doc);
   const tools = ids.filter((id) => owner.has(id));
   if (!tools.length) return doc;
+  const back = (id: string) => owner.get(id) === under;
   return {
     ...doc,
     bodies: doc.bodies.map((b) => ({
       ...b,
+      // its eye starts off: hidden until selected, as under its body
+      visible: tools.includes(b.id) && !back(b.id) ? false : tools.includes(b.id) ? true : b.visible,
       features: b.features.map((f) => {
         if (f.type !== 'boolean' || !tools.includes(f.body) || owner.get(f.body) !== b.id) return f;
         const { free: _, ...rest } = f;

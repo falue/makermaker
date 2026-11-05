@@ -802,6 +802,8 @@ function left(ctx: UIContext): Node[] {
       op?.type === 'boolean'
         ? h('button', { className: 'icon tool-op', innerHTML: icon(op.op), title: `${{ union: 'Joined to', subtract: 'Cuts', intersect: 'Intersects' }[op.op]} ${user!.name} · click: free it from the boolean`, onclick: () => ctx.commit(freed(doc, id)) })
         : look;
+    // listed on its own: its eye too (on: its outlines show all the time; off: only while selected)
+    const toolEye = op?.type === 'boolean' && op.free ? [look] : [];
     // linked copies: the link mark on the copies; on their source a button that breaks the links
     const source = doc.bodies.find((b) => b.id === p.link);
     const copies = doc.bodies.filter((b) => b.link === p.id).map((b) => b.id);
@@ -813,7 +815,7 @@ function left(ctx: UIContext): Node[] {
     // a box joint: its button opens its panel
     const finger = p.features.find((f) => f.type === 'fingers');
     const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Box joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];
-    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...joint, ...sketch, ...bools, ...jointMark(id), tool);
+    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...joint, ...sketch, ...bools, ...jointMark(id), tool, ...toolEye);
     return el;
   });
   // sketches: their own list, each with the body it belongs to

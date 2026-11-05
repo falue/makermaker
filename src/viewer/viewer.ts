@@ -29,7 +29,7 @@ import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import type { Settings } from '../ui/settings';
-import { divideMore, linePoints, outline, planeHit, shape2d, sideKey, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
+import { divideMore, edgeKey, linePoints, outline, planeHit, shape2d, sideKey, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 import { picksFace, pressed, role, toggles, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -1503,7 +1503,7 @@ export class Viewer implements ToolView {
     const ref = edge?.index === undefined ? undefined : { body: edge.body, edge: edge.index };
     if (point) return point.what === 'corner' || point.what === 'centre' ? point : { ...point, on: ref };
     // the line A / Shift A split (points along it come from `linePoints` under the same key)
-    const edgeKey = edge?.segs.length === 1 ? sideKey(edge.segs[0][0], edge.segs[0][1]) : undefined;
+    const key = edge && !edge.cut ? edgeKey(edge.segs) : undefined;
     if (edge) {
       // an open edge's middle, else the edge point nearest the pointer's ray
       const lengths = edge.segs.map(([a, b]) => a.distanceTo(b));
@@ -1511,7 +1511,7 @@ export class Viewer implements ToolView {
       const k = Math.max(0, lengths.findIndex((l) => (half -= l) <= 0));
       const mid = edge.segs[k][0].clone().lerp(edge.segs[k][1], 1 + half / (lengths[k] || 1));
       const open = edge.segs[0][0].distanceTo(edge.segs.at(-1)![1]) > 1e-6;
-      if (open && near(mid)) return { at: mid, what: '1/2', on: ref, key: edgeKey };
+      if (open && near(mid)) return { at: mid, what: '1/2', on: ref, key };
       const ray = this.ray(e);
       let best: [number, THREE.Vector3] | null = null;
       for (const [a, b] of edge.segs) {
@@ -1519,7 +1519,7 @@ export class Viewer implements ToolView {
         const d = ray.distanceSqToSegment(a, b, undefined, p);
         if (!best || d < best[0]) best = [d, p];
       }
-      return { at: best![1], what: 'on edge', on: ref, key: edgeKey };
+      return { at: best![1], what: 'on edge', on: ref, key };
     }
     // a sketch's line: a point on it
     const ray = this.ray(e);
@@ -1963,7 +1963,8 @@ export class Viewer implements ToolView {
 
   /** Colour and visibility per body; hidden bodies are not drawn, picked or snapped to (but still built). */
   /** `cutter`: a boolean's tool body, drawn as red outlines (shown while selected even when hidden: join / intersect tools). */
-  setLooks(looks: { id: string; look: Look; visible: boolean; cutter: boolean; owner?: string }[]) {
+  setLooks(looks: { id: string; look: Look; visible: boolean; cutter: boolean; outlined?: boolean; owner?: string }[]) {
+    this.outlinedCutters = new Set(looks.filter((l) => l.outlined).map((l) => l.id));
     this.looksHidden = new Set(looks.filter((l) => !l.visible).map((l) => l.id));
     this.cutters = new Set(looks.filter((l) => l.cutter).map((l) => l.id));
     this.rehide();
@@ -1987,9 +1988,12 @@ export class Viewer implements ToolView {
   }
   private around: THREE.Texture | null = null;
 
-  /** Tool bodies of booleans show (as outlines) only while selected; the rest as their looks say. */
+  /** Tool bodies whose eye is on: their outlines show at all times. */
+  private outlinedCutters = new Set<string>();
+
+  /** Tool bodies of booleans show (as outlines) only while selected or with their eye on; the rest as their looks say. */
   private rehide() {
-    const shown = (id: string) => this.selection.includes(id);
+    const shown = (id: string) => this.selection.includes(id) || this.outlinedCutters.has(id);
     this.hidden = new Set([...this.looksHidden, ...this.cutters].filter((id) => !(this.cutters.has(id) && shown(id))));
   }
 

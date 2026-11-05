@@ -266,6 +266,8 @@ const v3 = (a: V3) => new THREE.Vector3(...a);
 type SnapPoint = { at: UV; what: string; line?: Segment[]; corner?: THREE.Vector3; key?: string; parts?: [number, number] };
 /** A straight line's key, by its ends (world, either way round). */
 export const sideKey = (a: THREE.Vector3, b: THREE.Vector3) => [a, b].map((v) => v.toArray().map((x) => x.toFixed(3)).join(',')).sort().join('|');
+/** The key of a body edge for A / Shift A: straight as a side, a curved one by its start and middle (a closed one starts and ends alike). */
+export const edgeKey = (segs: Segment[]) => (segs.length === 1 ? sideKey(segs[0][0], segs[0][1]) : `curve:edge:${sideKey(segs[0][0], segs[segs.length >> 1][0])}`);
 /** `i/n` in lowest terms. */
 function fraction(i: number, n: number) {
   const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
@@ -685,6 +687,7 @@ export class SketchTool implements Tool {
       const k = this.snapKey;
       divideMore(k, more);
       this.showing = k;
+      this.splitAt = [this.lastPoint[0].clientX, this.lastPoint[0].clientY];
       const at = ph.kind === 'polygon' ? this.sideEnd(this.lastPoint[0], ph) : this.point(...this.lastPoint);
       if (at && (ph.kind === 'shape' || ph.kind === 'polygon')) ph.cur = at;
     } else if (free && (more || pressed(e, 'fewerSnaps')) && ph.kind !== 'polygon') {
@@ -941,7 +944,7 @@ export class SketchTool implements Tool {
     const lines = this.snapLines();
     const uv = this.snapAt(e, t, lines, grid);
     this.snapSeg ??= this.roundSeg(e, t, lines);
-    if (this.showing !== this.snapKey) this.showing = null; // the pointer left the line just changed
+    this.showing = this.snapKey && SketchTool.divisions.has(this.snapKey) ? this.snapKey : null; // a line split with A shows its points while the pointer is on it
     this.dots = this.showing ? this.snapPoints(t, this.snapLines()).filter((q) => q.key === this.showing).map((q) => v3(toWorld(t.frame, ...q.at))) : [];
     return uv;
   }
@@ -967,6 +970,8 @@ export class SketchTool implements Tool {
   /** On a line, an edge and a point along it at once: the one taken, Tab going on to the next (before anything is drawn: Tab has other uses then). */
   private cycle = { lines: '', at: 0, count: 0 };
   private nothingToSplit = false;
+  /** Where the pointer was at the last A or Shift A: the line split stays the line until it moves. */
+  private splitAt: [number, number] | null = null;
 
   private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], grid: boolean, px = 10, linePx = 8): UV | null {
     this.cycle.count = 0;
@@ -1002,11 +1007,13 @@ export class SketchTool implements Tool {
         }
         close.push({ line, a: uvOf(t.frame, a), b: uvOf(t.frame, b) });
         // the line for A / Shift A: a circle, a straight side, or a straight body edge
-        const key = guide ? undefined : shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : (curves?.[i] ?? (shape || segs.length === 1 ? sideKey(a, b) : undefined));
+        const key = guide ? undefined : shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : (curves?.[i] ?? (shape ? sideKey(a, b) : edgeKey(segs)));
         if (!under.has(line) || d < under.get(line)!.d) under.set(line, { at: a.clone().lerp(b, k), line: segs, what, key, seg: key && straightKey(key) ? [a, b] : undefined, on: [a, b], guide, d });
       }
     // the line just split with A stays the line while the pointer is on it: a point that went must not hand it to what lies near
-    const splitting = !!this.showing && [...under.values()].some((u) => u.key === this.showing);
+    const still = this.splitAt && Math.hypot(e.clientX - this.splitAt[0], e.clientY - this.splitAt[1]) < 3;
+    if (!still) this.splitAt = null;
+    const splitting = !!still && !!this.showing && [...under.values()].some((u) => u.key === this.showing);
     if (splitting) near = points.filter((q) => q.key === this.showing && distance(q) < px).sort((u, v) => distance(u) - distance(v))[0];
     // a helper line on a real one is not there: only beyond it
     const real = [...under.entries()].filter(([, u]) => !u.guide).sort(([, u], [, v]) => +(v.key === this.showing) - +(u.key === this.showing) || u.d - v.d);
@@ -1032,7 +1039,8 @@ export class SketchTool implements Tool {
     if (near) {
       // a point along a curve: on the curve, not on its flattened piece
       if (near.key?.startsWith('curve:')) {
-        const on = this.view.onSketchCurve(v3(toWorld(t.frame, ...near.at)), 1);
+        const world = v3(toWorld(t.frame, ...near.at));
+        const on = near.key.startsWith('curve:edge:') ? this.onTrueLine({ segs: near.line!, what: '' }, world, t) : this.view.onSketchCurve(world, 1);
         if (on) {
           near = { ...near, at: uvOf(t.frame, on) };
           this.snapped = v3(toWorld(t.frame, ...near.at));
@@ -1551,8 +1559,8 @@ export class SketchTool implements Tool {
     const onPoint = this.snapped && !this.snapWhat?.startsWith('on ');
     const fix = onPoint ? `${comboText(keysOf('fixGuide')[0])}: X and Y guides through this point` : guide ? `Press ${comboText(keysOf('fixGuide')[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
     const cycleHint = ph.kind === 'hover' && this.cycle.count > 1 ? `Tab: the next of ${this.cycle.count} here` : null;
-    // A or Shift A just pressed: how many points the line has now
-    const split = this.showing ? `${SketchTool.divisions.get(this.showing)} point${SketchTool.divisions.get(this.showing) === 1 ? '' : 's'}` : null;
+    // a line split with A: into how many parts
+    const split = this.showing ? `Split in ${SketchTool.divisions.get(this.showing)! + (this.showing.startsWith('circle:') ? 0 : 1)}` : null;
     const base = ph.kind === 'polygon' && this.hoveredLine(ph.target.frame) !== null ? `Press ${comboText(keysOf('baseline')[0])} to measure the angle from this line` : null;
     const angles = ph.kind === 'polygon' && !ph.arc && !ph.held && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(keysOf('moreSnaps')[0])} finer, ${comboText(keysOf('fewerSnaps')[0])} coarser` : null;
     // pulling: while aiming what the pointer reaches (what T does is in the size label)
@@ -1768,10 +1776,20 @@ export function linePoints(lines: SnapLine[]): (Omit<SnapPoint, 'at'> & { at: TH
     const len = a.distanceTo(b);
     for (let i = 1; i <= m; i++) pts.push({ at: a.clone().lerp(b, i / (m + 1)), what: fraction(i, m + 1), line: [[a, b]], key, parts: [(len * i) / (m + 1), len - (len * i) / (m + 1)] });
   };
+  // evenly spaced points along a curved line
+  const along = (segs: Segment[], key: string, m: number) => {
+    const len = segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
+    for (let k = 1; k <= m; k++) {
+      let left = (len * k) / (m + 1);
+      const seg = segs.find(([a, b]) => (left -= a.distanceTo(b)) <= 0) ?? segs[segs.length - 1];
+      pts.push({ at: seg[1].clone().lerp(seg[0], -left / (seg[0].distanceTo(seg[1]) || 1)), what: fraction(k, m + 1), line: segs, key, parts: [(len * k) / (m + 1), len - (len * k) / (m + 1)] });
+    }
+  };
   for (const { segs, shape, guide } of lines) {
     if (guide) continue;
     if (!shape) {
       if (segs.length === 1) divide(segs[0]);
+      else if (SketchTool.divisions.has(edgeKey(segs))) along(segs, edgeKey(segs), SketchTool.divisions.get(edgeKey(segs))!);
       continue;
     }
     const { p, sketch } = shape;

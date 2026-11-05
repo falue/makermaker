@@ -54,3 +54,4 @@ Answers assumed where a request left a question open.
 - Tab goes through on line / on edge / a point along it only before anything is drawn; while drawing Tab keeps its other uses (a size's other field, a line's angle), so the nearest wins there.
 - G's guides run along the drawing plane's X and Y only, not the world's.
 - The list's boolean colours reuse the joint's two colours: the body it cuts as "stays", tool bodies as "moves".
+- A tool body's eye: off hides it until selected, on shows its red outlines at all times. Only tool bodies listed elsewhere have it; those under their body keep just the red icon.
