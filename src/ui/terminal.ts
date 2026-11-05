@@ -92,7 +92,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const side = Object.assign(document.createElement('div'), { className: 'scripts' });
   const head = Object.assign(document.createElement('div'), { className: 'scripts-head' });
   head.append(Object.assign(document.createElement('span'), { textContent: 'Scripts' }));
-  const tabBar = Object.assign(document.createElement('div'), { className: 'segmented script-tabs' });
+  const tabBar = Object.assign(document.createElement('div'), { className: 'script-tabs' });
   side.append(head, tabBar, list);
   const cols = Object.assign(document.createElement('div'), { className: 'terminal-cols' });
   const scriptsBorder = paneBorder('Drag: the width of the scripts', () => side.offsetWidth, (px) => (panes.scripts = Math.max(120, Math.min(cols.clientWidth - 200, px))));
@@ -560,7 +560,12 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     const tabs = ([['folder', dir?.name], ['files', linked.length ? 'Files' : ''], ['examples', 'Examples']] as const).filter(([t, name]) => name && (t !== 'examples' || dir || linked.length));
     const shown = tabs.find(([t]) => t === tab)?.[0] ?? tabs[0]?.[0] ?? 'examples';
     tabBar.hidden = !tabs.length;
-    tabBar.replaceChildren(...tabs.map(([t, name]) => Object.assign(document.createElement('button'), { textContent: name, className: t === shown ? 'on' : '', title: t === 'folder' ? `The scripts in ${name}` : t === 'files' ? 'The .py files picked' : 'The scripts that come with the app', onclick: () => showTab(t) })));
+    tabBar.replaceChildren(...tabs.map(([t, name]) => {
+      const b = Object.assign(document.createElement('button'), { className: t === shown ? 'on' : '', title: t === 'folder' ? `The scripts in ${name}` : t === 'files' ? 'The .py files picked' : 'The scripts that come with the app', onclick: () => showTab(t) });
+      b.innerHTML = t === 'folder' ? icon('open') : t === 'files' ? icon('files') : '';
+      b.append(Object.assign(document.createElement('span'), { textContent: name }));
+      return b;
+    }));
     folderButton.hidden = filesButton.hidden = !canUseFolders();
     folderButton.title = dir ? `Scripts folder: ${dir.name} · Click: Choose another` : waiting ? `Click: Open "${waiting.name}" again` : 'Click: Choose a folder for the scripts';
     newButton.hidden = !dir;

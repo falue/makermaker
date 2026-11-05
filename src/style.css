@@ -2489,16 +2489,46 @@ section > h4 .segmented button {
   display: flex;
   flex-direction: column;
 }
+/* folder tabs across the list: the open one joins the list below it (no bottom border) */
 .script-tabs {
   flex: none;
-  margin: 0 6px 4px;
-}
-.script-tabs button {
-  padding: 1px 8px;
-  font-size: 12px;
+  display: flex;
+  gap: 2px;
+  margin: 0 6px;
+  border-bottom: 1px solid var(--line);
 }
 .script-tabs[hidden] {
   display: none;
+}
+.script-tabs button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: -1px; /* over the line below */
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 5px 5px 0 0;
+}
+.script-tabs button.on {
+  color: var(--text);
+  background: var(--panel);
+  border-bottom-color: var(--panel);
+}
+.script-tabs svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.script-tabs span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .script-list {
   flex: 1;
