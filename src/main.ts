@@ -2103,7 +2103,7 @@ function angleControl(o: { input: HTMLInputElement; axis: () => { at: Vector3; d
  * decimals go when the field is left); `step`: its scrub step per px; `title`: what label and field say on hover.
  * `change` gets the texts as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
  */
-function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; step?: number; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = [], after: HTMLElement[] = []) {
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; step?: number; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = [], before: HTMLElement[] = []) {
   const u = history.current.units;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
@@ -2160,7 +2160,8 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     e.preventDefault();
     end(pressed(e, 'confirm'));
   };
-  box.append(...extra, ...cells, ...after, panelButton('✓', 'Keep it (Enter); Esc drops it', () => end(true)));
+  // the most important first: `fields` in order, then `extra`; `before` only when a choice matters more than any value
+  box.append(...before, ...cells, ...extra, panelButton('✓', 'Keep it (Enter); Esc drops it', () => end(true)));
   document.body.append(box);
   atTop(box);
   toolHint = hint;
