@@ -92,6 +92,14 @@ function coatTests(): Body[] {
   return [coated(solid('Coat: cube, sharp', '#9fd0c0', [-60, 110, 0], [rect(5, 5)], 5), 'sharp'), coated(solid('Coat: cube, round', '#9fd0c0', [-40, 110, 0], [rect(5, 5)], 5), 'round'), solid('Coat me: block with a hole', '#9fd0c0', [0, 110, 0], [{ id: newId(), kind: 'rect', x: ex(0), y: ex(0), w: ex(30), h: ex(20), r: ex(3), rot: ex(0) }, circle(0, 0, 8)], 10)];
 }
 
+/** Test pieces for Attach: a cap that goes along with its post (move the post; the cap alone moves alone). */
+function attachTest(): { bodies: Body[]; joint: Joint } {
+  const post = solid('Attach: post', '#d6b98c', [50, 110, 0], [rect(10, 10)], 20);
+  const cap = solid('Attach: cap', '#8cb4d6', [50, 110, 20], [rect(14, 14)], 3);
+  const z = ex(0);
+  return { bodies: [post, cap], joint: { id: newId(), name: 'Attach 1', kind: 'attach', both: false, parent: post.id, children: [cap.id], axis: { at: [0, 0, 20], dir: [0, 0, 1] }, min: z, max: z, value: z, speed: ex(1) } };
+}
+
 /** A test piece for the cut tool: a block with a zig-zag line across it on the ground (cut along it, or by a plane). */
 function splitTest(): { body: Body; sketch: Sketch } {
   const line: Profile = { id: newId(), kind: 'line', pts: [[-165, -10], [-145, 8], [-130, -8], [-112, 10], [-95, -2]] };
@@ -237,12 +245,13 @@ export function sampleDoc(): Doc {
     position: [ex(-5), ex(55), ex(25)],
     features: [{ id: newId(), type: 'sphere', x: ex(0), y: ex(0), z: ex(0), d: ex(36) }],
   };
+  const attached = attachTest();
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
     schema: 32,
     units: 'mm',
     params: { $ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...clash.bodies],
+    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies],
     sketches: [
       outline,
       {
@@ -259,7 +268,7 @@ export function sampleDoc(): Doc {
     ],
     groups: [corner, ...hinged.groups],
     sections: [],
-    joints: [...hinged.joints, clash.joint],
+    joints: [...hinged.joints, clash.joint, attached.joint],
     planes: [slantedPlane()],
     images: [],
     materials: [frosted, glowing, rough],

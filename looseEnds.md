@@ -32,7 +32,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Coat
 - Excluding a flat face removes what grew out of it over the face's own box and a margin; where another part of the body rises right beside that face, its coat there can get cut too.
 - Only flat faces can be excluded. Meshes cannot be coated.
-- A linked coat body and its body move and turn as one, but while dragging only the one dragged moves; the other jumps along when the drag ends. They are moved by as much in each one's own group coordinates (they start in the same group). A coat body that is not linked keeps its own place.
+- Attach: while dragging, only what is dragged moves on screen; what goes along jumps there when the drag ends. Both ways counts a part's move only when the part is a body (a group as a part moving itself does not take the parent along). Turning with the `rotate` command (it sets a turn) does not take the others along; the Rotate tool does. The anchor only shows where it is: Rotate still asks for its point. No Python command makes one.
 
 ## Curves
 - Moving a point holds tangents through arcs (`tangentsHeld`), with exceptions: an arc turned almost straight or doubling back loses it there, a chain ending back at the moved point cannot close smoothly, a bezier's handle turns and stops there, and dragging a bezier's handles does not reach an arc beyond. Tried through tests, not yet by hand.

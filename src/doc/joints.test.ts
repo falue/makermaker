@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Matrix4, Vector3 } from 'three';
-import { jointed } from './joints';
+import { attach, jointed, jointsWithout } from './joints';
 import { sampleDoc } from './sample';
 import type { Joint } from './types';
 
@@ -19,5 +19,22 @@ describe('jointed', () => {
     expect(new Vector3(1, 0, 0).transformDirection(placed.get(disc.id)!).x).toBeCloseTo(-1);
     expect(new Vector3().setFromMatrixPosition(placed.get(pin.id)!).x).toBeCloseTo(35); // slid 5 along x
     expect(problems).toHaveLength(1);
+  });
+});
+
+describe('attach', () => {
+  it('does not move what it holds, wherever its value', () => {
+    const doc = sampleDoc();
+    const [plate, disc] = doc.bodies;
+    const local = new Map([[plate.id, new Matrix4().makeTranslation(100, 0, 0)], [disc.id, new Matrix4().makeTranslation(110, 0, 0)]]);
+    const j = attach(doc, 'a', plate.id, [disc.id], [0, 0, 0], true);
+    const { placed } = jointed({ ...doc, joints: [j] }, local, () => 90);
+    expect(new Vector3().setFromMatrixPosition(placed.get(disc.id)!).x).toBeCloseTo(110);
+  });
+  it('objects gone: they leave it; its parent or last part gone: it goes', () => {
+    const j = attach(sampleDoc(), 'a', 'p', ['c', 'd'], [0, 0, 0], false);
+    expect(jointsWithout([j], new Set(['c']))).toMatchObject([{ children: ['d'] }]);
+    expect(jointsWithout([j], new Set(['c', 'd']))).toEqual([]);
+    expect(jointsWithout([j], new Set(['p']))).toEqual([]);
   });
 });

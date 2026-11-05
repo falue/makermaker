@@ -100,6 +100,7 @@ export interface UIContext {
   /** Hovering an align choice: what it would do, shown (null: back). */
   previewAlign(how: ObjectAlign | null): void;
   jointTool(): void;
+  attachTool(): void;
   /** Lights a joint's moving objects (null: the selection again). */
   showJoint(joint: string | null): void;
   /** Lights a sketch's shapes in the view (hovered in the list; null: none). */
@@ -597,6 +598,7 @@ function editbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout menu align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
+    tool('attach', 'Attach: objects go along with another one wherever it moves or turns (or, both ways, all together); click the one they go with, then them, then an anchor', ctx.attachTool),
     tool('measure', 'Distance measure (D): click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
   ];
 }
@@ -774,12 +776,13 @@ function left(ctx: UIContext): Node[] {
     return el;
   };
   const sketchIcon = () => h('span', { className: 'kind', innerHTML: icon('sketch') });
-  /** A joint's parent or moving object: the joint icon (hovered, its moving objects light; a click selects it to edit the joint). */
+  /** A joint's parent or moving object: the joint icon, an attach's anchor (hovered, its moving objects light; a click selects it to edit the joint). */
   const jointMark = (id: string) => {
     const j = doc.joints.find((x) => x.parent === id || x.children.includes(id));
     if (!j) return [];
     const parent = j.parent === id;
-    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon('joint'), title: `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it · drag onto another object: it takes this one's place`, onclick: () => ctx.editJoint(j.id) });
+    const role = j.kind === 'attach' ? (j.both ? 'moves as one with the others' : parent ? 'the others go along with it' : 'goes along') : `${parent ? 'stays, the others move' : 'moves'} (${j.kind})`;
+    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon(j.kind === 'attach' ? 'attach' : 'joint'), title: `${j.name}: ${role} · hover: ${j.kind === 'attach' ? 'what goes along' : 'what moves'} · click: edit it · drag onto another object: it takes this one's place`, onclick: () => ctx.editJoint(j.id) });
     // hovered: what stays and what moves light in the list (in two colours) and in the view
     const light = (on: boolean) => {
       lightPair(on ? (r) => (r === j.parent ? 'joint-static' : j.children.includes(r) ? 'joint-moving' : null) : null);
@@ -1224,8 +1227,8 @@ function jointCards(ctx: UIContext, id: string): Node[] {
       h(
         'section',
         { className: 'joint-card' },
-        h('h4', {}, h('span', {}, j.name, h('span', { className: 'range' }, ` ${ctx.jointRange(j)}`)), button('Edit', () => ctx.editJoint(j.id), 'Kind, limits, speed, direction'), remove),
-        h('p', { className: 'hint' }, `${nameOf(j.parent)} stays; ${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'move' : 'moves'}. Model them where they are now; play and scrub in the view's joints box.`),
+        h('h4', {}, h('span', {}, j.name, h('span', { className: 'range' }, ` ${ctx.jointRange(j)}`)), button('Edit', () => ctx.editJoint(j.id), j.kind === 'attach' ? 'Both ways, anchor' : 'Kind, limits, speed, direction'), remove),
+        h('p', { className: 'hint' }, j.kind === 'attach' ? `${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'go' : 'goes'} along with ${nameOf(j.parent)}${j.both ? ', and it with them: they move and turn as one' : ''}.` : `${nameOf(j.parent)} stays; ${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'move' : 'moves'}. Model them where they are now; play and scrub in the view's joints box.`),
       ),
     ];
   });

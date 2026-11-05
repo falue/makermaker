@@ -11,7 +11,7 @@ import { pieces } from './doc/arrangement';
 import { fitting, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, icon } from './ui/icons';
 import { axisHtml } from './ui/axes';
-import { jointed } from './doc/joints';
+import { attach, jointed, jointsWithout } from './doc/joints';
 import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -32,7 +32,7 @@ import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
-import { coatAsBody, coatPairs, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
+import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
@@ -696,11 +696,13 @@ function commit(next: Doc) {
   clashAgain?.();
 }
 
-/** Tool bodies stick to their owner: an owner moved from `before` to `next` takes those that did not move themselves along. */
+/**
+ * Tool bodies stick to their owner: an owner moved from `before` to `next` takes those that did not move themselves
+ * along; so does a joint's parent its parts, and a part of an attach both ways its parent (and so the other parts).
+ */
 function follow(before: Doc, next: Doc): Doc {
   const owner = ownersOf(next);
-  const pairs = coatPairs(next);
-  if (!owner.size && !next.joints.length && !pairs.length) return next;
+  if (!owner.size && !next.joints.length) return next;
   const at = (doc: Doc, id: string) => {
     const b = doc.bodies.find((q) => q.id === id);
     return b && (resolve(b.position, paramLookup(doc.params), '', new Map()) as Vec3);
@@ -710,6 +712,7 @@ function follow(before: Doc, next: Doc): Doc {
     return p && q && (q.map((v, k) => v - p[k]) as Vec3);
   };
   const still = (v: Vec3 | undefined) => !v || v.every((x) => !(Math.abs(x) > 1e-9));
+  const moved = (id: string) => !still(by(id)) && by(id)!.every(Number.isFinite);
   let out = next;
   const drag = (id: string, d: Vec3, seen: Set<string>) => {
     for (const [tool, o] of owner) {
@@ -722,49 +725,37 @@ function follow(before: Doc, next: Doc): Doc {
       drag(tool, d, seen);
     }
   };
-  for (const b of next.bodies) {
-    const d = by(b.id);
-    if (d && !still(d) && d.every(Number.isFinite)) drag(b.id, d, new Set([b.id]));
-  }
-  // a linked coat body and the body it coats: one moved or turned, the other goes along
-  const rotationOf = (doc: Doc, id: string) => JSON.stringify(doc.bodies.find((b) => b.id === id)?.rotation);
-  const turned = (id: string) => rotationOf(before, id) !== rotationOf(next, id);
-  for (const [coat, body] of pairs) {
-    const [from, too] = turned(body) && !turned(coat) ? [body, coat] : turned(coat) && !turned(body) ? [coat, body] : [];
-    if (from) out = setIn(out, ['bodies', String(out.bodies.findIndex((b) => b.id === too)), 'rotation'], next.bodies.find((b) => b.id === from)!.rotation);
-  }
-  for (const [coat, body] of pairs) {
-    const [to, d] = still(by(coat)) ? [coat, by(body)] : still(by(body)) ? [body, by(coat)] : [];
-    if (!to || !d || still(d) || !d.every(Number.isFinite)) continue;
-    const i = out.bodies.findIndex((b) => b.id === to);
-    const p = at(out, to)!;
-    out = setIn(out, ['bodies', String(i), 'position'], out.bodies[i].position.map((x, k) => plus(x, p[k], d[k])));
-    drag(to, d, new Set([to]));
-  }
-  // a joint's parent moved: what it moves goes along by as much in the world (else they would swing around an axis
-  // that left them); each counts the move in its own group's (turned) coordinates
+  for (const b of next.bodies) if (moved(b.id)) drag(b.id, by(b.id)!, new Set([b.id]));
+  // what goes along moves by as much in the world (a joint's parts would else swing around an axis that left them),
+  // each counting it in its own group's (turned) coordinates
   const turnOf = (m: Matrix4) => new Matrix4().extractRotation(m);
+  const world = (id: string) => new Vector3(...by(id)!).applyMatrix4(turnOf(parentPlace(id)));
+  const shift = (id: string, w: Vector3) => {
+    if (!still(by(id))) return; // moved itself
+    const local = w.clone().applyMatrix4(turnOf(parentPlace(id)).invert()).toArray();
+    const i = out.bodies.findIndex((b) => b.id === id);
+    if (i >= 0) {
+      const p = at(out, id)!;
+      out = setIn(out, ['bodies', String(i), 'position'], out.bodies[i].position.map((x, k) => plus(x, p[k], local[k])));
+      return drag(id, local, new Set([id]));
+    }
+    const g = out.groups.findIndex((x) => x.id === id);
+    const o = out.groups[g]?.origin;
+    if (o?.kind === 'custom') {
+      const p = resolve(o.position, paramLookup(out.params), '', new Map()) as Vec3;
+      out = setIn(out, ['groups', String(g), 'origin', 'position'], o.position.map((x, k) => plus(x, p[k], local[k])));
+    } else if (o) for (const b of contents(out, [id])) if (out.bodies.some((x) => x.id === b)) shift(b, w);
+  };
+  // the parents moved: by themselves, or by a part of an attach both ways
+  const parents = new Map<string, Vector3>();
   for (const j of next.joints) {
-    const d = by(j.parent);
-    if (!d || still(d) || !d.every(Number.isFinite)) continue;
-    const world = new Vector3(...d).applyMatrix4(turnOf(parentPlace(j.parent)));
-    const shift = (id: string) => {
-      if (!still(by(id))) return; // moved itself
-      const local = world.clone().applyMatrix4(turnOf(parentPlace(id)).invert()).toArray();
-      const i = out.bodies.findIndex((b) => b.id === id);
-      if (i >= 0) {
-        const p = at(out, id)!;
-        out = setIn(out, ['bodies', String(i), 'position'], out.bodies[i].position.map((x, k) => plus(x, p[k], local[k])));
-        return drag(id, local, new Set([id]));
-      }
-      const g = out.groups.findIndex((x) => x.id === id);
-      const o = out.groups[g]?.origin;
-      if (o?.kind === 'custom') {
-        const p = resolve(o.position, paramLookup(out.params), '', new Map()) as Vec3;
-        out = setIn(out, ['groups', String(g), 'origin', 'position'], o.position.map((x, k) => plus(x, p[k], local[k])));
-      } else if (o) for (const b of contents(out, [id])) if (out.bodies.some((x) => x.id === b)) shift(b);
-    };
-    j.children.forEach(shift);
+    if (moved(j.parent)) parents.set(j.parent, world(j.parent));
+    const part = j.kind === 'attach' && j.both && !moved(j.parent) && !parents.has(j.parent) && j.children.find(moved);
+    if (part) shift(j.parent, world(part)), parents.set(j.parent, world(part));
+  }
+  for (const j of next.joints) {
+    const w = parents.get(j.parent);
+    if (w) for (const c of j.children) shift(c, w);
   }
   return out;
 }
@@ -1429,11 +1420,8 @@ function unlinkCopy(id: string) {
   const doc = history.current;
   const i = doc.bodies.findIndex((b) => b.id === id);
   const src = doc.bodies.find((b) => b.id === doc.bodies[i]?.link);
-  if (src) commit(setIn(doc, ['bodies', String(i)], { ...doc.bodies[i], link: null, features: [...structuredClone(src.features), ...unpaired(doc.bodies[i].features)] }));
+  if (src) commit(setIn(doc, ['bodies', String(i)], { ...doc.bodies[i], link: null, features: [...structuredClone(src.features), ...doc.bodies[i].features] }));
 }
-
-/** A copy's own steps once unlinked: a linked coat no longer moves with the body it coats. */
-const unpaired = (features: Feature[]) => features.map((f) => (f.type === 'coat' && f.around ? (({ around: _, ...rest }) => rest)(f) : f));
 
 /**
  * Breaks a body's links (asked first): its linked copies in its group get all its steps and go, with it, into a new group of its
@@ -1447,7 +1435,7 @@ function breakLinks(source: string) {
   const group: Group = { id: newId(), name: src.name, parent: src.group, visible: true, origin: { kind: 'parent' }, ...(src.order !== undefined ? { order: src.order } : {}) };
   const bodies = doc.bodies.map((b) => {
     if (b.id !== source && b.link !== source) return b;
-    const own = b.link === source ? { link: null, features: [...structuredClone(src.features), ...unpaired(b.features)] } : {};
+    const own = b.link === source ? { link: null, features: [...structuredClone(src.features), ...b.features] } : {};
     return { ...b, ...own, ...(b.group === src.group ? { group: group.id, order: undefined } : {}) };
   });
   selected = [group.id];
@@ -2906,6 +2894,8 @@ let clashClose: (() => void) | null = null;
 
 /** Joint `j` from Min to Max, the others where they are: where things are along it, its way in the world. Null: it has no way. */
 function jointWay(doc: Doc, j: Joint) {
+  if (j.kind === 'attach') return null; // it does not move
+  const kind = j.kind;
   const lookup = paramLookup(doc.params);
   const value = (e: Expr) => (j.kind === 'hinge' ? evalQuantity(e, lookup).v : evalLength(e, lookup));
   const [lo, hi] = [value(j.min), value(j.max)];
@@ -2913,7 +2903,7 @@ function jointWay(doc: Doc, j: Joint) {
   const at = (v: number) => jointed(doc, ownPlaces, (x) => (x === j ? v : jointValue(x, lookup))).placed;
   const [from, to] = [at(lo), at(hi)];
   const parent = from.get(j.parent) ?? new Matrix4();
-  const sweep = { kind: j.kind, at: new Vector3(...j.axis.at).applyMatrix4(parent).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(parent).toArray(), amount: hi - lo };
+  const sweep = { kind, at: new Vector3(...j.axis.at).applyMatrix4(parent).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(parent).toArray(), amount: hi - lo };
   return { lo, hi, at, from, to, sweep };
 }
 
@@ -3170,7 +3160,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
     const back = () => {
       const i = doc.bodies.findIndex((b) => b.id === source);
       const d = setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, coat]);
-      return { ...d, bodies: d.bodies.filter((b) => b.id !== body) };
+      return { ...d, bodies: d.bodies.filter((b) => b.id !== body), joints: jointsWithout(d.joints, new Set([body])) };
     };
     const next = made ? made.doc : back();
     [source, body] = made ? [body, made.id] : [null, source!];
@@ -3193,7 +3183,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
     if (!c || !source) return;
     const doc = history.current;
     const { skin: _, ...coat } = c.f;
-    const rest = { ...doc, bodies: doc.bodies.filter((b) => b.id !== body) };
+    const rest = { ...doc, bodies: doc.bodies.filter((b) => b.id !== body), joints: jointsWithout(doc.joints, new Set([body])) };
     const made = coatAsBody(rest, rest.bodies.findIndex((b) => b.id === source), coat, on);
     body = made.id;
     shown(made.doc);
@@ -3997,9 +3987,9 @@ function rotateTool() {
   const inTurned = (group: string | null): boolean => !!group && (selected.includes(group) || inTurned(doc0.groups.find((g) => g.id === group)?.parent ?? null));
   const ids = selected.filter((id) => !doc0.bodies.some((b) => b.id === id && inTurned(b.group)) && !doc0.groups.some((g) => g.id === id && inTurned(g.parent)));
   // a joint's parent takes what it moves along (and they their tool bodies)
+  // an attach both ways: a part takes its parent along (and so the other parts)
+  for (const j of doc0.joints) if (j.kind === 'attach' && j.both && j.children.some((c) => ids.includes(c)) && !ids.includes(j.parent)) ids.push(j.parent);
   for (const j of doc0.joints) if (ids.includes(j.parent)) for (const c of j.children) if (!ids.includes(c)) ids.push(c);
-  // a linked coat body and the body it coats turn as one
-  for (const pair of coatPairs(doc0)) if (pair.some((id) => ids.includes(id))) for (const id of pair) if (!ids.includes(id)) ids.push(id);
   for (const [owned, by] of owner) if (ids.includes(by) && !ids.includes(owned)) ids.push(owned);
   const start = new Map(ids.map((id) => [id, (bodyPlaces.get(id) ?? groupPlace(id)).clone()]));
   const parents = new Map(ids.map((id) => [id, parentPlace(id)]));
@@ -4267,14 +4257,16 @@ const corners2 = ([x0, y0, x1, y1]: number[]): [number, number][] => [[x0, y0], 
 /**
  * Joint (J): the parent that stays (the first selected body or group, or the one clicked), then what moves (the other
  * selected ones, or those clicked; Enter), then the axis (an edge or line, or a circle's or round edge's centre, square
- * to it): the joint is made (a hinge, 0–180°) and its edit panel opens.
+ * to it): the joint is made (a hinge, 0–180°) and its edit panel opens. `attach`: Attach, the same but what moves goes
+ * along with the parent, and instead of an axis a point clicked anchors it (`attachPanel`).
  */
-function jointTool() {
+function jointTool(attaching = false) {
   const isObject = (id: string) => history.current.bodies.some((b) => b.id === id) || history.current.groups.some((g) => g.id === id);
   const [parent, ...children] = selected.filter(isObject);
+  const what = attaching ? 'Attach' : 'Joint';
   if (!parent) {
-    pending = { tool: 'joint', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), jointTool()) };
-    toolHint = 'Joint: click the object that stays · a body or group · [Esc] cancels';
+    pending = { tool: 'joint', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), jointTool(attaching)) };
+    toolHint = `${what}: click the object ${attaching ? 'the others go along with' : 'that stays'} · a body or group · [Esc] cancels`;
     return render();
   }
   if (!children.length) {
@@ -4289,12 +4281,30 @@ function jointTool() {
       },
       apply() {
         cancelPending();
-        if (moving.length) jointTool();
+        if (moving.length) jointTool(attaching);
         else render();
       },
     };
-    toolHint = 'Joint: click the objects that move · again: not · then [Enter] · [Esc] cancels';
+    toolHint = `${what}: click the objects that ${attaching ? 'go along' : 'move'} · again: not · then [Enter] · [Esc] cancels`;
     return render();
+  }
+  if (attaching) {
+    toolHint = 'Attach: click its anchor · a corner, centre or point on a face: where it shows · [Esc] cancels';
+    render();
+    viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the anchor` : null);
+    return viewer.pickFace((face) => {
+      viewer.aiming = null;
+      viewer.aimAt(null);
+      tips.cursorTip(null);
+      toolHint = null;
+      if (!face?.snap) return render();
+      const doc = history.current;
+      const back = (bodyPlaces.get(parent) ?? groupPlace(parent)).clone().invert();
+      const joint = attach(doc, newId(), parent, children, face.snap.clone().applyMatrix4(back).toArray(), false);
+      selected = [parent];
+      commit({ ...doc, joints: [...doc.joints, joint] });
+      attachPanel(joint.id, true);
+    }, true);
   }
   toolHint = 'Joint: click its axis · an edge or line, or a circle or round edge (through its centre, square to it) · [Esc] cancels';
   render();
@@ -4375,6 +4385,7 @@ function jointRange(j: Joint, lookup = paramLookup(history.current.params)): [nu
 /** Its range in words, shown grey after its name: `0–110°`, `0–35 mm`. */
 function rangeText(j: Joint) {
   const u = history.current.units;
+  if (j.kind === 'attach') return j.both ? 'both ways' : '';
   const [lo, hi] = jointRange(j).map((v) => (j.kind === 'hinge' ? fmt(v) : fmt(v / UNITS[u])));
   return j.kind === 'hinge' ? `${lo}–${hi}°` : `${lo}–${hi} ${u}`;
 }
@@ -4525,6 +4536,59 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
 }
 
 /**
+ * An attach's panel at the top middle of the view (`fresh`: just made; Esc then removes it): Both ways (moving a part
+ * moves the parent and the others too), Anchor (click a point: where it shows, orange while the panel is open). Enter
+ * or ✓ keeps it, Esc drops the changes.
+ */
+function attachPanel(id: string, fresh: boolean) {
+  let changed = fresh;
+  const now = () => history.current.joints.find((j) => j.id === id)!;
+  const anchor = () => new Vector3(...now().axis.at).applyMatrix4(bodyPlaces.get(now().parent) ?? groupPlace(now().parent));
+  const write = (next: Partial<Joint>) => {
+    const k = history.current.joints.findIndex((j) => j.id === id);
+    const doc = setIn(history.current, ['joints', String(k)], { ...now(), ...next });
+    if (changed) history.replace(doc);
+    else history.push(doc), (changed = true);
+    update();
+    viewer.showMeasureLine(anchor());
+  };
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
+  const both = checkbox('Both ways', 'Moving or turning one of the parts moves the parent and the other parts too (off: only the parent takes the others along)', !!now().both, (on) => write({ both: on }));
+  const pick = panelButton('Anchor', 'Click a corner, centre or point on a face: where the attach shows', () => {
+    viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the anchor` : null);
+    viewer.pickFace((face) => {
+      viewer.aiming = null;
+      viewer.aimAt(null);
+      tips.cursorTip(null);
+      if (face?.snap) write({ axis: { ...now().axis, at: face.snap.clone().applyMatrix4((bodyPlaces.get(now().parent) ?? groupPlace(now().parent)).clone().invert()).toArray() } });
+    }, true);
+  });
+  const finish = (ok: boolean) => {
+    viewer.aiming = null;
+    viewer.cancelFacePick();
+    box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    viewer.showMeasureLine(null);
+    toolHint = null;
+    if (!ok && changed) return undo();
+    render();
+  };
+  const keys = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    finish(pressed(e, 'confirm'));
+  };
+  box.append(both, pick, panelButton('✓', 'Keep it (Enter); Esc drops the changes', () => finish(true)));
+  document.body.append(box);
+  atTop(box);
+  viewer.showMeasureLine(anchor());
+  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name} · both ways or not · its anchor · [Enter] keeps it · [Esc] ${fresh ? 'removes it' : 'drops the changes'}`;
+  render();
+  addEventListener('keydown', keys, { capture: true });
+}
+
+/**
  * The joints box at the bottom right of the view (while there are joints): per joint its name (edited in place) with its
  * range in grey, ✎ its edit panel; ▶ / ❚❚ plays from where it is to its max and pauses (the pose stays: modelling
  * happens there), Repeat plays back and forth smoothly instead; the slider and the Now field follow it and set where it
@@ -4553,8 +4617,10 @@ function renderJoints() {
   const key = JSON.stringify([doc.joints.map((j) => [j.id, j.name, j.kind, j.min, j.max]), jointProblems, [...playing.keys()], [...repeating], doc.units]);
   if (key !== jointsKey) {
     jointsKey = key;
-    jointsDrawer.hidden = !doc.joints.length;
-    jointsBox.replaceChildren(...doc.joints.map(jointRow), ...jointProblems.map((p) => Object.assign(document.createElement('p'), { className: 'error', title: COPY_TIP, textContent: p })));
+    // an attach does not move: not here
+    const moving = doc.joints.filter((j) => j.kind !== 'attach');
+    jointsDrawer.hidden = !moving.length;
+    jointsBox.replaceChildren(...moving.map(jointRow), ...jointProblems.map((p) => Object.assign(document.createElement('p'), { className: 'error', title: COPY_TIP, textContent: p })));
   }
   // the sliders and fields show where the joints are now (not the one being typed in)
   const lookup = paramLookup(doc.params);
@@ -4748,7 +4814,7 @@ function remove() {
   for (const id of gone) for (const [tool, o] of owner) if (o === id) gone.add(tool);
   const kept = unlinkedFrom(doc, gone); // linked copies of what goes take over its steps
   const bodies = kept.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => (f.type !== 'boolean' && f.type !== 'fingers') || !gone.has(f.body)) }));
-  commit({ ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) });
+  commit({ ...doc, bodies, joints: jointsWithout(doc.joints, gone), sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) });
 }
 
 /** Folded groups in the object list. */
@@ -5924,8 +5990,9 @@ function render() {
     rotateTool,
     alignObjects,
     previewAlign,
-    jointTool,
-    editJoint: (id) => jointPanel(id, false),
+    jointTool: () => jointTool(),
+    attachTool: () => jointTool(true),
+    editJoint: (id) => (history.current.joints.find((j) => j.id === id)?.kind === 'attach' ? attachPanel(id, false) : jointPanel(id, false)),
     moveJointEnd(id, from, to) {
       const doc = history.current;
       const k = doc.joints.findIndex((x) => x.id === id);
@@ -5965,6 +6032,7 @@ function render() {
     unlinkCopy,
     showJoint(id) {
       const j = history.current.joints.find((x) => x.id === id);
+      viewer.showMeasureLine(j?.kind === 'attach' ? new Vector3(...j.axis.at).applyMatrix4(bodyPlaces.get(j.parent) ?? groupPlace(j.parent)) : null);
       if (j) viewer.select(contents(history.current, j.children));
       else showSelection();
     },

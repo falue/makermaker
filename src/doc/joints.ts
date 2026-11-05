@@ -46,10 +46,33 @@ export function jointed(doc: Doc, local: Map<string, Matrix4>, value: (j: Joint)
 
 /** How a joint at `v` moves its children in the world, its parent placed at `parent`. */
 export function motion(j: Joint, parent: Matrix4, v: number): Matrix4 {
+  if (j.kind === 'attach') return new Matrix4();
   const at = new Vector3(...j.axis.at).applyMatrix4(parent);
   const dir = new Vector3(...j.axis.dir).transformDirection(parent);
   if (j.kind === 'slider') return new Matrix4().makeTranslation(dir.multiplyScalar(v));
   return new Matrix4().makeTranslation(at).multiply(new Matrix4().makeRotationAxis(dir, (v * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(at.negate()));
 }
+
+/** `joints` without objects `gone`: they leave as parts; a joint whose parent or every part went goes. */
+export const jointsWithout = (joints: Joint[], gone: Set<string>) =>
+  joints.flatMap((j) => {
+    const children = j.children.filter((c) => !gone.has(c));
+    return gone.has(j.parent) || !children.length ? [] : [children.length === j.children.length ? j : { ...j, children }];
+  });
+
+/** A new attach: `children` go along with `parent` (`both`: either way), anchored at `at` (the parent's coordinates). */
+export const attach = (doc: Doc, id: string, parent: string, children: string[], at: [number, number, number], both: boolean): Joint => ({
+  id,
+  name: `Attach ${doc.joints.filter((j) => j.kind === 'attach').length + 1}`,
+  kind: 'attach',
+  both,
+  parent,
+  children,
+  axis: { at, dir: [0, 0, 1] },
+  min: { e: '0', u: 'mm' },
+  max: { e: '0', u: 'mm' },
+  value: { e: '0', u: 'mm' },
+  speed: { e: '1', u: 'mm' },
+});
 
 const nameOf = (doc: Doc, id: string) => [...doc.bodies, ...doc.groups].find((o) => o.id === id)?.name ?? '?';

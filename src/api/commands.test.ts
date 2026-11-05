@@ -101,8 +101,15 @@ describe('coat', () => {
     expect(b.features[0].id).not.toBe(a.features[0].id);
     expect(b.features.at(-1)).toMatchObject({ skin: true });
   });
-  it('linked: only the skin, the steps shared', () => {
+  it('linked: only the skin, the steps shared, attached both ways; not linked: none', () => {
     const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true, linked: true });
     expect(out.doc.bodies[1]).toMatchObject({ link: made.result, features: [{ type: 'coat', skin: true }] });
+    expect(out.doc.joints).toMatchObject([{ kind: 'attach', both: true, parent: made.result, children: [out.result], name: 'Attach 1' }]);
+    expect(runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true }).doc.joints).toEqual([]);
+  });
+  it('deleting either takes the attach along', () => {
+    const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true, linked: true });
+    expect(runCommand(out.doc, 'delete', { ids: [out.result] }).doc.joints).toEqual([]);
+    expect(runCommand(out.doc, 'delete', { ids: [made.result] }).doc.joints).toEqual([]);
   });
 });

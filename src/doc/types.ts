@@ -131,9 +131,9 @@ export type ShellFeature = { id: string; type: 'shell'; thickness: Expr; open: [
 /**
  * The body made thicker all round by `thickness`, its corners `sharp` (a box stays a box) or `round` (the same distance
  * everywhere); flat faces `exclude`d stay where they are (a point on or over one, and its outward normal, body-local).
- * `skin`: only what it adds is left, hollow where the body was. `around`: a linked skin's body it coats: the two move and turn as one.
+ * `skin`: only what it adds is left, hollow where the body was.
  */
-export type CoatFeature = { id: string; type: 'coat'; thickness: Expr; corners: 'sharp' | 'round'; exclude: { at: [number, number, number]; n: [number, number, number] }[]; skin?: boolean; around?: string };
+export type CoatFeature = { id: string; type: 'coat'; thickness: Expr; corners: 'sharp' | 'round'; exclude: { at: [number, number, number]; n: [number, number, number] }[]; skin?: boolean };
 
 /** The body mirrored across a plane (body-local: through `o`, normal `n`). */
 export type MirrorFeature = { id: string; type: 'mirror'; o: [number, number, number]; n: [number, number, number] };
@@ -431,12 +431,15 @@ export interface ImageRef {
  * A joint: `parent` (a body or group) stays, `children` (bodies or groups) move with it and along the joint: a hinge
  * turns them around `axis`, a slider moves them along it (a line through `at` along `dir`, in the parent's
  * coordinates); `value` (degrees or mm, between `min` and `max`) is where they are now, and modelling happens there;
- * playing it runs from `min` to `max` `speed` times as fast as the play time set in Settings.
+ * playing it runs from `min` to `max` `speed` times as fast as the play time set in Settings. An attach does not move:
+ * its children go along with the parent (`both`: and the parent and the others with any of them); `axis.at` is its
+ * anchor, where it shows; `min`, `max`, `value`, `speed` and `axis.dir` are unused.
  */
 export interface Joint {
   id: string;
   name: string;
-  kind: 'hinge' | 'slider';
+  kind: 'hinge' | 'slider' | 'attach';
+  both?: boolean;
   parent: string;
   children: string[];
   axis: { at: [number, number, number]; dir: [number, number, number] };

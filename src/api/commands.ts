@@ -1,5 +1,6 @@
 import { assignMaterial, changeLook, findMaterial } from '../doc/materials';
 import { ownersOf } from '../doc/groups';
+import { attach, jointsWithout } from '../doc/joints';
 import { ex, newId, unturned } from '../doc/sample';
 import type { Body, CoatFeature, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
 
@@ -44,19 +45,16 @@ function check(name: string, c: Command, args: Args) {
 
 const palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f'];
 
-/** A coat as a body of its own beside body `i`, a skin around it: with its own steps, or `linked`, sharing those of the body (and moving with it); the id it got. */
+/** A coat as a body of its own beside body `i`, a skin around it: with its own steps, or `linked`, sharing those of the body and attached to it both ways; the id it got. */
 export function coatAsBody(doc: Doc, i: number, coat: CoatFeature, linked = false) {
   const { material: _, ...o } = doc.bodies[i];
   const steps = linked ? (o.link ? o.features : []) : [...(doc.bodies.find((b) => b.id === o.link)?.features ?? []), ...o.features];
   // new ids throughout, also where one step names another
   const own: Feature[] = JSON.parse(steps.reduce((text, f) => text.replaceAll(f.id, newId()), JSON.stringify(steps)));
-  const body: Body = { ...structuredClone(o), id: newId(), name: `${o.name} coat`, color: palette.filter((c) => c !== o.color)[doc.bodies.length % 5], link: linked ? (o.link ?? o.id) : null, features: [...own, { ...coat, skin: true, ...(linked ? { around: o.id } : {}) }], order: undefined };
-  return { doc: { ...doc, bodies: [...doc.bodies, body] }, id: body.id };
+  const body: Body = { ...structuredClone(o), id: newId(), name: `${o.name} coat`, color: palette.filter((c) => c !== o.color)[doc.bodies.length % 5], link: linked ? (o.link ?? o.id) : null, features: [...own, { ...coat, skin: true }], order: undefined };
+  const joints = linked ? [...doc.joints, attach(doc, newId(), o.id, [body.id], [0, 0, 0], true)] : doc.joints;
+  return { doc: { ...doc, bodies: [...doc.bodies, body], joints }, id: body.id };
 }
-
-/** Linked coat bodies and the bodies they coat, which move and turn as one: [coat body, body]. */
-export const coatPairs = (doc: Doc): [string, string][] =>
-  doc.bodies.flatMap((b) => b.features.flatMap((f) => (f.type === 'coat' && f.around && doc.bodies.some((x) => x.id === f.around) ? [[b.id, f.around] as [string, string]] : [])));
 
 /** A box joint's fingers for an overlap `long` by `thick`: each about five thicknesses long, rounded up to an odd number so both ends match, 3 at least. */
 export function fingersFor(long: number, thick: number) {
@@ -295,7 +293,7 @@ export const COMMANDS: Record<string, Command> = {
     run: (doc, a) => {
       const gone = new Set(a.ids as string[]);
       const bodies = doc.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => (f.type !== 'boolean' && f.type !== 'fingers') || !gone.has(f.body)) }));
-      return { doc: { ...doc, bodies, sketches: doc.sketches.filter((s) => !gone.has(s.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) } };
+      return { doc: { ...doc, bodies, joints: jointsWithout(doc.joints, gone), sketches: doc.sketches.filter((s) => !gone.has(s.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) } };
     },
   },
   rename: {
