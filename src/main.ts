@@ -1375,7 +1375,7 @@ function moveBy(by: Vector3) {
   commit(next);
 }
 
-/** Copies are made linked (sharing their source's steps): the Linked checkboxes of copy-move, Duplicate, Mirror and Pattern (this session). */
+/** Copies are made linked (sharing their source's steps): the Linked checkboxes of copy-move, Duplicate, Mirror, Pattern and a coat as a new body (this session). */
 let linkedCopies = false;
 
 /** Where a body's shape edits go (its index): a linked copy's source, so all its copies change too; else the body. */
@@ -1505,9 +1505,8 @@ function cutTool(note = '') {
     const [solid] = other?.length === 1 ? (built.get(face.body!) ?? []) : [];
     const there = bodyPlace(face.body!);
     if (other?.[0].type === 'sphere') {
-      const { x, y, z } = resolve(other[0], paramLookup(doc.params), '', new Map());
-      const d = other[0].d;
-      return each((pl) => ({ kind: 'sphere', c: unplaced(pl, inWorld(there, [x, y, z])), d: structuredClone(d), offset: len(0) }));
+      const { x, y, z, d } = resolve(other[0], paramLookup(doc.params), '', new Map());
+      return { kind: 'sphere' as const, c: inWorld(there, [x, y, z]), d, typed: other[0].d, dir: undefined, h: 0 };
     }
     const pulled = solid?.type === 'extrude' && solid.mode === 'add' && !solid.through && solid.profiles.length === 1 ? solid : null;
     const circle = pulled?.profiles[0];
@@ -2083,7 +2082,7 @@ function angleControl(o: { input: HTMLInputElement; axis: () => { at: Vector3; d
  * decimals go when the field is left); `step`: its scrub step per px; `title`: what label and field say on hover.
  * `change` gets the texts as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
  */
-function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; step?: number; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = []) {
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; step?: number; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = [], after: HTMLElement[] = []) {
   const u = history.current.units;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
@@ -2140,7 +2139,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     e.preventDefault();
     end(pressed(e, 'confirm'));
   };
-  box.append(...extra, ...cells, panelButton('✓', 'Keep it (Enter); Esc drops it', () => end(true)));
+  box.append(...extra, ...cells, ...after, panelButton('✓', 'Keep it (Enter); Esc drops it', () => end(true)));
   document.body.append(box);
   atTop(box);
   toolHint = hint;
@@ -3077,25 +3076,19 @@ function coatPanel(body: string, feature: string, isNew = false) {
     else history.push(next);
     changed = true;
     update();
-    faces.textContent = patch.exclude ? faceWord() : faces.textContent;
   };
   const start = now();
   if (!start) return;
-  const faceWord = () => {
-    const n = now()?.f.exclude.length ?? 0;
-    return n ? `${n} excluded` : '';
-  };
   const corners = Object.assign(document.createElement('select'), { title: 'Sharp: a box stays a box. Round: the same distance everywhere', onchange: () => (picking ? viewer.cancelFacePick() : 0, set({ corners: corners.value as CoatFeature['corners'] })) });
   corners.append(new Option('Sharp corners', 'sharp', false, start.f.corners === 'sharp'), new Option('Round corners', 'round', false, start.f.corners === 'round'));
-  const faces = Object.assign(document.createElement('span'), { className: 'hint', textContent: faceWord() });
-  // moves the coat onto a linked copy (a skin around the body, which stays as it is) and back
+  // moves the coat onto a new body (a skin around the body, which stays as it is) and back
   const toBody = (on: boolean) => {
     if (picking) viewer.cancelFacePick();
     const c = now();
     if (!c) return;
     const doc = history.current;
     const { skin: _, ...coat } = c.f;
-    const made = on ? coatAsBody(setIn(doc, ['bodies', String(c.i), 'features'], doc.bodies[c.i].features.filter((f) => f.id !== feature)), c.i, coat) : null;
+    const made = on ? coatAsBody(setIn(doc, ['bodies', String(c.i), 'features'], doc.bodies[c.i].features.filter((f) => f.id !== feature)), c.i, coat, linkedCopies) : null;
     const back = () => {
       const i = doc.bodies.findIndex((b) => b.id === source);
       const d = setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, coat]);
@@ -3103,6 +3096,10 @@ function coatPanel(body: string, feature: string, isNew = false) {
     };
     const next = made ? made.doc : back();
     [source, body] = made ? [body, made.id] : [null, source!];
+    link.style.display = made ? '' : 'none';
+    shown(next);
+  };
+  const shown = (next: Doc) => {
     selected = [body];
     if (changed) history.replace(next);
     else history.push(next);
@@ -3110,16 +3107,32 @@ function coatPanel(body: string, feature: string, isNew = false) {
     showSelection();
     update();
   };
+  // the new body made again, linked or with its own steps
+  const relink = (on: boolean) => {
+    linkedCopies = on;
+    if (picking) viewer.cancelFacePick();
+    const c = now();
+    if (!c || !source) return;
+    const doc = history.current;
+    const { skin: _, ...coat } = c.f;
+    const rest = { ...doc, bodies: doc.bodies.filter((b) => b.id !== body) };
+    const made = coatAsBody(rest, rest.bodies.findIndex((b) => b.id === source), coat, on);
+    body = made.id;
+    shown(made.doc);
+  };
   const asBody = checkbox('New body', start.f.skin ? 'This coat is a body of its own' : 'Click: Make the coat a body of its own, hollow around this one, which stays as it is', !!start.f.skin, toBody);
   asBody.querySelector('input')!.disabled = !!start.f.skin;
+  const link = checkbox('Linked', 'The new body is a linked copy: it shares the steps of this one, editing one edits both', linkedCopies, relink);
+  link.style.display = 'none';
   // while picking: no coat to see past, the real faces to click, nothing else changes until it ends
   let picking = false;
-  const facesButton = panelButton('Select faces to exclude', 'Click: Show the body without its coat, then click flat faces that stay where they are (again: back)', () => (picking ? viewer.cancelFacePick() : void pickFaces()));
+  const faceCount = (n: number) => `Select faces to exclude (${n})`;
+  const facesButton = panelButton(faceCount(start.f.exclude.length), 'Click: Show the body without its coat, then click flat faces that stay where they are (again: back)', () => (picking ? viewer.cancelFacePick() : void pickFaces()));
   const pickFaces = async () => {
     const c = now();
     if (!c) return;
     picking = true;
-    facesButton.textContent = 'Done with faces';
+    facesButton.textContent = `Done with faces (${c.f.exclude.length})`;
     facesButton.title = 'Click: Show the coat again';
     let chosen = c.f.exclude.flatMap((e) => ({ ...e, item: null as FaceItem | null }));
     history.replace(setIn(history.current, ['bodies', String(c.i), 'features', String(c.k)], { ...c.f, thickness: len(0) }));
@@ -3136,7 +3149,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
         if (!face) {
           picking = false;
           viewer.markFaces([]);
-          facesButton.textContent = 'Select faces to exclude';
+          facesButton.textContent = faceCount(chosen.length);
           facesButton.title = 'Click: Show the body without its coat, then click flat faces that stay where they are (again: back)';
           toolHint = hint;
           set({ thickness: { e: panel.inputs[0].value || '0', u: history.current.units }, exclude: chosen.map(({ at, n }) => ({ at, n })) });
@@ -3149,7 +3162,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
           const v = (q: Vec3) => new Vector3(...q);
           const same = (e: { at: Vec3; n: Vec3 }) => v(e.n).dot(v(n)) > 0.999 && Math.abs(v(at).sub(v(e.at)).dot(v(n))) <= 1e-3;
           chosen = chosen.some(same) ? chosen.filter((e) => !same(e)) : [...chosen, { at, n, item: face.item ?? null }];
-          faces.textContent = chosen.length ? `${chosen.length} excluded` : '';
+          facesButton.textContent = `Done with faces (${chosen.length})`;
         }
         next();
       });
@@ -3166,7 +3179,8 @@ function coatPanel(body: string, feature: string, isNew = false) {
       else undo();
     },
     hint,
-    [corners, asBody, facesButton, faces],
+    [],
+    [corners, facesButton, asBody, link],
   );
 }
 

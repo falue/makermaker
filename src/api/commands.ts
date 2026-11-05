@@ -44,11 +44,13 @@ function check(name: string, c: Command, args: Args) {
 
 const palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f'];
 
-/** A coat as a body of its own beside body `i`: a linked copy of it, a skin around it; the id it got. */
-export function coatAsBody(doc: Doc, i: number, coat: CoatFeature) {
+/** A coat as a body of its own beside body `i`, a skin around it: with its own steps, or `linked`, sharing those of the body; the id it got. */
+export function coatAsBody(doc: Doc, i: number, coat: CoatFeature, linked = false) {
   const { material: _, ...o } = doc.bodies[i];
-  const own = o.link ? structuredClone(o.features).map((f) => ({ ...f, id: newId() })) : [];
-  const body: Body = { ...structuredClone(o), id: newId(), name: `${o.name} coat`, color: palette.filter((c) => c !== o.color)[doc.bodies.length % 5], link: o.link ?? o.id, features: [...own, { ...coat, skin: true }], order: undefined };
+  const steps = linked ? (o.link ? o.features : []) : [...(doc.bodies.find((b) => b.id === o.link)?.features ?? []), ...o.features];
+  // new ids throughout, also where one step names another
+  const own: Feature[] = JSON.parse(steps.reduce((text, f) => text.replaceAll(f.id, newId()), JSON.stringify(steps)));
+  const body: Body = { ...structuredClone(o), id: newId(), name: `${o.name} coat`, color: palette.filter((c) => c !== o.color)[doc.bodies.length % 5], link: linked ? (o.link ?? o.id) : null, features: [...own, { ...coat, skin: true }], order: undefined };
   return { doc: { ...doc, bodies: [...doc.bodies, body] }, id: body.id };
 }
 
@@ -255,13 +257,13 @@ export const COMMANDS: Record<string, Command> = {
     },
   },
   coat: {
-    doc: 'Makes a body thicker all round by `thickness`, like paint: sharp corners (a 5 mm cube and 1 mm: 7 mm) or round (the same distance everywhere). `newBody`: the body stays as it is, the coat becomes a body of its own, hollow around it (its id comes back).',
-    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'thickness', type: 'number', doc: 'mm' }, { name: 'corners', type: 'enum', values: ['sharp', 'round'], doc: 'sharp (the default) or round', optional: true }, { name: 'newBody', type: 'boolean', doc: 'a body of its own', optional: true }],
+    doc: 'Makes a body thicker all round by `thickness`, like paint: sharp corners (a 5 mm cube and 1 mm: 7 mm) or round (the same distance everywhere). `newBody`: the body stays as it is, the coat becomes a body of its own, hollow around it (its id comes back); `linked`: sharing the steps of the body.',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'thickness', type: 'number', doc: 'mm' }, { name: 'corners', type: 'enum', values: ['sharp', 'round'], doc: 'sharp (the default) or round', optional: true }, { name: 'newBody', type: 'boolean', doc: 'a body of its own', optional: true }, { name: 'linked', type: 'boolean', doc: 'that body a linked copy', optional: true }],
     run: (doc, a) => {
       const i = bodyOf(doc, a.id);
       const f: CoatFeature = { id: newId(), type: 'coat', thickness: len(a.thickness), corners: a.corners === 'round' ? 'round' : 'sharp', exclude: [] };
       if (a.newBody) {
-        const made = coatAsBody(doc, i, f);
+        const made = coatAsBody(doc, i, f, a.linked === true);
         return { doc: made.doc, result: made.id };
       }
       return { doc: withBody(doc, i, { ...doc.bodies[i], features: [...doc.bodies[i].features, f] }), result: f.id };

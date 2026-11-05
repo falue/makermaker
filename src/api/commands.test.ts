@@ -81,11 +81,18 @@ describe('move', () => {
 });
 
 describe('coat', () => {
-  it('as a new body: a linked copy holding the skin, the body itself as it was', () => {
-    const made = runCommand({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, 'box', { width: 10, depth: 10, height: 10 });
+  const made = runCommand({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, 'box', { width: 10, depth: 10, height: 10 });
+  it('as a new body: its own steps and the skin, the body itself as it was', () => {
     const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true });
     const [a, b] = out.doc.bodies;
     expect(a).toBe(made.doc.bodies[0]);
-    expect(b).toMatchObject({ id: out.result, link: a.id, features: [{ type: 'coat', skin: true }] });
+    expect(b).toMatchObject({ id: out.result, link: null });
+    expect(b.features.map((f) => f.type)).toEqual([...a.features.map((f) => f.type), 'coat']);
+    expect(b.features[0].id).not.toBe(a.features[0].id);
+    expect(b.features.at(-1)).toMatchObject({ skin: true });
+  });
+  it('linked: only the skin, the steps shared', () => {
+    const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true, linked: true });
+    expect(out.doc.bodies[1]).toMatchObject({ link: made.result, features: [{ type: 'coat', skin: true }] });
   });
 });
