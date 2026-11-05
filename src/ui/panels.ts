@@ -15,7 +15,7 @@ import { icon, tool, type IconName } from './icons';
 import { MAC, mod, pressed, role, toggles } from './keys';
 
 /** On error notes (a click copies them: see main). */
-export const COPY_TIP = 'Click: Copy this message';
+export const COPY_TIP = 'Copy warning';
 
 export interface UIContext {
   doc: Doc;

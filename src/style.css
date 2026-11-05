@@ -114,7 +114,7 @@ body {
 p.error,
 span.error,
 .terminal-error {
-  cursor: copy;
+  cursor: pointer;
 }
 #topbar .status.error {
   padding: 2px 8px;
