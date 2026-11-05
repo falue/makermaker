@@ -2920,8 +2920,10 @@ function clashTool() {
           h.joint ? `Click: Cut all ${name(by)} goes through on its joint's way, Min to Max, out of ${name(target)}; ${name(by)} stays as it is` : `Click: Cut ${name(by)} out of ${name(target)}, where it is; ${name(by)} stays as it is`;
         const cutButton = (target: string, by: string) =>
           Object.assign(panelButton(`Cut ${name(target)}`, way(target, by), () => cutFrom(target, by, h.joint)), { onmouseenter: () => viewer.lightBodies([target]), onmouseleave: () => viewer.lightBodies([]) });
-        if (h.joint || h.volume > 0) r.append(cutButton(h.a, h.b), cutButton(h.b, h.a));
-        r.append(panelButton('Ignore', 'Click: Leave this pair out while the panel is open (fits made to overlap, a thread, say)', () => (ignore.add(pairKey(h.a, h.b)), soon())));
+        const actions = Object.assign(document.createElement('div'), { className: 'segmented clash-actions' });
+        if (h.joint || h.volume > 0) actions.append(cutButton(h.a, h.b), cutButton(h.b, h.a));
+        actions.append(panelButton('Ignore', 'Click: Leave this pair out while the panel is open (fits made to overlap, a thread, say)', () => (ignore.add(pairKey(h.a, h.b)), soon())));
+        r.append(actions);
         return r;
       }),
     );

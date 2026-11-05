@@ -2594,8 +2594,19 @@ section > h4 .segmented button {
   background: color-mix(in srgb, var(--error) 18%, transparent);
 }
 /* its buttons on the row the pointer is on, or the one found in the view */
-.clash-row:not(.lit) button {
+.clash-row:not(.lit) .clash-actions {
   display: none;
+}
+.clash-actions {
+  flex: 1 1 100%;
+  display: flex;
+}
+.clash-actions button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.clash-actions button:only-child {
+  border-radius: 4px;
 }
 .clash-words {
   flex: 1 1 100%;
