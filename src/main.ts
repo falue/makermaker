@@ -27,7 +27,7 @@ import { chainOf, unitAt } from './doc/shapegroups';
 import type { CoatFeature } from './doc/types';
 import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
-import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
+import { addVersion, EXTENSION, pack, unpack, versionDate, type Version } from './io/design';
 import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64 } from './io/mesh';
@@ -5382,16 +5382,18 @@ async function addPhoto(file: File) {
   return photo.id;
 }
 
-/** Autosave writes in place (no history snapshot) a moment after the last change; it needs a file handle. */
-function scheduleAutosave(delay = 1500) {
+/** Autosave writes in place a moment after the last change, a version only every `every` ms; it needs a file handle. */
+function scheduleAutosave(delay = 1500, every = 5 * 60_000) {
   clearTimeout(autosaveTimer);
   if (!autosave || !file.handle || history.current === file.saved) return;
   autosaveTimer = window.setTimeout(
     () =>
       run(async () => {
         const doc = history.current;
-        await saveFile(pack(doc, file.versions), file.name, file.handle);
-        file = { ...file, saved: doc };
+        const last = file.versions.at(-1);
+        const versions = !last || Date.now() - versionDate(last).getTime() > every ? addVersion(file.versions, doc) : file.versions;
+        await saveFile(pack(doc, versions), file.name, file.handle);
+        file = { ...file, saved: doc, versions };
         notify(`Autosaved ${new Date().toLocaleTimeString()}`);
       }),
     delay,
@@ -5402,6 +5404,71 @@ function scheduleAutosave(delay = 1500) {
 addEventListener('beforeunload', (e) => {
   if (history.current !== file.saved) e.preventDefault();
 });
+
+/**
+ * The versions saved in the file, newest first: a click shows one (in the view, one undo step), Enter or Restore keeps
+ * it, Esc or the close button goes back. Each save keeps one, autosave one every few minutes.
+ */
+let versionsClose: (() => void) | null = null;
+function versionsPanel() {
+  if (versionsClose) return versionsClose();
+  stopTool();
+  if (sketching) exitSketch();
+  const box = Object.assign(document.createElement('div'), { className: 'clash-panel', onmousedown: (e: MouseEvent) => e.stopPropagation() });
+  const head = Object.assign(document.createElement('div'), { className: 'head' });
+  head.append(Object.assign(document.createElement('h3'), { textContent: 'Versions' }), closeButton('Back to now (Esc)', () => close(false)));
+  const list = Object.assign(document.createElement('div'), { className: 'version-list' });
+  const keep = Object.assign(panelButton('Restore this version', 'Click: Keep the version shown: one undo step, your last state stays in the undo', () => close(true)), { hidden: true });
+  let shown: Version | null = null;
+  let pushed = false;
+  const pluralOf = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const row = (v: Version | null, when: string, what: string, title: string) => {
+    const b = Object.assign(document.createElement('button'), { className: 'version', title, onclick: () => show(v, b) });
+    b.append(Object.assign(document.createElement('b'), { textContent: when }), Object.assign(document.createElement('small'), { textContent: what }));
+    return b;
+  };
+  const show = (v: Version | null, el: HTMLElement) => {
+    if (v === shown) return;
+    if (!v) {
+      undo();
+      pushed = false;
+    } else {
+      if (pushed) history.replace(v.doc);
+      else history.push(v.doc);
+      pushed = true;
+    }
+    shown = v;
+    [selected, shapeSel] = [[], []];
+    for (const c of list.children) c.classList.toggle('on', c === el);
+    keep.hidden = !v;
+    update();
+  };
+  const dated = (v: Version) => versionDate(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const counts = (d: Doc) => `${pluralOf(d.bodies.length, 'body').replace('bodys', 'bodies')}, ${pluralOf(d.sketches.length, 'sketch').replace('sketchs', 'sketches')}`;
+  const now = row(null, 'Now', counts(history.current), 'Click: Back to where you are now');
+  now.classList.add('on');
+  list.append(now, ...[...file.versions].reverse().map((v) => row(v, dated(v), counts(v.doc), 'Click: Show this version')));
+  const note = Object.assign(document.createElement('p'), { className: 'hint', textContent: file.versions.length ? 'Click one to see it. Nothing changes until you restore it.' : 'None yet: each save keeps a version, autosave one every few minutes.' });
+  box.append(head, note, list, keep);
+  document.body.append(box);
+  const keys = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || (!pressed(e, 'cancel') && !(pressed(e, 'confirm') && shown))) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    close(pressed(e, 'confirm'));
+  };
+  addEventListener('keydown', keys, { capture: true });
+  const close = (kept: boolean) => {
+    if (pushed && !kept) undo();
+    box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    versionsClose = null;
+    notify(kept ? `Restored the version of ${dated(shown!)}. Undo brings the other back` : '');
+    render();
+  };
+  versionsClose = () => close(false);
+  render();
+}
 
 /** Once per unsaved design, after some undo steps: a click on the note saves it and turns autosave on. */
 function offerAutosave() {
@@ -5740,6 +5807,7 @@ function render() {
       if (s) viewer.lookAlong(new Vector3(...s.frame.n));
     },
     toggleAutosave: () => run(toggleAutosave),
+    versions: versionsPanel,
     importFile: pickImport,
     exportPrint: () => void exportPanel('print'),
     exportLaser: () => void exportPanel('laser'),

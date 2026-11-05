@@ -63,6 +63,9 @@ export function unpack(bytes: Uint8Array): { doc: Doc; versions: Version[] } {
   return { doc: read('document.json'), versions };
 }
 
+/** When a version was saved. */
+export const versionDate = (v: Version) => new Date(v.savedAt.replace(/T(\d+)-(\d+)-(\d+)-(\d+)Z/, 'T$1:$2:$3.$4Z'));
+
 /** Appends `doc` as a new version unless it equals the latest one; keeps the newest `limit`. */
 export function addVersion(versions: Version[], doc: Doc, limit = 50): Version[] {
   const last = versions.at(-1);

@@ -36,6 +36,8 @@ export interface UIContext {
   /** Replaces the hint bar text while a tool runs. */
   hint: string | null;
   autosave: boolean;
+  /** The list of saved versions. */
+  versions(): void;
   /** A refusal in the top bar, in red. */
   notify(message: string): void;
   statusError: boolean;
@@ -473,6 +475,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('import', 'Import (or drop the file where it should go): STEP becomes solid bodies with their groups, names, colours and materials, STL, OBJ, 3MF and GLB meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate', ctx.importFile),
     tool('export', 'Export STEP: one file with the selected bodies (else all shown ones) as named, coloured parts, as placed in the world (for other CAD tools)', ctx.exportStep),
     tool('autosave', `Autosave ${ctx.autosave ? 'on' : 'off'}: saves into the file a moment after each change`, ctx.toggleAutosave, ctx.autosave),
+    tool('versions', 'Versions: go back in time: the saved versions of this file, shown with a click, restored if you like', ctx.versions),
     tool('terminal', 'Python terminal and scripts (I): model by typing, cad.box(80, 60, 40)', ctx.terminal.toggle, ctx.terminal.open),
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),

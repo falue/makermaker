@@ -2582,6 +2582,26 @@ section > h4 .segmented button {
   min-height: 0;
   overflow: auto;
 }
+.version-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+.version {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex: none;
+  gap: 8px;
+  text-align: left;
+}
+.version.on {
+  border-color: var(--accent);
+}
+.version small {
+  color: var(--muted);
+}
 .clash-row {
   display: flex;
   flex-wrap: wrap;
