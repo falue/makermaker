@@ -572,7 +572,7 @@ function update() {
       if (typeof tool === 'string') return tool;
       // as the tool sits by the body it belongs to (a linked copy: by its source, so the copy is cut the same)
       const owner = doc.bodies.find((b) => b.id === id)?.link ?? id;
-      const relative = (bodyPlaces.get(owner) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
+      const relative = s.kept ? new Matrix4().fromArray(s.kept) : (bodyPlaces.get(owner) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
       out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative) });
     }
     full.set(bare ? `${id} bare` : id, out);
@@ -625,7 +625,7 @@ function update() {
     ),
   );
   viewer.setPhotos([...BUILT_IN_PHOTOS, ...allPhotos()]);
-  viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id)) })));
+  viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: owner.has(b.id) })));
   viewer.select(contents(doc, selected), groupKept(doc));
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
@@ -4327,9 +4327,26 @@ function ungroup() {
 }
 
 /** Moves objects before or after another one in its list (into that one's group), or into a group; they stay in place. */
+/** Tool bodies dragged away from their owner: they go free, each owner keeps its cut where it is now (`stay`: the owner they are dragged within). */
+function letToolsGo(doc: Doc, ids: string[], stay?: string): Doc {
+  const owner = ownersOf(doc);
+  const leaving = ids.filter((id) => owner.has(id) && owner.get(id) !== stay);
+  if (!leaving.length) return doc;
+  const kept = (o: string, t: string) => (bodyPlaces.get(o) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(t) ?? new Matrix4()).toArray();
+  return {
+    ...doc,
+    bodies: doc.bodies.map((b) => ({
+      ...b,
+      visible: leaving.includes(b.id) ? true : b.visible,
+      features: b.features.map((f) => (f.type === 'boolean' && !f.kept && leaving.includes(f.body) && owner.get(f.body) === b.id ? { ...f, kept: kept(b.id, f.body) } : f)),
+    })),
+  };
+}
+
 function arrange(ids: string[], target: string, where: 'before' | 'after' | 'into') {
   if (ids.includes(target)) return;
-  let doc = history.current;
+  const owners = ownersOf(history.current);
+  let doc = letToolsGo(history.current, ids, owners.get(target) ?? (where === 'after' ? target : undefined));
   const parent = where === 'into' ? target : (doc.groups.find((g) => g.id === target)?.parent ?? doc.bodies.find((b) => b.id === target)?.group ?? null);
   doc = movedInto(doc, ids, parent);
   if (where !== 'into') {
@@ -5272,7 +5289,7 @@ function render() {
       if (!folded.delete(id)) folded.add(id);
       render();
     },
-    moveInto: (ids, group) => commit(movedInto(history.current, ids, group)),
+    moveInto: (ids, group) => commit(movedInto(letToolsGo(history.current, ids), ids, group)),
     groupTool,
     moveTool: () => moveAlong(0, true),
     cutTool,

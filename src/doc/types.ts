@@ -98,7 +98,8 @@ export type FinishFeature = { id: string; type: 'finish'; mode: 'fillet' | 'cham
 export type SphereFeature = { id: string; type: 'sphere'; x: Expr; y: Expr; z: Expr; d: Expr };
 
 /** Joins, cuts or intersects with another body (the tool body: stays editable, normally hidden). */
-export type BooleanFeature = { id: string; type: 'boolean'; op: BooleanOp; body: string };
+/** `kept`: its tool body was dragged away: it moves freely, the cut stays at this place relative to the body (a Matrix4's elements). */
+export type BooleanFeature = { id: string; type: 'boolean'; op: BooleanOp; body: string; kept?: number[] };
 export type BooleanOp = 'union' | 'subtract' | 'intersect';
 
 /**

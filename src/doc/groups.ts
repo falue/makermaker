@@ -81,10 +81,10 @@ export function tree(doc: Doc, folded: Set<string>): Row[] {
   return out;
 }
 
-/** The body each boolean tool body belongs to (the first whose boolean uses it). */
+/** The body each boolean tool body belongs to (the first whose boolean uses it); a tool dragged away is its own. */
 export function ownersOf(doc: Doc) {
   const out = new Map<string, string>();
-  for (const b of doc.bodies) for (const f of b.features) if (f.type === 'boolean' && !out.has(f.body)) out.set(f.body, b.id);
+  for (const b of doc.bodies) for (const f of b.features) if (f.type === 'boolean' && !f.kept && !out.has(f.body)) out.set(f.body, b.id);
   return out;
 }
 

@@ -47,3 +47,9 @@ Answers assumed where a request left a question open.
 - Clicking an image's list row again deselects it. Bodies and sketches in the lists still stay selected on a second click.
 - An image's rotate button turns it right away with the pointer, as Rotate does for bodies; the Turn field stays typed from 0 each time, because images store no turn value of their own.
 - Cross-browser is noted as a goal only; nothing about it is built yet.
+- A tool body dragged away stays linked to the cut: changing its shape changes the cut, moving it does not. To reshape it without touching the cut, duplicate it first.
+- Deleting a dragged-away tool body removes its cut too, since the cut is built from it. Keeping the cut would need a Flatten step (see CAD goals).
+- Dragging a tool body right under its owner, or among that owner's other tool bodies, keeps it a tool; anywhere else lets it go.
+- Tab cycles lines only where several lie under the pointer; there it comes before Tab's other uses (a line's angle field).
+- G's guides run along the drawing plane's X and Y only, not the world's.
+- The list's boolean colours reuse the joint's two colours: the body it cuts as "stays", tool bodies as "moves".

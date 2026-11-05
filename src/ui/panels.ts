@@ -672,9 +672,18 @@ function left(ctx: UIContext): Node[] {
   const dragged = (id: string) => (ctx.selected.includes(id) ? ctx.selected : [id]);
   const row = (id: string, depth: number, group: boolean, ...cells: HTMLElement[]) => {
     const el = h('div', { className: `listed${dimmed(id)}`, draggable: renaming !== id }, ...cells);
-    // hovered: it (a group: its contents; a body: its linked copies too) outlined orange in the view
-    el.onmouseenter = () => ctx.lightBodies([id, ...doc.bodies.filter((b) => b.link === id).map((b) => b.id)]);
-    el.onmouseleave = () => ctx.lightBodies(null);
+    // hovered: it (a group: its contents; a body: its linked copies too) outlined orange in the view, and in the list and view
+    // the boolean's other side: the body it cuts, or its tool bodies
+    const tools = doc.bodies.find((b) => b.id === id)?.features.flatMap((f) => (f.type === 'boolean' ? [f.body] : [])) ?? [];
+    const targets = doc.bodies.filter((b) => b.features.some((f) => f.type === 'boolean' && f.body === id)).map((b) => b.id);
+    const mark = (on: boolean) => {
+      for (const r of document.querySelectorAll<HTMLElement>('#left .listed[data-id]')) {
+        r.classList.toggle('bool-tool', on && tools.includes(r.dataset.id!));
+        r.classList.toggle('bool-target', on && targets.includes(r.dataset.id!));
+      }
+    };
+    el.onmouseenter = () => (ctx.lightBodies([id, ...doc.bodies.filter((b) => b.link === id).map((b) => b.id), ...tools, ...targets]), mark(true));
+    el.onmouseleave = () => (ctx.lightBodies(null), mark(false));
     el.dataset.id = id;
     el.style.paddingLeft = `${depth * 22}px`; // a level: the chevron's width, so contents line up under the group name
     el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
@@ -706,7 +715,7 @@ function left(ctx: UIContext): Node[] {
   // a group folds with a chevron, a body with booleans with the boolean icon
   const fold = ({ id, open, kind }: Row) => {
     if (open === undefined) return [];
-    const tools = doc.bodies.find((o) => o.id === id)?.features.filter((f) => f.type === 'boolean').length ?? 0;
+    const tools = doc.bodies.find((o) => o.id === id)?.features.filter((f) => f.type === 'boolean' && !f.kept).length ?? 0;
     const copies = doc.bodies.filter((o) => o.link === id).length;
     // a body: its tool bodies (the boolean button) and linked copies (a chevron, as a group)
     const what = [tools ? `${tools} boolean tool bod${tools === 1 ? 'y' : 'ies'}` : '', copies ? `${copies} linked cop${copies === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' and ');
@@ -786,7 +795,7 @@ function left(ctx: UIContext): Node[] {
       ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Based on sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.editSketch(own[0].id) })]
       : bools.length ? [] : [h('span', { className: 'fold-space' })];
     // a boolean's tool body: the op, and whose
-    const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id));
+    const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id && !f.kept));
     const op = user?.features.find((f) => f.type === 'boolean' && f.body === id);
     // a boolean's tool body: the op as a button in the eye's place (whose; a click frees it)
     const tool =
@@ -1099,7 +1108,7 @@ function selectionPanel(ctx: UIContext): Node[] {
   const setBody = (next: Body) => ctx.commit(setIn(ctx.doc, ['bodies', String(i)], next));
   const failure = ctx.kernelErrors.get(body.id);
   // a boolean's tool body: whose, and a way out
-  const user = ctx.doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === body.id));
+  const user = ctx.doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === body.id && !f.kept));
   const freeing = user
     ? [h('div', { className: 'row' }, h('span', { className: 'hint' }, `A tool body of ${user.name}`), button('Free from boolean', () => ctx.commit(freed(ctx.doc, body.id)), 'Remove the booleans that use it: it becomes a normal body again'))]
     : [];
@@ -1428,7 +1437,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const other = ctx.doc.bodies.find((b) => b.id === feature.body);
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
       const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error', title: COPY_TIP }, 'its tool body was deleted');
-      const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), 'Remove: the tool body becomes a body of its own');
+      const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), feature.kept ? 'Remove: the cut goes' : 'Remove: the tool body becomes a body of its own');
       return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, 'with'), tool, drop));
     }
     case 'mesh': {

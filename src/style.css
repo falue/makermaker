@@ -2005,9 +2005,11 @@ button.to-object svg,
   align-items: center;
   gap: 4px;
 }
+.listed.bool-target .item,
 .listed.joint-static .item {
   outline: 2px solid var(--accent);
 }
+.listed.bool-tool .item,
 .listed.joint-moving .item {
   outline: 2px solid #e8a33d;
 }
