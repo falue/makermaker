@@ -664,7 +664,13 @@ export class SketchTool implements Tool {
     }
     // Alt: the next drawing mode (before drawing: kept; while drawing: for this shape only)
     if ((ph.kind === 'hover' || ph.kind === 'shape' || (ph.kind === 'polygon' && !ph.held)) && e.key === 'Alt' && !e.repeat && this.drawMode()) return this.switchMode(e.shiftKey ? -1 : 1), this.update(), true;
-    if (free && guide && pressed(e, 'fixGuide')) {
+    if (free && this.cycle.count > 1 && pressed(e, 'otherSide') && this.lastPoint) {
+      this.cycle.at++; // the next line under the pointer
+      const at = ph.kind === 'polygon' ? this.sideEnd(this.lastPoint[0], ph) : this.point(...this.lastPoint);
+      if (at && (ph.kind === 'shape' || ph.kind === 'polygon')) ph.cur = at;
+    } else if (free && this.snapped && !this.snapWhat?.startsWith('on ') && this.lastPoint && pressed(e, 'fixGuide')) {
+      this.pointGuides(this.snapped, this.lastPoint[1]);
+    } else if (free && guide && pressed(e, 'fixGuide')) {
       guide.fixed = !guide.fixed;
       if (!SketchTool.guides.includes(guide)) SketchTool.guides.push(guide); // the bisector, kept
     }
@@ -810,7 +816,8 @@ export class SketchTool implements Tool {
    */
   private snapPoints(t: Target, lines: SnapLine[]): SnapPoint[] {
     const pts: SnapPoint[] = [{ at: [0, 0], what: 'origin' }];
-    const add = (v: THREE.Vector3, o: Omit<SnapPoint, 'at'>) => inPlane(t.frame, v) && pts.push({ at: uvOf(t.frame, v), ...o });
+    // a line off the plane: only the points just asked for with A, projected
+    const add = (v: THREE.Vector3, o: Omit<SnapPoint, 'at'>) => (inPlane(t.frame, v) || (o.key && o.key === this.showing)) && pts.push({ at: uvOf(t.frame, v), ...o });
     for (const { at, ...o } of linePoints(lines)) add(at, o);
     for (const c of this.view.corners()) add(c, { what: 'corner', corner: c });
     // the line being drawn: its own points, its start closes it
@@ -870,6 +877,15 @@ export class SketchTool implements Tool {
   /** The guide the pointer is on, or the guide of the line it is on. */
   private hoveredGuide() {
     return this.onGuide ?? SketchTool.guides.find((g) => this.snapSeg && onLine(g, this.snapSeg));
+  }
+
+  /** Kept guides along the plane's X and Y through a point; if they are there already, they go. */
+  private pointGuides(at: THREE.Vector3, t: Target) {
+    const dirs = [v3(t.frame.x), v3(t.frame.y)];
+    const on = (g: (typeof SketchTool.guides)[number], dir: THREE.Vector3) => g.dir.clone().cross(dir).length() < 1e-6 && g.at.clone().sub(at).cross(dir).length() < 1e-6;
+    const both = dirs.every((dir) => SketchTool.guides.some((g) => g.fixed && on(g, dir)));
+    SketchTool.guides = SketchTool.guides.filter((g) => !dirs.some((dir) => on(g, dir)));
+    if (!both) SketchTool.guides.push(...dirs.map((dir) => ({ at: at.clone(), dir, fixed: true })));
   }
 
   /** A guide along a hovered line; it replaces an unfixed one in the same direction. */
@@ -946,7 +962,11 @@ export class SketchTool implements Tool {
     return v3(toWorld(t.frame, ...on));
   }
 
+  /** Several lines under the pointer (a guide on a line's side, say): the one taken, Tab going on to the next. */
+  private cycle = { lines: '', at: 0, count: 0 };
+
   private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], grid: boolean, px = 10, linePx = 8): UV | null {
+    this.cycle.count = 0;
     const p = planeHit(this.view.ray(e), t.frame);
     if (!p) return null;
     const r = this.view.el.getBoundingClientRect();
@@ -985,7 +1005,8 @@ export class SketchTool implements Tool {
       }
       return near.at;
     }
-    let best: { at: THREE.Vector3; line: Segment[]; what: string; key?: string; seg?: Segment; guide?: (typeof SketchTool.guides)[number]; d: number } | null = null;
+    type Near = { at: THREE.Vector3; line: Segment[]; what: string; key?: string; seg?: Segment; guide?: (typeof SketchTool.guides)[number]; d: number };
+    const under = new Map<number, Near>();
     const close: { line: number; a: UV; b: UV }[] = [];
     // along lines and at their crossings only in the plane drawn on: a line off it would snap to its projection, away from the pointer
     let off: { seg: Segment; d: number } | null = null; // the nearest straight line off the plane: hovered, it gives a guide (projected)
@@ -1002,9 +1023,16 @@ export class SketchTool implements Tool {
         close.push({ line, a: uvOf(t.frame, a), b: uvOf(t.frame, b) });
         // the line for A / Shift A: a circle, a straight side, or a straight body edge
         const key = guide ? undefined : shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : (curves?.[i] ?? (shape || segs.length === 1 ? sideKey(a, b) : undefined));
-        if (!best || d < best.d) best = { at: this.onTrueLine(lines[line], a.clone().lerp(b, k), t), line: segs, what, key, seg: key && straightKey(key) ? [a, b] : undefined, guide, d };
+        if (!under.has(line) || d < under.get(line)!.d) under.set(line, { at: a.clone().lerp(b, k), line: segs, what, key, seg: key && straightKey(key) ? [a, b] : undefined, guide, d });
       }
-    const cross = this.crossing(close, t, mx, my, px);
+    // real lines before guides, then the nearest; Tab goes through them
+    const ranked = [...under.entries()].sort(([, u], [, v]) => +!!u.guide - +!!v.guide || u.d - v.d);
+    const seen = ranked.map(([line]) => line).sort().join();
+    if (seen !== this.cycle.lines) this.cycle = { lines: seen, at: 0, count: 0 };
+    this.cycle.count = ranked.length;
+    const taken = ranked[this.cycle.at % Math.max(1, ranked.length)];
+    const best = taken ? { ...taken[1], at: this.onTrueLine(lines[taken[0]], taken[1].at, t) } : null;
+    const cross = this.cycle.at ? null : this.crossing(close, t, mx, my, px);
     if (cross) {
       // where they really cross: from one true line to the next until they meet (straight lines cross as they are)
       if (cross.lines.some((i) => lines[i].shape?.p.kind === 'circle' || (lines[i].shape ? curved(lines[i].shape!.p) : lines[i].segs.length > 1))) {
@@ -1029,7 +1057,10 @@ export class SketchTool implements Tool {
     }
     if (off) {
       const seg = off.seg.map((v) => v3(toWorld(t.frame, ...uvOf(t.frame, v)))) as Segment;
-      if (seg[0].distanceTo(seg[1]) > 1e-3) this.snapSeg = seg; // not seen end-on
+      if (seg[0].distanceTo(seg[1]) > 1e-3) {
+        this.snapSeg = seg; // not seen end-on
+        this.snapKey = sideKey(off.seg[0], off.seg[1]); // A / Shift A: its points, on this plane
+      }
     }
     const [u, v] = uvOf(t.frame, p);
     if (!grid) return [u, v];
@@ -1500,13 +1531,15 @@ export class SketchTool implements Tool {
     // on a point along a line (not anywhere along it)
     const more = this.snapKey && !this.snapWhat?.startsWith('on ') ? `Press ${comboText(keysOf('moreSnaps')[0])} for more points, ${comboText(keysOf('fewerSnaps')[0])} for fewer` : null;
     const guide = this.hoveredGuide();
-    const fix = guide ? `Press ${comboText(keysOf('fixGuide')[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
+    const onPoint = this.snapped && !this.snapWhat?.startsWith('on ');
+    const fix = onPoint ? `${comboText(keysOf('fixGuide')[0])}: X and Y guides through this point` : guide ? `Press ${comboText(keysOf('fixGuide')[0])} to ${guide.fixed ? 'let the guide go with the next click' : 'keep the guide'}` : null;
+    const cycleHint = this.cycle.count > 1 ? `Tab: the next of ${this.cycle.count} lines here` : null;
     const base = ph.kind === 'polygon' && this.hoveredLine(ph.target.frame) !== null ? `Press ${comboText(keysOf('baseline')[0])} to measure the angle from this line` : null;
     const angles = ph.kind === 'polygon' && !ph.arc && !ph.held && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(keysOf('moreSnaps')[0])} finer, ${comboText(keysOf('fewerSnaps')[0])} coarser` : null;
     // pulling: while aiming what the pointer reaches (what T does is in the size label)
     const pulling = ph.kind === 'pull' && this.reaching && [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n');
     // at the pointer what it measures and is on; other keys with the tool's hint
-    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, this.snapWhat].filter(Boolean).join('\n') || null, [more, fix, base, angles].filter(Boolean).join(' · ') || null);
+    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, this.snapWhat].filter(Boolean).join('\n') || null, [more, cycleHint, fix, base, angles].filter(Boolean).join(' · ') || null);
     if (ph.kind === 'polygon' && !ph.arc && !ph.held && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
