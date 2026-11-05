@@ -2405,11 +2405,19 @@ section > h4 .segmented button {
   font-size: 12px;
 }
 .script-title,
+.script-last,
 .scripts-head > span {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.script-title {
+  flex: 0 1 auto;
+}
+.script-last {
+  margin-left: 8px;
+  font: 12px var(--mono, ui-monospace, Menlo, monospace);
 }
 .script-text {
   flex: 1;

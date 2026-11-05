@@ -41,7 +41,7 @@ const OLD_STORE = 'makermaker.scripts';
 /**
  * The Python terminal, a drawer in `parent`: its tab in `tabs`, open across the view, lifting the other drawers
  * (`--drawers-up`). Pyodide loads in a worker when first opened. Two columns: the terminal (`cad` is the command API; Enter runs,
- * typing on when unfinished), beside it the script being edited, both in Monaco (colours, Tab completes); and the scripts. A script runs as one undo step.
+ * typing on when unfinished), covered by a script being edited, both in Monaco (colours, Tab completes); and the scripts. A script runs as one undo step.
  */
 export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: TerminalApi, changed: () => void) {
   const box = Object.assign(document.createElement('div'), { className: 'terminal', hidden: true });
@@ -60,15 +60,15 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const editor = Object.assign(document.createElement('div'), { className: 'script-editor', hidden: true });
   editor.append(editorBar);
   // the panes: what is kept in this browser, and the borders between them, dragged as the view's
-  const panes = stored<{ closed?: boolean; editor?: number; scripts?: number }>('makermaker.terminalPanes', {});
+  const panes = stored<{ closed?: boolean; scripts?: number }>('makermaker.terminalPanes', {});
   const keep = () => store('makermaker.terminalPanes', panes);
-  const paneBorder = (title: string, from: () => number, to: (px: number) => void, sign: 1 | -1) => {
+  const paneBorder = (title: string, from: () => number, to: (px: number) => void) => {
     const border = Object.assign(document.createElement('div'), { className: 'view-border column terminal-border', title });
     border.onpointerdown = (down) => {
       border.setPointerCapture(down.pointerId);
       border.classList.add('dragged');
       const start = from();
-      border.onpointermove = (m) => (to(start + sign * (m.clientX - down.clientX)), layout());
+      border.onpointermove = (m) => (to(start + down.clientX - m.clientX), layout());
       border.onpointerup = () => {
         border.onpointermove = border.onpointerup = null;
         border.classList.remove('dragged');
@@ -77,9 +77,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     };
     return border;
   };
-  const editorBorder = paneBorder('Drag: the width of the script', () => editor.offsetWidth, (px) => (panes.editor = Math.max(160, Math.min(main.clientWidth - 160, px))), 1);
   const main = Object.assign(document.createElement('div'), { className: 'terminal-main' });
-  main.append(editor, editorBorder, scroll);
+  main.append(editor, scroll);
   // the scripts
   const list = Object.assign(document.createElement('div'), { className: 'script-list' });
   const side = Object.assign(document.createElement('div'), { className: 'scripts' });
@@ -87,18 +86,16 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   head.append(Object.assign(document.createElement('span'), { textContent: 'Scripts' }));
   side.append(head, list);
   const cols = Object.assign(document.createElement('div'), { className: 'terminal-cols' });
-  const scriptsBorder = paneBorder('Drag: the width of the scripts', () => side.offsetWidth, (px) => (panes.scripts = Math.max(120, Math.min(cols.clientWidth - 200, px))), -1);
+  const scriptsBorder = paneBorder('Drag: the width of the scripts', () => side.offsetWidth, (px) => (panes.scripts = Math.max(120, Math.min(cols.clientWidth - 200, px))));
   cols.append(main, scriptsBorder, side);
-  /** The panes as they are now: no prompt and no script open leaves the scripts all the room. */
+  /** The panes as they are now: an open script covers the prompt; no prompt and no script leaves the scripts all the room. */
   const layout = () => {
     const open = !editor.hidden;
-    scroll.hidden = !!panes.closed;
-    editorBorder.hidden = !!panes.closed || !open;
+    scroll.hidden = !!panes.closed || open;
     main.hidden = scriptsBorder.hidden = !!panes.closed && !open;
-    editor.style.flex = panes.editor && !panes.closed ? `0 1 ${panes.editor}px` : '1';
     side.style.flex = main.hidden ? '1' : `0 1 ${panes.scripts ?? 220}px`;
-    promptButton.classList.toggle('on', !panes.closed);
-    promptButton.title = panes.closed ? 'Click: Open the Python prompt' : 'Click: Close the Python prompt: scripts stay';
+    promptButton.classList.toggle('on', !scroll.hidden);
+    promptButton.title = open ? 'Click: Close the script, open the Python prompt' : panes.closed ? 'Click: Open the Python prompt' : 'Click: Close the Python prompt: scripts stay';
   };
   const showPrompt = (show: boolean) => {
     panes.closed = !show;
@@ -113,7 +110,9 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   tabs.prepend(drawerEl);
 
   const print = (text: string, kind = '') => {
-    if (kind === 'terminal-error' && panes.closed) showPrompt(true); // never unseen
+    if (kind === 'terminal-error' && panes.closed && editor.hidden) showPrompt(true); // never unseen
+    lastOut.textContent = lastOut.title = text.trimEnd().split('\n').pop() ?? '';
+    lastOut.className = `script-last ${kind}`;
     const part = Object.assign(document.createElement('span'), { className: kind, textContent: text.endsWith('\n') ? text : `${text}\n` });
     output.append(part);
     if (output.childElementCount > 500) output.firstElementChild!.remove();
@@ -164,7 +163,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const idle = () => {
     running = null;
     clearTimeout(stopSoon);
-    stopButton.hidden = true;
+    stopButton.hidden = scriptStop.hidden = true;
   };
   /** Ends what runs: the worker goes, and Python's variables with it. */
   const stop = () => {
@@ -189,8 +188,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
       tell({ kind: 'run', fn, text, selection: api.selection(), ...(start === sent ? {} : { doc: start }), ...(measures ? { measures } : {}) });
       sent = start;
       stopSoon = window.setTimeout(() => {
-        stopButton.hidden = false;
-        if (panes.closed) showPrompt(true); // its Stop
+        stopButton.hidden = scriptStop.hidden = false;
+        if (panes.closed && editor.hidden) showPrompt(true); // its Stop
       }, 300);
       running = async (m) => {
         let taken = true;
@@ -333,6 +332,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     if (running) return print('Python is still running: wait, or stop it.', 'terminal-note');
     await flush();
     print(`▶ ${s.name}`, 'terminal-echo');
+    lastOut.textContent = lastOut.title = '';
     await batched('_run', s.text);
     changed();
   };
@@ -412,8 +412,14 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   };
   addEventListener('focus', () => !box.hidden && void rescan());
   addEventListener('pagehide', () => void flush());
+  // with the prompt covered: what a run says last, and its Stop
+  const lastOut = Object.assign(document.createElement('span'), { className: 'script-last' });
+  const scriptStop = button('stop', stopButton.title, () => stop());
+  scriptStop.hidden = true;
   editorBar.append(
     editorName,
+    lastOut,
+    scriptStop,
     button('play', 'Run this script (⌘ or Ctrl + Enter): one undo step', () => current && void play(current)),
     button('close', 'Close the editor: the script stays', () => open(null)),
   );
@@ -529,7 +535,12 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   };
   const headName = head.firstElementChild as HTMLElement;
   const folderButton = button('open', 'Choose a folder for the scripts', () => void choose());
-  const promptButton = button('terminal', '', () => showPrompt(!!panes.closed));
+  const promptButton = button('terminal', '', () => {
+    if (editor.hidden) return showPrompt(!!panes.closed);
+    panes.closed = false;
+    keep();
+    open(null);
+  });
   head.append(promptButton, folderButton, button('import', 'Upload .py files into the folder (or drop them on this list)', () => picker.click()));
   head.append(button('new', 'New script', async () => {
     if (!(await needFolder())) return;
