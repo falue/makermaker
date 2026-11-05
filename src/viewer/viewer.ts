@@ -1332,7 +1332,6 @@ export class Viewer implements ToolView {
       const ref = this.shapeRefs.get(q.id) ?? [0, 0];
       if (!this.selectedShapes.includes(q.id)) continue;
       const p = this.overrides.get(q.id) ?? q;
-      if (simpleLine(p)) continue;
       const [u, v] = anchorAt(p, ref);
       const at = new THREE.Vector3(...toWorld(s.frame, u, v));
       points.push(at);
