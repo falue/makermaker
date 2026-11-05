@@ -9,7 +9,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A tangent line starts on a sketch circle, arc or bezier side, or a body's round edge: not on a rounded rectangle's corner (its outline has no arc to snap to) or a body's elliptic or spline edge. No line ending tangent from a free start, none tangent to two curves. It holds while drawing, no lasting link to the curve. In the one-line and polygon modes, not bezier or arc. A typed angle no tangent of a short arc runs at is ignored.
 
 ## Box joint
-- Two that only touch are found by their boxes (axis-aligned to each other): slanted plates that touch are refused or grow wrong; a small gap is refused rather than bridged.
 - The starting number of fingers comes from the bodies' boxes in the world, so it is off for plates at a slant.
 
 ## Cut and sections

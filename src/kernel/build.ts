@@ -657,7 +657,8 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   if (!touch.length) overlap = shape.clone().intersect(other);
   else {
     const k = gaps.findIndex((g) => g > -EPS);
-    if (touch.length > 1 || gaps[k] > EPS) throw new Error('the two bodies do not touch');
+    if (gaps[k] > EPS) throw new Error('the two bodies do not touch: move one onto or into the other');
+    if (touch.length > 1) throw new Error('the two bodies meet only along an edge: put one onto or into the other');
     // where they meet, through the shorter one along k
     const grows = ha[k] - la[k] > hb[k] - lb[k];
     const [l, h] = grows ? [lb, hb] : [la, ha];
@@ -672,7 +673,7 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
     const [lo, hi] = box.bounds;
     const k = [0, 1, 2].reduce((best, a) => (hi[a] - lo[a] > hi[best] - lo[best] ? a : best), 0);
     const length = hi[k] - lo[k];
-    if (!(length > 1e-6)) throw new Error('the two bodies do not overlap');
+    if (!(length > 1e-6)) throw new Error('the two bodies do not overlap: a slanted one must reach into the other, or both stand square to each other');
     // the slices along k: [start, end, index]; index 0 is the first finger
     const slices: [number, number, number][] = [];
     if (s.width > 0) {

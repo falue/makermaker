@@ -3291,7 +3291,12 @@ function boxJoint() {
   const sides: number[] = meet && !meet.isEmpty() ? meet.getSize(new Vector3()).toArray() : [];
   // only touching along one axis: the thinner one there is the material
   const flat = sides.filter((x) => x <= 1e-3).length;
-  if (meet && (!sides.length || flat > 1)) return fail('Box joint: these two do not touch. Move one onto or into the other');
+  const names = `${doc.bodies.find((x) => x.id === a)?.name} and ${doc.bodies.find((x) => x.id === b)?.name}`;
+  if (meet && !sides.length) return fail(`Box joint: ${names} do not touch. Move one onto or into the other`);
+  if (flat > 1) return fail(`Box joint: ${names} meet only along an edge. Put one onto or into the other`);
+  // only touching: they must stand square to each other (each one's axes along the other's)
+  const turn = new Matrix4().extractRotation((bodyPlaces.get(a) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(b) ?? new Matrix4())).elements;
+  if (flat && turn.some((x) => Math.abs(x) > 1e-6 && Math.abs(Math.abs(x) - 1) > 1e-6)) return fail(`Box joint: ${names} only touch and stand slanted to each other. Turn them square, or move one into the other`);
   const k = sides.indexOf(Math.min(...sides));
   const thick = flat ? Math.min(boxA!.getSize(new Vector3()).getComponent(k), boxB!.getSize(new Vector3()).getComponent(k)) : sides[k];
   const count = sides.length ? fingersFor(Math.max(...sides), thick) : 7;
