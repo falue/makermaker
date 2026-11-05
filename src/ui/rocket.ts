@@ -15,7 +15,7 @@ try {
 
 const looks = () => ACHIEVEMENTS.filter((a) => 'icon' in a && a.at <= count).at(-1)?.icon ?? 'rocket';
 
-/** The button and its counter below it (seen from the first click), built anew with each toolbar. */
+/** The button and its counter above it (seen from the first click), built anew with each toolbar. */
 export function rocket(notify: (message: string) => void) {
   // no tooltip: what it does is the surprise
   const button = Object.assign(document.createElement('button'), { className: 'tool', innerHTML: icon(looks()) });
@@ -39,6 +39,6 @@ export function rocket(notify: (message: string) => void) {
     counter.classList.add('plop');
   };
   const box = Object.assign(document.createElement('div'), { className: 'rocket' });
-  box.append(button, counter);
+  box.append(counter, button);
   return box;
 }

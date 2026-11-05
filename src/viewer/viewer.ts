@@ -3056,7 +3056,7 @@ export class Viewer implements ToolView {
 
   private measureMark = new THREE.Group();
 
-  /** One measure of a box (world) drawn along its edge in `axis` (0 x, 1 y, 2 z) with end ticks; null: clears it. */
+  /** One measure of a box (world) drawn along its edge in `axis` (0 x, 1 y, 2 z), a thin line with its ends marked; null: clears it. */
   showMeasure(box: THREE.Box3 | null, axis: number) {
     for (const o of this.measureMark.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
     this.measureMark.clear();
@@ -3065,10 +3065,10 @@ export class Viewer implements ToolView {
       // the front edge: x along the front bottom, y and z up the right front corner
       if (axis) [a.x, b.x] = [box.max.x, box.max.x];
       b.setComponent(axis, box.max.getComponent(axis));
-      const tick = box.getSize(new THREE.Vector3()).length() * 0.03;
-      const across = new THREE.Vector3().setComponent(axis === 2 ? 0 : 2, tick);
-      const pts = [a, b, a.clone().sub(across), a.clone().add(across), b.clone().sub(across), b.clone().add(across)];
-      this.measureMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(pts.flatMap((v) => v.toArray())), new LineMaterial({ color: 0xff8c1a, linewidth: 3, depthTest: false })), { renderOrder: 1e6 }));
+      // as the Distance measure draws one: a thin line, its two ends marked
+      const material = new LineMaterial({ color: 0xff8c1a, depthTest: false, depthWrite: false, transparent: true });
+      material.resolution.set(this.el.clientWidth, this.el.clientHeight);
+      this.measureMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions([...a.toArray(), ...b.toArray()]), material), { renderOrder: 1e6 }), Object.assign(marks([a, b], 0xff8c1a, 9), { renderOrder: 1e6 }));
     }
     this.render();
   }

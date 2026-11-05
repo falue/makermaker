@@ -6737,9 +6737,9 @@ function showNote() {
   const html = (t: string) => axisHtml(t).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   const [head, ...rest] = kind === 'note' ? text.split(' · ') : [text];
   const action = !kind && statusAction;
-  el.className = `status${kind ? ` ${kind}` : action ? ' offer' : ''}`;
+  el.className = `status${kind ? ` ${kind}` : action ? ' offer' : text ? ' info' : ''}`;
   el.onclick = action || null;
-  el.title = text.replaceAll(' · ', '\n') + (kind === 'error' ? `\n${COPY_TIP}` : ''); // cut short when long: all of it on hover
+  el.title = text.replaceAll(' · ', '\n') + (kind === 'error' || (!kind && !action) ? `\n${COPY_TIP}` : ''); // cut short when long: all of it on hover
   el.innerHTML = rest.length ? `<b>${html(head)}</b><small>${html(rest.join(' · '))}</small>` : html(head);
 }
 
@@ -7014,11 +7014,11 @@ addEventListener('drop', (e) => {
   });
 });
 
-// a click on an error note copies all of it
+// a click on an error note or a message copies all of it
 addEventListener(
   'click',
   (e) => {
-    const el = (e.target as Element).closest?.('#topbar .status.error, p.error, span.error, .terminal-error');
+    const el = (e.target as Element).closest?.('#topbar .status.error, #topbar .status.info, p.error, span.error, .terminal-error');
     if (!el) return;
     const bar = el.matches('#topbar .status');
     navigator.clipboard.writeText(bar ? status : (el.textContent ?? '').trim()).then(

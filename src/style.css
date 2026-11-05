@@ -111,6 +111,7 @@ body {
   color: var(--muted);
 }
 #topbar .status.error,
+#topbar .status.info,
 p.error,
 span.error,
 .terminal-error {
@@ -121,6 +122,13 @@ span.error,
   border-radius: 4px;
   background: var(--error);
   color: #fff;
+}
+/* a message (saved, imported, a refusal of a key): grey */
+#topbar .status.info {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted) 30%, var(--panel));
+  color: var(--text);
 }
 #topbar .link {
   margin-left: 12px;
@@ -465,6 +473,11 @@ input.invalid {
 }
 .row > * {
   flex: 1;
+}
+/* an icon button in a row of fields: its own size, centred on them */
+.row > .tool {
+  flex: none;
+  align-self: center;
 }
 .row input[type='range'] {
   min-width: 0;
@@ -958,7 +971,7 @@ canvas.drawing,
   top: 100%;
   margin: 6px 0 0;
 }
-/* the rocket clicker: at the toolbar's bottom, its count plopping up under it */
+/* the rocket clicker: at the toolbar's bottom, its count plopping up over it */
 #toolbar .rocket {
   margin-top: auto;
   display: flex;
@@ -1139,12 +1152,12 @@ input.rename {
   border-radius: 3px;
   vertical-align: -1px;
 }
-/* every colour field: a small pill, 3 : 1, as high as an input field */
+/* every colour field: a small pill, 3 : 2, as high as an input field */
 input.color,
 .row > input.color {
   flex: none;
-  width: 75px;
-  min-width: 75px;
+  width: 38px;
+  min-width: 38px;
   height: 25px;
   padding: 0;
   border: 1px solid var(--line);
@@ -1765,6 +1778,7 @@ button.primary.wide {
   z-index: 30;
   display: flex;
   flex-wrap: wrap;
+  justify-content: center; /* rows that wrap stay centred */
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
@@ -2144,11 +2158,11 @@ input + .to-object,
   white-space: nowrap;
 }
 
-/* icons in two greys: the shape, its dashed or faint (secondary) parts lighter */
-.tool svg :is([stroke-dasharray], .faint) {
+/* icons in two greys: the shape, its dashed or faint (secondary) parts lighter; `lead`: a dashed part that is the shape */
+.tool svg :is([stroke-dasharray]:not(.lead), .faint) {
   stroke: color-mix(in srgb, currentColor 50%, transparent);
 }
-.tool.on svg :is([stroke-dasharray], .faint) {
+.tool.on svg :is([stroke-dasharray]:not(.lead), .faint) {
   stroke: currentColor;
 }
 
@@ -2463,8 +2477,7 @@ section > h4 .segmented button {
   font-size: 12px;
 }
 .script-title,
-.script-last,
-.scripts-head > span {
+.script-last {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2494,7 +2507,7 @@ section > h4 .segmented button {
   flex: none;
   display: flex;
   gap: 2px;
-  margin: 0 6px;
+  margin: 6px 6px 0;
   border-bottom: 1px solid var(--line);
 }
 .script-tabs[hidden] {
@@ -2534,7 +2547,10 @@ section > h4 .segmented button {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 4px 6px;
+  padding: 6px 8px;
+}
+.scripts-head {
+  justify-content: flex-end;
 }
 .script-row {
   display: flex;

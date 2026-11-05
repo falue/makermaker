@@ -91,9 +91,9 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const list = Object.assign(document.createElement('div'), { className: 'script-list' });
   const side = Object.assign(document.createElement('div'), { className: 'scripts' });
   const head = Object.assign(document.createElement('div'), { className: 'scripts-head' });
-  head.append(Object.assign(document.createElement('span'), { textContent: 'Scripts' }));
   const tabBar = Object.assign(document.createElement('div'), { className: 'script-tabs' });
-  side.append(head, tabBar, list);
+  // the tabs on top, the list, its buttons at the bottom right
+  side.append(tabBar, list, head);
   const cols = Object.assign(document.createElement('div'), { className: 'terminal-cols' });
   const scriptsBorder = paneBorder('Drag: the width of the scripts', () => side.offsetWidth, (px) => (panes.scripts = Math.max(120, Math.min(cols.clientWidth - 200, px))));
   cols.append(main, scriptsBorder, side);
