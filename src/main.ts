@@ -20,7 +20,7 @@ import { changeLook, dropMaterial, effectiveLight, lookOf, newMaterialFor, plain
 import { dropPhoto, keepPhoto, loadPhotos } from './ui/photolibrary';
 import { fromMtlx, toMtlx } from './io/materials';
 import { openMaterials } from './ui/materials';
-import { ex, newId, sampleDoc, unturned } from './doc/sample';
+import { emptyDoc, ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
@@ -77,7 +77,8 @@ let settings = loadSettings();
 const lostEdges = new Map<string, Record<string, number>>();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
-const history = new History<Doc>(sampleDoc(), 200, followSizes);
+// the test models only while developing
+const history = new History<Doc>(import.meta.env.DEV ? sampleDoc() : emptyDoc(), 200, followSizes);
 /** Selected objects (bodies and sketches) and, inside a single selected sketch, its selected shapes. */
 let selected: string[] = history.current.bodies.slice(0, 1).map((p) => p.id);
 let shapeSel: string[] = [];
@@ -5937,7 +5938,7 @@ function render() {
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
     newDoc() {
-      load({ schema: 32, units: history.current.units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, { name: `untitled${EXTENSION}`, versions: [] });
+      load(emptyDoc(history.current.units), { name: `untitled${EXTENSION}`, versions: [] });
     },
     open: () => run(openDesign),
     save: () => run(save),

@@ -161,6 +161,9 @@ function slantedPlane(): WorkPlane {
   return { id: newId(), name: 'Slanted plane', o: at, x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1], offset: ex(0), turn: ex(30), axis: { at, dir: [1, 0, 0] }, points: [], mode: 'edge', hull: [at, [-70, 150, 20]], rect: null, visible: true };
 }
 
+/** A design with nothing in it. */
+export const emptyDoc = (units: Unit = 'mm'): Doc => ({ schema: 32, units, params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] });
+
 /**
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
