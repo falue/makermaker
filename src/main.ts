@@ -1290,6 +1290,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   let closed = false; // removing the box fires focusout: close once
   let last: HTMLInputElement | null = null; // the field typed in last
   let target = false; // waiting for a click: "To object"
+  let points: Vector3[] | null = null; // point to point: the points clicked so far
   const close = () => {
     if (closed) return;
     closed = true;
@@ -1300,6 +1301,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
     viewer.cancelFacePick();
     viewer.previewMove(null);
     viewer.showGizmo(null);
+    viewer.showMeasureLine(null);
     viewer.aiming = null;
     viewer.aimAt(null);
   };
@@ -1309,9 +1311,29 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   const watch = () =>
     viewer.pickFace((face) => {
       if (closed) return;
-      if (target) reach(face?.snap);
+      if (points && face?.snap) pointTo(face.snap);
+      else if (target) reach(face?.snap);
       watch();
     }, true);
+  /** Point to point: the first click where the selection is moved from, the second where to; X, Y and Z fill in. */
+  const pointTo = (p: Vector3) => {
+    points!.push(p);
+    viewer.showMeasureLine(points![0], points![1] ?? null);
+    if (points!.length < 2) return void (viewer.aiming = (s) => tips.cursorTip([s?.what, 'Click: where that point goes'].filter(Boolean).join('\n')));
+    const d = points![1].clone().sub(points![0]);
+    points = null;
+    viewer.aiming = null;
+    viewer.aimAt(null);
+    viewer.showMeasureLine(null);
+    tips.cursorTip(null);
+    box.classList.remove('targeting');
+    [0, 1, 2].forEach((k) => {
+      if (!fields[k]) open(k);
+      fields[k]!.value = fmt(d.getComponent(k) / UNITS[history.current.units]);
+    });
+    show();
+    last?.focus();
+  };
   watch();
   /** "To object": the selection moves along the field's axis until its nearest side reaches `p` (none: the value from before aiming). */
   let before = '';
@@ -1382,6 +1404,18 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
     last?.focus();
     viewer.aiming(viewer.aimHere());
   }, 'Click a corner, edge or face: the selection moves along this axis until its nearest side reaches it', measureField);
+  const fromTo = Object.assign(document.createElement('button'), {
+    className: 'icon',
+    innerHTML: icon('pointToPoint'),
+    title: 'Point to point: click a point (on the selection, say), then where it goes: X, Y and Z fill in',
+    onclick: () => {
+      [points, target] = [[], false];
+      viewer.aiming = (s) => tips.cursorTip([s?.what, 'Click: the point to move from'].filter(Boolean).join('\n'));
+      box.classList.add('targeting');
+      last?.focus();
+      viewer.aiming(viewer.aimHere());
+    },
+  });
   const copy = Object.assign(document.createElement('input'), { type: 'checkbox', onchange: () => ((linkedLabel.hidden = !copy.checked), show(), last?.focus()) });
   const copyLabel = Object.assign(document.createElement('label'), { title: 'Leave the selection where it is and move a copy of it' });
   copyLabel.append(copy, 'Copy');
@@ -1396,7 +1430,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   const linkedLabel = Object.assign(document.createElement('label'), { title: 'Copies are linked copies: they share their steps, editing one edits all of them', hidden: !made });
   linkedLabel.append(linked, 'Linked');
   // copies made already (Duplicate, paste): no Copy; Linked only while their sources are there
-  box.append(toObject, ...(made ? [] : [copyLabel]), ...(made && !made.sources.length ? [] : [linkedLabel]), panelButton('✓', 'Move it (Enter); Esc leaves it', () => confirm()));
+  box.append(toObject, fromTo, ...(made ? [] : [copyLabel]), ...(made && !made.sources.length ? [] : [linkedLabel]), panelButton('✓', 'Move it (Enter); Esc leaves it', () => confirm()));
   if (all) [2, 1, 0].forEach(open); // all three, then the cursor goes to `first`
   open(first);
   show();
@@ -3700,6 +3734,8 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           viewer.showMeasured(edges, faces);
           if (edges.length || faces.length) showParts();
           else show([], 'Click a point, or Alt-click an edge or face');
+          // one edge for a waiting field: no doubt what goes in
+          if (use && 'edge' in part && edges.length === 1) return void askEdge(part.edge, part.ref).then(() => (close(), use(long(edges[0]))));
           void ('edge' in part ? askEdge(part.edge, part.ref) : askFace(part.face)).then(refreshParts);
         } else if (face.snap) {
           const point = { at: face.snap, about: !!face.about };
@@ -3708,7 +3744,15 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           if (from) {
             const d = point.at.clone().sub(from.at);
             const values: Record<string, number> = { X: Math.abs(d.x), Y: Math.abs(d.y), Z: Math.abs(d.z), L: d.length() };
-            show(viewer.showMeasureLine(from.at, point.at)!.map((k) => [k, values[k], false, point.about || from.about]));
+            const keys = viewer.showMeasureLine(from.at, point.at)!;
+            // apart along one axis only, for a waiting field: that goes in
+            if (use && keys.length === 1) return close(), use(values[keys[0]]);
+            show(keys.map((k) => [k, values[k], false, point.about || from.about]));
+          } else if (use && face.edge && /^(on edge|\d+\/\d+)$/.test(face.what ?? '')) {
+            // a click on an edge (along it or at a split point, not a corner), for a waiting field: its length goes in
+            const ref = face.edge.ref;
+            const mesh = face.edge.length;
+            return void (ref ? kernel.measure([{ of: 'edge', body: ref.body, edge: ref.edge! }]) : Promise.resolve([undefined])).then(([length]) => (close(), use(typeof length === 'number' ? length : mesh)));
           } else {
             viewer.showMeasureLine(point.at);
             show(face.edge ? [['Edge', face.edge.length, false, true]] : [], 'Click the next point');
@@ -6595,15 +6639,26 @@ function importStep(name: string, data: string) {
 }
 
 const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
-/** A field's value measured instead of typed (D, or the button by To object): goes in at the cursor. */
+/**
+ * A field's value measured instead of typed (D, or the button by To object). Not typed in since it came (or since the
+ * last measure went in): it replaces that; typed in (+, a space …): it goes in at the cursor.
+ */
 function measureInto(field: HTMLInputElement) {
+  const was = measured.get(field);
+  const [from, to] = !typed.has(field) ? [0, field.value.length] : was && was.text === field.value ? [was.from, was.to] : [field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length];
   measureTool((mm) => {
     field.focus();
-    field.setRangeText(fmt(+(mm / UNITS[history.current.units]).toFixed(4)), field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, 'end');
+    const text = fmt(+(mm / UNITS[history.current.units]).toFixed(4));
+    field.setRangeText(text, from, to, 'end');
+    measured.set(field, { text: field.value, from, to: from + text.length });
     field.dispatchEvent(new Event('input', { bubbles: true }));
     render();
   });
 }
+/** Fields typed in (not only filled by the app), and where the last measured value went in each. */
+const typed = new WeakSet<HTMLInputElement>();
+const measured = new WeakMap<HTMLInputElement, { text: string; from: number; to: number }>();
+addEventListener('input', (e) => e instanceof InputEvent && e.target instanceof HTMLInputElement && typed.add(e.target), { capture: true });
 
 /** The value field last in use, for the Measure button beside To object. */
 let lastField: HTMLInputElement | null = null;
