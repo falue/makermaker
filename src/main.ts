@@ -2773,6 +2773,55 @@ function offsetTool() {
   next();
 }
 
+/** Coat: the body (selected, or clicked next) gets a coat, 1 mm at first; its card has the thickness, corners and faces to exclude. */
+function coatTool() {
+  const body = selected.find((id) => history.current.bodies.some((b) => b.id === id));
+  if (!body) {
+    pending = { tool: 'shell', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), coatTool()) };
+    toolHint = 'Coat: click a body · [Esc] cancels';
+    return render();
+  }
+  const doc = history.current;
+  const i = stepsOf(doc, body);
+  commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, { id: newId(), type: 'coat' as const, thickness: len(1), corners: 'sharp' as const, exclude: [] }]));
+  const field = document.querySelector<HTMLInputElement>(`input[data-path="bodies.${i}.features.${doc.bodies[i].features.length}.thickness"]`);
+  field?.focus();
+  field?.select();
+}
+
+/** Clicks choose the flat faces a coat leaves where they are; again on one: back; Enter or Esc ends. */
+function coatFaces(body: string, feature: string) {
+  const keys = (e: KeyboardEvent) => {
+    if (!pressed(e, 'confirm')) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    viewer.cancelFacePick();
+  };
+  addEventListener('keydown', keys, { capture: true });
+  const next = () => {
+    toolHint = 'Coat: click flat faces to exclude: they stay where they are · again: back · [Enter] done';
+    render();
+    viewer.pickFace((face) => {
+      if (!face) return removeEventListener('keydown', keys, { capture: true }), (toolHint = null), render();
+      const i = history.current.bodies.findIndex((b) => b.id === body);
+      const k = history.current.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
+      const f = history.current.bodies[i]?.features[k];
+      if (face.body === body && f?.type === 'coat') {
+        const pl = bodyPlace(body);
+        const at = unplaced(pl, face.point.toArray());
+        const n = unplaced(pl, face.normal.clone().negate().toArray(), true);
+        const v3 = (q: Vec3) => new Vector3(...q);
+        // the same plane, the coat on it or not: a click takes it back
+        const same = (e: { at: Vec3; n: Vec3 }) => v3(e.n).dot(v3(n)) > 0.999 && Math.abs(v3(at).sub(v3(e.at)).dot(v3(n))) <= (length(f.thickness.e) ?? 0) + 1e-3;
+        const exclude = f.exclude.some(same) ? f.exclude.filter((e) => !same(e)) : [...f.exclude, { at, n }];
+        commit(setIn(history.current, ['bodies', String(i), 'features', String(k), 'exclude'], exclude));
+      }
+      next();
+    });
+  };
+  next();
+}
+
 /** Offset of the selected shapes of `sketch`: new outlines beside them (see `offsetTool`), the distance live. */
 function offsetShapes(sketch: string) {
   const doc0 = history.current;
@@ -5308,6 +5357,8 @@ function render() {
       enterSketch(sketch.id, null, true);
     },
     offsetTool,
+    coatTool,
+    coatFaces,
     mirrorTool,
     patternTool: () => patternTool(),
     threadTool,

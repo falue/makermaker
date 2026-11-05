@@ -77,7 +77,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
   const early = new Set<string>();
   try {
     for (const [n, s] of features.entries()) {
-      if (s.type === 'shell')
+      if (s.type === 'shell' || s.type === 'coat')
         for (const f of features.slice(0, n))
           if (f.type === 'finish' && f.enabled && !f.baked && !early.has(f.id)) {
             if (finishing && !finishing.base) finishing.base = shape!.clone();
@@ -93,6 +93,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'loft') apply(s.id, (cur) => loft(cur, s));
       if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
       if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
+      if (s.type === 'coat') apply(s.id, (cur) => coat(cur, s));
       if (s.type === 'thread') apply(s.id, (cur) => thread(cur, s));
       if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
       if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
@@ -468,6 +469,58 @@ function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
   const wall = shape.clone().intersect(band);
   band.delete();
   return joined(hollow, wall, 'add');
+}
+
+/** `shape` grown by `by` on all sides (`round`: the same distance everywhere; else sharp corners, a box stays a box). */
+export function grownShape(shape: Shape3D, by: number, round: boolean): Shape3D {
+  const oc = getOC();
+  const maker = new oc.BRepOffsetAPI_MakeOffsetShape();
+  const progress = new oc.Message_ProgressRange();
+  try {
+    maker.PerformByJoin(shape.wrapped, by, 1e-6, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, round ? oc.GeomAbs_JoinType.GeomAbs_Arc : oc.GeomAbs_JoinType.GeomAbs_Intersection, false, progress);
+    return cast(maker.Shape()) as Shape3D;
+  } catch {
+    throw new Error(`it cannot grow by ${by} mm: try less (a hole may close, or corners meet)`);
+  } finally {
+    maker.delete();
+    progress.delete();
+  }
+}
+
+function coat(shape: Shape3D | null, s: Of<'coat'>): Shape3D {
+  if (!shape) throw new Error('nothing to coat yet');
+  positive(s.thickness, 'thickness');
+  let out = grownShape(shape, s.thickness, s.corners === 'round');
+  for (const { at: p, n } of s.exclude) {
+    // the flat face under the click: facing that way, the point on it or a thickness out from it
+    const face = shape.faces.find((f) => {
+      if (f.geomType !== 'PLANE') return false;
+      const c = f.center;
+      const m = f.normalAt(c);
+      const off = (p[0] - c.x) * m.x + (p[1] - c.y) * m.y + (p[2] - c.z) * m.z;
+      const [[x0, y0, z0], [x1, y1, z1]] = f.boundingBox.bounds;
+      const reach = s.thickness + 1e-3;
+      const over = p[0] > x0 - reach && p[0] < x1 + reach && p[1] > y0 - reach && p[1] < y1 + reach && p[2] > z0 - reach && p[2] < z1 + reach;
+      return m.x * n[0] + m.y * n[1] + m.z * n[2] > 0.999 && (Math.abs(off) < 1e-3 || Math.abs(off - s.thickness) < 1e-3) && over;
+    });
+    if (!face) throw new Error('only flat faces can be excluded: click one of them again to take it back');
+    // over the face and as far as the coat reaches around it, what grew out of it goes
+    const c = face.center;
+    const m = face.normalAt(c);
+    const x = Math.abs(m.z) < 0.9 ? new Vector([0, 0, 1]).cross(m).normalized() : new Vector([1, 0, 0]).cross(m).normalized();
+    const y = m.cross(x);
+    const pts = face.edges.flatMap((e) => [0, 0.25, 0.5, 0.75, 1].map((t) => e.pointAt(t)));
+    const [us, vs] = [pts.map((q) => q.sub(c).dot(x)), pts.map((q) => q.sub(c).dot(y))];
+    const [u0, u1, v0, v1] = [Math.min(...us), Math.max(...us), Math.min(...vs), Math.max(...vs)];
+    const margin = s.thickness * 1.5 + 0.1;
+    const middle = c.add(x.multiply((u0 + u1) / 2)).add(y.multiply((v0 + v1) / 2));
+    const slab = drawRectangle(u1 - u0 + 2 * margin, v1 - v0 + 2 * margin).sketchOnPlane(new Plane(middle.toTuple(), x.toTuple(), m.toTuple())).extrude(s.thickness + 0.01) as Shape3D;
+    const cut = out.cut(slab);
+    out.delete();
+    slab.delete();
+    out = cut;
+  }
+  return out;
 }
 
 /**

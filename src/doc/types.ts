@@ -122,6 +122,11 @@ export type SweepFeature = { id: string; type: 'sweep'; profile: { sketch: strin
 
 /** Hollows the body to walls `thickness` thick, its faces at `open` (body points on them) taken away. */
 export type ShellFeature = { id: string; type: 'shell'; thickness: Expr; open: [number, number, number][] };
+/**
+ * The body made thicker all round by `thickness`, its corners `sharp` (a box stays a box) or `round` (the same distance
+ * everywhere); flat faces `exclude`d stay where they are (a point on or over one, and its outward normal, body-local).
+ */
+export type CoatFeature = { id: string; type: 'coat'; thickness: Expr; corners: 'sharp' | 'round'; exclude: { at: [number, number, number]; n: [number, number, number] }[] };
 
 /** The body mirrored across a plane (body-local: through `o`, normal `n`). */
 export type MirrorFeature = { id: string; type: 'mirror'; o: [number, number, number]; n: [number, number, number] };
@@ -181,6 +186,7 @@ export type Feature =
   | LoftFeature
   | SweepFeature
   | ShellFeature
+  | CoatFeature
   | MirrorFeature
   | ThreadFeature
   | BulgeFeature
@@ -233,7 +239,7 @@ export type LoftIn = { id: string; type: 'loft'; sections: { frame: Omit<FramePl
 export type SweepIn = { id: string; type: 'sweep'; profile: Profile; path: { frame: Omit<FramePlane, 'kind'>; profile: Profile } };
 /** A bulge with sketch shapes on their frame (body-local), as the kernel builds it. */
 export type BulgeIn = Omit<BulgeFeature, 'on'> & { on: Exclude<BulgeFeature['on'], { kind: 'sketch' }> | { kind: 'frame'; frame: Omit<FramePlane, 'kind'>; profiles: Profile[] } };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | MirrorFeature | ThreadFeature | BulgeIn | PushFeature | DraftFeature;
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | CoatFeature | MirrorFeature | ThreadFeature | BulgeIn | PushFeature | DraftFeature;
 
 export interface Body {
   id: string;

@@ -615,3 +615,32 @@ describe('curved sides in finishes', () => {
     round.delete();
   });
 });
+
+describe('coat', () => {
+  const coat = (extra: object = {}): BuildFeature => ({ id: 'k', type: 'coat', thickness: 1, corners: 'sharp', exclude: [], ...extra } as BuildFeature);
+  const cube: BuildFeature = { id: 'c', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 5, h: 5, r: 0, rot: 0 }], depth: 5, mode: 'add', through: false };
+  const bounds = (s: { boundingBox: { bounds: number[][] } }) => s.boundingBox.bounds.flat().map((v) => +v.toFixed(3));
+  it('sharp: a 5 mm cube and 1 mm is a 7 mm cube', () => {
+    const s = buildBody([cube, coat()]);
+    expect(measureVolume(s)).toBeCloseTo(343, 3);
+    expect(bounds(s)).toEqual([-3.5, -3.5, -1, 3.5, 3.5, 6]);
+    s.delete();
+  });
+  it('round: the same outside, less in the corners', () => {
+    const s = buildBody([cube, coat({ corners: 'round' })]);
+    expect(measureVolume(s)).toBeCloseTo(326.31, 1);
+    s.delete();
+  });
+  it('a flat face excluded stays where it is, clicked on it or on the coat over it', () => {
+    for (const at of [[0, 0, 5], [0, 0, 6]]) {
+      const s = buildBody([cube, coat({ exclude: [{ at, n: [0, 0, 1] }] })]);
+      expect(bounds(s)).toEqual([-3.5, -3.5, -1, 3.5, 3.5, 5]);
+      expect(measureVolume(s)).toBeCloseTo(49 * 6, 3);
+      s.delete();
+    }
+  });
+  it('too much says so', () => {
+    const holed: BuildFeature = { ...cube, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 60, h: 40, r: 0, rot: 0 }, { id: 'h', kind: 'circle', x: 0, y: 0, d: 20 }], depth: 20 } as BuildFeature;
+    expect(() => buildBody([holed, coat({ thickness: 12, corners: 'round' })])).toThrow(/cannot grow/);
+  });
+});

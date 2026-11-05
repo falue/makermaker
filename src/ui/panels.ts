@@ -78,6 +78,10 @@ export interface UIContext {
   /** A new sketch on work plane `id`, opened. */
   drawOn(id: string): void;
   offsetTool(): void;
+  /** Coat: a body (selected, or clicked next) made thicker all round. */
+  coatTool(): void;
+  /** Clicks choose the flat faces a coat leaves where they are. */
+  coatFaces(body: string, feature: string): void;
   mirrorTool(): void;
   patternTool(): void;
   threadTool(): void;
@@ -545,6 +549,7 @@ function editbar(ctx: UIContext): Node[] {
     ),
     tool('cut', "Cut: a body (selected, or clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
     tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
+    tool('coat', 'Coat: a body (selected, or clicked next) made thicker all round, like paint', ctx.coatTool),
     tool('pattern', 'Pattern: copies of the selected bodies in a grid (counts, gap or overall size, a turn per copy) or around an axis (count, angle)', ctx.patternTool),
     tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
     tool('thread', 'Thread: click the round edge at the end of a hole or a shaft: a real metric thread (coarse pitch) cut into it, pitch and length typed', ctx.threadTool),
@@ -1525,6 +1530,14 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       return h('section', {}, h('h4', {}, 'Mirror', remove), h('p', { className: 'hint' }, 'Mirrored across the plane it was made with'));
     case 'shell':
       return h('section', {}, h('h4', {}, 'Shell', remove), h('div', { className: 'row' }, f('thickness', 'Wall'), h('span', { className: 'hint' }, feature.open.length ? `${feature.open.length} face${feature.open.length === 1 ? '' : 's'} open` : 'closed, hollow inside')));
+    case 'coat':
+      return h(
+        'section',
+        {},
+        h('h4', {}, 'Coat', remove),
+        h('div', { className: 'row' }, f('thickness', 'Thickness'), select(feature.corners, { sharp: 'Sharp corners', round: 'Round corners' }, (corners) => setFeature({ ...feature, corners }))),
+        h('div', { className: 'row' }, button('Select faces to exclude', () => ctx.coatFaces(body.id, feature.id), 'Click: then click flat faces that stay where they are (again: back), Enter ends'), h('span', { className: 'hint' }, feature.exclude.length ? `${feature.exclude.length} excluded` : '')),
+      );
     case 'sweep': {
       const name = (q: { sketch: string }) => ctx.doc.sketches.find((k) => k.id === q.sketch)?.name ?? '?';
       return h('section', {}, h('h4', {}, 'Sweep', remove), h('p', { className: 'hint' }, `${name(feature.profile)} along ${name(feature.path)} (linked: editing either changes it)`));

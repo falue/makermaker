@@ -13,6 +13,10 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The middle of a bezier or other free-form edge is where the mesh has it, placed on the true curve: on it, but not exactly half its length.
 - A circle is two half edges in the solid, so one click on a rim gives half its length; Shift Alt-click adds the other half.
 
+## Coat
+- Excluding a flat face removes what grew out of it over the face's own box and a margin; where another part of the body rises right beside that face, its coat there can get cut too.
+- Only flat faces can be excluded. Meshes cannot be coated.
+
 ## Curves
 - Tangency is held only by an arc's middle between two straight sides. Moving a point, or an arc next to a curved side, does not hold it.
 - Offset of a bezier side is close, not exact. A side that an offset would turn inside out is not removed.

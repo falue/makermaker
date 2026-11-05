@@ -244,6 +244,15 @@ export const COMMANDS: Record<string, Command> = {
       return { doc: withBody(doc, i, { ...doc.bodies[i], features: [...doc.bodies[i].features, f] }), result: f.id };
     },
   },
+  coat: {
+    doc: 'Makes a body thicker all round by `thickness`, like paint: sharp corners (a 5 mm cube and 1 mm: 7 mm) or round (the same distance everywhere).',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'thickness', type: 'number', doc: 'mm' }, { name: 'corners', type: 'enum', values: ['sharp', 'round'], doc: 'sharp (the default) or round', optional: true }],
+    run: (doc, a) => {
+      const i = bodyOf(doc, a.id);
+      const f: Feature = { id: newId(), type: 'coat', thickness: len(a.thickness), corners: a.corners === 'round' ? 'round' : 'sharp', exclude: [] };
+      return { doc: withBody(doc, i, { ...doc.bodies[i], features: [...doc.bodies[i].features, f] }), result: f.id };
+    },
+  },
   group: {
     doc: 'Puts bodies and sketches into a new group (they stay where they are).',
     params: [{ name: 'ids', type: 'ids', doc: 'what goes in' }, named],

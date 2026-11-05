@@ -66,6 +66,12 @@ function cutTest(): Body[] {
   return [{ ...block, features: [...block.features, op(ball, 'subtract'), op(pipe, 'subtract'), op(post, 'union')] }, ball, pipe, post];
 }
 
+/** Test pieces for Coat: a 5 mm cube (coated by 1 mm it is 7 mm), a rounded block with a hole. */
+function coatTests(): Body[] {
+  const coated = (body: Body, corners: 'sharp' | 'round'): Body => ({ ...body, features: [...body.features, { id: newId(), type: 'coat', thickness: ex(1), corners, exclude: [] }] });
+  return [coated(solid('Coat: cube, sharp', '#9fd0c0', [-60, 110, 0], [rect(5, 5)], 5), 'sharp'), coated(solid('Coat: cube, round', '#9fd0c0', [-40, 110, 0], [rect(5, 5)], 5), 'round'), solid('Coat me: block with a hole', '#9fd0c0', [0, 110, 0], [{ id: newId(), kind: 'rect', x: ex(0), y: ex(0), w: ex(30), h: ex(20), r: ex(3), rot: ex(0) }, circle(0, 0, 8)], 10)];
+}
+
 /** A test piece for the cut tool: a block with a zig-zag line across it on the ground (cut along it, or by a plane). */
 function splitTest(): { body: Body; sketch: Sketch } {
   const line: Profile = { id: newId(), kind: 'line', pts: [[-165, -10], [-145, 8], [-130, -8], [-112, 10], [-95, -2]] };
@@ -212,7 +218,7 @@ export function sampleDoc(): Doc {
     schema: 32,
     units: 'mm',
     params: { $ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests()],
+    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests()],
     sketches: [
       outline,
       {
