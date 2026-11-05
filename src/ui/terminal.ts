@@ -13,6 +13,8 @@ export interface TerminalApi {
   apply(start: Doc, outcome: { doc?: Doc; selection?: string[]; moves: number }): boolean;
   /** Interference and clearance for `cad.check`, when all is built. */
   check(args: CheckArgs): Promise<unknown[]>;
+  /** Ends a check under way. */
+  stopCheck(): void;
   /** The bodies as built, when all is built. */
   measures(): Promise<Record<string, Measured>>;
   /** Takes the pictures, when all is built. */
@@ -173,6 +175,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   /** Ends what runs: the worker goes, and Python's variables with it. */
   const stop = () => {
     if (!running) return;
+    api.stopCheck();
     worker!.terminate();
     [worker, ready, sent] = [null, false, null];
     onFound?.([]);

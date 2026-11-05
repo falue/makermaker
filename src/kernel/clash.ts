@@ -20,7 +20,7 @@ export type ClashHit = { a: string; b: string; volume: number; joint?: string; v
 /** The clearance zone around a body, in the world. */
 export type ClashZone = { id: string; vertices: Float32Array; indices: Uint32Array };
 /** `sweeps`: the space what a joint moves goes through. */
-export type ClashResult = { hits: ClashHit[]; zones: ClashZone[]; sweeps: ClashZone[]; failed: string[] };
+export type ClashResult = { hits: ClashHit[]; zones: ClashZone[]; sweeps: ClashZone[]; failed: string[]; stopped?: boolean };
 
 export const pairKey = (a: string, b: string) => [a, b].sort().join(' ');
 
@@ -60,13 +60,25 @@ function shared(u: Shape3D, v: Shape3D) {
   return null;
 }
 
-export function clashes(solids: Map<string, Solid>, ask: ClashAsk): ClashResult {
+/** Thrown at a pause when the check was stopped. */
+const STOP = Symbol('stop');
+
+/** `stopped` is asked at pauses, when other messages get their turn: what was found so far comes back. */
+export async function clashes(solids: Map<string, Solid>, ask: ClashAsk, stopped: () => boolean = () => false): Promise<ClashResult> {
   const out: ClashResult = { hits: [], zones: [], sweeps: [], failed: [] };
   const of = new Set(ask.of);
   const known = ask.bodies.filter((b) => solids.has(b.id));
   const seen = new Set(ask.ignore);
-  const held: Shape3D[] = [];
-  const hold = (s: Shape3D) => (held.push(s), s);
+  const held = new Set<Shape3D>();
+  const hold = (s: Shape3D) => (held.add(s), s);
+  const drop = (s: Shape3D) => (held.delete(s), s.delete());
+  let breathed = performance.now();
+  const pause = async () => {
+    if (performance.now() - breathed < 40) return;
+    await new Promise((go) => setTimeout(go));
+    breathed = performance.now();
+    if (stopped()) throw STOP;
+  };
   const at = (shape: Shape3D, place: Place) => placeShape(shape.clone(), place);
   // grown once, in the body's own coordinates
   const grownLocal = new Map<string, Shape3D | null>();
@@ -102,71 +114,12 @@ export function clashes(solids: Map<string, Solid>, ask: ClashAsk): ClashResult 
         }
     return [min, max];
   };
-  // each joint on its whole way: what it moves, swept, against what it does not, wherever it is now. A clearance grows
-  // the still one: the same answer as the moving one grown, and the sweep stays its few plain faces
-  const near = (u: number[][], v: number[][], reach: number) => ![0, 1, 2].some((k) => u[1][k] + reach < v[0][k] || v[1][k] + reach < u[0][k]);
-  for (const { joint, sweep, steps } of ask.motions) {
-    const first = steps[0];
-    for (const m of known.filter((x) => first?.places[x.id])) {
-      const others = known.filter((b) => !first.places[b.id] && !seen.has(pairKey(m.id, b.id)) && (of.has(m.id) || of.has(b.id)));
-      // the box of its way, a bit bigger as steps cut the corners of an arc
-      const boxes = steps.map((step) => worldBox(m.id, step.places[m.id]));
-      const way = [0, 1].map((e) => [0, 1, 2].map((k) => (e ? Math.max : Math.min)(...boxes.map((x) => x[e][k]))));
-      const slack = Math.hypot(...[0, 1, 2].map((k) => way[1][k] - way[0][k])) * 0.01;
-      const inReach = others.filter((b) => near(way, worldBox(b.id, b.place), ask.clearance + slack));
-      if (!inReach.length && !of.has(m.id)) continue;
-      const placed = at(solids.get(m.id)!.shape, first.places[m.id]);
-      const pieces = swept(placed, sweep);
-      placed.delete();
-      if (of.has(m.id) && pieces.length) out.sweeps.push({ id: m.id, ...merged(pieces.map(meshed)) });
-      for (const b of inReach) {
-        const local = ask.clearance > 0 ? grown(b.id) : solids.get(b.id)!.shape;
-        if (!local) continue;
-        const other = at(local, b.place);
-        const parts: ReturnType<typeof meshed>[] = [];
-        let volume = 0;
-        for (const piece of pieces) {
-          const hit = shared(piece, other);
-          if (!hit) continue;
-          parts.push(meshed(hit.common));
-          volume = Math.max(volume, hit.volume);
-          hit.common.delete();
-        }
-        // where it starts on the way
-        let start: { value: number; closest?: number } | null = null;
-        const box = worldBox(b.id, b.place);
-        for (const step of steps) {
-          if (!near(worldBox(m.id, step.places[m.id]), box, ask.clearance + 1e-6)) continue;
-          const moved = at(solids.get(m.id)!.shape, step.places[m.id]);
-          const hit = shared(moved, other);
-          if (hit) {
-            let closest: number | undefined;
-            if (ask.clearance > 0) {
-              const real = at(solids.get(b.id)!.shape, b.place);
-              closest = measureDistanceBetween(moved, real);
-              real.delete();
-            }
-            start = { value: step.value, closest };
-            if (!parts.length) parts.push(meshed(hit.common)); // what stays inside it all along: nothing sweeps past it
-            volume = Math.max(volume, hit.volume);
-            hit.common.delete();
-          }
-          moved.delete();
-          if (hit) break;
-        }
-        other.delete();
-        if (!parts.length) continue;
-        seen.add(pairKey(m.id, b.id));
-        out.hits.push({ a: m.id, b: b.id, volume, joint, ...(start ? { value: start.value, ...(start.closest === undefined ? {} : { closest: start.closest }) } : {}), ...merged(parts) });
-      }
-      pieces.forEach((x) => x.delete());
-    }
-  }
   /** The pair where they are; a hit is noted and the pair is done. */
-  const test = (a: string, b: string, pa: Place, pb: Place) => {
+  const test = async (a: string, b: string, pa: Place, pb: Place) => {
     const [[a0, a1], [b0, b1]] = [worldBox(a, pa), worldBox(b, pb)];
     const reach = ask.clearance + 1e-6;
     if ([0, 1, 2].some((k) => a1[k] + reach < b0[k] || b1[k] + reach < a0[k])) return;
+    await pause();
     const [g, o] = lead(a, b);
     const [pg, po] = g === a ? [pa, pb] : [pb, pa];
     const local = ask.clearance > 0 ? grown(g) : null;
@@ -184,16 +137,83 @@ export function clashes(solids: Map<string, Solid>, ask: ClashAsk): ClashResult 
       if (wide !== real) wide.delete();
     }
   };
-  // as they are now
-  for (const [i, a] of known.entries())
-    for (const b of known.slice(i + 1)) if (!seen.has(pairKey(a.id, b.id)) && (of.has(a.id) || of.has(b.id))) test(a.id, b.id, a.place, b.place);
-  if (ask.clearance > 0)
-    for (const b of known)
-      if (of.has(b.id) && grown(b.id)) {
-        const zone = at(grown(b.id)!, b.place);
-        out.zones.push({ id: b.id, ...meshed(zone) });
-        zone.delete();
+  try {
+    // each joint on its whole way: what it moves, swept, against what it does not, wherever it is now. A clearance grows
+    // the still one: the same answer as the moving one grown, and the sweep stays its few plain faces
+    const near = (u: number[][], v: number[][], reach: number) => ![0, 1, 2].some((k) => u[1][k] + reach < v[0][k] || v[1][k] + reach < u[0][k]);
+    for (const { joint, sweep, steps } of ask.motions) {
+      const first = steps[0];
+      for (const m of known.filter((x) => first?.places[x.id])) {
+        const others = known.filter((b) => !first.places[b.id] && !seen.has(pairKey(m.id, b.id)) && (of.has(m.id) || of.has(b.id)));
+        // the box of its way, a bit bigger as steps cut the corners of an arc
+        const boxes = steps.map((step) => worldBox(m.id, step.places[m.id]));
+        const way = [0, 1].map((e) => [0, 1, 2].map((k) => (e ? Math.max : Math.min)(...boxes.map((x) => x[e][k]))));
+        const slack = Math.hypot(...[0, 1, 2].map((k) => way[1][k] - way[0][k])) * 0.01;
+        const inReach = others.filter((b) => near(way, worldBox(b.id, b.place), ask.clearance + slack));
+        if (!inReach.length && !of.has(m.id)) continue;
+        const placed = at(solids.get(m.id)!.shape, first.places[m.id]);
+        const pieces = swept(placed, sweep).map(hold);
+        placed.delete();
+        if (of.has(m.id) && pieces.length) out.sweeps.push({ id: m.id, ...merged(pieces.map(meshed)) });
+        for (const b of inReach) {
+          const local = ask.clearance > 0 ? grown(b.id) : solids.get(b.id)!.shape;
+          if (!local) continue;
+          const other = hold(at(local, b.place));
+          const parts: ReturnType<typeof meshed>[] = [];
+          let volume = 0;
+          for (const piece of pieces) {
+            await pause();
+            const hit = shared(piece, other);
+            if (!hit) continue;
+            parts.push(meshed(hit.common));
+            volume = Math.max(volume, hit.volume);
+            hit.common.delete();
+          }
+          // where it starts on the way
+          let start: { value: number; closest?: number } | null = null;
+          const box = worldBox(b.id, b.place);
+          for (const step of steps) {
+            if (!near(worldBox(m.id, step.places[m.id]), box, ask.clearance + 1e-6)) continue;
+            const moved = at(solids.get(m.id)!.shape, step.places[m.id]);
+            const hit = shared(moved, other);
+            if (hit) {
+              let closest: number | undefined;
+              if (ask.clearance > 0) {
+                const real = at(solids.get(b.id)!.shape, b.place);
+                closest = measureDistanceBetween(moved, real);
+                real.delete();
+              }
+              start = { value: step.value, closest };
+              if (!parts.length) parts.push(meshed(hit.common)); // what stays inside it all along: nothing sweeps past it
+              volume = Math.max(volume, hit.volume);
+              hit.common.delete();
+            }
+            moved.delete();
+            if (hit) break;
+          }
+          drop(other);
+          if (!parts.length) continue;
+          seen.add(pairKey(m.id, b.id));
+          out.hits.push({ a: m.id, b: b.id, volume, joint, ...(start ? { value: start.value, ...(start.closest === undefined ? {} : { closest: start.closest }) } : {}), ...merged(parts) });
+        }
+        pieces.forEach(drop);
       }
-  held.forEach((s) => s.delete());
+    }
+    // as they are now
+    for (const [i, a] of known.entries())
+      for (const b of known.slice(i + 1)) if (!seen.has(pairKey(a.id, b.id)) && (of.has(a.id) || of.has(b.id))) await test(a.id, b.id, a.place, b.place);
+    if (ask.clearance > 0)
+      for (const b of known)
+        if (of.has(b.id) && grown(b.id)) {
+          const zone = at(grown(b.id)!, b.place);
+          out.zones.push({ id: b.id, ...meshed(zone) });
+          zone.delete();
+        }
+  } catch (err) {
+    if (err !== STOP) throw err;
+    out.stopped = true;
+  } finally {
+    held.forEach((s) => s.delete());
+  }
   return out;
 }

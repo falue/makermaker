@@ -27,6 +27,7 @@ export type Request =
   | { kind: 'check'; id: number; bodies: ExportBody[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
   | { kind: 'clash'; id: number; ask: ClashAsk }
+  | { kind: 'stopClash' }
   | { kind: 'forget'; bodies: string[] };
 export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string; max?: number };
 export type Response =
@@ -90,8 +91,23 @@ const ready = init({ locateFile: () => wasmUrl }).then(setOC);
 /** The last good solid of each body, for measuring (without its mesh: the view has that). */
 const solids = new Map<string, Solid>();
 
+/** A check runs in turns; only a stop gets in meanwhile (a build would take its solids away). */
+let checking = false;
+let stopCheck = false;
+type Job = Exclude<Request, { kind: 'stopClash' }>;
+const later: Job[] = [];
+const take = (data: Job) => {
+  if (checking) later.push(data);
+  else void handle(data);
+};
+
 self.onmessage = async ({ data }: MessageEvent<Request>) => {
   await ready;
+  if (data.kind === 'stopClash') stopCheck = true;
+  else take(data);
+};
+
+async function handle(data: Job) {
   if (data.kind === 'forget') {
     for (const id of data.bodies) {
       solids.get(id)?.delete();
@@ -100,7 +116,10 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
     return;
   }
   if (data.kind === 'clash') {
-    const result = clashes(solids, data.ask);
+    [checking, stopCheck] = [true, false];
+    const result = await clashes(solids, data.ask, () => stopCheck);
+    checking = false;
+    later.splice(0).forEach(take);
     const transfer = [...result.hits, ...result.zones, ...result.sweeps].flatMap((m) => [m.vertices.buffer as ArrayBuffer, m.indices.buffer as ArrayBuffer]);
     return postMessage({ kind: 'clash', id: data.id, result } satisfies Response, { transfer });
   }

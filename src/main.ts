@@ -2884,7 +2884,8 @@ function clashTool() {
   );
   const note = Object.assign(document.createElement('p'), { className: 'hint' });
   const list = Object.assign(document.createElement('div'), { className: 'clash-list' });
-  box.append(head, row, note, list);
+  const stopCheck = Object.assign(panelButton('Stop', 'Click: Stop checking: what it found so far stays', () => kernel.stopClash()), { hidden: true });
+  box.append(head, row, note, stopCheck, list);
   document.body.append(box);
   const name = (id: string) => history.current.bodies.find((b) => b.id === id)?.name ?? '?';
   const jointName = (id?: string) => history.current.joints.find((j) => j.id === id);
@@ -2933,6 +2934,8 @@ function clashTool() {
     const c = length(state.clearance || '0');
     clearance.classList.toggle('invalid', c === null || c < 0);
     if (c === null || c < 0) return;
+    if (!stopCheck.hidden) kernel.stopClash(); // the one under way is out of date
+    stopCheck.hidden = false;
     busy.add('Checking');
     render();
     await kernel.idle();
@@ -2942,11 +2945,12 @@ function clashTool() {
     const result = of.length ? await kernel.clash(ask) : { hits: [], zones: [], sweeps: [], failed: [] };
     if (mine !== run || !box.isConnected) return;
     busy.delete('Checking');
+    stopCheck.hidden = true;
     hits = result.hits;
     viewer.showClashes(hits, result.zones, result.sweeps);
     clearanceNow = c;
     note.textContent = [
-      !of.length ? 'Select the bodies to check, or check Everything.' : hits.length ? `${hits.length} found` : c ? `All clear: nothing within ${distance(c)}` : 'All clear: no overlaps',
+      result.stopped ? `Stopped: ${hits.length} found so far` : !of.length ? 'Select the bodies to check, or check Everything.' : hits.length ? `${hits.length} found` : c ? `All clear: nothing within ${distance(c)}` : 'All clear: no overlaps',
       left ? `${left} left out (hidden, or a mesh)` : '',
       result.failed.length ? `Could not grow ${result.failed.map(name).join(', ')} by that much` : '',
     ].filter(Boolean).join(' · ');
@@ -2986,6 +2990,7 @@ function clashTool() {
   addEventListener('pointerdown', press, { capture: true });
   addEventListener('keydown', keys, { capture: true });
   clashClose = () => {
+    kernel.stopClash();
     run++;
     clearTimeout(timer);
     box.remove();
@@ -6567,6 +6572,7 @@ const terminal = pythonTerminal(
         }),
       );
     },
+    stopCheck: () => kernel.stopClash(),
     async check({ ids, clearance, joints }) {
       await kernel.idle();
       const doc = history.current;

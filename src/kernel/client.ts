@@ -79,6 +79,11 @@ export class Kernel {
     return answer.kind === 'clash' ? answer.result : { hits: [], zones: [], sweeps: [], failed: [] };
   }
 
+  /** Ends a check under way: it answers with what it found so far. */
+  stopClash() {
+    this.worker.postMessage({ kind: 'stopClash' } satisfies Request);
+  }
+
   private ask(request: Extract<Request, { id: number }>): Promise<Response> {
     this.worker.postMessage(request);
     return new Promise((done) => this.asked.set(request.id, done));
