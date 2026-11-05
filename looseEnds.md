@@ -50,7 +50,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - `cad.move` on a group without its own origin moves its bodies, not sketches that have no body.
 
 ## Imports
-- 3MF and GLB parts arrive flat in one group, without a file's sub-assemblies. One colour per part: a texture is left out (the part gets a palette colour), several vertex colours become their average, see-through is ignored. Above 200 parts they merge by colour, as bodies each would be too heavy. An all-white file counts as having no colours. OBJ and STL stay one body.
+- One colour per part: a texture is left out (the part gets a palette colour), several vertex colours become their average, see-through is ignored. Above 200 parts they merge by colour, as bodies each would be too heavy. An all-white file counts as having no colours. OBJ and STL stay one body.
 
 ## Speed
 - Reading and meshing a 15 MB STEP file (7,948 faces, about 7.7 s per copy) takes the worker's memory up to 1.9 GB; a few times that size could hit the browser's WebAssembly limit. Not caused by keeping solids; the copy or the mesh step is where to look first.

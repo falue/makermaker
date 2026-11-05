@@ -97,4 +97,18 @@ describe('SketchUp import', () => {
     expect(parts[0].color).toBe('#ff0000');
     expect(parts[0].name).toBe('Box');
   });
+  it('keeps its components inside each other, each placement apart', async () => {
+    // two tables, each a component of two legs
+    const skp = create();
+    const leg = skp.addComponentDefinition('Leg', (d) => d.addFace([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]));
+    const table = skp.addComponentDefinition('Table', (d) => [0, 10].forEach((x) => d.addInstance(leg, { translation: [x, 0, 0] })));
+    [0, 50].forEach((x) => skp.addInstance(table, { translation: [x, 0, 0] }));
+    const bytes = skp.toBytes();
+    const parts = await parseSkp(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    expect(parts.map((p) => [p.name, ...(p.in ?? []).map((g) => g.name)])).toEqual(Array(4).fill(['Leg', 'Table', 'Leg']));
+    const tables = parts.map((p) => p.in![0].id);
+    expect(new Set(tables).size).toBe(2);
+    expect(tables[0]).toBe(tables[1]);
+    expect(Math.min(...parts[2].vertices.filter((_, i) => i % 3 === 0)) / 0.0254).toBeCloseTo(50, 3);
+  });
 });

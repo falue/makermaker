@@ -6280,13 +6280,27 @@ function importMesh(name: string, parts: MeshPart[], unit: Unit = 'mm', known = 
   const doc = history.current;
   const title = name.replace(/\.[^.]*$/, '');
   const group: Group | null = parts.length > 1 ? { id: newId(), name: title, parent: null, visible: true, origin: { kind: 'parent' } } : null;
+  // the file's sub-assemblies inside it: those holding more than one part, but not all of them
+  const holds = new Map<string, number>();
+  for (const p of parts) for (const g of p.in ?? []) holds.set(g.id, (holds.get(g.id) ?? 0) + 1);
+  const subs = new Map<string, Group>();
+  const placeOf = (p: MeshPart) => {
+    let parent = group?.id ?? null;
+    for (const g of p.in ?? []) {
+      const n = holds.get(g.id)!;
+      if (n < 2 || n === parts.length) continue;
+      if (!subs.has(g.id)) subs.set(g.id, { id: newId(), name: g.name || 'Group', parent, visible: true, origin: { kind: 'parent' } });
+      parent = subs.get(g.id)!.id;
+    }
+    return parent;
+  };
   const bodies = parts.map((p, k) => {
     const mesh: Feature = { id: newId(), type: 'mesh', source: name, vertices: toBase64(p.vertices), triangles: toBase64(p.triangles), scale: ex(fmt(UNITS[unit])) };
-    const body = newBody(doc.bodies.length + k, [mesh], group?.id ?? null);
+    const body = newBody(doc.bodies.length + k, [mesh], placeOf(p));
     return { ...body, name: group ? p.name || `Part ${k + 1}` : title, ...(p.color ? { color: p.color } : {}) };
   });
   [selected, shapeSel] = [group ? [group.id] : [bodies[0].id], []];
-  commit({ ...doc, groups: group ? [...doc.groups, group] : doc.groups, bodies: [...doc.bodies, ...bodies] });
+  commit({ ...doc, groups: group ? [...doc.groups, group, ...subs.values()] : doc.groups, bodies: [...doc.bodies, ...bodies] });
   notify(`Imported ${name}: ${group ? `${parts.length} parts, ` : ''}${parts.reduce((n, p) => n + p.triangles.length, 0) / 3} triangles`);
   const all = new Float32Array(parts.reduce((n, p) => n + p.vertices.length, 0));
   parts.reduce((at, p) => (all.set(p.vertices, at), at + p.vertices.length), 0);

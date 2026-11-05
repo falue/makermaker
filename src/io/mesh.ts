@@ -57,8 +57,11 @@ function merged(root: THREE.Object3D, kind: string) {
   return shared(all);
 }
 
-/** A part of an imported file: its name and colour (#rrggbb) as the file has them (none: '', null), its triangles. */
-export type MeshPart = { name: string; color: string | null; vertices: Float32Array; triangles: Uint32Array };
+/**
+ * A part of an imported file: its name and colour (#rrggbb) as the file has them (none: '', null), its triangles, and
+ * the groups (sub-assemblies) it lies in, outermost first (`id` tells two of the same name apart).
+ */
+export type MeshPart = { name: string; color: string | null; vertices: Float32Array; triangles: Uint32Array; in?: { id: string; name: string }[] };
 
 /** A mesh's colour: its vertices' on average, else its material's; a texture alone tells none. */
 function colorOf(o: THREE.Mesh) {
@@ -78,14 +81,16 @@ function colorOf(o: THREE.Mesh) {
  */
 function partsOf(root: THREE.Object3D, kind: string, most = 200): (Omit<MeshPart, 'vertices' | 'triangles'> & { g: THREE.BufferGeometry })[] {
   root.updateMatrixWorld(true);
-  const found: { name: string; color: string | null; all: number[] }[] = [];
+  const found: { name: string; color: string | null; all: number[]; in: { id: string; name: string }[] }[] = [];
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
     const all: number[] = [];
     addTriangles(o, all);
     let name = '';
     for (let p: THREE.Object3D | null = o; p && p !== root && !name; p = p.parent) name = p.name;
-    if (all.length) found.push({ name, color: colorOf(o), all });
+    const chain: { id: string; name: string }[] = [];
+    for (let p = o.parent; p && p !== root; p = p.parent) chain.unshift({ id: p.uuid, name: p.name });
+    if (all.length) found.push({ name, color: colorOf(o), all, in: chain });
   });
   if (!found.length) throw new Error(`no triangles in this ${kind} file`);
   if (found.every((f) => f.color === '#ffffff')) found.forEach((f) => (f.color = null));
@@ -95,7 +100,7 @@ function partsOf(root: THREE.Object3D, kind: string, most = 200): (Omit<MeshPart
     for (const f of found) {
       const in_ = byColor.get(f.color);
       if (in_) for (const x of f.all) in_.all.push(x);
-      else byColor.set(f.color, { ...f, name: '' });
+      else byColor.set(f.color, { ...f, name: '', in: [] });
     }
     parts = [...byColor.values()];
   }
@@ -119,17 +124,33 @@ export async function parseGlb(data: ArrayBuffer): Promise<MeshPart[]> {
 
 /**
  * A SketchUp file's parts (openskp, loaded when first needed): what is placed, as SketchUp shows it (hidden faces left
- * out, each face once), in metres, named and coloured as there.
+ * out, each face once), in metres, named and coloured as there, in its components and groups.
  */
 export async function parseSkp(data: ArrayBuffer): Promise<MeshPart[]> {
   const { buildScene } = await import('openskp');
   const scene = buildScene(data, { respectEdgeVisibility: true, frontSideOnly: true });
+  // the placed components and groups as a tree; each mesh goes to its instance, found by its path and place (in order)
   const root = new THREE.Group();
+  const nodes: { path: string; at: number[]; group: THREE.Group }[] = [];
+  const walk = (n: (typeof scene)['sceneHierarchy'], path: string, into: THREE.Group) => {
+    for (const c of n.children ?? []) {
+      const group = Object.assign(new THREE.Group(), { name: c.name || c.definitionName });
+      into.add(group);
+      nodes.push({ path: `${path} / ${c.name}`, at: c.positionMm, group });
+      walk(c, `${path} / ${c.name}`, group);
+    }
+  };
+  walk(scene.sceneHierarchy, scene.sceneHierarchy.name, root);
+  let from = 0;
   for (const p of scene.glbPrimitives) {
     const g = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(p.positions, 3)).setIndex(new THREE.BufferAttribute(p.indices, 1));
     const c = (scene.gltfMaterials[p.materialIndex] as { pbrMetallicRoughness?: { baseColorFactor?: number[] } } | undefined)?.pbrMetallicRoughness?.baseColorFactor;
     const m = scene.meshIndex[p.geomName];
-    root.add(Object.assign(new THREE.Mesh(g, new THREE.MeshStandardMaterial(c ? { color: new THREE.Color(c[0], c[1], c[2]) } : {})), { name: m?.name || m?.definitionName || '' }));
+    const mine = (n: (typeof nodes)[number]) => !!m && n.path === m.path && n.at.every((v, k) => Math.abs(v - m.positionMm[k]) < 1e-3);
+    const k = nodes.findIndex((n, i) => i >= from && mine(n));
+    const at = k >= 0 ? k : nodes.findIndex(mine);
+    if (at >= 0) from = at;
+    (nodes[at]?.group ?? root).add(new THREE.Mesh(g, new THREE.MeshStandardMaterial(c ? { color: new THREE.Color(c[0], c[1], c[2]) } : {})));
   }
   return partsOf(root, 'SketchUp').map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
 }
