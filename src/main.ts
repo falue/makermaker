@@ -1429,8 +1429,11 @@ function unlinkCopy(id: string) {
   const doc = history.current;
   const i = doc.bodies.findIndex((b) => b.id === id);
   const src = doc.bodies.find((b) => b.id === doc.bodies[i]?.link);
-  if (src) commit(setIn(doc, ['bodies', String(i)], { ...doc.bodies[i], link: null, features: [...structuredClone(src.features), ...doc.bodies[i].features] }));
+  if (src) commit(setIn(doc, ['bodies', String(i)], { ...doc.bodies[i], link: null, features: [...structuredClone(src.features), ...unpaired(doc.bodies[i].features)] }));
 }
+
+/** A copy's own steps once unlinked: a linked coat no longer moves with the body it coats. */
+const unpaired = (features: Feature[]) => features.map((f) => (f.type === 'coat' && f.around ? (({ around: _, ...rest }) => rest)(f) : f));
 
 /**
  * Breaks a body's links (asked first): its linked copies in its group get all its steps and go, with it, into a new group of its
@@ -1444,7 +1447,7 @@ function breakLinks(source: string) {
   const group: Group = { id: newId(), name: src.name, parent: src.group, visible: true, origin: { kind: 'parent' }, ...(src.order !== undefined ? { order: src.order } : {}) };
   const bodies = doc.bodies.map((b) => {
     if (b.id !== source && b.link !== source) return b;
-    const own = b.link === source ? { link: null, features: [...structuredClone(src.features), ...b.features] } : {};
+    const own = b.link === source ? { link: null, features: [...structuredClone(src.features), ...unpaired(b.features)] } : {};
     return { ...b, ...own, ...(b.group === src.group ? { group: group.id, order: undefined } : {}) };
   });
   selected = [group.id];
