@@ -257,8 +257,13 @@ span.error,
   align-items: center;
   gap: 4px;
 }
-#stage .view-bar .read-only {
+#stage .view-bar .right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   justify-self: end;
+}
+#stage .view-bar .read-only {
   font-style: italic;
   color: var(--muted);
   white-space: nowrap;

@@ -16,7 +16,7 @@ import { inGroup } from '../doc/shapegroups';
 import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, moved, pointHandles, pointMoved, resized, rotated, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
 import { FacePullTool, type PullLook } from './faces';
-import { icon } from '../ui/icons';
+import { closeButton, icon } from '../ui/icons';
 import { marks } from './marks';
 import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayout } from './viewlayout';
 import { fastRaycast } from './pick';
@@ -3781,7 +3781,7 @@ export class Viewer implements ToolView {
   /**
    * A new view: `kind` looks from that side (3D: from the front right, above), 'face': along `look.n` at `look.at`;
    * fitted to everything shown (`saved`: as it was instead). Its bar: Ortho | Persp; the side, ⇄ (swap it with this
-   * view, to edit there), ×; a read only note.
+   * view, to edit there); a read only note, close.
    */
   addView(kind: ViewKind, look?: { n: THREE.Vector3; at: THREE.Vector3 }, saved?: SavedView) {
     const stage = this.el.parentElement!;
@@ -3820,7 +3820,11 @@ export class Viewer implements ToolView {
     middle.append(
       side,
       button('⇄', 'Edit here: this view and the main one swap cameras', () => this.swapView(view)),
-      button('×', 'Close this view', () => {
+    );
+    const right = Object.assign(document.createElement('span'), { className: 'right' });
+    right.append(
+      Object.assign(document.createElement('span'), { className: 'read-only', textContent: 'read only', title: 'Editing happens in the main view: ⇄ brings this view there' }),
+      closeButton('Close this view', () => {
         this.views = this.views.filter((v) => v !== view);
         view.controls.dispose();
         renderer.dispose();
@@ -3829,7 +3833,7 @@ export class Viewer implements ToolView {
         this.saveViews();
       }),
     );
-    bar.append(projection, middle, Object.assign(document.createElement('span'), { className: 'read-only', textContent: 'read only', title: 'Editing happens in the main view: ⇄ brings this view there' }));
+    bar.append(projection, middle, right);
     el.append(bar, renderer.domElement);
     stage.append(el);
     this.views.push(view);
