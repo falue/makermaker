@@ -2908,6 +2908,7 @@ function clashTool() {
     commit({ ...doc, bodies: doc.bodies.map((b) => (b.id === target ? { ...b, features: [...b.features, { id: newId(), type: 'boolean' as const, op: 'subtract' as const, body: by, linked: true, ...grow, ...(along ? { along } : {}) }] } : b)) });
   };
   const draw = () => {
+    viewer.lightBodies([]); // its button may go under the pointer
     list.replaceChildren(
       ...hits.map((h, k) => {
         const r = Object.assign(document.createElement('div'), { className: 'clash-row', onmouseenter: () => light(k), onmouseleave: () => light(null) });
@@ -2917,7 +2918,9 @@ function clashTool() {
         r.append(words);
         const way = (target: string, by: string) =>
           h.joint ? `Click: Cut all ${name(by)} goes through on its joint's way, Min to Max, out of ${name(target)}; ${name(by)} stays as it is` : `Click: Cut ${name(by)} out of ${name(target)}, where it is; ${name(by)} stays as it is`;
-        if (h.joint || h.volume > 0) r.append(panelButton(`Cut ${name(h.a)}`, way(h.a, h.b), () => cutFrom(h.a, h.b, h.joint)), panelButton(`Cut ${name(h.b)}`, way(h.b, h.a), () => cutFrom(h.b, h.a, h.joint)));
+        const cutButton = (target: string, by: string) =>
+          Object.assign(panelButton(`Cut ${name(target)}`, way(target, by), () => cutFrom(target, by, h.joint)), { onmouseenter: () => viewer.lightBodies([target]), onmouseleave: () => viewer.lightBodies([]) });
+        if (h.joint || h.volume > 0) r.append(cutButton(h.a, h.b), cutButton(h.b, h.a));
         r.append(panelButton('Ignore', 'Click: Leave this pair out while the panel is open (fits made to overlap, a thread, say)', () => (ignore.add(pairKey(h.a, h.b)), soon())));
         return r;
       }),
