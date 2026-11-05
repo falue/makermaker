@@ -32,7 +32,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Coat
 - Excluding a flat face removes what grew out of it over the face's own box and a margin; where another part of the body rises right beside that face, its coat there can get cut too.
 - Only flat faces can be excluded. Meshes cannot be coated.
-- A coat as a new body has its own place: moving the body leaves it behind unless both move together. Reopened, its New body checkbox cannot be switched off and its Linked one does not show.
+- A linked coat body and its body move and turn as one, but while dragging only the one dragged moves; the other jumps along when the drag ends. They are moved by as much in each one's own group coordinates (they start in the same group). A coat body that is not linked keeps its own place.
 
 ## Curves
 - Moving a point holds tangents through arcs (`tangentsHeld`), with exceptions: an arc turned almost straight or doubling back loses it there, a chain ending back at the moved point cannot close smoothly, a bezier's handle turns and stops there, and dragging a bezier's handles does not reach an arc beyond. Tried through tests, not yet by hand.

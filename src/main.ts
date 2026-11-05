@@ -32,7 +32,7 @@ import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
-import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
+import { coatAsBody, coatPairs, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
@@ -699,7 +699,8 @@ function commit(next: Doc) {
 /** Tool bodies stick to their owner: an owner moved from `before` to `next` takes those that did not move themselves along. */
 function follow(before: Doc, next: Doc): Doc {
   const owner = ownersOf(next);
-  if (!owner.size && !next.joints.length) return next;
+  const pairs = coatPairs(next);
+  if (!owner.size && !next.joints.length && !pairs.length) return next;
   const at = (doc: Doc, id: string) => {
     const b = doc.bodies.find((q) => q.id === id);
     return b && (resolve(b.position, paramLookup(doc.params), '', new Map()) as Vec3);
@@ -724,6 +725,21 @@ function follow(before: Doc, next: Doc): Doc {
   for (const b of next.bodies) {
     const d = by(b.id);
     if (d && !still(d) && d.every(Number.isFinite)) drag(b.id, d, new Set([b.id]));
+  }
+  // a linked coat body and the body it coats: one moved or turned, the other goes along
+  const rotationOf = (doc: Doc, id: string) => JSON.stringify(doc.bodies.find((b) => b.id === id)?.rotation);
+  const turned = (id: string) => rotationOf(before, id) !== rotationOf(next, id);
+  for (const [coat, body] of pairs) {
+    const [from, too] = turned(body) && !turned(coat) ? [body, coat] : turned(coat) && !turned(body) ? [coat, body] : [];
+    if (from) out = setIn(out, ['bodies', String(out.bodies.findIndex((b) => b.id === too)), 'rotation'], next.bodies.find((b) => b.id === from)!.rotation);
+  }
+  for (const [coat, body] of pairs) {
+    const [to, d] = still(by(coat)) ? [coat, by(body)] : still(by(body)) ? [body, by(coat)] : [];
+    if (!to || !d || still(d) || !d.every(Number.isFinite)) continue;
+    const i = out.bodies.findIndex((b) => b.id === to);
+    const p = at(out, to)!;
+    out = setIn(out, ['bodies', String(i), 'position'], out.bodies[i].position.map((x, k) => plus(x, p[k], d[k])));
+    drag(to, d, new Set([to]));
   }
   // a joint's parent moved: what it moves goes along by as much in the world (else they would swing around an axis
   // that left them); each counts the move in its own group's (turned) coordinates
@@ -3979,6 +3995,8 @@ function rotateTool() {
   const ids = selected.filter((id) => !doc0.bodies.some((b) => b.id === id && inTurned(b.group)) && !doc0.groups.some((g) => g.id === id && inTurned(g.parent)));
   // a joint's parent takes what it moves along (and they their tool bodies)
   for (const j of doc0.joints) if (ids.includes(j.parent)) for (const c of j.children) if (!ids.includes(c)) ids.push(c);
+  // a linked coat body and the body it coats turn as one
+  for (const pair of coatPairs(doc0)) if (pair.some((id) => ids.includes(id))) for (const id of pair) if (!ids.includes(id)) ids.push(id);
   for (const [owned, by] of owner) if (ids.includes(by) && !ids.includes(owned)) ids.push(owned);
   const start = new Map(ids.map((id) => [id, (bodyPlaces.get(id) ?? groupPlace(id)).clone()]));
   const parents = new Map(ids.map((id) => [id, parentPlace(id)]));
