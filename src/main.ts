@@ -356,6 +356,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
 viewer.onHover = (id) => {
   for (const el of document.querySelectorAll('#left .item.hot')) el.classList.remove('hot');
   if (id) document.querySelector(`#left .item[data-id="${CSS.escape(id)}"]`)?.classList.add('hot');
+  if (pending) viewer.lightBodies(id && picks(id) ? [id] : []); // a waiting tool: what a click takes
 };
 
 const sections = sectionControls(
@@ -1476,35 +1477,36 @@ function paste() {
 }
 
 /**
- * Cut (toolbar): a body (the selected one, else the one clicked next; selected, so outlined), then a face or empty
+ * Cut (toolbar): the selected bodies, else the one clicked next (selected, so outlined), then a face or empty
  * space (a straight cut on that face's plane, or the base plane facing you) or the outline of a sketch line or shape
- * (cut along it, linked); then `cutPanel`. Chunk A keeps the side the cutter faces (a face's: into the body, a line's
- * left, a shape's inside), chunk B the other.
+ * (cut along it, linked); then `cutPanel`, and from there on again with what came of it, until Esc. Chunk A keeps the
+ * side the cutter faces (a face's: into the body, a line's left, a shape's inside), chunk B the other.
  */
-function cutTool() {
+function cutTool(note = '') {
   const doc = history.current;
-  const body = selected.find((id) => doc.bodies.some((b) => b.id === id));
-  if (!body) {
+  const bodies = selected.filter((id) => doc.bodies.some((b) => b.id === id));
+  if (!bodies.length) {
     pending = { tool: 'cut', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), cutTool()) };
     toolHint = 'Click the body to cut · [Esc] cancels';
     return render();
   }
-  [selected, shapeSel] = [[body], []];
+  [selected, shapeSel] = [bodies, []];
   showSelection();
-  toolHint = 'Click where to cut · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Esc] cancels';
+  toolHint = note + 'Click where to cut · [Esc] done · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Esc] cancels';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
     if (!face) return render();
-    const pl = bodyPlace(body);
-    if (face.sketch?.shape) return cutPanel(body, { kind: 'shape', sketch: face.sketch.id, shape: face.sketch.shape, offset: len(0) });
+    const each = (cutter: (pl: ReturnType<typeof bodyPlace>) => SplitFeature['cutter']) => cutPanel(bodies, new Map(bodies.map((b) => [b, cutter(bodyPlace(b))])));
+    if (face.sketch?.shape) return each(() => ({ kind: 'shape', sketch: face.sketch!.id, shape: face.sketch!.shape!, offset: len(0) }));
     // another body that is a ball or a cylinder (one circle pulled): along its surface
-    const other = face.body !== body ? doc.bodies.find((b) => b.id === face.body)?.features : undefined;
+    const other = !bodies.includes(face.body!) ? doc.bodies.find((b) => b.id === face.body)?.features : undefined;
     const [solid] = other?.length === 1 ? (built.get(face.body!) ?? []) : [];
     const there = bodyPlace(face.body!);
     if (other?.[0].type === 'sphere') {
       const { x, y, z } = resolve(other[0], paramLookup(doc.params), '', new Map());
-      return cutPanel(body, { kind: 'sphere', c: unplaced(pl, inWorld(there, [x, y, z])), d: structuredClone(other[0].d), offset: len(0) });
+      const d = other[0].d;
+      return each((pl) => ({ kind: 'sphere', c: unplaced(pl, inWorld(there, [x, y, z])), d: structuredClone(d), offset: len(0) }));
     }
     const pulled = solid?.type === 'extrude' && solid.mode === 'add' && !solid.through && solid.profiles.length === 1 ? solid : null;
     const circle = pulled?.profiles[0];
@@ -1512,30 +1514,35 @@ function cutTool() {
     if (pulled && circle?.kind === 'circle' && f) {
       const [from, to] = extent(pulled.depth, pulled.back);
       const c = inWorld(there, toWorld(moved(f, scale(f.n, from)), circle.x, circle.y));
-      return cutPanel(body, { kind: 'cylinder', c: unplaced(pl, c), dir: unplaced(pl, inWorld(there, f.n, true), true), h: to - from, d: len(circle.d), offset: len(0) });
+      return each((pl) => ({ kind: 'cylinder', c: unplaced(pl, c), dir: unplaced(pl, inWorld(there, f.n, true), true), h: to - from, d: len(circle.d), offset: len(0) }));
     }
     // on the face clicked (its normal into the body), or the plane facing you
     const n = face.normal.clone().normalize();
     const x = new Vector3(0, 0, 1).cross(n);
     if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
     x.normalize();
-    cutPanel(body, { kind: 'plane', o: unplaced(pl, face.point.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), turn: ex(0), axis: null, offset: len(0) });
+    each((pl) => ({ kind: 'plane', o: unplaced(pl, face.point.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), turn: ex(0), axis: null, offset: len(0) }));
   }, false, true, null, true);
 }
 
 /** While a cut is set up: its chunk B, not listed until the cut is kept. */
-let cutting: { chunk: string } | null = null;
+let cutting: { chunks: string[] } | null = null;
+/** What the last cut kept: the next one starts with it. */
+let cutKeep: 'both' | 'A' | 'B' = 'both';
 
 /**
- * The cut being set up, shown as it will be: the body (chunk A: the side the cutter faces, into the body from a face,
+ * The cut being set up, on `bodies` (their cutters in their own coordinates), shown as it will be: each body (chunk A: the side the cutter faces, into the body from a face,
  * a line's left, a shape's, ball's or cylinder's inside) and its copy (chunk B, the other side, its own colour, not listed yet) cut, the
  * one to be deleted see-through red, the cutting surface red and half see-through, a bit larger than the body. A panel at
  * the top middle of the view has the offset from the plane, face or line (from 0, the cursor in it; T or To object:
  * click a point it goes through), a plane's turn around its axis (dashed; Set axis: click an edge, line or circle),
- * each field scrubbed by dragging its label sideways, and what stays (Delete B first). ✓ or Enter keeps it (one undo
- * step), Esc leaves the body as it was.
+ * each field scrubbed by dragging its label sideways, and what stays (as the last cut, Keep both first). ✓ or Enter keeps
+ * it (one undo step), all that came of it selected, and the next cut can start; a body it does not cross stays as it was.
+ * Esc leaves the bodies as they were.
  */
-function cutPanel(body: string, cutter: SplitFeature['cutter']) {
+function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>) {
+  const body = bodies[0];
+  const cutter = cutters.get(body)!;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   document.body.append(box);
   const u = history.current.units;
@@ -1543,45 +1550,55 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   const values = { offset: '0', turn: '0' };
   let axis: { at: V3; dir: V3 } | null = null; // body-local; none: the plane's own x
   let picking = false; // waiting for To object or Set axis: Esc ends only that
-  const whole = viewer.measure(body)?.box.clone(); // the body before the cut: the surface's size and place
-  let keep: 'both' | 'A' | 'B' = 'A';
-  /** The cutter with the values typed, if they are valid. */
-  const current = (): SplitFeature['cutter'] | null => {
+  const whole = bodies.reduce((box, b) => { const m = viewer.measure(b)?.box; return m ? box.union(m) : box; }, new Box3()); // before the cut: the surface's size and place
+  let keep = cutKeep;
+  /** The cutter of `b` with the values typed, if they are valid. */
+  const current = (b = body): SplitFeature['cutter'] | null => {
     if (length(values.offset) === null || length(values.turn) === null) return null;
     const offset = { e: values.offset, u };
-    return cutter.kind === 'plane' ? { ...cutter, offset, turn: { e: values.turn, u: 'mm' }, axis } : { ...cutter, offset };
+    const c = cutters.get(b)!;
+    // the axis is kept as the first body has it
+    const own = axis && { at: unplaced(bodyPlace(b), inWorld(bodyPlace(body), axis.at)), dir: unplaced(bodyPlace(b), inWorld(bodyPlace(body), axis.dir, true), true) };
+    return c.kind === 'plane' ? { ...c, offset, turn: { e: values.turn, u: 'mm' }, axis: own } : { ...c, offset };
   };
-  // the chunks: the body (A) and its copy (B) right after it, in one undo step
+  // the chunks: each body (A) and its copy (B) right after it, in one undo step
   const doc0 = history.current;
-  const i = doc0.bodies.findIndex((x) => x.id === body);
-  const split = (side: 1 | -1): Feature => ({ id: newId(), type: 'split', cutter: structuredClone(current()!), side });
-  const [copy] = copiesOf([doc0.bodies[i]], [], ' B').bodies;
-  const chunkB: Body = { ...copy, color: newBody(doc0.bodies.length + 1, []).color, features: [...copy.features, split(-1)] };
-  // a linked copy's cut goes to its source's steps: every copy is cut (B: the clicked one's other side only)
-  const a = doc0.bodies[stepsOf(doc0, body)].id;
-  const withA = doc0.bodies.map((x) => (x.id === a ? { ...x, features: [...x.features, split(1)] } : x));
-  history.push({ ...doc0, bodies: [...withA.slice(0, i + 1), chunkB, ...withA.slice(i + 1)] });
-  cutting = { chunk: chunkB.id };
-  [selected, shapeSel] = [[body], []];
-  const hint = 'Cut: set the offset, pick what stays · type or scrub it, T: to object' + (cutter.kind === 'plane' ? ' · the turn (Set axis: what it turns around)' : '') + ' · [Enter] cuts · [Esc] leaves the body as it was';
+  const split = (b: string, side: 1 | -1): Feature => ({ id: newId(), type: 'split', cutter: structuredClone(current(b)!), side });
+  const parts = bodies.map((b, k) => {
+    const from = doc0.bodies.find((x) => x.id === b)!;
+    const [copy] = copiesOf([from], [], ' B').bodies;
+    // a linked copy's cut goes to its source's steps: every copy is cut (B: the clicked one's other side only)
+    return { body: b, from, a: doc0.bodies[stepsOf(doc0, b)].id, chunk: { ...copy, color: newBody(doc0.bodies.length + 1 + k, []).color, features: [...copy.features, split(b, -1)] } as Body };
+  });
+  const ofA = (id: string) => parts.find((q) => q.a === id);
+  history.push({ ...doc0, bodies: doc0.bodies.flatMap((x) => {
+    const own = ofA(x.id) ? { ...x, features: [...x.features, split(ofA(x.id)!.body, 1)] } : x;
+    return [own, ...parts.filter((q) => q.body === x.id).map((q) => q.chunk)];
+  }) });
+  const chunkIds = parts.map((q) => q.chunk.id);
+  cutting = { chunks: chunkIds };
+  [selected, shapeSel] = [bodies, []];
+  const hint = `Cut${bodies.length > 1 ? ` ${bodies.length} bodies` : ''}: set the offset, pick what stays · type or scrub it, T: to object${cutter.kind === 'plane' ? ' · the turn (Set axis: what it turns around)' : ''} · [Enter] cuts, then the next · [Esc] leaves them as they were`;
   toolHint = hint;
-  /** Both chunks cut by the cutter as typed, the one to be deleted see-through red; the cutting surface shown. */
+  /** The chunks cut by the cutter as typed, those to be deleted see-through red; the cutting surface shown. */
   const show = () => {
     const c = current();
     if (c) {
       const doc = history.current;
-      const bodies = doc.bodies.map((x) => {
-        if (x.id !== a && x.id !== chunkB.id) return x;
+      const next = doc.bodies.map((x) => {
+        const chunk = parts.find((q) => q.chunk.id === x.id);
+        const part = chunk ?? ofA(x.id);
+        if (!part) return x;
         const cut = structuredClone(x.features.at(-1)!);
-        if (cut.type === 'split') cut.cutter = structuredClone(c);
+        if (cut.type === 'split') cut.cutter = structuredClone(current(part.body)!);
         // B alone stays: it is the body as it was named and coloured
-        const look = x.id === chunkB.id ? (keep === 'B' ? { name: doc0.bodies[i].name, color: doc0.bodies[i].color } : { name: chunkB.name, color: chunkB.color }) : {};
+        const look = chunk ? (keep === 'B' ? { name: chunk.from.name, color: chunk.from.color } : { name: chunk.chunk.name, color: chunk.chunk.color }) : {};
         return { ...x, ...look, features: [...x.features.slice(0, -1), cut] };
       });
-      history.replace({ ...doc, bodies });
+      history.replace({ ...doc, bodies: next });
       update();
     }
-    viewer.setDropped(keep === 'A' ? [chunkB.id] : keep === 'B' ? [body] : []);
+    viewer.setDropped(keep === 'A' ? chunkIds : keep === 'B' ? bodies : []);
     surface(c);
   };
   /** A plane's axis in the world: the one set, else its own x through its point. */
@@ -1591,7 +1608,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
       : { at: new Vector3(...f.o), dir: new Vector3(...f.x), what: '' };
   /** The cutting surface: a plane as a square a bit larger than the body, a line as a band along it through the body. */
   const surface = (c: SplitFeature['cutter'] | null) => {
-    if (!c || !whole) return;
+    if (!c || whole.isEmpty()) return;
     const size = whole.getSize(new Vector3()).length() * 0.6;
     const mid = whole.getCenter(new Vector3());
     const at = (f: Frame, u0: number, v0: number) => new Vector3(...toWorld(f, u0, v0));
@@ -1695,8 +1712,8 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     picking = true;
     toolHint = 'Click what the plane turns around · an edge or line, or a circle (its centre) · [Esc] keeps the axis';
     render();
-    const mid = whole?.getCenter(new Vector3());
-    const size = (whole?.getSize(new Vector3()).length() ?? 100) * 0.72;
+    const mid = whole.getCenter(new Vector3());
+    const size = (whole.getSize(new Vector3()).length() || 100) * 0.72;
     viewer.pickAxis(
       (a) => {
         picking = false;
@@ -1724,12 +1741,12 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
   const segmented = Object.assign(document.createElement('span'), { className: 'segmented' });
   segmented.append(...choices);
   const choose = (k: typeof keep) => {
-    keep = k;
+    keep = cutKeep = k;
     choices.forEach((btn) => btn.classList.toggle('on', btn.dataset.keep === k));
     show();
   };
-  /** Kept: the chunk to be deleted goes, the other (or both) stay and are listed; else everything as it was. */
-  const finish = (ok: boolean) => {
+  /** Kept: the chunks to be deleted go, the others stay and are listed, a body the cut does not cross stays whole, and the next cut can start; else everything as it was. */
+  const finish = async (ok: boolean) => {
     viewer.aiming = null;
     angles?.end();
     viewer.cancelFacePick(); // a pick under way ends first: it shows the cut once more
@@ -1738,20 +1755,30 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
     viewer.showCut(null);
     viewer.showAxis(null);
     viewer.setDropped([]);
-    [toolHint, cutting] = [null, null];
-    if (!ok || !current()) return undo();
-    const drop = keep === 'A' ? chunkB.id : keep === 'B' ? body : null;
+    if (!ok || !current()) {
+      [toolHint, cutting] = [null, null];
+      return undo();
+    }
+    await kernel.idle();
+    const crossed = parts.filter((q) => !kernelErrors.has(q.chunk.id) && !kernelErrors.has(q.body));
     const doc = history.current;
-    history.replace({ ...doc, bodies: doc.bodies.filter((x) => x.id !== drop) });
-    selected = keep === 'both' ? [body, chunkB.id] : [keep === 'A' ? body : chunkB.id];
+    const gone = new Set([...parts.filter((q) => !crossed.includes(q)).map((q) => q.chunk.id), ...crossed.map((q) => (keep === 'A' ? q.chunk.id : keep === 'B' ? q.body : ''))]);
+    // an uncrossed body loses its cut again, unless a crossed linked copy shares it
+    const bare = new Set(parts.filter((q) => !crossed.some((o) => o.a === q.a)).map((q) => q.a));
+    const left = doc.bodies.filter((x) => !gone.has(x.id)).map((x) => (bare.has(x.id) ? { ...x, features: x.features.slice(0, -1) } : x));
+    [toolHint, cutting] = [null, null];
+    history.replace({ ...doc, bodies: left });
+    selected = parts.flatMap((q) => (!crossed.includes(q) ? [q.body] : keep === 'both' ? [q.body, q.chunk.id] : [keep === 'A' ? q.body : q.chunk.id]));
     update();
+    const missed = parts.length - crossed.length;
+    cutTool(missed ? `Not crossed, left as ${missed === 1 ? 'it was' : 'they were'}: ${missed === 1 ? 'one body' : `${missed} bodies`} · ` : '');
   };
   const keys = (e: KeyboardEvent) => {
     if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return; // the view's Esc ending a pick
     e.stopImmediatePropagation();
     e.preventDefault();
     if (picking && pressed(e, 'cancel')) viewer.cancelFacePick();
-    else finish(pressed(e, 'confirm'));
+    else void finish(pressed(e, 'confirm'));
   };
   const offsetField = field('Offset', () => values.offset, (t) => (values.offset = t));
   const turnField = cutter.kind === 'plane' ? field('Turn °', () => values.turn, (t) => (values.turn = t)) : [];
@@ -1762,7 +1789,7 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
           idle: () => !picking,
           axis: () => {
             const c = current();
-            if (c?.kind !== 'plane' || !whole) return null;
+            if (c?.kind !== 'plane' || whole.isEmpty()) return null;
             // from the plane unturned, on the body's side of the axis
             const f = placeFrame(bodyPlace(body), cutPlane(resolve({ ...c, turn: ex(0) }, lookup, '', new Map()) as Parameters<typeof cutPlane>[0]));
             const a = axisOf(c, f);
@@ -1782,9 +1809,9 @@ function cutPanel(body: string, cutter: SplitFeature['cutter']) {
       ? [cell(...turnField, angles!.buttons()), Object.assign(document.createElement('button'), { className: 'set-axis', textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
       : []),
     segmented,
-    panelButton('✓', 'Cut (Enter); Esc leaves the body as it was', () => finish(true)),
+    panelButton('✓', 'Click: Cut, then the next cut can start (Enter); Esc leaves the bodies as they were', () => void finish(true)),
   );
-  choose('A');
+  choose(keep);
   atTop(box);
   // the offset, from 0: typing replaces it (after the click that picked the face has ended)
   setTimeout(() => (fields[0].focus(), fields[0].select()));
@@ -4577,6 +4604,7 @@ function pickFor(tool: 'delete' | 'duplicate' | 'hide', act: () => void) {
 
 function cancelPending() {
   pending = null;
+  viewer.lightBodies([]);
   toolHint = null;
 }
 
@@ -5681,7 +5709,7 @@ function render() {
   const lookup = paramLookup(doc.params);
   const ctx: UIContext = {
     // a cut being set up: its new chunk is not listed until the cut is kept
-    doc: cutting ? { ...doc, bodies: doc.bodies.filter((b) => b.id !== cutting!.chunk) } : doc,
+    doc: cutting ? { ...doc, bodies: doc.bodies.filter((b) => !cutting!.chunks.includes(b.id)) } : doc,
     selected,
     exprErrors,
     kernelErrors: new Map([...kernelErrors, ...linkErrors]),
@@ -5763,7 +5791,7 @@ function render() {
     moveInto: (ids, group) => commit(movedInto(listedElsewhere(history.current, ids), ids, group)),
     groupTool,
     moveTool: () => moveAlong(0, true),
-    cutTool,
+    cutTool: () => cutTool(),
     revolveTool,
     sweepTool,
     planeTool,

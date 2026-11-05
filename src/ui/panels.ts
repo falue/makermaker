@@ -554,7 +554,7 @@ function editbar(ctx: UIContext): Node[] {
       }, flyout || on('boolean')),
       ...(flyout ? [h('div', { className: 'flyout menu' }, ...booleanMenu(ctx))] : []),
     ),
-    tool('cut', "Cut: a body (selected, or clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
+    tool('cut', "Cut: the selected bodies (else one clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
     tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
     tool('coat', 'Coat: a body (selected, or clicked next) made thicker all round, like paint', ctx.coatTool),
     tool('clash', 'Interference and clearance: where bodies overlap or come too close, also as their joints move', ctx.clashTool),
