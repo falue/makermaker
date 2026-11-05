@@ -958,6 +958,27 @@ canvas.drawing,
   top: 100%;
   margin: 6px 0 0;
 }
+/* the rocket clicker: at the toolbar's bottom, its count plopping up under it */
+#toolbar .rocket {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#toolbar .rocket .counter {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+#toolbar .rocket .counter.plop {
+  animation: plop 0.3s ease-out;
+}
+@keyframes plop {
+  from {
+    transform: translateY(-6px) scale(1.5);
+    color: var(--accent);
+  }
+}
 #toolbar hr {
   width: 24px;
   border: none;

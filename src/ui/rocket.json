@@ -1,0 +1,8 @@
+[
+  { "at": 10, "text": "Rocket fuel 1/10" },
+  { "at": 20, "text": "Rocket fuel 2/10" },
+  { "at": 50, "text": "Rocket fuel 5/10" },
+  { "at": 90, "text": "Rocket fuel 9/10" },
+  { "at": 100, "text": "Rocket fuel 10/10 fully loaded!", "icon": "rocketFull" },
+  { "at": 150, "text": "Rocket ignite" }
+]
