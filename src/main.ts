@@ -30,7 +30,7 @@ import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, versionDate, type Version } from './io/design';
 import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
-import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64 } from './io/mesh';
+import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
 import { describe as describeCommands, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
@@ -6099,22 +6099,29 @@ async function previewOf(image: Blob, width = 320, type = 'image/jpeg') {
  * Imports a mesh file's triangles as a mesh body at the origin (it stays a mesh). Most have no unit: `unit` is the
  * guess or what the file says, and a dialog lets it be changed while the body shows at that size.
  */
-function importMesh(name: string, { vertices, triangles }: { vertices: Float32Array; triangles: Uint32Array }, unit: Unit = 'mm') {
+function importMesh(name: string, parts: MeshPart[], unit: Unit = 'mm') {
   const doc = history.current;
-  const mesh: Feature = { id: newId(), type: 'mesh', source: name, vertices: toBase64(vertices), triangles: toBase64(triangles), scale: ex(fmt(UNITS[unit])) };
-  const body = { ...newBody(doc.bodies.length, [mesh]), name: name.replace(/\.[^.]*$/, '') };
-  [selected, shapeSel] = [[body.id], []];
-  commit({ ...doc, bodies: [...doc.bodies, body] });
-  notify(`Imported ${name}: ${triangles.length / 3} triangles`);
-  meshUnits(body.id, extents(vertices), unit);
+  const title = name.replace(/\.[^.]*$/, '');
+  const group: Group | null = parts.length > 1 ? { id: newId(), name: title, parent: null, visible: true, origin: { kind: 'parent' } } : null;
+  const bodies = parts.map((p, k) => {
+    const mesh: Feature = { id: newId(), type: 'mesh', source: name, vertices: toBase64(p.vertices), triangles: toBase64(p.triangles), scale: ex(fmt(UNITS[unit])) };
+    const body = newBody(doc.bodies.length + k, [mesh], group?.id ?? null);
+    return { ...body, name: group ? p.name || `Part ${k + 1}` : title, ...(p.color ? { color: p.color } : {}) };
+  });
+  [selected, shapeSel] = [group ? [group.id] : [bodies[0].id], []];
+  commit({ ...doc, groups: group ? [...doc.groups, group] : doc.groups, bodies: [...doc.bodies, ...bodies] });
+  notify(`Imported ${name}: ${group ? `${parts.length} parts, ` : ''}${parts.reduce((n, p) => n + p.triangles.length, 0) / 3} triangles`);
+  const all = new Float32Array(parts.reduce((n, p) => n + p.vertices.length, 0));
+  parts.reduce((at, p) => (all.set(p.vertices, at), at + p.vertices.length), 0);
+  meshUnits(bodies.map((b) => b.id), extents(all), unit);
 }
 
 /**
- * The size of an imported mesh (its file has no unit): a small dialog with the units (its numbers are mm, cm …) and
- * its size along X, Y and Z: typing one scales it so, the others follow. The body shows at each size as it is set (the
+ * The size of an imported mesh (its file has no unit), all its parts as one: a small dialog with the units (its numbers are mm, cm …) and
+ * its size along X, Y and Z: typing one scales it so, the others follow. The bodies show at each size as it is set (the
  * import's undo step, rewritten). ✓, Enter or Esc closes it.
  */
-function meshUnits(body: string, size: Vec3, unit: Unit) {
+function meshUnits(bodies: string[], size: Vec3, unit: Unit) {
   const box = Object.assign(document.createElement('div'), { className: 'mesh-units' });
   const buttons = (['mm', 'cm', 'm', 'in'] as Unit[]).map((u) => Object.assign(document.createElement('button'), { textContent: u, onclick: () => scaleTo(UNITS[u]) }));
   const fields = size.map((_, k) => Object.assign(document.createElement('input'), { className: 'number', spellcheck: false, title: `Its size along ${'XYZ'[k]} (the others follow)` }));
@@ -6128,9 +6135,12 @@ function meshUnits(body: string, size: Vec3, unit: Unit) {
   /** Scales the body by `s` (mm per file unit); the sizes show, but not in the field typed into (`typed`). */
   const scaleTo = (s: number, typed?: number) => {
     const doc = history.current;
-    const i = doc.bodies.findIndex((b) => b.id === body);
-    if (i < 0) return close();
-    history.replace(setIn(doc, ['bodies', String(i), 'features', '0', 'scale'], ex(fmt(s))));
+    const scaled = bodies.reduce((d, id) => {
+      const i = d.bodies.findIndex((b) => b.id === id);
+      return i < 0 ? d : setIn(d, ['bodies', String(i), 'features', '0', 'scale'], ex(fmt(s)));
+    }, doc);
+    if (scaled === doc && !doc.bodies.some((b) => bodies.includes(b.id))) return close();
+    history.replace(scaled);
     update();
     buttons.forEach((b) => b.classList.toggle('on', Math.abs(UNITS[b.textContent as Unit] - s) < 1e-9));
     fields.forEach((f, k) => k !== typed && (f.value = fmt((size[k] * s) / UNITS[history.current.units])));
@@ -6221,16 +6231,17 @@ function importFile(f: File, at?: { x: number; y: number }) {
   async function read() {
     if (ext === '.svg' || ext === '.dxf') return importDrawing(f.name, ext === '.svg' ? svgShapes(await f.text()) : dxfShapes(await f.text()), target);
     if (PICTURES.includes(ext)) return importPicture(f, target.frame, target.point);
-    if (ext === '.stl') return importMesh(f.name, parseStl(await f.arrayBuffer()));
+    const plain = (mesh: { vertices: Float32Array; triangles: Uint32Array }): MeshPart[] => [{ ...mesh, name: '', color: null }];
+    if (ext === '.stl') return importMesh(f.name, plain(parseStl(await f.arrayBuffer())));
     if (ext === '.glb') return importMesh(f.name, await parseGlb(await f.arrayBuffer()), 'm');
     if (ext === '.3mf') {
-      const { unit, ...mesh } = parse3mf(await f.arrayBuffer());
-      return importMesh(f.name, mesh, unit);
+      const { parts, unit } = parse3mf(await f.arrayBuffer());
+      return importMesh(f.name, parts, unit);
     }
     if (ext !== '.obj') return importStep(f.name, await f.text());
     const text = await f.text();
     const kind = objKind(text);
-    importMesh(f.name, parseObj(text, kind.zUp), kind.unit);
+    importMesh(f.name, plain(parseObj(text, kind.zUp)), kind.unit);
   }
 }
 

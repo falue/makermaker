@@ -33,24 +33,73 @@ export function extents(vertices: ArrayLike<number>): [number, number, number] {
   }) as [number, number, number];
 }
 
-/** All meshes under `root` as one, in its world, corners shared; a mirroring transform keeps the faces facing out. */
+/** The triangles of mesh `o` in its world, added to `all`; a mirroring transform keeps the faces facing out. */
+function addTriangles(o: THREE.Mesh, all: number[]) {
+  const v = new THREE.Vector3();
+  const { index, attributes } = o.geometry as THREE.BufferGeometry;
+  const flip = o.matrixWorld.determinant() < 0;
+  const count = (index ?? attributes.position).count;
+  for (let i = 0; i + 2 < count; i += 3)
+    for (const k of flip ? [0, 2, 1] : [0, 1, 2]) {
+      v.fromBufferAttribute(attributes.position as THREE.BufferAttribute, index ? index.getX(i + k) : i + k).applyMatrix4(o.matrixWorld);
+      all.push(v.x, v.y, v.z);
+    }
+}
+
+const shared = (all: number[]) => mergeVertices(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(all), 3)));
+
+/** All meshes under `root` as one, in its world, corners shared. */
 function merged(root: THREE.Object3D, kind: string) {
   root.updateMatrixWorld(true);
   const all: number[] = [];
-  const v = new THREE.Vector3();
+  root.traverse((o) => o instanceof THREE.Mesh && addTriangles(o, all));
+  if (!all.length) throw new Error(`no triangles in this ${kind} file`);
+  return shared(all);
+}
+
+/** A part of an imported file: its name and colour (#rrggbb) as the file has them (none: '', null), its triangles. */
+export type MeshPart = { name: string; color: string | null; vertices: Float32Array; triangles: Uint32Array };
+
+/** A mesh's colour: its vertices' on average, else its material's; a texture alone tells none. */
+function colorOf(o: THREE.Mesh) {
+  const material = (Array.isArray(o.material) ? o.material[0] : o.material) as THREE.MeshStandardMaterial;
+  const colors = o.geometry.attributes.color;
+  if (colors) {
+    const sum = [0, 0, 0];
+    for (let i = 0; i < colors.count; i++) [colors.getX(i), colors.getY(i), colors.getZ(i)].forEach((c, k) => (sum[k] += c));
+    return `#${new THREE.Color(sum[0] / colors.count, sum[1] / colors.count, sum[2] / colors.count).getHexString()}`;
+  }
+  return material?.color && !material.map ? `#${material.color.getHexString()}` : null;
+}
+
+/**
+ * The meshes under `root` as parts, in its world. All white: no colours in the file. Very many: one per colour, as a
+ * body each would be too heavy to work with (`most`).
+ */
+function partsOf(root: THREE.Object3D, kind: string, most = 200): (Omit<MeshPart, 'vertices' | 'triangles'> & { g: THREE.BufferGeometry })[] {
+  root.updateMatrixWorld(true);
+  const found: { name: string; color: string | null; all: number[] }[] = [];
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
-    const { index, attributes } = o.geometry as THREE.BufferGeometry;
-    const flip = o.matrixWorld.determinant() < 0;
-    const count = (index ?? attributes.position).count;
-    for (let i = 0; i + 2 < count; i += 3)
-      for (const k of flip ? [0, 2, 1] : [0, 1, 2]) {
-        v.fromBufferAttribute(attributes.position as THREE.BufferAttribute, index ? index.getX(i + k) : i + k).applyMatrix4(o.matrixWorld);
-        all.push(v.x, v.y, v.z);
-      }
+    const all: number[] = [];
+    addTriangles(o, all);
+    let name = '';
+    for (let p: THREE.Object3D | null = o; p && p !== root && !name; p = p.parent) name = p.name;
+    if (all.length) found.push({ name, color: colorOf(o), all });
   });
-  if (!all.length) throw new Error(`no triangles in this ${kind} file`);
-  return mergeVertices(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(all), 3)));
+  if (!found.length) throw new Error(`no triangles in this ${kind} file`);
+  if (found.every((f) => f.color === '#ffffff')) found.forEach((f) => (f.color = null));
+  let parts = found;
+  if (found.length > most) {
+    const byColor = new Map<string | null, (typeof found)[number]>();
+    for (const f of found) {
+      const in_ = byColor.get(f.color);
+      if (in_) for (const x of f.all) in_.all.push(x);
+      else byColor.set(f.color, { ...f, name: '' });
+    }
+    parts = [...byColor.values()];
+  }
+  return parts.map(({ all, ...f }) => ({ ...f, g: shared(all) }));
 }
 
 const meshOf = (g: THREE.BufferGeometry) => ({ vertices: g.attributes.position.array as Float32Array, triangles: new Uint32Array(g.index!.array) });
@@ -62,21 +111,21 @@ export function parseObj(text: string, zUp = false): { vertices: Float32Array; t
   return meshOf(g);
 }
 
-/** A GLB's triangles, all its meshes as one, corners shared. glTF is y up, in metres (the unit to show them in). */
-export async function parseGlb(data: ArrayBuffer) {
+/** A GLB's parts, corners shared. glTF is y up, in metres (the unit to show them in). */
+export async function parseGlb(data: ArrayBuffer): Promise<MeshPart[]> {
   const { scene } = await new GLTFLoader().parseAsync(data, '');
-  return meshOf(merged(scene, 'GLB').rotateX(Math.PI / 2));
+  return partsOf(scene, 'GLB').map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
 }
 
 const UNITS_3MF: Record<string, Unit> = { millimeter: 'mm', centimeter: 'cm', meter: 'm', inch: 'in', foot: 'ft' };
 
-/** A 3MF's triangles as placed on its build plate, all objects as one, corners shared (z up), and the file's unit. */
-export function parse3mf(data: ArrayBuffer) {
-  const g = merged(new ThreeMFLoader().parse(data), '3MF');
+/** A 3MF's parts as placed on its build plate, corners shared (z up), and the file's unit. */
+export function parse3mf(data: ArrayBuffer): { parts: MeshPart[]; unit: Unit } {
+  const found = partsOf(new ThreeMFLoader().parse(data), '3MF');
   const files = unzipSync(new Uint8Array(data), { filter: (f) => /\.model$/i.test(f.name) });
   const named = /<model\b[^>]*\bunit="(\w+)"/.exec(strFromU8(Object.values(files)[0] ?? new Uint8Array()))?.[1] ?? 'millimeter';
-  if (named === 'micron') g.scale(0.001, 0.001, 0.001);
-  return { ...meshOf(g), unit: UNITS_3MF[named] ?? 'mm' };
+  if (named === 'micron') found.forEach(({ g }) => g.scale(0.001, 0.001, 0.001));
+  return { parts: found.map(({ g, ...p }) => ({ ...p, ...meshOf(g) })), unit: UNITS_3MF[named] ?? 'mm' };
 }
 
 /** The triangles of an STL file (binary or text; z up, as STL usually is), corners shared. */

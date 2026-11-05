@@ -24,8 +24,8 @@ describe('mesh import sizes', () => {
 });
 
 describe('GLB', () => {
-  // one triangle, 1 m wide along x and 2 m up along y
-  const glb = () => {
+  // one triangle, 1 m wide along x and 2 m up along y; `extra`: over the plain file
+  const glb = (extra: object = {}) => {
     const bin = new Float32Array([0, 0, 0, 1, 0, 0, 0, 2, 0]);
     const json = JSON.stringify({
       asset: { version: '2.0' },
@@ -36,6 +36,7 @@ describe('GLB', () => {
       accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 2, 0] }],
       bufferViews: [{ buffer: 0, byteLength: 36 }],
       buffers: [{ byteLength: 36 }],
+      ...extra,
     });
     const text = new TextEncoder().encode(json.padEnd(Math.ceil(json.length / 4) * 4, ' '));
     const out = new ArrayBuffer(12 + 8 + text.length + 8 + 36);
@@ -48,9 +49,21 @@ describe('GLB', () => {
     return out;
   };
   it('reads its triangles, y up turned to z up', async () => {
-    const { vertices, triangles } = await parseGlb(glb());
+    const [{ vertices, triangles }] = await parseGlb(glb());
     expect(triangles.length).toBe(3);
     const [x, y, z] = extents(vertices);
     expect([x, y, z].map((v) => +v.toFixed(5))).toEqual([1, 0, 2]);
+  });
+  it('keeps its parts, their names and colours; all white is no colour', async () => {
+    expect((await parseGlb(glb()))[0].color).toBeNull();
+    const parts = await parseGlb(
+      glb({
+        scenes: [{ nodes: [0, 1] }],
+        nodes: [{ mesh: 0, name: 'Arm' }, { mesh: 1, name: 'Leg' }],
+        meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }, { primitives: [{ attributes: { POSITION: 0 }, material: 1 }] }],
+        materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 0, 0, 1] } }, { pbrMetallicRoughness: { baseColorFactor: [0, 0, 1, 1] } }],
+      }),
+    );
+    expect(parts.map((p) => [p.name, p.color])).toEqual([['Arm', '#ff0000'], ['Leg', '#0000ff']]);
   });
 });
