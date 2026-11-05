@@ -2394,8 +2394,8 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
       ? [{ label: 'Count', value: '6', raw: true, int: true }, { label: 'Angle °', value: '360', raw: true }]
       : [
           ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} pcs`, value: k ? '1' : '3', raw: true, int: true, title: `${a} pcs: how many along ${a} (negative: the other way)` })),
-          ...['X', 'Y', 'Z'].map((a, k) => ({ label: a, value: fmt(5 / u), reach: reach(k), title: `${a} gap: between the copies` })),
-          { label: 'Turn °', value: '0', raw: true },
+          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} dist`, value: fmt(5 / u), reach: reach(k), title: `${a} gap: between the copies` })),
+          { label: 'Turn each °', value: '0', raw: true, title: 'Turn each °: every copy turned this much more than the one before, around its middle' },
         ];
   const link = checkbox('Linked', 'The copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => ((linkedCopies = on), apply()));
   // around: another axis, the values kept
@@ -2413,10 +2413,11 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
       (a) => (tips.cursorTip(a ? `${a.what}\nClick: copies go round it` : null), viewer.showAxis(a, a?.at, 60)),
     );
   });
-  const extra =
+  // grid: the switcher, pcs, Overall, the distances, Turn each, Linked; around: the switcher, Count, Set axis, Angle, Turn copies, Linked
+  const overallBox =
     mode === 'around'
-      ? [switcher, link, checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply())), setAxis]
-      : [switcher, link, checkbox('Overall', 'The spacing fields are the whole size from the first copy\'s start to the last one\'s end, not the gap between copies', false, (on) => {
+      ? null
+      : checkbox('Overall', 'The spacing fields are the whole size from the first copy\'s start to the last one\'s end, not the gap between copies', false, (on) => {
           overall = on;
           panel.inputs.slice(3, 6).forEach((input, k) => {
             const label = input.previousElementSibling as HTMLElement;
@@ -2426,8 +2427,11 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
             input.value = fmt((on ? n * s + (n - 1) * v : n > 1 ? (v - n * s) / (n - 1) : 0) / u);
           });
           panel.inputs[3].dispatchEvent(new Event('input'));
-        })];
-  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] keeps them · [Esc] leaves nothing' : 'Pattern grid: counts and gaps · along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] keeps them · [Esc] leaves nothing', extra);
+        });
+  const extra = mode === 'around' ? [checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply())), link] : [link];
+  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] keeps them · [Esc] leaves nothing' : 'Pattern grid: counts and gaps · along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] keeps them · [Esc] leaves nothing', extra, [switcher]);
+  // between the fields: Overall before the distances, Set axis before the angle
+  panel.inputs[mode === 'around' ? 1 : 3].parentElement!.before(overallBox ?? setAxis);
   texts = fields.map((f) => f.value);
   // around: the sweep, from the selection's middle; grid: each copy's turn, while it is in use
   const turnField = panel.inputs[mode === 'around' ? 1 : 6];
