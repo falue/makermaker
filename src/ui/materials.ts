@@ -1,6 +1,7 @@
 import { STANDARD_SECTIONS, toLook } from '../doc/materials';
 import type { Light, Material, MaterialLook } from '../doc/types';
 import { MaterialPreview, PREVIEW_SCENE } from '../viewer/preview';
+import { icon } from './icons';
 import { pressed } from './keys';
 
 /** What the materials dialog needs of the app. */
@@ -264,7 +265,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
         if (e.target === dialog) close();
       },
     },
-    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Materials'), make('button', { className: 'icon', textContent: '×', title: 'Close (Esc)', onclick: () => close() })), make('div', { className: 'mat-columns' }, make('div', { className: 'mat-left' }, search, list), side)),
+    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Materials'), make('button', { className: 'icon', innerHTML: icon('close'), title: 'Close (Esc)', onclick: () => close() })), make('div', { className: 'mat-columns' }, make('div', { className: 'mat-left' }, search, list), side)),
   );
   addEventListener('keydown', esc, { capture: true });
   document.body.append(dialog);

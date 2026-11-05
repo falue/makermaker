@@ -952,7 +952,7 @@ export class Viewer implements ToolView {
     this.drawImages();
   }
 
-  /** Drags corner `corner` (±1, ±1) of an image: the opposite one stays, its proportions too. */
+  /** Drags corner `corner` (±1, ±1) of an image: the opposite one stays (Alt: its middle), its proportions too. */
   private startImageScale(down: PointerEvent, id: string, [u, v]: number[], ratio: number) {
     const im = this.imageList.find((x) => x.id === id)!;
     const [fx, fy, o] = [new THREE.Vector3(...im.frame.x), new THREE.Vector3(...im.frame.y), new THREE.Vector3(...im.frame.o)];
@@ -963,6 +963,7 @@ export class Viewer implements ToolView {
     this.controls.enabled = false;
     const placed = (e: PointerEvent) => {
       const p = this.pointOnPlane(e, fixed, n) ?? fixed;
+      if (role(e, 'centre')) return { width: Math.max(1, 2 * p.clone().sub(o).dot(fx) * u), o: o.clone() };
       const width = Math.max(1, p.clone().sub(fixed).dot(fx) * u);
       return { width, o: fixed.clone().addScaledVector(fx, (u * width) / 2).addScaledVector(fy, (v * width * ratio) / 2) };
     };
@@ -3911,6 +3912,13 @@ export class Viewer implements ToolView {
     if (this.downOnPart) this.host.touched();
     if (!toggles(e) && this.startImageEdit(e, ray.ray, hit)) {
       this.downOnPart = true;
+      return;
+    }
+    // an image not selected yet: a click selects it (a toggle adds it or takes it away)
+    const picture = !shape && !this.facePick ? this.imageAt(e, hit) : null;
+    if (picture) {
+      this.downOnPart = true;
+      this.host.select(picture.id, toggles(e));
       return;
     }
     if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0) {

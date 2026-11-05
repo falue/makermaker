@@ -460,7 +460,7 @@ function topbar(ctx: UIContext): Node[] {
   return [
     h('strong', {}, 'MAKERMAKER'),
     tool('settings', 'Settings: units, ambient occlusion, background, light', ctx.openSettings),
-    tool('material', 'Materials: pick, change and save looks; import and export', () => ctx.openMaterials()),
+    tool('theme', 'Light / dark', ctx.toggleTheme),
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
@@ -477,7 +477,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('laser', 'Export for the laser: the selected bodies (else all shown ones) listed, untick any; each the outline of a flat face (its biggest, or one clicked) at 1:1 without fillets and chamfers, kerf allowed for; SVG or DXF, several zipped', ctx.exportLaser),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),
     tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),
-    tool('theme', 'Light / dark', ctx.toggleTheme),
+    tool('material', 'Materials: pick, change and save looks; import and export', () => ctx.openMaterials()),
     h('a', { className: 'link', href: 'https://github.com/falue/makermaker', target: '_blank', rel: 'noopener', title: 'Source code on GitHub', innerHTML: GITHUB }),
     h('a', { className: 'link', href: 'https://buymeacoffee.com/falue', target: '_blank', rel: 'noopener', title: 'Support MAKERMAKER' }, '☕ Buy me a coffee'),
   ];
@@ -835,7 +835,8 @@ function left(ctx: UIContext): Node[] {
   const planeList = heading('planes', 'Work planes', 'plane');
   const imageList = heading('images', 'Images', 'image');
   const imageRows = doc.images.map((im, i) => {
-    const item = listItem(im.id, selectedClass(im.id), (how) => ctx.select(im.id, how), h('span', { className: 'kind', innerHTML: icon('image') }), nameOf(im.id, im.name, ['images', String(i), 'name']));
+    // a click on the one selected takes it off again
+    const item = listItem(im.id, selectedClass(im.id), (how) => (!how && ctx.selected.length === 1 && ctx.selected[0] === im.id ? ctx.select(null) : ctx.select(im.id, how)), h('span', { className: 'kind', innerHTML: icon('image') }), nameOf(im.id, im.name, ['images', String(i), 'name']));
     item.onmouseenter = () => ctx.lightImage(im.id);
     item.onmouseleave = () => ctx.lightImage(null);
     const look = h('button', { className: 'icon', title: im.visible ? 'Hide' : 'Show', innerHTML: icon(im.visible ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, ['images', String(i), 'visible'], !im.visible)) });
@@ -1020,7 +1021,7 @@ function materialRows(ctx: UIContext, ids: string[], inherited: string): Node[] 
   // the same chapters, in the same order, as the materials dialog
   const list = h('select', { title: 'Its material' }, option('', inherited), ...chapter('In this file', doc.materials), ...STANDARD_SECTIONS.flatMap(([name, materials]) => chapter(name, materials)), option('new', '+ New…'));
   list.onchange = () => (list.value === 'new' ? ctx.openMaterials(true) : ctx.setMaterialOf(ids, list.value || undefined));
-  return [h('h3', {}, 'Material'), h('div', { className: 'row' }, list, button('Edit…', () => ctx.openMaterials(), 'The materials dialog: pick one, change the look of this object, or edit the materials of the file'))];
+  return [h('h3', {}, 'Material'), h('div', { className: 'row' }, list, tool('material', 'Edit material…', () => ctx.openMaterials()))];
 }
 
 /** An image's card: name, Delete; width (mm), opacity, a colour shown transparent (and how far off still counts), Calibrate. */
@@ -1047,10 +1048,10 @@ function imagePanel(ctx: UIContext, i: number): Node[] {
       const el = h('input', { value: String(+im.frame.o[k].toFixed(3)), title: `Its middle along ${'XYZ'[k]}, mm` });
       el.onchange = () => Number.isFinite(+el.value) && ctx.commit(setIn(doc, ['images', String(i), 'frame', 'o', String(k)], +el.value));
       return h('label', { className: 'field' }, h('span', { innerHTML: axisHtml('XYZ'[k]) }), el);
-    }), button('Turn', ctx.rotateTool, 'Turn it around its middle')),
+    }), tool('rotate', 'Rotate it around its middle', ctx.rotateTool)),
     h('div', { className: 'row' }, h('span', {}, 'Opacity'), slider('opacity', 'How much it hides what lies behind it')),
     h('div', { className: 'row' }, h('span', {}, 'Transparent'), colour, ...(im.key ? [slider('tolerance', 'How far off the colour still turns transparent'), button('×', () => ctx.commit(setIn(doc, at('key'), null)), 'No colour transparent')] : [])),
-    h('p', { className: 'hint' }, 'A picture to draw over, on the plane it was dropped on; a PNG keeps its own transparency. Drag it to move it, a corner to resize it. Calibrate: two points on it and their real distance.'),
+    h('p', { className: 'hint' }, 'A picture to draw over, on the plane it was dropped on; a PNG keeps its own transparency. Drag it to move it, a corner to resize it (Alt: from its middle). Calibrate: two points on it and their real distance.'),
   ];
 }
 

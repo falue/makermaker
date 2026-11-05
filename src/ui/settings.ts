@@ -107,7 +107,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   /** The light of renders on the teapot in steel. */
   const showLight = () => {
     const light = s.renderLight.same ? s.light : s.renderLight;
-    lightPreview?.show(toLook(STANDARD_MATERIALS[0]), effectiveLight(light), undefined, s.renderLight);
+    lightPreview?.show(toLook(STANDARD_MATERIALS.find((m) => m.id === 'std-light-grey')!), effectiveLight(light), undefined, s.renderLight);
   };
   /** Chapters: the left column lists them, the right shows the open one. */
   const chapters: [string, () => Node[]][] = [
@@ -193,7 +193,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         const put = (patch: Partial<Settings['renderLight']>) => set({ ...s, renderLight: { ...s.renderLight, ...patch } });
         lightPreview ??= new MaterialPreview();
         lightPreview.canvas.className = 'light-preview';
-        lightPreview.canvas.title = 'These settings on the teapot of the material pictures, in steel';
+        lightPreview.canvas.title = 'These settings on the teapot of the material pictures, in Plastic, light grey';
         showLight();
         const same = input({ type: 'checkbox', checked: r.same, onchange: () => put({ same: same.checked }) });
         const haze = (key: 'haze' | 'fog', label: string, title: string) => {

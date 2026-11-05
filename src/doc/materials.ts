@@ -52,6 +52,7 @@ export const STANDARD_SECTIONS: [string, Material[]][] = [
       standard('red', 'Plastic, red', '#c8322d', { bump: 0.2 }),
       standard('yellow', 'Plastic, yellow', '#e8b818', { bump: 0.2 }),
       standard('black', 'Plastic, black', '#1c1c1e', { bump: 0.2 }),
+      standard('light-grey', 'Plastic, light grey', '#b9bbbe', { bump: 0.2 }),
       standard('dark-grey', 'Plastic, dark grey', '#3a3b3e', { bump: 0.2 }),
       standard('pom-black', 'POM-C black', '#17171a', { bump: 0.05 }), // roughness 0.1: 90% shiny
       standard('wood', 'Wood', '#a9773f', { bump: 0.65 }),

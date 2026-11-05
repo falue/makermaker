@@ -490,7 +490,7 @@ function update() {
     }),
   );
   viewer.setWorkPlanes(doc.planes.filter((w) => w.visible).map((w) => ({ id: w.id, name: w.name, frame: workFrames.get(w.id)!, rect: workRects.get(w.id)!, selected: selected.includes(w.id) })));
-  viewer.setImages(doc.images.filter((im) => im.visible).map((im) => ({ ...im, selected: selected.includes(im.id) })));
+  showImages();
   /** A placement's frame in the world; undefined while its body is not built (or its face is gone). */
   const worldFrame = (p: Resolved<SketchPlacement>): Frame | undefined => {
     if (p.kind === 'base') return { ...BASE[p.axis], o: scale(BASE[p.axis].n, p.offset) };
@@ -928,7 +928,10 @@ function isolate(id: string) {
   });
 }
 
+const showImages = () => viewer.setImages(history.current.images.filter((im) => im.visible).map((im) => ({ ...im, selected: selected.includes(im.id) })));
+
 function showSelection() {
+  showImages();
   viewer.select(contents(history.current, selected), groupKept(history.current));
   viewer.setSketches(viewer.sketches, activeSketch(), shapeSel);
   render();
@@ -5769,13 +5772,15 @@ function importFile(f: File, at?: { x: number; y: number }) {
   if (!IMPORTS.includes(ext)) return false;
   const ground = { placement: { kind: 'base', axis: 'xy', offset: 0 } as const, frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] } as Frame, body: null, name: 'the ground', point: null };
   const target = (at && viewer.dropTarget(at.x, at.y)) ?? ground;
-  run(async () => {
-    try {
-      await read();
-    } catch (err) {
-      throw new Error(`${f.name} could not be imported, it may be damaged: ${(err as Error).message}`);
-    }
-  });
+  run(() =>
+    loading(f.name, async () => {
+      try {
+        await read();
+      } catch (err) {
+        throw new Error(`${f.name} could not be imported, it may be damaged: ${(err as Error).message}`);
+      }
+    }),
+  );
   return true;
 
   async function read() {
@@ -5950,12 +5955,15 @@ function turnImages() {
       const rad = (angle * Math.PI) / 180;
       const axis = new Vector3(...im.frame.n);
       const turned = (v: Vec3) => new Vector3(...v).applyAxisAngle(axis, rad).toArray() as Vec3;
-      if (im === first) viewer.showTicks({ at, dir: n, from: at.clone().addScaledVector(x, first.width / 2), step: SketchTool.angleStep, angle });
       return { ...im, frame: { ...im.frame, x: turned(im.frame.x), y: turned(im.frame.y) } };
     },
-    'Turn the picture around its middle · [Enter] keeps it · [Esc] puts it back',
-    () => viewer.showTicks(null),
+    `Rotate the picture around its middle: move the pointer, or type · ${angleKeys()} · click or [Enter] keeps it · [Esc] puts it back`,
+    () => angles.end(),
   );
+  // as Rotate does for bodies: the pointer turns it at once, the same arc and steps
+  const input = document.querySelector<HTMLInputElement>('.axis-move:not(.measure) input')!;
+  const angles = angleControl({ input, axis: () => ({ at, dir: n, zero: x }) });
+  angles.arm();
 }
 
 /** Asks for a file to import. */
@@ -6038,9 +6046,25 @@ function loadFile({ name, bytes, handle }: OpenedFile) {
   }
 }
 
+/** The top bar's loader while a file is read and what it brought is built. */
+async function loading<T>(name: string, task: () => Promise<T> | T) {
+  const label = `Opening ${name}`;
+  busy.add(label);
+  render();
+  await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))); // the bar shows before the work blocks
+  try {
+    const out = await task();
+    await kernel.idle();
+    return out;
+  } finally {
+    busy.delete(label);
+    render();
+  }
+}
+
 async function openDesign() {
   const f = await openFile();
-  if (f) loadFile(f);
+  if (f) await loading(f.name, () => loadFile(f));
 }
 
 function undo(redo = false) {
@@ -6230,8 +6254,10 @@ addEventListener('drop', (e) => {
         else fail(`${f.name}: Python scripts as files need Chrome or Edge.`);
       } else if (importFile(f, at)) continue;
       else if (f.name.toLowerCase().endsWith(EXTENSION)) {
-        const h = await handle;
-        loadFile(h instanceof FileSystemFileHandle ? await readHandle(h) : { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+        await loading(f.name, async () => {
+          const h = await handle;
+          loadFile(h instanceof FileSystemFileHandle ? await readHandle(h) : { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+        });
       } else fail(`${f.name}: this kind of file cannot be opened or imported. These can: ${EXTENSION.slice(1).toUpperCase()}, STEP, STL, OBJ, 3MF, GLB, SVG, DXF, pictures, Python scripts.`);
     }
     if (scripts.length) await terminal.addFiles(scripts);

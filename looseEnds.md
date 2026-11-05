@@ -38,3 +38,12 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The `monster` and `threaded` boolean tests hit the 300 s limit, so they say nothing about those two bodies. They need a longer limit or fewer combinations.
 - `setPointerCapture` threw InvalidStateError in Playwright pulls, cause unknown; not seen by hand.
 - The manual checklist's "Check these first" group in CHECKLIST.md has not been run.
+
+## Assumed, change if wrong
+Answers assumed where a request left a question open.
+
+- Materials dialog close button: it already had a small ×, so it became the app's close icon. If it was hard to find for another reason, say where it should go.
+- "Edit material…" beside the material list uses the materials icon, the same as the top bar's button.
+- Clicking an image's list row again deselects it. Bodies and sketches in the lists still stay selected on a second click.
+- An image's rotate button turns it right away with the pointer, as Rotate does for bodies; the Turn field stays typed from 0 each time, because images store no turn value of their own.
+- Cross-browser is noted as a goal only; nothing about it is built yet.
