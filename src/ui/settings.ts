@@ -1,3 +1,4 @@
+import { closeButton } from './icons';
 import { UNITS } from '../doc/expr';
 import { DEFAULT_LIGHT, effectiveLight, STANDARD_MATERIALS, toLook } from '../doc/materials';
 import { MaterialPreview } from '../viewer/preview';
@@ -334,7 +335,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         if (e.target === dialog) close();
       },
     },
-    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Settings'), make('button', { className: 'icon', textContent: '×', title: 'Close', onclick: close })), make('div', { className: 'columns' }, nav, body)),
+    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Settings'), closeButton('Close (Esc)', close)), make('div', { className: 'columns' }, nav, body)),
   );
   addEventListener('keydown', esc, { capture: true });
   document.body.append(dialog);

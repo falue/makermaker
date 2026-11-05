@@ -13,3 +13,8 @@ export const icon = (name: IconName) => ICONS[name];
 export function tool(name: IconName, title: string, onclick: () => void, on = false, disabled = false) {
   return Object.assign(document.createElement('button'), { className: `tool${on ? ' on' : ''}`, title, innerHTML: icon(name), onclick, disabled });
 }
+
+/** How a dialog or panel closes: this icon, top right of its head. */
+export function closeButton(title: string, onclick: () => void) {
+  return Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('close'), title, onclick });
+}

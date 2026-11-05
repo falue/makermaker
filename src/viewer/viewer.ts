@@ -29,7 +29,7 @@ import { drawSky, SKIES, twoColours } from './sky';
 import { axisHtml } from '../ui/axes';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import type { Settings } from '../ui/settings';
-import { divideMore, linePoints, outline, planeHit, shape2d, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
+import { divideMore, linePoints, outline, planeHit, shape2d, sideKey, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 import { picksFace, pressed, role, toggles, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -1502,6 +1502,8 @@ export class Viewer implements ToolView {
     const edge = this.edgeAt(e);
     const ref = edge?.index === undefined ? undefined : { body: edge.body, edge: edge.index };
     if (point) return point.what === 'corner' || point.what === 'centre' ? point : { ...point, on: ref };
+    // the line A / Shift A split (points along it come from `linePoints` under the same key)
+    const edgeKey = edge?.segs.length === 1 ? sideKey(edge.segs[0][0], edge.segs[0][1]) : undefined;
     if (edge) {
       // an open edge's middle, else the edge point nearest the pointer's ray
       const lengths = edge.segs.map(([a, b]) => a.distanceTo(b));
@@ -1509,7 +1511,7 @@ export class Viewer implements ToolView {
       const k = Math.max(0, lengths.findIndex((l) => (half -= l) <= 0));
       const mid = edge.segs[k][0].clone().lerp(edge.segs[k][1], 1 + half / (lengths[k] || 1));
       const open = edge.segs[0][0].distanceTo(edge.segs.at(-1)![1]) > 1e-6;
-      if (open && near(mid)) return { at: mid, what: '1/2', on: ref };
+      if (open && near(mid)) return { at: mid, what: '1/2', on: ref, key: edgeKey };
       const ray = this.ray(e);
       let best: [number, THREE.Vector3] | null = null;
       for (const [a, b] of edge.segs) {
@@ -1517,9 +1519,23 @@ export class Viewer implements ToolView {
         const d = ray.distanceSqToSegment(a, b, undefined, p);
         if (!best || d < best[0]) best = [d, p];
       }
-      return { at: best![1], what: 'on edge', on: ref };
+      return { at: best![1], what: 'on edge', on: ref, key: edgeKey };
     }
+    // a sketch's line: a point on it
+    const ray = this.ray(e);
+    let line: { at: THREE.Vector3; key?: string; d: number } | null = null;
+    for (const { segs, shape, curves } of snapLines(this.sketches, []))
+      for (const [i, [a, b]] of segs.entries()) {
+        const [ax, ay] = this.toScreen(a);
+        const [bx, by] = this.toScreen(b);
+        const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
+        const k = len2 ? Math.max(0, Math.min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)) : 0;
+        const d = Math.hypot(mx - ax - k * (bx - ax), my - ay - k * (by - ay));
+        if (d >= 8 || (line && d >= line.d)) continue;
+        line = { at: a.clone().lerp(b, k), key: shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : (curves?.[i] ?? sideKey(a, b)), d };
+      }
     const hit = this.frontHit(e);
+    if (line && (!hit || line.at.distanceTo(ray.origin) < hit.distance + 0.5)) return { at: line.at, what: 'on line', key: line.key };
     return hit ? { at: hit.point.clone(), what: 'on face', on: { body: hit.object.userData.bodyId, face: faceOf(hit) } } : null;
   }
 
@@ -1562,6 +1578,11 @@ export class Viewer implements ToolView {
     const s = e && this.snapAt(e);
     this.aimKey = s?.key ?? null;
     if (s) this.aimMark.add(Object.assign(marks([s.at], 0xff8c1a, s.what.startsWith('on ') ? 8 : 12), { renderOrder: 1e6 }));
+    // a line split with A: all its points
+    if (s?.key && SketchTool.divisions.has(s.key)) {
+      const dots = linePoints(snapLines(this.sketches, this.edges())).filter((q) => q.key === s.key).map((q) => q.at);
+      if (dots.length) this.aimMark.add(Object.assign(marks(dots, 0xff8c1a, 7), { renderOrder: 1e6 }));
+    }
     this.render();
     return s;
   }

@@ -38,7 +38,7 @@ import { COPY_TIP, measureButton, renderUI, scrub, toObjectButton, wantsT, type 
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { pythonTerminal } from './ui/terminal';
-import { MAC, pressed, role, roleKeyName, type Action } from './ui/keys';
+import { MAC, pressed, role, roleKeyName, type Action, comboText, keysOf } from './ui/keys';
 import { caret, installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
 import { drawer } from './ui/drawer';
@@ -572,7 +572,7 @@ function update() {
       if (typeof tool === 'string') return tool;
       // as the tool sits by the body it belongs to (a linked copy: by its source, so the copy is cut the same)
       const owner = doc.bodies.find((b) => b.id === id)?.link ?? id;
-      const relative = s.kept ? new Matrix4().fromArray(s.kept) : (bodyPlaces.get(owner) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
+      const relative = (bodyPlaces.get(owner) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
       out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative) });
     }
     full.set(bare ? `${id} bare` : id, out);
@@ -4327,18 +4327,17 @@ function ungroup() {
 }
 
 /** Moves objects before or after another one in its list (into that one's group), or into a group; they stay in place. */
-/** Tool bodies dragged away from their owner: they go free, each owner keeps its cut where it is now (`stay`: the owner they are dragged within). */
+/** Tool bodies dragged away from their owner go free: they still cut it, where they are (`stay`: the owner they are dragged within). */
 function letToolsGo(doc: Doc, ids: string[], stay?: string): Doc {
   const owner = ownersOf(doc);
   const leaving = ids.filter((id) => owner.has(id) && owner.get(id) !== stay);
   if (!leaving.length) return doc;
-  const kept = (o: string, t: string) => (bodyPlaces.get(o) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(t) ?? new Matrix4()).toArray();
   return {
     ...doc,
     bodies: doc.bodies.map((b) => ({
       ...b,
       visible: leaving.includes(b.id) ? true : b.visible,
-      features: b.features.map((f) => (f.type === 'boolean' && !f.kept && leaving.includes(f.body) && owner.get(f.body) === b.id ? { ...f, kept: kept(b.id, f.body) } : f)),
+      features: b.features.map((f) => (f.type === 'boolean' && !f.free && leaving.includes(f.body) && owner.get(f.body) === b.id ? { ...f, free: true } : f)),
     })),
   };
 }
@@ -6121,6 +6120,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'open')) run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
   else if (pressed(e, 'terminal')) terminal.toggle();
+  else if (pressed(e, 'moreSnaps') || pressed(e, 'fewerSnaps')) notify(`${comboText(keysOf('moreSnaps')[0])} / ${comboText(keysOf('fewerSnaps')[0])} split a line into more or fewer snap points: with a drawing tool, the Distance measure or To object on, put the pointer on the line`);
   else if (pressed(e, 'measureValue')) measureTool();
   else if (pending && pressed(e, 'confirm')) pending.apply?.();
   else if (pending && pressed(e, 'cancel')) cancelPending(), render();

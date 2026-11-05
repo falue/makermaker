@@ -42,14 +42,15 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Assumed, change if wrong
 Answers assumed where a request left a question open.
 
-- Materials dialog close button: it already had a small ×, so it became the app's close icon. If it was hard to find for another reason, say where it should go.
+- Dialogs and panels close with one icon (`closeButton` in src/ui/icons.ts): Settings, Materials, Renders. × buttons on list rows and cards delete things and stay as they are.
 - "Edit material…" beside the material list uses the materials icon, the same as the top bar's button.
 - Clicking an image's list row again deselects it. Bodies and sketches in the lists still stay selected on a second click.
 - An image's rotate button turns it right away with the pointer, as Rotate does for bodies; the Turn field stays typed from 0 each time, because images store no turn value of their own.
 - Cross-browser is noted as a goal only; nothing about it is built yet.
-- A tool body dragged away stays linked to the cut: changing its shape changes the cut, moving it does not. To reshape it without touching the cut, duplicate it first.
+- Moving the body a tool body was dragged away from moves the body against the tool, so its cut shifts too.
 - Deleting a dragged-away tool body removes its cut too, since the cut is built from it. Keeping the cut would need a Flatten step (see CAD goals).
 - Dragging a tool body right under its owner, or among that owner's other tool bodies, keeps it a tool; anywhere else lets it go.
-- Tab cycles lines only where several lie under the pointer; there it comes before Tab's other uses (a line's angle field).
+- Tab goes through on line / on edge / a point along it only before anything is drawn; while drawing Tab keeps its other uses (a size's other field, a line's angle), so the nearest wins there.
 - G's guides run along the drawing plane's X and Y only, not the world's.
 - The list's boolean colours reuse the joint's two colours: the body it cuts as "stays", tool bodies as "moves".
+- A and Shift A could not be made to fail in testing: rectangle sides, lines, body edges, with helper lines up, resting or moving, before and during drawing. If they still do nothing, the pointer's note ("3 points") or the top bar's note shows how far the key gets.
