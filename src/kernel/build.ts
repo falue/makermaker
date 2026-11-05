@@ -11,7 +11,7 @@ import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/
 export type Sweep = { kind: 'hinge' | 'slider'; at: [number, number, number]; dir: [number, number, number]; amount: number };
 export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place; grow?: number; sweep?: Sweep };
 /** A box joint as the kernel builds it: the other body's features (without its box joint) where it sits, the finger count or width, which fingers stay. */
-export type FingersBuild = { id: string; type: 'fingers'; features: BuildFeature[]; place: Place; count: number; width: number; from?: V3; first: boolean };
+export type FingersBuild = { id: string; type: 'fingers'; features: BuildFeature[]; place: Place; count: number; width: number; from?: V3; first: boolean; clearance?: number };
 export type BuildFeature = Resolved<BuildIn> | BooleanBuild | FingersBuild;
 type Of<T extends BuildFeature['type']> = Extract<BuildFeature, { type: T }>;
 
@@ -643,8 +643,9 @@ const fullness = (k: number) => Math.max(-4, Math.min(4, k));
 /**
  * A box joint: where the body and the other overlap, sliced across the overlap's longest side into fingers (`width`
  * above 0: exactly that long from the low end, or from `from` both ways, the rest at the ends; else `count` equal
- * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`). Two that only
- * touch (boxes, along one axis): the one longer along it first grows through the other where they meet.
+ * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`), each cut
+ * `clearance` / 2 wider on both sides. Two that only touch (boxes, along one axis): the one longer along it first grows
+ * through the other where they meet.
  */
 function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   if (!shape) throw new Error('nothing to joint yet');
@@ -689,7 +690,8 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
     for (const [from, to, i] of slices) {
       if (Math.abs(i % 2) !== (s.first ? 1 : 0)) continue;
       const [a, b] = [lo.map((v) => v - pad) as V3, hi.map((v) => v + pad) as V3];
-      [a[k], b[k]] = [from, to];
+      const c = (s.clearance ?? 0) / 2;
+      [a[k], b[k]] = [from - c, to + c];
       cut = joined(cut, makeBox(a, b) as unknown as Shape3D, 'add');
     }
     if (!cut) return base.clone();

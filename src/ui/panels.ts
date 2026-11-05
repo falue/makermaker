@@ -1534,9 +1534,9 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       return h(
         'section',
         {},
-        h('h4', {}, 'Box joint', button('✎', () => ctx.editFingers(body.id, feature.id), 'Edit it in its panel: fingers, finger length, from a point'), remove),
+        h('h4', {}, 'Box joint', button('✎', () => ctx.editFingers(body.id, feature.id), 'Edit it in its panel: fingers, finger length, clearance, from a point'), remove),
         ...(feature.first
-          ? [h('div', { className: 'row' }, exprField(ctx, `${at}.count`, 'Fingers', true), f('width', 'Finger length'))]
+          ? [h('div', { className: 'row' }, exprField(ctx, `${at}.count`, 'Fingers', true), f('width', 'Finger length'), exprField(ctx, `${at}.clearance`, 'Clearance', false, { value: feature.clearance ?? { e: '0', u: ctx.doc.units }, set: (x, live) => ctx.setValue([...at.split('.'), 'clearance'], x, live), error: ctx.exprErrors.get(`${at}.clearance`) }))]
           : []),
         h('p', { className: 'hint' }, other ? `With ${other.name}${lead ? ` (fingers set there)` : ''}; a finger length above 0 replaces the count (exact, from the low end or a point: ✎)` : 'Its partner was deleted: it does nothing'),
       );

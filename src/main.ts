@@ -584,7 +584,7 @@ function update() {
         const lead = s.first ? s : (resolvedOf.get(s.body)?.find((f) => f.type === 'fingers' && f.body === id) as typeof s | undefined) ?? s;
         const relative = (bodyPlaces.get(id) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
         const from = lead.from && (new Vector3(...lead.from).applyMatrix4((bodyPlaces.get(id) ?? new Matrix4()).clone().invert()).toArray() as V3);
-        out.push({ id: s.id, type: 'fingers', features: other, place: toPlace(relative), count: Math.max(1, lead.count), width: Math.max(0, lead.width), ...(from ? { from } : {}), first: s.first });
+        out.push({ id: s.id, type: 'fingers', features: other, place: toPlace(relative), count: Math.max(1, lead.count), width: Math.max(0, lead.width), clearance: Math.max(0, lead.clearance ?? 0), ...(from ? { from } : {}), first: s.first });
         continue;
       }
       if (s.type !== 'boolean') {
@@ -3300,7 +3300,7 @@ function boxJoint() {
   const k = sides.indexOf(Math.min(...sides));
   const thick = flat ? Math.min(boxA!.getSize(new Vector3()).getComponent(k), boxB!.getSize(new Vector3()).getComponent(k)) : sides[k];
   const count = sides.length ? fingersFor(Math.max(...sides), thick) : 7;
-  const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex(String(count)), width: len(0), from: null, first });
+  const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex(String(count)), width: len(0), from: null, first, clearance: len(0) });
   commit({ ...doc, bodies: doc.bodies.map((x) => (x.id === a ? { ...x, features: [...x.features, step(b, true, fa)] } : x.id === b ? { ...x, features: [...x.features, step(a, false, fb)] } : x)) });
   fingersPanel(a, fa, true);
 }
@@ -3337,9 +3337,11 @@ function fingersPanel(body: string, id: string, fresh = false) {
   const lengthOf = (n: number) => fmt(span() / Math.max(1, n) / UNITS[u]);
   const f0 = now();
   const byLength = (length(f0.width.e) ?? 0) > 0;
-  let last = [byLength ? '' : f0.count.e, byLength ? f0.width.e : lengthOf(Number(f0.count.e) || 1)];
+  let last = [byLength ? '' : f0.count.e, byLength ? f0.width.e : lengthOf(Number(f0.count.e) || 1), f0.clearance?.e ?? '0'];
   const write = () => {
-    const [n, w] = [panel.inputs[0], panel.inputs[1]];
+    const [n, w, c] = panel.inputs;
+    if ((length(c.value || '0') ?? 0) < 0) c.value = '0';
+    if (c.value !== last[2]) change(setIn(history.current, [...path, 'clearance'], { e: c.value || '0', u }));
     // never below 1 finger or a length of 0
     if (n.value !== '' && Number(n.value) < 1) n.value = '1';
     if ((length(w.value || '0') ?? 0) < 0) w.value = '0';
@@ -3352,7 +3354,7 @@ function fingersPanel(body: string, id: string, fresh = false) {
       w.value = lengthOf(Number(n.value));
       change(setIn(setIn(history.current, [...path, 'count'], ex(n.value)), [...path, 'width'], len(0)));
     }
-    last = [n.value, w.value];
+    last = [n.value, w.value, c.value];
   };
   const fromButton = panelButton('From point', 'Fingers of the length set count from a point clicked, both ways (else from the overlap\'s low end)', () => {
     viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the fingers count from here` : null);
@@ -3375,6 +3377,7 @@ function fingersPanel(body: string, id: string, fresh = false) {
     [
       { label: 'Fingers', value: last[0], raw: true, int: true, title: 'Fingers: how many, all as long, across the overlap' },
       { label: 'Finger length', value: last[1], title: 'Finger length: each exactly this long, from the low end (or From a point), the rest at the end(s)' },
+      { label: 'Clearance', value: last[2], title: 'Clearance: the gap between mating fingers, half taken from each side' },
     ],
     write,
     (ok) => {
@@ -3382,7 +3385,7 @@ function fingersPanel(body: string, id: string, fresh = false) {
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
     },
-    'Box joint: how many fingers · or a finger length (exact; the count empties) · From point: the fingers count from there · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    'Box joint: how many fingers · or a finger length (exact; the count empties) · the clearance between fingers · From point: the fingers count from there · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
     [fromButton, clearFrom],
   );
   status();
