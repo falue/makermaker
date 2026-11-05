@@ -277,6 +277,8 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   setShapes,
   length,
   number,
+  askSolids: (asks) => kernel.measure(asks),
+  meshOnly: (body) => meshOnly(body),
   placeOn,
   touched() {
     if (!rendersOpen) return;
@@ -2923,10 +2925,13 @@ function fingersPanel(body: string, id: string, fresh = false) {
 /**
  * Distance measure. With `use` another tool or field waits for it: a click on a length measured hands it over (mm) and ends this tool.
  */
+/** A body that is a mesh: its triangles are all there is. */
+const meshOnly = (body: string) => !!history.current.bodies.find((b) => b.id === body)?.features.some((f) => f.type === 'mesh');
+
 function measureTool(use?: (mm: number) => void, done?: () => void) {
   // Every value here comes from the real solid (`kernel.measure`, see MeasureAsk) as soon as it answers: anything new this tool measures has to as well. Only what no solid has shows with ~.
   const u = history.current.units;
-  let last: { at: Vector3; about: boolean; settled?: Promise<unknown> } | null = null;
+  let last: { at: Vector3; about: boolean } | null = null;
   let edges: [Vector3, Vector3][][] = [];
   let faces: FaceItem[] = [];
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel measure' });
@@ -2969,7 +2974,6 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
   const faceAreas = new Map<string, number>();
   const faceSides = new Map<string, [number, number]>();
   const faceKey = (f: FaceItem) => `${f.body} ${f.index}`;
-  const noSolid = (body: string) => !!history.current.bodies.find((b) => b.id === body)?.features.some((f) => f.type === 'mesh'); // a mesh's triangles are all there is
   const long = (segs: [Vector3, Vector3][]) => edgeLengths.get(segs) ?? segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
   const showParts = () => {
     if (edges.length) {
@@ -2977,7 +2981,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
       return show(edges.length > 1 ? [[`${edges.length} edges`, edges.reduce((n, e) => n + long(e), 0), false, about]] : [['Edge', long(edges[0]), false, about]]);
     }
     const area = (f: FaceItem) => faceAreas.get(faceKey(f)) ?? viewer.faceSize(f).area;
-    const about = faces.some((f) => !faceAreas.has(faceKey(f)) && !noSolid(f.body));
+    const about = faces.some((f) => !faceAreas.has(faceKey(f)) && !meshOnly(f.body));
     if (faces.length > 1) return show([[`${faces.length} faces`, faces.reduce((n, f) => n + area(f), 0), true, about]]);
     const sides = faceSides.get(faceKey(faces[0])) ?? viewer.faceSize(faces[0]).sides;
     show([['Area', area(faces[0]), true, about], ...(sides ? ([['L', sides[0], false, about], ['B', sides[1], false, about]] as [string, number, boolean, boolean][]) : [])]);
@@ -2988,7 +2992,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     const [length] = await kernel.measure([{ of: 'edge', body: ref.body, edge: ref.edge! }]);
     const mesh = segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
     if (typeof length === 'number' && Math.abs(length - mesh) < 1 + mesh * 0.05) edgeLengths.set(segs, length);
-    else if (noSolid(ref.body)) edgeLengths.set(segs, mesh);
+    else if (meshOnly(ref.body)) edgeLengths.set(segs, mesh);
   };
   const askFace = async (f: FaceItem) => {
     const mesh = viewer.faceSize(f);
@@ -2999,20 +3003,6 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     if (Array.isArray(sides)) faceSides.set(faceKey(f), [sides[0], sides[1]]);
   };
   const refreshParts = () => box.isConnected && (edges.length || faces.length) && (showParts(), place());
-  /** The true place of a point picked; about: no solid or sketch curve could tell. */
-  const truePoint = async (face: PickedFace, at: Vector3): Promise<{ at: Vector3; about: boolean }> => {
-    const ref = face.on;
-    if (!ref) {
-      const curve = viewer.onSketchCurve(at);
-      // a line through a section or where bodies cross comes from the triangles
-      return { at: curve ?? at, about: !curve && !!face.what?.startsWith('on edge') };
-    }
-    const near = viewer.toBody(ref.body, at).toArray();
-    const [found] = await kernel.measure([face.what === '1/2' && ref.edge !== undefined ? { of: 'middle', body: ref.body, edge: ref.edge, near } : { of: 'point', body: ref.body, edge: ref.edge, face: ref.face, near }]);
-    if (!Array.isArray(found)) return { at, about: !noSolid(ref.body) };
-    const real = viewer.fromBody(ref.body, new Vector3(found[0], found[1], found[2]));
-    return real.distanceTo(at) < 0.5 ? { at: real, about: false } : { at, about: true };
-  };
   // Esc ends this only, not what waits for it; so does its own key, outside a field
   const keys = (e: KeyboardEvent) => {
     if (!pressed(e, 'cancel') && (!pressed(e, 'measureValue') || e.target instanceof HTMLInputElement)) return;
@@ -3092,34 +3082,23 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           else show([], 'Click a point, or Alt-click an edge or face');
           void ('edge' in part ? askEdge(part.edge, part.ref) : askFace(part.face)).then(refreshParts);
         } else if (face.snap) {
-          const point: NonNullable<typeof last> = { at: face.snap.clone(), about: true };
+          const point = { at: face.snap, about: !!face.about };
           const from = last;
           if (edges.length || faces.length) [edges, faces] = [[], []], viewer.showMeasured([], []);
-          const edgeSegs: [Vector3, Vector3][] = []; // the edge clicked, by its length alone
-          const showPoint = () => {
-            if (from) {
-              const d = point.at.clone().sub(from.at);
-              const values: Record<string, number> = { X: Math.abs(d.x), Y: Math.abs(d.y), Z: Math.abs(d.z), L: d.length() };
-              show(viewer.showMeasureLine(from.at, point.at)!.map((k) => [k, values[k], false, point.about || from.about]));
-            } else {
-              viewer.showMeasureLine(point.at);
-              const known = edgeLengths.get(edgeSegs);
-              show(face.edge ? [['Edge', known ?? face.edge.length, false, known === undefined]] : [], 'Click the next point');
-            }
-            place();
-          };
+          if (from) {
+            const d = point.at.clone().sub(from.at);
+            const values: Record<string, number> = { X: Math.abs(d.x), Y: Math.abs(d.y), Z: Math.abs(d.z), L: d.length() };
+            show(viewer.showMeasureLine(from.at, point.at)!.map((k) => [k, values[k], false, point.about || from.about]));
+          } else {
+            viewer.showMeasureLine(point.at);
+            show(face.edge ? [['Edge', face.edge.length, false, true]] : [], 'Click the next point');
+            const ref = face.edge?.ref;
+            if (ref)
+              void kernel.measure([{ of: 'edge', body: ref.body, edge: ref.edge! }]).then(([length]) => {
+                if (typeof length === 'number' && box.isConnected && last === point) (show([['Edge', length]], 'Click the next point'), place());
+              });
+          }
           last = point;
-          showPoint();
-          // the mesh's answer shows at once, the solid's right after
-          point.settled = (async () => {
-            await from?.settled;
-            Object.assign(point, await truePoint(face, point.at));
-            if (!from && face.edge?.ref) {
-              const [length] = await kernel.measure([{ of: 'edge', body: face.edge.ref.body, edge: face.edge.ref.edge! }]);
-              if (typeof length === 'number') edgeLengths.set(edgeSegs, length);
-            }
-            if (box.isConnected && last === point) showPoint();
-          })();
         }
         place();
         pick();

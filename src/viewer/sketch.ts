@@ -99,6 +99,8 @@ export interface ToolView {
   aimAt(e: MouseEvent | null): { at: THREE.Vector3; what: string } | null;
   /** The same where the pointer is now. */
   aimHere(): { at: THREE.Vector3; what: string } | null;
+  /** The point a click reaches, from the real geometry; null: nothing there. */
+  truePointAt(e: MouseEvent): Promise<THREE.Vector3 | null>;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   toScreen(p: THREE.Vector3): [number, number];
@@ -389,17 +391,21 @@ export class SketchTool implements Tool {
     }
     if (ph.kind === 'shape' && this.reaching) {
       // a width or height from the first corner (from the middle: twice), a diameter from the centre; off bodies: on its plane
-      const p = this.view.pointAt(e) ?? planeHit(this.view.ray(e), ph.target.frame);
+      const off = planeHit(this.view.ray(e), ph.target.frame);
       this.reached = true;
-      if (!p) return true;
+      if (!this.view.pointAt(e) && !off) return true;
       this.reaching = false;
       this.aimed = null;
+      void this.view.truePointAt(e).then((real) => {
+        const p = real ?? off;
+        if (this.phase !== ph || !p) return;
+        const [u, v] = uvOf(ph.target.frame, p);
+        const [du, dv] = [u - ph.anchor[0], v - ph.anchor[1]];
+        const size = this.kind === 'circle' || this.kind === 'sphere' || this.kind === 'ngon' ? 2 * Math.hypot(du, dv) : Math.abs(ph.axis ? dv : du) * (this.drawMode(ph)?.id === 'centre' ? 2 : 1);
+        ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + this.host.lengthText(size);
+        this.update();
+      });
       this.view.aimAt(null);
-      const [u, v] = uvOf(ph.target.frame, p);
-      const [du, dv] = [u - ph.anchor[0], v - ph.anchor[1]];
-      const size = this.kind === 'circle' || this.kind === 'sphere' || this.kind === 'ngon' ? 2 * Math.hypot(du, dv) : Math.abs(ph.axis ? dv : du) * (this.drawMode(ph)?.id === 'centre' ? 2 : 1);
-      ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + this.host.lengthText(size);
-      this.reached = true;
       this.update();
       return true;
     }
@@ -435,12 +441,15 @@ export class SketchTool implements Tool {
       else this.corner(ph, at, closes);
     } else if (ph.kind === 'pull' && this.reaching) {
       // "to object": the clicked point's distance goes into the typed depth (or back)
-      const p = this.view.pointAt(e);
-      if (!p) return true;
+      if (!this.view.pointAt(e)) return true;
       this.reaching = false;
       this.aimed = null;
+      void this.view.truePointAt(e).then((p) => {
+        if (this.phase !== ph || !p) return;
+        reachInto(ph, p, ph.target.frame, this.host);
+        this.update();
+      });
       this.view.aimAt(null);
-      reachInto(ph, p, ph.target.frame, this.host);
     } else if (ph.kind === 'pull') this.commit();
     this.update();
     return true;

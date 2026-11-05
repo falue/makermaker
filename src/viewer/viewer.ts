@@ -53,6 +53,10 @@ export interface ViewerHost {
   /** A typed distance in mm, or null if invalid. */
   length(text: string): number | null;
   number(text: string): number | null;
+  /** What the real solids say (see `MeasureAsk`). */
+  askSolids(asks: MeasureAsk[]): Promise<MeasureAnswer[]>;
+  /** A body that is a mesh: its triangles are all there is. */
+  meshOnly(body: string): boolean;
   /** Where shapes drawn on a body face go (`flat`: the face is planar). */
   placeOn(face: PickedFace, flat: boolean): Omit<Target, 'sketch'> | null;
   /** A press on a body or a sketch shape (before any selecting). */
@@ -80,6 +84,8 @@ export type FinishPick = { body: string; feature: string; mid: Vec3 | null };
 /** A face picked for a section: a point on it and the normal pointing away from the camera; `body`: whose face (none: a base plane). */
 /** What a click reaches ("to object"): where, and what it is ('corner', 'centre', '1/2', 'on edge', 'on face'). */
 /** What a click reaches ("to object"): where, what it is, and the line or circle A / Shift A splits finer or coarser there. */
+import type { MeasureAnswer, MeasureAsk } from '../kernel/measure';
+
 export type Aim = { at: THREE.Vector3; what: string; key?: string; on?: PartRef };
 /** A part of a body's real solid (see `MeasureAsk`): its edge or face by number. */
 export type PartRef = { body: string; edge?: number; face?: number };
@@ -120,8 +126,8 @@ export interface PickedFace {
   plane?: string;
   /** A quiet pick taking parts, Alt-clicked: the edge (its segments, world; `ref`: its part of the solid, none for section and crossing lines) or the face there; `adds`: Shift held too. */
   part?: { edge: [THREE.Vector3, THREE.Vector3][]; ref?: PartRef } | { face: FaceItem };
-  /** A quiet pick: the part of the solid `snap` lies on (none: a corner, a sketch's point, or a line no solid has). */
-  on?: PartRef;
+  /** A quiet pick: `snap` could not be read from a solid or a sketch's true curve (a section or crossing line). */
+  about?: boolean;
   adds?: boolean;
 }
 
@@ -1514,6 +1520,32 @@ export class Viewer implements ToolView {
     }
     const hit = this.frontHit(e);
     return hit ? { at: hit.point.clone(), what: 'on face', on: { body: hit.object.userData.bodyId, face: faceOf(hit) } } : null;
+  }
+
+  private truing = false;
+
+  /**
+   * Where an aimed point really lies: on the solid's true edge or face, or a sketch's true curve; what the hover showed
+   * comes from the triangles. `about`: nothing could tell (a section or crossing line), or the solid is busy for too long.
+   */
+  private async truePoint(aim: Aim): Promise<{ at: THREE.Vector3; about: boolean }> {
+    const ref = aim.on;
+    if (!ref) {
+      const curve = aim.what === 'corner' || aim.what === 'centre' ? null : this.onSketchCurve(aim.at);
+      return { at: curve ?? aim.at, about: !curve && aim.what.startsWith('on edge') };
+    }
+    const near = this.toBody(ref.body, aim.at).toArray();
+    const asked = this.host.askSolids([aim.what === '1/2' && ref.edge !== undefined ? { of: 'middle', body: ref.body, edge: ref.edge, near } : { of: 'point', body: ref.body, edge: ref.edge, face: ref.face, near }]);
+    const [found] = await Promise.race([asked, new Promise<MeasureAnswer[]>((done) => setTimeout(() => done([null]), 1500))]);
+    if (!Array.isArray(found)) return { at: aim.at, about: !this.host.meshOnly(ref.body) };
+    const real = this.fromBody(ref.body, new THREE.Vector3(found[0], found[1], found[2]));
+    return real.distanceTo(aim.at) < 0.5 ? { at: real, about: false } : { at: aim.at, about: true };
+  }
+
+  /** The point a click at the pointer reaches, from the real geometry (see `truePoint`); null: nothing there. */
+  async truePointAt(e: MouseEvent) {
+    const aim = this.snapAt(e);
+    return aim && (await this.truePoint(aim)).at;
   }
 
   /** Waiting for "to object" (the move fields): told what a click at the pointer would reach (see `aimAt`). */
@@ -3301,15 +3333,24 @@ export class Viewer implements ToolView {
       const [a, b] = edge ? [edge.segs[0][0], edge.segs.at(-1)![1]] : [];
       // straight: every segment along the line from its first point to its last
       const straight = edge && a!.distanceTo(b!) > 1e-6 && edge.segs.every(([p, q]) => q.clone().sub(p).normalize().cross(b!.clone().sub(a!).normalize()).length() < 1e-3);
-      return this.endFacePick({
+      // the click's point from the real geometry, then the pick ends (a click meanwhile counts for nothing)
+      const pick = this.facePick;
+      const item = hit ? { item: this.faceItem(hit) } : {};
+      if (this.truing) return;
+      this.truing = true;
+      return void (snap ? this.truePoint(snap) : Promise.resolve(null)).then((real) => {
+        this.truing = false;
+        if (this.facePick !== pick) return;
+        this.endFacePick({
+          snap: real?.at,
+          about: real?.about,
         point: hit?.point.clone() ?? new THREE.Vector3(),
         normal: hit ? hit.face!.normal.clone().transformDirection(hit.object.matrixWorld).negate() : new THREE.Vector3(),
-        snap: snap?.at,
         what: snap?.what,
-        on: snap?.on,
         ...(edge ? { edge: { length: edge.segs.reduce((n, [p, q]) => n + p.distanceTo(q), 0), ref: edge.index === undefined ? undefined : { body: edge.body, edge: edge.index } } } : {}),
         ...(straight ? { line: { at: a!.clone(), to: b!.clone() } } : {}),
-        ...(hit ? { item: this.faceItem(hit) } : {}),
+        ...item,
+        });
       });
     }
     const s = this.sketchShapeAt(e, hit);

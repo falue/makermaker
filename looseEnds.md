@@ -8,7 +8,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
 
 ## Measuring
-- To object (T) and sketch snapping still read the view's mesh; only the Distance measure and `cad.measure` read the real solid.
+- A drawing tool's pointer snapping onto a body's curved edge still reads the view's mesh; the clicks of To object, the Distance measure and `cad.measure` read the real solid.
+- While a long build runs, a picked point waits up to 1.5 s for the solid, then takes the mesh's point (the Distance measure shows it with ~).
 - The middle of a bezier or other free-form edge is where the mesh has it, placed on the true curve: on it, but not exactly half its length.
 - A circle is two half edges in the solid, so one click on a rim gives half its length; Shift Alt-click adds the other half.
 - The worker keeps each body's solid for measuring, which costs memory on very big files. Not measured yet.

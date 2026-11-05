@@ -124,13 +124,16 @@ export class ExtrudeTool implements Tool {
     if (e.button !== 0) return false;
     if (this.pull && this.reaching) {
       // "to object": the clicked point's distance goes into the typed depth (or back)
-      const p = this.view.pointAt(e);
-      if (!p) return true;
+      if (!this.view.pointAt(e)) return true;
       this.reaching = false;
       this.aimed = null;
+      const pull = this.pull;
+      void this.view.truePointAt(e).then((p) => {
+        if (this.pull !== pull || !p) return;
+        reachInto(pull, p, this.ref().frame, this.host);
+        this.changed();
+      });
       this.view.aimAt(null);
-      reachInto(this.pull, p, this.ref().frame, this.host);
-      this.changed();
     } else if (this.pull) this.commit();
     else {
       const hit = this.hitAt(e);
