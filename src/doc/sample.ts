@@ -66,6 +66,26 @@ function cutTest(): Body[] {
   return [{ ...block, features: [...block.features, op(ball, 'subtract'), op(pipe, 'subtract'), op(post, 'union')] }, ball, pipe, post];
 }
 
+/** Test pieces for Interference and clearance: two overlapping, two 0.05 mm apart, an arm on a hinge that hits a post as it turns. */
+function clashTests(): { bodies: Body[]; joint: Joint } {
+  const y = 240;
+  const base = solid('Hinge base', '#d0b0b0', [60, y, 0], [rect(16, 16)], 10);
+  const arm = solid('Hinge arm', '#d09090', [100, y, 10], [rect(60, 8)], 6);
+  const joint: Joint = { id: newId(), name: 'Arm hinge', kind: 'hinge', parent: base.id, children: [arm.id], axis: { at: [0, 0, 0], dir: [0, 0, 1] }, min: ex(0), max: ex(90), value: ex(0), speed: ex(1) };
+  return {
+    bodies: [
+      solid('Overlap A', '#d0b0b0', [-120, y, 0], [rect(30, 30)], 20),
+      solid('Overlap B', '#d09090', [-100, y, 8], [rect(30, 30)], 20),
+      solid('Gap A', '#b0d0b0', [-40, y, 0], [rect(20, 20)], 20),
+      solid('Gap B: 0.05 mm away', '#90d090', [-19.95, y, 0], [rect(20, 20)], 20),
+      base,
+      arm,
+      solid('In the arm\'s way', '#c08080', [60 + 60 * Math.cos(0.7), y + 60 * Math.sin(0.7), 0], [rect(10, 10)], 30),
+    ],
+    joint,
+  };
+}
+
 /** Test pieces for Coat: a 5 mm cube (coated by 1 mm it is 7 mm), a rounded block with a hole. */
 function coatTests(): Body[] {
   const coated = (body: Body, corners: 'sharp' | 'round'): Body => ({ ...body, features: [...body.features, { id: newId(), type: 'coat', thickness: ex(1), corners, exclude: [] }] });
@@ -150,6 +170,7 @@ function slantedPlane(): WorkPlane {
 export function sampleDoc(): Doc {
   const split = splitTest();
   const hinged = jointTests();
+  const clash = clashTests();
   const material = (name: string, color: string, look: Partial<Material>): Material => ({ id: newId(), name, color, bump: 0.2, reflection: 0, translucency: 0, glow: '#ffffff', glowStrength: 0, ...look });
   const frosted = material('Frosted acrylic', '#d7e8ef', { translucency: 0.8, bump: 0.35 });
   const glowing = material('Glowing resin', '#332211', { glow: '#ff9a3c', glowStrength: 0.6 });
@@ -218,7 +239,7 @@ export function sampleDoc(): Doc {
     schema: 32,
     units: 'mm',
     params: { $ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests()],
+    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...clash.bodies],
     sketches: [
       outline,
       {
@@ -235,7 +256,7 @@ export function sampleDoc(): Doc {
     ],
     groups: [corner, ...hinged.groups],
     sections: [],
-    joints: hinged.joints,
+    joints: [...hinged.joints, clash.joint],
     planes: [slantedPlane()],
     images: [],
     materials: [frosted, glowing, rough],

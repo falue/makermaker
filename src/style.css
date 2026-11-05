@@ -2533,3 +2533,75 @@ section > h4 .segmented button {
   min-width: 0;
   overflow: hidden;
 }
+
+/* the Interference and clearance panel */
+.clash-panel {
+  position: fixed;
+  z-index: 30;
+  top: 130px;
+  left: 272px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 400px;
+  max-height: 60vh;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.clash-panel .head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.clash-panel h3 {
+  margin: 0;
+}
+.clash-panel .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.clash-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.clash-panel .number {
+  width: 64px;
+}
+.clash-panel .invalid {
+  border-color: var(--error);
+}
+.clash-panel p {
+  margin: 0;
+}
+.clash-list {
+  min-height: 0;
+  overflow: auto;
+}
+.clash-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 4px;
+}
+.clash-row.lit {
+  background: color-mix(in srgb, var(--error) 18%, transparent);
+}
+/* its buttons on the row the pointer is on, or the one found in the view */
+.clash-row:not(.lit) button {
+  display: none;
+}
+.clash-words {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+}
+.clash-words small {
+  color: var(--muted);
+}

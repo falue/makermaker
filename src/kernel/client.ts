@@ -1,6 +1,7 @@
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { AreaMesh, BuildFeature } from './build';
+import type { ClashAsk, ClashResult } from './clash';
 import type { MeasureAnswer, MeasureAsk } from './measure';
 import type { BodyResult, ExportBody, ExportFile, ExportFormat, PrintCheck, Request, Response } from './worker';
 
@@ -70,6 +71,12 @@ export class Kernel {
   async measure(asks: MeasureAsk[]): Promise<MeasureAnswer[]> {
     const answer = await this.ask({ kind: 'measure', id: this.nextAsk++, asks });
     return answer.kind === 'measure' ? answer.answers : asks.map(() => null);
+  }
+
+  /** Overlaps and clearances of the bodies (see `ClashAsk`). */
+  async clash(ask: ClashAsk): Promise<ClashResult> {
+    const answer = await this.ask({ kind: 'clash', id: this.nextAsk++, ask });
+    return answer.kind === 'clash' ? answer.result : { hits: [], zones: [], failed: [] };
   }
 
   private ask(request: Extract<Request, { id: number }>): Promise<Response> {

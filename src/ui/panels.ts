@@ -78,6 +78,8 @@ export interface UIContext {
   /** A new sketch on work plane `id`, opened. */
   drawOn(id: string): void;
   offsetTool(): void;
+  /** Interference and clearance: the floating panel (again: closes). */
+  clashTool(): void;
   /** Coat: a body (selected, or clicked next) made thicker all round. */
   coatTool(): void;
   /** Clicks choose the flat faces a coat leaves where they are. */
@@ -550,6 +552,7 @@ function editbar(ctx: UIContext): Node[] {
     tool('cut', "Cut: a body (selected, or clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
     tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
     tool('coat', 'Coat: a body (selected, or clicked next) made thicker all round, like paint', ctx.coatTool),
+    tool('clash', 'Interference and clearance: where bodies overlap or come too close, also as their joints move', ctx.clashTool),
     tool('pattern', 'Pattern: copies of the selected bodies in a grid (counts, gap or overall size, a turn per copy) or around an axis (count, angle)', ctx.patternTool),
     tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
     tool('thread', 'Thread: click the round edge at the end of a hole or a shaft: a real metric thread (coarse pitch) cut into it, pitch and length typed', ctx.threadTool),
@@ -720,7 +723,7 @@ function left(ctx: UIContext): Node[] {
   // a group folds with a chevron, a body with booleans with the boolean icon
   const fold = ({ id, open, kind }: Row) => {
     if (open === undefined) return [];
-    const tools = doc.bodies.find((o) => o.id === id)?.features.filter((f) => f.type === 'boolean' && !f.free).length ?? 0;
+    const tools = doc.bodies.find((o) => o.id === id)?.features.filter((f) => f.type === 'boolean' && !f.free && !f.linked).length ?? 0;
     const copies = doc.bodies.filter((o) => o.link === id).length;
     // a body: its tool bodies (the boolean button) and linked copies (a chevron, as a group)
     const what = [tools ? `${tools} boolean tool bod${tools === 1 ? 'y' : 'ies'}` : '', copies ? `${copies} linked cop${copies === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' and ');
@@ -800,8 +803,8 @@ function left(ctx: UIContext): Node[] {
       ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Based on sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.editSketch(own[0].id) })]
       : bools.length ? [] : [h('span', { className: 'fold-space' })];
     // a boolean's tool body: the op, and whose
-    const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id));
-    const op = user?.features.find((f) => f.type === 'boolean' && f.body === id);
+    const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id && !f.linked));
+    const op = user?.features.find((f) => f.type === 'boolean' && f.body === id && !f.linked);
     // a boolean's tool body: the op as a button in the eye's place (whose; a click frees it)
     const tool =
       op?.type === 'boolean'
@@ -1115,7 +1118,7 @@ function selectionPanel(ctx: UIContext): Node[] {
   const setBody = (next: Body) => ctx.commit(setIn(ctx.doc, ['bodies', String(i)], next));
   const failure = ctx.kernelErrors.get(body.id);
   // a boolean's tool body: whose, and a way out
-  const user = ctx.doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === body.id));
+  const user = ctx.doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === body.id && !f.linked));
   const freeing = user
     ? [h('div', { className: 'row' }, h('span', { className: 'hint' }, `A tool body of ${user.name}`), button('Free from boolean', () => ctx.commit(freed(ctx.doc, body.id)), 'Remove the booleans that use it: it becomes a normal body again'))]
     : [];

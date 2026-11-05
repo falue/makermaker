@@ -9,7 +9,7 @@ import { History } from './doc/history';
 import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, flattened, grown, mapPoints, offsetPath, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { fitting, THREADS, type ThreadSize } from './doc/threads';
-import { icon } from './ui/icons';
+import { closeButton, icon } from './ui/icons';
 import { axisHtml } from './ui/axes';
 import { jointed } from './doc/joints';
 import { workFrame } from './doc/workplane';
@@ -27,6 +27,7 @@ import { chainOf, unitAt } from './doc/shapegroups';
 import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
+import { pairKey, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64 } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
@@ -648,6 +649,7 @@ function update() {
 function commit(next: Doc) {
   history.push(follow(history.current, next));
   update();
+  clashAgain?.();
 }
 
 /** Tool bodies stick to their owner: an owner moved from `before` to `next` takes those that did not move themselves along. */
@@ -931,6 +933,7 @@ function isolate(id: string) {
 const showImages = () => viewer.setImages(history.current.images.filter((im) => im.visible).map((im) => ({ ...im, selected: selected.includes(im.id) })));
 
 function showSelection() {
+  clashAgain?.();
   showImages();
   viewer.select(contents(history.current, selected), groupKept(history.current));
   viewer.setSketches(viewer.sketches, activeSketch(), shapeSel);
@@ -946,6 +949,7 @@ function groupOf(doc: Doc) {
 
 /** What stays solid while a group's objects are selected: its contents and the bodies whose eye showed them fully (they reset when it ends). */
 function groupKept(doc: Doc) {
+  if (clashXray) return new Set<string>(); // all see-through: only the overlaps stand out
   const kept = groupOf(doc);
   if (!kept && !sketching) solid = new Set();
   return kept && new Set([...kept, ...solid]);
@@ -2771,6 +2775,195 @@ function offsetTool() {
   };
   addEventListener('keydown', keys, { capture: true });
   next();
+}
+
+/** The Interference and clearance panel at work: everything see-through; a change to the design checks again. */
+let clashXray = false;
+let clashAgain: (() => void) | null = null;
+let clashClose: (() => void) | null = null;
+
+/**
+ * Interference and clearance, one tool: a floating panel, checking at once and whenever something changes. Clearance 0
+ * finds real overlaps; above it each checked body also shows its zone in green, what reaches into it in red (the same
+ * thing, further out). Selected bodies against all, or everything against everything; joints one at a time through Min
+ * to Max. Tool bodies are skipped (their cuts count), hidden bodies and meshes are left out and it says so.
+ */
+function clashTool() {
+  if (clashClose) return clashClose();
+  const u = () => history.current.units;
+  const state = { clearance: '0', scope: (selected.length ? 'selected' : 'all') as 'selected' | 'all', joints: true, xray: true };
+  const ignore = new Set<string>();
+  let run = 0;
+  let timer = 0;
+  let hits: ClashHit[] = [];
+  let lit: number | null = null;
+  const box = Object.assign(document.createElement('div'), { className: 'clash-panel', onmousedown: (e: MouseEvent) => e.stopPropagation() });
+  const head = Object.assign(document.createElement('div'), { className: 'head' });
+  head.append(Object.assign(document.createElement('h3'), { textContent: 'Interference and clearance' }), closeButton('Close (Esc)', () => clashClose?.()));
+  const clearance = Object.assign(document.createElement('input'), { className: 'number', value: state.clearance, spellcheck: false, title: `0: real overlaps only. Above it: also what comes this close (${u()})` });
+  Object.assign(clearance.dataset, { complete: '', noMeasure: '' });
+  clearance.oninput = () => {
+    state.clearance = clearance.value;
+    soon();
+  };
+  const label = (text: string, ...els: HTMLElement[]) => {
+    const l = Object.assign(document.createElement('label'), { className: 'clash-field' });
+    l.append(Object.assign(document.createElement('span'), { textContent: text }), ...els);
+    return l;
+  };
+  const scope = Object.assign(document.createElement('select'), { title: 'What is checked: against all shown bodies, or everything against everything', onchange: () => ((state.scope = scope.value as 'selected' | 'all'), soon()) });
+  scope.append(new Option('Selected', 'selected', false, state.scope === 'selected'), new Option('Everything', 'all', false, state.scope === 'all'));
+  const check = (text: string, on: boolean, title: string, change: (v: boolean) => void) => {
+    const l = Object.assign(document.createElement('label'), { className: 'check', title });
+    const c = Object.assign(document.createElement('input'), { type: 'checkbox', checked: on, onchange: () => change(c.checked) });
+    l.append(c, text);
+    return l;
+  };
+  const row = Object.assign(document.createElement('div'), { className: 'row' });
+  row.append(
+    label('Clearance', clearance),
+    scope,
+    check('Joints', state.joints, 'Each joint one at a time, through Min to Max', (v) => ((state.joints = v), soon())),
+    check('X-ray', state.xray, 'Everything see-through, so overlaps stand out', (v) => {
+      clashXray = state.xray = v;
+      showSelection();
+    }),
+  );
+  const note = Object.assign(document.createElement('p'), { className: 'hint' });
+  const list = Object.assign(document.createElement('div'), { className: 'clash-list' });
+  box.append(head, row, note, list);
+  document.body.append(box);
+  const name = (id: string) => history.current.bodies.find((b) => b.id === id)?.name ?? '?';
+  const jointName = (id?: string) => history.current.joints.find((j) => j.id === id);
+  const size = (mm3: number) => `${fmt(+(mm3 / UNITS[u()] ** 3).toFixed(3))} ${u()}³`;
+  const distance = (mm: number) => `${fmt(+(mm / UNITS[u()]).toFixed(4))} ${u()}`;
+  const said = (h: ClashHit) => {
+    const j = jointName(h.joint);
+    const where = j ? ` · ${j.name} at ${fmt(h.value ?? 0)}${j.kind === 'hinge' ? '°' : ` ${'mm'}`}` : '';
+    const how = h.closest === undefined ? `overlap ${size(h.volume)}` : h.closest > 0 ? `only ${distance(h.closest)} apart` : `overlap`;
+    return { pair: `${name(h.a)} ↔ ${name(h.b)}`, how: `${how}${where}` };
+  };
+  const light = (k: number | null) => {
+    lit = k;
+    viewer.lightClash(k);
+    for (const [i, r] of [...list.children].entries()) r.classList.toggle('lit', i === k);
+  };
+  /** Cuts one body by the other where they are; the other stays an ordinary body. */
+  const cutFrom = (target: string, by: string) => {
+    const doc = history.current;
+    commit({ ...doc, bodies: doc.bodies.map((b) => (b.id === target ? { ...b, features: [...b.features, { id: newId(), type: 'boolean' as const, op: 'subtract' as const, body: by, linked: true }] } : b)) });
+  };
+  const draw = () => {
+    list.replaceChildren(
+      ...hits.map((h, k) => {
+        const r = Object.assign(document.createElement('div'), { className: 'clash-row', onmouseenter: () => light(k), onmouseleave: () => light(null) });
+        const { pair, how } = said(h);
+        const words = Object.assign(document.createElement('span'), { className: 'clash-words' });
+        words.append(Object.assign(document.createElement('b'), { textContent: pair }), Object.assign(document.createElement('small'), { textContent: how }));
+        r.append(words);
+        // a joint's clash is at another position: nothing there to cut with now
+        if (!h.joint && h.volume > 0) r.append(panelButton(`Cut from ${name(h.a)}`, `Click: Cut ${name(h.b)} out of ${name(h.a)}, where it is; ${name(h.b)} stays as it is`, () => cutFrom(h.a, h.b)), panelButton(`Cut from ${name(h.b)}`, `Click: Cut ${name(h.a)} out of ${name(h.b)}, where it is; ${name(h.a)} stays as it is`, () => cutFrom(h.b, h.a)));
+        r.append(panelButton('Ignore', 'Click: Leave this pair out while the panel is open (fits made to overlap, a thread, say)', () => (ignore.add(pairKey(h.a, h.b)), soon())));
+        return r;
+      }),
+    );
+  };
+  const check_ = async () => {
+    const mine = ++run;
+    const c = length(state.clearance || '0');
+    clearance.classList.toggle('invalid', c === null || c < 0);
+    if (c === null || c < 0) return;
+    busy.add('Checking');
+    render();
+    await kernel.idle();
+    const doc = history.current;
+    const owners = ownersOf(doc);
+    const lookup = paramLookup(doc.params);
+    const usable = doc.bodies.filter((b) => b.visible && !owners.has(b.id) && !meshOnly(b.id));
+    const place = (id: string) => bodyPlace(id);
+    const chosen = contents(doc, selected).filter((id) => usable.some((b) => b.id === id));
+    const of = state.scope === 'all' ? usable.map((b) => b.id) : chosen;
+    const motions = !state.joints
+      ? []
+      : doc.joints.flatMap((j) => {
+          const value = (e: Expr) => (j.kind === 'hinge' ? evalQuantity(e, lookup).v : evalLength(e, lookup));
+          const [lo, hi] = [value(j.min), value(j.max)];
+          if (!(hi > lo)) return [];
+          const n = Math.min(60, Math.max(2, Math.ceil((hi - lo) / (j.kind === 'hinge' ? 3 : 1))));
+          const steps = Array.from({ length: n + 1 }, (_, k) => lo + ((hi - lo) * k) / n).map((v) => {
+            const { placed } = jointed(doc, ownPlaces, (x) => (x === j ? v : jointValue(x, lookup)));
+            const places: Record<string, ReturnType<typeof toPlace>> = {};
+            for (const b of usable) {
+              const m = placed.get(b.id);
+              if (m && !m.equals(bodyPlaces.get(b.id) ?? m)) places[b.id] = toPlace(m);
+            }
+            return { value: v, places };
+          });
+          return [{ joint: j.id, steps }];
+        });
+    const left = doc.bodies.filter((b) => !owners.has(b.id) && !usable.includes(b)).length;
+    const result = of.length ? await kernel.clash({ bodies: usable.map((b) => ({ id: b.id, place: place(b.id) })), of, clearance: c, motions, ignore: [...ignore] }) : { hits: [], zones: [], failed: [] };
+    if (mine !== run || !box.isConnected) return;
+    busy.delete('Checking');
+    hits = result.hits;
+    viewer.showClashes(hits, result.zones);
+    note.textContent = [
+      !of.length ? 'Select the bodies to check, or check Everything.' : hits.length ? `${hits.length} found` : c ? `All clear: nothing within ${distance(c)}` : 'All clear: no overlaps',
+      left ? `${left} left out (hidden, or a mesh)` : '',
+      result.failed.length ? `Could not grow ${result.failed.map(name).join(', ')} by that much` : '',
+    ].filter(Boolean).join(' · ');
+    draw();
+    render();
+  };
+  const soon = () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => void check_(), 250);
+  };
+  // the overlaps in the view: hovered they say what they are, a click finds them in the list
+  const over = (e: PointerEvent) => {
+    if (e.buttons || !(e.target instanceof HTMLCanvasElement)) return;
+    const k = viewer.clashAt(e);
+    if (k !== lit) light(k);
+    if (k !== null && hits[k]) {
+      const { pair, how } = said(hits[k]);
+      tips.cursorTip(`${pair}\n${how}`);
+    } else tips.cursorTip(null);
+  };
+  const press = (e: PointerEvent) => {
+    if (e.button !== 0 || !(e.target instanceof HTMLCanvasElement)) return;
+    const k = viewer.clashAt(e);
+    if (k === null) return;
+    e.stopPropagation();
+    addEventListener('pointerup', (u) => u.stopPropagation(), { capture: true, once: true });
+    list.children[k]?.scrollIntoView({ block: 'nearest' });
+    light(k);
+  };
+  const keys = (e: KeyboardEvent) => {
+    if (!pressed(e, 'cancel')) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    clashClose?.();
+  };
+  addEventListener('pointermove', over, { capture: true });
+  addEventListener('pointerdown', press, { capture: true });
+  addEventListener('keydown', keys, { capture: true });
+  clashClose = () => {
+    run++;
+    clearTimeout(timer);
+    box.remove();
+    removeEventListener('pointermove', over, { capture: true });
+    removeEventListener('pointerdown', press, { capture: true });
+    removeEventListener('keydown', keys, { capture: true });
+    tips.cursorTip(null);
+    viewer.showClashes([], []);
+    busy.delete('Checking');
+    [clashAgain, clashClose, clashXray] = [null, null, false];
+    showSelection();
+  };
+  clashAgain = soon;
+  clashXray = true;
+  showSelection();
+  soon();
 }
 
 /** Coat: the body (selected, or clicked next) gets a coat, 1 mm at first; its card has the thickness, corners and faces to exclude. */
@@ -5357,6 +5550,7 @@ function render() {
       enterSketch(sketch.id, null, true);
     },
     offsetTool,
+    clashTool,
     coatTool,
     coatFaces,
     mirrorTool,

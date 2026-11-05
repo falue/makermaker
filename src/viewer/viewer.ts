@@ -3237,6 +3237,39 @@ export class Viewer implements ToolView {
     return (best as { p: THREE.Vector3 } | null)?.p ?? null;
   }
 
+  private clashView = new THREE.Group();
+  /** Overlaps in red, on top of everything, clearance zones in see-through green (world). Nothing: gone. */
+  showClashes(hits: { vertices: Float32Array; indices: Uint32Array }[], zones: { vertices: Float32Array; indices: Uint32Array }[]) {
+    if (!this.clashView.parent) this.scene.add(this.clashView);
+    for (const o of this.clashView.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
+    this.clashView.clear();
+    const add = (m: { vertices: Float32Array; indices: Uint32Array }, color: number, opacity: number, order: number, hit: number | null) => {
+      const g = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(m.vertices, 3)).setIndex(new THREE.BufferAttribute(m.indices, 1));
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: hit === null, depthWrite: false, side: THREE.DoubleSide }));
+      mesh.renderOrder = order;
+      mesh.userData.hit = hit;
+      this.clashView.add(mesh);
+    };
+    zones.forEach((z) => add(z, 0x2fae5a, 0.22, 1e4, null));
+    hits.forEach((h, k) => add(h, 0xe5484d, 0.85, 1e5, k));
+    this.render();
+  }
+
+  /** The overlap under the pointer (its number), if any. */
+  clashAt(e: MouseEvent) {
+    const reds = this.clashView.children.filter((o) => o.userData.hit !== null);
+    return (this.raycaster(e).intersectObjects(reds)[0]?.object.userData.hit as number | undefined) ?? null;
+  }
+
+  /** One overlap lit, the others dimmer (null: all alike). */
+  lightClash(k: number | null) {
+    for (const o of this.clashView.children) {
+      if (o.userData.hit === null) continue;
+      ((o as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = k === null || o.userData.hit === k ? 0.85 : 0.3;
+    }
+    this.render();
+  }
+
   /** Where the pointer is over the view (client pixels), if it is. */
   pointer() {
     return this.hover && { x: this.hover.clientX, y: this.hover.clientY };

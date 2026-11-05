@@ -6,6 +6,7 @@ import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
 import { dxfOf, laserCuts, svgOf, withKerf } from './laser';
+import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
 import { areasOf, buildBody, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
 
@@ -25,6 +26,7 @@ export type Request =
   | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[] }
   | { kind: 'check'; id: number; bodies: ExportBody[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
+  | { kind: 'clash'; id: number; ask: ClashAsk }
   | { kind: 'forget'; bodies: string[] };
 export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string; max?: number };
 export type Response =
@@ -32,7 +34,8 @@ export type Response =
   | { kind: 'areas'; id: number; areas: AreaMesh[] }
   | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] }
   | { kind: 'check'; id: number; results: PrintCheck[] }
-  | { kind: 'measure'; id: number; answers: MeasureAnswer[] };
+  | { kind: 'measure'; id: number; answers: MeasureAnswer[] }
+  | { kind: 'clash'; id: number; result: ClashResult };
 
 const PRINT = { tolerance: 0.01, angularTolerance: 0.1 };
 
@@ -95,6 +98,11 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
       solids.delete(id);
     }
     return;
+  }
+  if (data.kind === 'clash') {
+    const result = clashes(solids, data.ask);
+    const transfer = [...result.hits, ...result.zones].flatMap((m) => [m.vertices.buffer as ArrayBuffer, m.indices.buffer as ArrayBuffer]);
+    return postMessage({ kind: 'clash', id: data.id, result } satisfies Response, { transfer });
   }
   if (data.kind === 'measure') {
     const answers = data.asks.map((ask) => {
