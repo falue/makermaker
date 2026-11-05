@@ -358,6 +358,15 @@ describe('buildBody', () => {
     b.done();
   });
 
+  it('a coat left off a flat side of a rounded block leaves it flat', () => {
+    const block: BuildFeature = { id: 'e', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 30, h: 20, r: 3, rot: 0 }], depth: 10, mode: 'add', through: false };
+    const shape = buildBody([block, { id: 'c', type: 'coat', thickness: 3, corners: 'sharp', exclude: [{ at: [15, 0, 5], n: [1, 0, 0] }] }]);
+    const [lo, hi] = shape.boundingBox.bounds;
+    shape.delete();
+    expect(hi[0]).toBeCloseTo(15, 3);
+    expect(lo[0]).toBeCloseTo(-18, 3);
+    expect(hi[1]).toBeCloseTo(13, 3);
+  });
   it('a cut along a joint takes all the tool goes through', () => {
     const pin: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false }];
     const slab = base(100);

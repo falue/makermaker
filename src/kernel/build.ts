@@ -568,7 +568,11 @@ function coat(shape: Shape3D | null, s: Of<'coat'>): Shape3D {
     const m = face.normalAt(c);
     const x = Math.abs(m.z) < 0.9 ? new Vector([0, 0, 1]).cross(m).normalized() : new Vector([1, 0, 0]).cross(m).normalized();
     const y = m.cross(x);
-    const pts = face.edges.flatMap((e) => [0, 0.25, 0.5, 0.75, 1].map((t) => e.pointAt(t)));
+    const around = (f: typeof face) => f.edges.flatMap((e) => [0, 0.25, 0.5, 0.75, 1].map((t) => e.pointAt(t)));
+    const rim = around(face);
+    // a round corner running on smoothly from it grows past it too: its reach counts
+    const smooth = shape.faces.filter((f) => f.geomType !== 'PLANE' && around(f).some((q) => rim.some((r) => r.sub(q).Length < 1e-4 && Math.abs(f.normalAt(q).dot(m)) > 0.999)));
+    const pts = [...rim, ...smooth.flatMap(around)];
     const [us, vs] = [pts.map((q) => q.sub(c).dot(x)), pts.map((q) => q.sub(c).dot(y))];
     const [u0, u1, v0, v1] = [Math.min(...us), Math.max(...us), Math.min(...vs), Math.max(...vs)];
     const margin = s.thickness * 1.5 + 0.1;
