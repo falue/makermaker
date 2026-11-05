@@ -14,6 +14,9 @@ import { BUILT_IN_PHOTOS } from './photospheres';
 import { icon, tool, type IconName } from './icons';
 import { MAC, mod, pressed, role, toggles } from './keys';
 
+/** On error notes (a click copies them: see main). */
+export const COPY_TIP = 'Click: Copy this message';
+
 export interface UIContext {
   doc: Doc;
   selected: string[];
@@ -1127,7 +1130,7 @@ function selectionPanel(ctx: UIContext): Node[] {
     ...body.features.map((feature, j) => {
       const card = featureCard(ctx, body, feature, `${at}.features.${j}`, setBody);
       if (failure && (failure.featureId === feature.id || (!failure.featureId && j === 0)))
-        card.append(h('p', { className: 'error' }, failure.error));
+        card.append(h('p', { className: 'error', title: COPY_TIP }, failure.error));
       return card;
     }),
     h(
@@ -1393,7 +1396,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
               h('button', { className: 'item', onclick: () => ctx.select(sketch.id), title: 'Select the sketch' }, `${sketch.name}: ${src.areas ? `${src.areas.length} areas` : `${shapes.length} of ${sketch.shapes.length} shapes`}`),
               ...(plane ? [tool('unlink', 'Unlink: copy the shapes into this feature, so the sketch no longer changes it', unlink)] : []),
             ]
-          : [h('span', { className: 'error' }, 'its sketch was deleted')];
+          : [h('span', { className: 'error', title: COPY_TIP }, 'its sketch was deleted')];
         return h('section', {}, h('h4', {}, name(feature), mode, remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'From'), ...link), h('div', { className: 'row reach' }, ...reach));
       }
       const planes: Record<string, string> = { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' };
@@ -1421,7 +1424,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
     case 'boolean': {
       const other = ctx.doc.bodies.find((b) => b.id === feature.body);
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
-      const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error' }, 'its tool body was deleted');
+      const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error', title: COPY_TIP }, 'its tool body was deleted');
       const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), 'Remove: the tool body becomes a body of its own');
       return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, 'with'), tool, drop));
     }
@@ -1552,7 +1555,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         h('h4', {}, enabled, mode, bake, remove),
         h('div', { className: 'row' }, f('size', feature.mode === 'fillet' ? 'Radius' : 'Distance'), edges),
         ...skipped,
-        ...(lost ? [h('p', { className: 'error' }, `${lost} of ${picked} picked edges ${lost > 1 ? 'are' : 'is'} gone: an edit changed ${lost > 1 ? 'them' : 'it'} too much. Pick ${lost > 1 ? 'them' : 'it'} again.`)] : []),
+        ...(lost ? [h('p', { className: 'error', title: COPY_TIP }, `${lost} of ${picked} picked edges ${lost > 1 ? 'are' : 'is'} gone: an edit changed ${lost > 1 ? 'them' : 'it'} too much. Pick ${lost > 1 ? 'them' : 'it'} again.`)] : []),
       );
     }
   }

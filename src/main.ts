@@ -33,7 +33,7 @@ import { describe as describeCommands, runCommand, shared, type Args } from './a
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
-import { measureButton, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { COPY_TIP, measureButton, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { pythonTerminal } from './ui/terminal';
@@ -3994,7 +3994,7 @@ function renderJoints() {
   if (key !== jointsKey) {
     jointsKey = key;
     jointsDrawer.hidden = !doc.joints.length;
-    jointsBox.replaceChildren(...doc.joints.map(jointRow), ...jointProblems.map((p) => Object.assign(document.createElement('p'), { className: 'error', textContent: p })));
+    jointsBox.replaceChildren(...doc.joints.map(jointRow), ...jointProblems.map((p) => Object.assign(document.createElement('p'), { className: 'error', title: COPY_TIP, textContent: p })));
   }
   // the sliders and fields show where the joints are now (not the one being typed in)
   const lookup = paramLookup(doc.params);
@@ -5724,6 +5724,15 @@ function importFile(f: File, at?: { x: number; y: number }) {
   const ground = { placement: { kind: 'base', axis: 'xy', offset: 0 } as const, frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] } as Frame, body: null, name: 'the ground', point: null };
   const target = (at && viewer.dropTarget(at.x, at.y)) ?? ground;
   run(async () => {
+    try {
+      await read();
+    } catch (err) {
+      throw new Error(`${f.name} could not be imported, it may be damaged: ${(err as Error).message}`);
+    }
+  });
+  return true;
+
+  async function read() {
     if (ext === '.svg' || ext === '.dxf') return importDrawing(f.name, ext === '.svg' ? svgShapes(await f.text()) : dxfShapes(await f.text()), target);
     if (PICTURES.includes(ext)) return importPicture(f, target.frame, target.point);
     if (ext === '.stl') return importMesh(f.name, parseStl(await f.arrayBuffer()));
@@ -5736,8 +5745,7 @@ function importFile(f: File, at?: { x: number; y: number }) {
     const text = await f.text();
     const kind = objKind(text);
     importMesh(f.name, parseObj(text, kind.zUp), kind.unit);
-  });
-  return true;
+  }
 }
 
 /** A drawing's shapes as a new sketch on `target`, 1:1, its middle at `target.point` (none: its own origin there). */
@@ -5945,7 +5953,7 @@ function showNote() {
   const action = !kind && statusAction;
   el.className = `status${kind ? ` ${kind}` : action ? ' offer' : ''}`;
   el.onclick = action || null;
-  el.title = text.replaceAll(' · ', '\n'); // cut short when long: all of it on hover
+  el.title = text.replaceAll(' · ', '\n') + (kind === 'error' ? `\n${COPY_TIP}` : ''); // cut short when long: all of it on hover
   el.innerHTML = rest.length ? `<b>${html(head)}</b><small>${html(rest.join(' · '))}</small>` : html(head);
 }
 
@@ -5976,8 +5984,12 @@ function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
 }
 
 function loadFile({ name, bytes, handle }: OpenedFile) {
-  const { doc, versions } = unpack(bytes);
-  load(doc, { name, handle, versions });
+  try {
+    const { doc, versions } = unpack(bytes);
+    load(doc, { name, handle, versions });
+  } catch (err) {
+    throw new Error(`${name} could not be opened: ${(err as Error).message}`);
+  }
 }
 
 async function openDesign() {
@@ -6146,19 +6158,43 @@ addEventListener('paste', (e) => {
 addEventListener('dragover', (e) => e.preventDefault());
 addEventListener('drop', (e) => {
   e.preventDefault();
-  const item = e.dataTransfer?.items[0];
-  if (!item) return;
-  // DataTransfer items are only readable during the event, so request both now.
-  const pending = item.getAsFileSystemHandle?.();
-  const f = item.getAsFile();
-  // a STEP, STL or OBJ file is imported into the design
-  if (f && importFile(f, { x: e.clientX, y: e.clientY })) return;
+  // only readable during the event, so all of it now
+  const dropped = [...(e.dataTransfer?.items ?? [])].filter((item) => item.kind === 'file').map((item) => ({ folder: !!item.webkitGetAsEntry?.()?.isDirectory, file: item.getAsFile(), handle: item.getAsFileSystemHandle?.() }));
+  const at = { x: e.clientX, y: e.clientY };
   run(async () => {
-    const handle = await pending;
-    if (handle instanceof FileSystemFileHandle) loadFile(await readHandle(handle));
-    else if (f) loadFile({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+    const scripts: FileSystemFileHandle[] = [];
+    for (const { folder, file: f, handle } of dropped) {
+      const name = f?.name ?? 'That';
+      if (folder) fail(`"${name}" is a folder, and a folder cannot be opened or imported here. Drop files, or drop a folder of Python scripts on the Scripts list in the terminal.`);
+      else if (!f) fail(`${name} could not be read.`);
+      else if (/\.py$/i.test(f.name)) {
+        const h = await handle;
+        if (h instanceof FileSystemFileHandle) scripts.push(h);
+        else fail(`${f.name}: Python scripts as files need Chrome or Edge.`);
+      } else if (importFile(f, at)) continue;
+      else if (f.name.toLowerCase().endsWith(EXTENSION)) {
+        const h = await handle;
+        loadFile(h instanceof FileSystemFileHandle ? await readHandle(h) : { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+      } else fail(`${f.name}: this kind of file cannot be opened or imported. These can: ${EXTENSION.slice(1).toUpperCase()}, STEP, STL, OBJ, 3MF, GLB, SVG, DXF, pictures, Python scripts.`);
+    }
+    if (scripts.length) await terminal.addFiles(scripts);
   });
 });
+
+// a click on an error note copies all of it
+addEventListener(
+  'click',
+  (e) => {
+    const el = (e.target as Element).closest?.('#topbar .status.error, p.error, span.error, .terminal-error');
+    if (!el) return;
+    const bar = el.matches('#topbar .status');
+    navigator.clipboard.writeText(bar ? status : (el.textContent ?? '').trim()).then(
+      () => notify('Copied the message'),
+      () => fail('The browser did not allow copying'),
+    );
+  },
+  { capture: true },
+);
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
 

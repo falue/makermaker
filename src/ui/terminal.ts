@@ -1,5 +1,6 @@
 import type { Doc } from '../doc/types';
 import { icon } from './icons';
+import { COPY_TIP } from './panels';
 import type { PythonField } from './pythonField';
 import type { FromPython, Measured, Snapshot, ToPython } from './pythonWorker';
 import { canUseFolders, cleanName, listScripts, recallFiles, recallFolder, rememberFiles, rememberFolder, removeScript, writeFile, writeScript, type Script } from '../io/scriptFolder';
@@ -113,7 +114,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     if (kind === 'terminal-error' && panes.closed && editor.hidden) showPrompt(true); // never unseen
     lastOut.textContent = lastOut.title = text.trimEnd().split('\n').pop() ?? '';
     lastOut.className = `script-last ${kind}`;
-    const part = Object.assign(document.createElement('span'), { className: kind, textContent: text.endsWith('\n') ? text : `${text}\n` });
+    const part = Object.assign(document.createElement('span'), { className: kind, textContent: text.endsWith('\n') ? text : `${text}\n`, title: kind === 'terminal-error' ? COPY_TIP : '' });
     output.append(part);
     if (output.childElementCount > 500) output.firstElementChild!.remove();
     scroll.scrollTop = scroll.scrollHeight;
@@ -444,10 +445,12 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   };
   /** A folder to work in: asked for now, if there is none. */
   const needFolder = async () => !!dir || (waiting ? reopen() : choose());
-  let started = false;
-  const start = async () => {
-    if (started) return (current ? editorText : panes.closed ? null : input)?.focus(), void rescan();
-    started = true;
+  let started: Promise<void> | null = null;
+  const start = () => {
+    if (started) return (current ? editorText : panes.closed ? null : input)?.focus(), void rescan(), started;
+    return (started = begin());
+  };
+  const begin = async () => {
     await fields();
     (panes.closed ? side : input!).focus();
     links = canUseFolders() ? await recallFiles().catch(() => []) : [];
@@ -606,5 +609,14 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
 
   layout();
 
-  return { toggle, isOpen: () => !box.hidden };
+  return {
+    toggle,
+    isOpen: () => !box.hidden,
+    /** Dropped .py files: the drawer opens, they join the list, the last one opens. */
+    async addFiles(handles: FileSystemFileHandle[]) {
+      toggle(true);
+      await started;
+      await linkFiles(handles);
+    },
+  };
 }

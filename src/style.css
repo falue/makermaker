@@ -110,6 +110,12 @@ body {
   margin-left: auto;
   color: var(--muted);
 }
+#topbar .status.error,
+p.error,
+span.error,
+.terminal-error {
+  cursor: copy;
+}
 #topbar .status.error {
   padding: 2px 8px;
   border-radius: 4px;

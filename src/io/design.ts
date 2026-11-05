@@ -38,7 +38,12 @@ export function pack(doc: Doc, versions: Version[], longFrom = 1024): Uint8Array
 }
 
 export function unpack(bytes: Uint8Array): { doc: Doc; versions: Version[] } {
-  const files = unzipSync(bytes);
+  let files: ReturnType<typeof unzipSync>;
+  try {
+    files = unzipSync(bytes);
+  } catch {
+    throw new Error('this is not a MAKERMAKER design, or it is damaged');
+  }
   // one string per blob: versions in memory share them too
   const blobs = new Map<string, string>();
   const blob = (name: string) => {
