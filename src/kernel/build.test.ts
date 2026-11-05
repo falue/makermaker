@@ -190,6 +190,13 @@ describe('buildBody', () => {
     expect(measureVolume(grown)).toBeCloseTo(4 * 60 * 40 + 7 * slice - 4 * slice, 0);
     grown.delete();
     expect(() => buildBody([sheet, on([base(100)], false, -5)])).toThrow();
+    // the sheet reaching only 2 into the plate: it grows the other 2 through it
+    const partly = buildBody([sheet, on([base(100)], false, -2)]);
+    expect(measureVolume(partly)).toBeCloseTo(4 * 60 * 40 + 4 * 60 * 2 - 4 * slice, 0);
+    partly.delete();
+    const plateOf = buildBody([base(100), on([sheet], true, 2)]);
+    expect(measureVolume(plateOf)).toBeCloseTo(100 * 60 * 4 - 3 * slice, 0);
+    plateOf.delete();
     // a clearance of 1: each cut 0.5 wider on both sides (not past the overlap's ends): a gap of 1 between fingers
     const loose = (features: BuildFeature[], first: boolean) => ({ ...(fingers(features, first) as object), clearance: 1 }) as BuildFeature;
     const plateLoose = buildBody([base(100), loose([sheet], true)]);

@@ -644,29 +644,27 @@ const fullness = (k: number) => Math.max(-4, Math.min(4, k));
  * A box joint: where the body and the other overlap, sliced across the overlap's longest side into fingers (`width`
  * above 0: exactly that long from the low end, or from `from` both ways, the rest at the ends; else `count` equal
  * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`), each cut
- * `clearance` / 2 wider on both sides. Two that only touch (boxes, along one axis): the one longer along it first grows
- * through the other where they meet.
+ * `clearance` / 2 wider on both sides. Two standing square to each other where one only touches or partly reaches into
+ * the other (boxes, along an axis): the joint fills the whole meeting place, through the thinner one there, both grown.
  */
 function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   if (!shape) throw new Error('nothing to joint yet');
   const other = placeShape(buildBody(s.features), s.place);
   const [[la, ha], [lb, hb]] = [shape.boundingBox.bounds, other.boundingBox.bounds];
   const gaps = [0, 1, 2].map((a) => Math.max(lb[a] - ha[a], la[a] - hb[a]));
-  const touch = gaps.filter((g) => g > -EPS);
+  if (gaps.some((g) => g > EPS)) throw new Error('the two bodies do not touch: move one onto or into the other');
+  if (gaps.filter((g) => g > -EPS).length > 1) throw new Error('the two bodies meet only along an edge: put one onto or into the other');
+  // per axis: one range holds the other, or they only partly cover each other
+  const holds = (a: number) => (la[a] <= lb[a] + EPS && ha[a] >= hb[a] - EPS) || (lb[a] <= la[a] + EPS && hb[a] >= ha[a] - EPS);
+  const partly = [0, 1, 2].some((a) => !holds(a));
   let base = shape;
   let overlap: Shape3D;
-  if (!touch.length) overlap = shape.clone().intersect(other);
+  if (!partly || !square(s.place)) overlap = shape.clone().intersect(other);
   else {
-    const k = gaps.findIndex((g) => g > -EPS);
-    if (gaps[k] > EPS) throw new Error('the two bodies do not touch: move one onto or into the other');
-    if (touch.length > 1) throw new Error('the two bodies meet only along an edge: put one onto or into the other');
-    // where they meet, through the shorter one along k
-    const grows = ha[k] - la[k] > hb[k] - lb[k];
-    const [l, h] = grows ? [lb, hb] : [la, ha];
-    const zone = makeBox([0, 1, 2].map((a) => (a === k ? l[a] : Math.max(la[a], lb[a]))) as V3, [0, 1, 2].map((a) => (a === k ? h[a] : Math.min(ha[a], hb[a]))) as V3) as unknown as Shape3D;
-    overlap = (grows ? other : shape).clone().intersect(zone);
-    zone.delete();
-    if (grows) base = shape.fuse(overlap);
+    const thin = (a: number) => (ha[a] - la[a] < hb[a] - lb[a] ? [la[a], ha[a]] : [lb[a], hb[a]]);
+    const range = [0, 1, 2].map((a) => (holds(a) ? [Math.max(la[a], lb[a]), Math.min(ha[a], hb[a])] : thin(a)));
+    overlap = makeBox(range.map((r) => r[0]) as V3, range.map((r) => r[1]) as V3) as unknown as Shape3D;
+    base = shape.fuse(overlap);
   }
   other.delete();
   try {
@@ -702,6 +700,14 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
     overlap.delete();
     if (base !== shape) base.delete();
   }
+}
+
+/** Whether a placement turns axes onto axes. */
+function square(pl: Place) {
+  const n = norm(pl.axis);
+  const [c, sn] = [Math.cos((pl.angle * Math.PI) / 180), Math.sin((pl.angle * Math.PI) / 180)];
+  const turned = (v: V3) => add(add(scale(v, c), scale(cross(n, v), sn)), scale(n, dot(n, v) * (1 - c)));
+  return !pl.angle || ([[1, 0, 0], [0, 1, 0], [0, 0, 1]] as V3[]).every((v) => turned(v).every((x) => Math.abs(x) < 1e-6 || Math.abs(Math.abs(x) - 1) < 1e-6));
 }
 
 /** A flat face pushed or pulled: the face extruded along its normal, joined (out, glued along the face) or cut (in). */
