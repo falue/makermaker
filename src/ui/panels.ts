@@ -1563,6 +1563,8 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       return h('section', {}, h('h4', {}, 'Push / pull', remove), h('div', { className: 'row' }, f('distance', 'Distance'), h('span', { className: 'hint' }, 'a flat face, out (negative: in)')));
     case 'mirror':
       return h('section', {}, h('h4', {}, 'Mirror', remove), h('p', { className: 'hint' }, 'Mirrored across the plane it was made with'));
+    case 'piece':
+      return h('section', {}, h('h4', {}, `Piece ${feature.index + 1}`, remove), h('p', { className: 'hint' }, 'It came apart: this body keeps this piece, the others are bodies of their own'));
     case 'shell':
       return h('section', {}, h('h4', {}, 'Shell', remove), h('div', { className: 'row' }, f('thickness', 'Wall'), h('span', { className: 'hint' }, feature.open.length ? `${feature.open.length} face${feature.open.length === 1 ? '' : 's'} open` : 'closed, hollow inside')));
     case 'coat':

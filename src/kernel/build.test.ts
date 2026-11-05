@@ -215,6 +215,22 @@ describe('buildBody', () => {
     uprightLoose.delete();
   });
 
+  it('keeps one piece of a body in separate pieces, in order along x', async () => {
+    const { measureVolume } = await import('replicad');
+    // two blocks apart in one extrusion: 10 wide at x -20, 20 wide at x 20
+    const two: BuildFeature = { id: 't', type: 'extrude', plane: ground, profiles: [{ id: 'a', kind: 'rect', x: 20, y: 0, w: 20, h: 10, r: 0, rot: 0 }, { id: 'b', kind: 'rect', x: -20, y: 0, w: 10, h: 10, r: 0, rot: 0 }], depth: 10, mode: 'add', through: false };
+    const piece = (index: number) => ({ id: 'p', type: 'piece', index }) as BuildFeature;
+    const whole = buildBody([two]);
+    expect(whole.solids.length).toBe(2);
+    whole.delete();
+    for (const [k, volume] of [[0, 1000], [1, 2000]]) {
+      const one = buildBody([two, piece(k)]);
+      expect(measureVolume(one)).toBeCloseTo(volume, 3);
+      one.delete();
+    }
+    expect(() => buildBody([two, piece(2)])).toThrow();
+  });
+
   it('drafts a flat face about its hinge', async () => {
     const { measureVolume } = await import('replicad');
     // the plate's x 30 side (60 × 4 tall), hinged at its bottom: 5° in takes a wedge 4 tall, 4 tan 5° deep

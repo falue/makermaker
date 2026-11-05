@@ -92,6 +92,8 @@ let solid = new Set<string>();
 let toolMode: 'direct' | 'draw' | 'pull' | 'plane' | null = null;
 let exprErrors = new Map<string, string>();
 const kernelErrors = new Map<string, { featureId: string; error: string }>();
+/** By body: how many separate solids its last build was in. */
+const pieceCounts = new Map<string, number>();
 /** Bodies that cannot be built because of a linked sketch, from the last update. */
 let linkErrors = new Map<string, { featureId: string; error: string }>();
 /** Resolved body positions in mm, from the last update. */
@@ -412,6 +414,7 @@ const kernel = new Kernel((results, done) => {
     if ('mesh' in r) {
       kernelErrors.delete(r.id);
       lostEdges.set(r.id, r.mesh.lostEdges);
+      pieceCounts.set(r.id, r.mesh.pieces ?? 1);
       viewer.setBody(r.id, r.mesh);
     } else {
       kernelErrors.set(r.id, r); // the viewer keeps the last valid geometry
@@ -989,6 +992,37 @@ function applyBoolean(op: BooleanOp) {
   });
   [selected, shapeSel] = [[target], []];
   commit({ ...doc, bodies });
+  // what came apart: a body per piece, in the same undo step
+  void kernel.idle().then(() => {
+    const { doc: next, made } = apart(history.current, [target]);
+    if (!made.length) return;
+    selected = [target, ...made];
+    history.replace(next);
+    update();
+  });
+}
+
+/**
+ * Bodies `ids` that are in separate pieces as last built: each keeps its first piece, a copy of it each further one
+ * (named " 2", " 3" …, listed after it); `made`: the copies. Bodies sharing steps by a link are left whole (a piece
+ * step on them would go to every linked copy).
+ */
+function apart(doc: Doc, ids: string[]): { doc: Doc; made: string[] } {
+  let next = doc;
+  const pairs: [string, string][] = [];
+  for (const id of ids) {
+    const n = pieceCounts.get(id) ?? 1;
+    const b = next.bodies.find((x) => x.id === id);
+    if (n < 2 || !b || b.link || next.bodies.some((x) => x.link === id)) continue;
+    const piece = (index: number): Feature => ({ id: newId(), type: 'piece', index });
+    const copies = Array.from({ length: n - 1 }, (_, k) => {
+      const [c] = copiesOf([b], [], ` ${k + 2}`).bodies;
+      return { ...c, features: [...c.features, piece(k + 1)] };
+    });
+    next = { ...next, bodies: [...next.bodies.map((x) => (x.id === id ? { ...x, features: [...x.features, piece(0)] } : x)), ...copies] };
+    pairs.push(...copies.map((c): [string, string] => [id, c.id]));
+  }
+  return { doc: listedAfter(next, pairs), made: pairs.map(([, c]) => c) };
 }
 
 /** Shows only body `id` (its tool bodies stay as they are); for the isolated body: shows what was shown before. */
@@ -1863,8 +1897,11 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
     const bare = new Set(parts.filter((q) => !crossed.some((o) => o.a === q.a)).map((q) => q.a));
     const left = doc.bodies.filter((x) => !gone.has(x.id)).map((x) => (bare.has(x.id) ? { ...x, features: x.features.slice(0, -1) } : x));
     [toolHint, cutting] = [null, null];
-    history.replace({ ...doc, bodies: left });
     selected = parts.flatMap((q) => (!crossed.includes(q) ? [q.body] : keep === 'both' ? [q.body, q.chunk.id] : [keep === 'A' ? q.body : q.chunk.id]));
+    // what came apart: a body per piece
+    const split = apart({ ...doc, bodies: left }, selected);
+    selected = [...selected, ...split.made];
+    history.replace(split.doc);
     update();
     const missed = parts.length - crossed.length;
     cutTool(missed ? `Not crossed, left as ${missed === 1 ? 'it was' : 'they were'}: ${missed === 1 ? 'one body' : `${missed} bodies`} · ` : '');

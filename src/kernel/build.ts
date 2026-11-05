@@ -36,6 +36,8 @@ export interface BodyMesh {
   lostEdges: Record<string, number>;
   /** An imported mesh's texture coordinates (u, v per vertex). */
   uvs?: Float32Array;
+  /** How many separate solids it is in (a mesh: 1). */
+  pieces?: number;
 }
 
 type V3 = [number, number, number];
@@ -103,6 +105,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
       if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
       if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
+      if (s.type === 'piece') apply(s.id, (cur) => piece(cur, s));
       if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles, undefined, finishing));
     }
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
@@ -180,6 +183,7 @@ export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05
     finishFaces,
     finishes: finishing?.edges.map(({ feature, mid }) => ({ feature, mid })) ?? [],
     lostEdges: finishing?.lost ?? {},
+    pieces: shape.solids.length,
   };
 }
 
@@ -711,6 +715,17 @@ function square(pl: Place) {
   const [c, sn] = [Math.cos((pl.angle * Math.PI) / 180), Math.sin((pl.angle * Math.PI) / 180)];
   const turned = (v: V3) => add(add(scale(v, c), scale(cross(n, v), sn)), scale(n, dot(n, v) * (1 - c)));
   return !pl.angle || ([[1, 0, 0], [0, 1, 0], [0, 0, 1]] as V3[]).every((v) => turned(v).every((x) => Math.abs(x) < 1e-6 || Math.abs(Math.abs(x) - 1) < 1e-6));
+}
+
+/** One of a shape's separate solids (see `PieceFeature`). */
+function piece(shape: Shape3D | null, s: Of<'piece'>): Shape3D {
+  if (!shape) throw new Error('nothing to keep a piece of yet');
+  const at = (x: Shape3D) => x.boundingBox.center.map((v) => Math.round(v * 1e3) / 1e3);
+  const solids = shape.solids.map((x) => ({ x, at: at(x) })).sort((a, b) => a.at[0] - b.at[0] || a.at[1] - b.at[1] || a.at[2] - b.at[2]);
+  const keep = solids[s.index]?.x;
+  for (const { x } of solids) if (x !== keep) x.delete();
+  if (!keep) throw new Error('this piece is gone: the body is in fewer pieces now');
+  return keep;
 }
 
 /** A flat face pushed or pulled: the face extruded along its normal, joined (out, glued along the face) or cut (in). */

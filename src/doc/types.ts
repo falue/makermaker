@@ -179,6 +179,12 @@ export type PushFeature = { id: string; type: 'push'; at: [number, number, numbe
  */
 export type DraftFeature = { id: string; type: 'draft'; at: [number, number, number]; n: [number, number, number]; axis: { at: [number, number, number]; dir: [number, number, number] }; angle: Expr };
 
+/**
+ * A body in separate pieces (solids, after a cut or a boolean) keeps only piece `index`: the pieces in the order of
+ * their boxes' middles along x, then y, then z.
+ */
+export type PieceFeature = { id: string; type: 'piece'; index: number };
+
 export type Feature =
   /** Shapes pushed along the plane normal by `depth` (negative: the other way), or through everything. */
   /** `back`: how far it also reaches behind its sketch plane (none: 0). */
@@ -199,7 +205,8 @@ export type Feature =
   | BulgeFeature
   | PushFeature
   | DraftFeature
-  | FingersFeature;
+  | FingersFeature
+  | PieceFeature;
 
 /**
  * A cut: keeps one side (`side` 1: where the cutter's normal points, a line's left, a closed shape's inside; -1: the
@@ -246,7 +253,7 @@ export type LoftIn = { id: string; type: 'loft'; sections: { frame: Omit<FramePl
 export type SweepIn = { id: string; type: 'sweep'; profile: Profile; path: { frame: Omit<FramePlane, 'kind'>; profile: Profile } };
 /** A bulge with sketch shapes on their frame (body-local), as the kernel builds it. */
 export type BulgeIn = Omit<BulgeFeature, 'on'> & { on: Exclude<BulgeFeature['on'], { kind: 'sketch' }> | { kind: 'frame'; frame: Omit<FramePlane, 'kind'>; profiles: Profile[] } };
-export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | CoatFeature | MirrorFeature | ThreadFeature | BulgeIn | PushFeature | DraftFeature;
+export type BuildIn = ExtrudeIn | SphereFeature | FinishFeature | StepFeature | SplitIn | RevolveIn | LoftIn | SweepIn | ShellFeature | CoatFeature | MirrorFeature | ThreadFeature | BulgeIn | PushFeature | DraftFeature | PieceFeature;
 
 export interface Body {
   id: string;

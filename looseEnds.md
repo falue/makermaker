@@ -12,6 +12,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The starting number of fingers comes from the bodies' boxes in the world, so it is off for plates at a slant.
 
 ## Cut and sections
+- Coming apart: bodies sharing steps by a link stay whole (a piece step would go to every linked copy). A boolean's pieces keep its tool bodies, shared: moving a tool reshapes all of them. If an edit later changes how many pieces there are or their order, a Piece step can point at another piece or none (it then shows an error). The `cad.boolean` and Python cuts do not split.
 - A section's axis shows only while it is being picked; there is no way back to its own line except a new section.
 
 ## Thread
