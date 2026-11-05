@@ -35,6 +35,34 @@ function sidePoints(a: UV, c: Curve | null | undefined, b: UV, steps = 32): UV[]
   });
 }
 
+/** The point of a curved side nearest `q`. */
+export function nearestOnSide(a: UV, c: Curve, b: UV, q: UV): UV {
+  if ('mid' in c) {
+    const arc = arcOf(a, c.mid, b);
+    if (arc) {
+      const t = Math.atan2(q[1] - arc.c[1], q[0] - arc.c[0]);
+      const full = 2 * Math.PI;
+      const dir = Math.sign(arc.a1 - arc.a0);
+      const along = (((t - arc.a0) * dir) % full + full) % full;
+      const sweep = Math.abs(arc.a1 - arc.a0);
+      if (along <= sweep) return [arc.c[0] + arc.r * Math.cos(t), arc.c[1] + arc.r * Math.sin(t)];
+      return Math.hypot(q[0] - a[0], q[1] - a[1]) < Math.hypot(q[0] - b[0], q[1] - b[1]) ? a : b;
+    }
+    return a;
+  }
+  const at = (t: number): UV => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c.c1[k] + 3 * (1 - t) * t ** 2 * c.c2[k] + t ** 3 * b[k]) as UV;
+  const far = (t: number) => Math.hypot(at(t)[0] - q[0], at(t)[1] - q[1]);
+  let best = 0;
+  for (let k = 1; k <= 256; k++) if (far(k / 256) < far(best / 256)) best = k;
+  let [lo, hi] = [Math.max(0, best - 1) / 256, Math.min(256, best + 1) / 256];
+  for (let k = 0; k < 40; k++) {
+    const [m1, m2] = [lo + (hi - lo) / 3, hi - (hi - lo) / 3];
+    if (far(m1) < far(m2)) hi = m2;
+    else lo = m1;
+  }
+  return at((lo + hi) / 2);
+}
+
 /** Whether a side bends. */
 export const curved = (p: P) => (p.kind === 'polygon' || p.kind === 'line') && !!p.curves?.some(Boolean);
 

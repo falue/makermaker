@@ -9,7 +9,7 @@ import type { Doc, Expr } from '../doc/types';
  * next, so `cad` runs them here on the design as it was when the run began; the page takes the outcome at its end.
  */
 type V3 = [number, number, number];
-/** A built body as the view has it. */
+/** A built body, from its real solid (a mesh body: its triangles). */
 export type Measured = { volume: number; min: V3; max: V3 };
 /** A picture to take when the run has been taken over. */
 export type Snapshot = { ids: string[]; from: V3; name: string };

@@ -1878,7 +1878,19 @@ button.icon.tool-op {
   background: var(--panel);
 }
 #right .info h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-top: 0;
+}
+#right .info-about {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted);
+}
+#right .info-about svg {
+  width: 15px;
+  height: 15px;
 }
 #right .info dl {
   display: grid;

@@ -20,8 +20,8 @@ export interface BodyMesh {
   edges: Float32Array;
   /** Per B-rep face: start and count in `indices`. */
   faces: Uint32Array;
-  /** B-rep vertices (edge ends), xyz, each once: snap points. */
-  corners: Float32Array;
+  /** B-rep vertices (edge ends), xyz, each once: snap points, not rounded to the view's precision. */
+  corners: Float64Array;
   /** Per B-rep edge: start and count of its points in `edges` (segment pairs). */
   edgeGroups: Uint32Array;
   /** Per B-rep edge: 1 if an unbaked finish made it. */
@@ -169,7 +169,7 @@ export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05
     indices: new Uint32Array(m.triangles),
     edges: new Float32Array(e.lines),
     faces: new Uint32Array(m.faceGroups.flatMap((g) => [g.start, g.count])),
-    corners: new Float32Array([...ends.values()].flat()),
+    corners: new Float64Array([...ends.values()].flat()),
     edgeGroups: new Uint32Array(e.edgeGroups.flatMap((g) => [g.start, g.count])),
     finishEdges,
     finishFaces,

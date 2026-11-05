@@ -27,6 +27,7 @@ import { chainOf, unitAt } from './doc/shapegroups';
 import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
+import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64 } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
 import { describe as describeCommands, runCommand, shared, type Args } from './api/commands';
@@ -46,7 +47,7 @@ import { BUILT_IN_PHOTOS } from './ui/photospheres';
 import { ANGLE_STEPS, SketchTool, uvOf, type Cap, type Drawn, type DrawnProfile, type SketchResult, type Target, type ToolHost, type ToolKind, type ViewSketch } from './viewer/sketch';
 import { anchorAt, moved as shifted, placed, rotated, sizedTo, sizeOf, turnedTo } from './viewer/shapes';
 import type { ExtrudeTool, FaceItem } from './viewer/extrude';
-import { alongEdge, Viewer, type FinishPick, type PickedFace, type PickedPart, type TurnAxis, type Vec3 } from './viewer/viewer';
+import { alongEdge, Viewer, type FinishPick, type PartRef, type PickedFace, type PickedPart, type TurnAxis, type Vec3 } from './viewer/viewer';
 
 // over the 3D view, the pointer's note stays inside it
 const tips = installTooltips(500, () => document.getElementById('viewport')!.getBoundingClientRect(), (text) => {
@@ -1000,15 +1001,17 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     const [name, size] = power === 1 ? [u, UNITS[u]] : up[u];
     return `${fmt(+(mm / size ** power).toFixed(3))} ${name}${power === 2 ? '²' : power === 3 ? '³' : ''}`;
   };
+  // read from the view's triangles or flattened curves: see the panel's info icon
+  const about = (mm: number, power = 1) => `~${num(mm, power)}`;
   if (pickedPart?.kind === 'face') {
     const n = pickedPart.count ?? 1;
-    return { title: n > 1 ? 'Faces' : 'Face', rows: n > 1 ? [['Area', num(pickedPart.size, 2)], ['Faces', String(n)]] : [['Area', num(pickedPart.size, 2)]] };
+    return { title: n > 1 ? 'Faces' : 'Face', rows: n > 1 ? [['Area', about(pickedPart.size, 2)], ['Faces', String(n)]] : [['Area', about(pickedPart.size, 2)]] };
   }
   if (pickedPart) {
     const n = pickedPart.count ?? 1;
-    const rows: [string, string][] = [['Length', num(pickedPart.size)]];
+    const rows: [string, string][] = [['Length', about(pickedPart.size)]];
     if (n > 1) rows.push(['Edges', String(n)]);
-    if (pickedPart.diameter) rows.push(['Ø', num(pickedPart.diameter)]);
+    if (pickedPart.diameter) rows.push(['Ø', about(pickedPart.diameter)]);
     return { title: pickedPart.diameter ? 'Circle' : n > 1 ? 'Edges' : 'Edge', rows };
   }
   const lookup = paramLookup(doc.params);
@@ -1018,8 +1021,10 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     if (shapes.length !== 1) return { title: shapeSel.length ? `${shapes.length} shapes` : s.name, rows: [['Shapes', String(shapes.length)]] }; // (areas would count holes too)
     const q = shapes[0];
     const [w, h] = sizeOf(q);
-    const rows: [string, string][] = q.kind === 'circle' ? [['Ø', num(q.d)]] : [['Size', `${num(w)} × ${num(h)}`]];
-    rows.push(q.kind === 'line' ? ['Length', num(flattened(q).reduce((n, [x, y], i, f) => n + (i ? Math.hypot(x - f[i - 1][0], y - f[i - 1][1]) : 0), 0))] : ['Area', num(area(q), 2)]);
+    const bent = curved(q); // its outline flattened
+    const val = bent ? about : num;
+    const rows: [string, string][] = q.kind === 'circle' ? [['Ø', num(q.d)]] : [['Size', `${val(w)} × ${val(h)}`]];
+    rows.push(q.kind === 'line' ? ['Length', val(flattened(q).reduce((n, [x, y], i, f) => n + (i ? Math.hypot(x - f[i - 1][0], y - f[i - 1][1]) : 0), 0))] : ['Area', val(area(q), 2)]);
     return { title: q.kind[0].toUpperCase() + q.kind.slice(1), rows };
   }
   const ids = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
@@ -1028,7 +1033,7 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
   const box = m.reduce((b, x) => b.union(x.box), new Box3());
   const size = box.getSize(new Vector3());
   // L / W / H along x / y / z: hovering one shows it on the box
-  const rows: [string, string, Measure?][] = [['L', num(size.x), 0], ['W', num(size.y), 1], ['H', num(size.z), 2]];
+  const rows: [string, string, Measure?][] = [['L', about(size.x), 0], ['W', about(size.y), 1], ['H', about(size.z), 2]];
   const b = ids.length === 1 && doc.bodies.find((x) => x.id === ids[0]);
   if (b) {
     const at = positions.get(b.id);
@@ -1036,7 +1041,7 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     if (at) rows.push(['Position', at.map((v) => num(v)).join(', '), 'at']);
     rows.push(['Rotation', `${fmt(turn.rx)}°, ${fmt(turn.ry)}°, ${fmt(turn.rz)}°`]);
   }
-  rows.push(['Volume', num(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', num(m.reduce((n, x) => n + x.area, 0), 2)]);
+  rows.push(['Volume', about(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', about(m.reduce((n, x) => n + x.area, 0), 2)]);
   return { title: b ? b.name : `${ids.length} bodies`, rows, box, at: b ? positions.get(b.id) : undefined };
 }
 
@@ -2919,26 +2924,28 @@ function fingersPanel(body: string, id: string, fresh = false) {
  * Distance measure. With `use` another tool or field waits for it: a click on a length measured hands it over (mm) and ends this tool.
  */
 function measureTool(use?: (mm: number) => void, done?: () => void) {
+  // Every value here comes from the real solid (`kernel.measure`, see MeasureAsk) as soon as it answers: anything new this tool measures has to as well. Only what no solid has shows with ~.
   const u = history.current.units;
-  let last: Vector3 | null = null;
+  let last: { at: Vector3; about: boolean; settled?: Promise<unknown> } | null = null;
   let edges: [Vector3, Vector3][][] = [];
   let faces: FaceItem[] = [];
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel measure' });
   box.onmousedown = (e) => e.preventDefault(); // the field waiting for the value keeps the focus
-  // [label, mm (an area: mm²)]
   // each value's button by its label, and the line in the view it belongs to: hovering either lights both
   const buttons = new Map<string, HTMLButtonElement>();
   const light = (key: string | null) => {
     viewer.lightMeasureLeg(key);
     for (const [k, b] of buttons) b.classList.toggle('lit', k === key);
   };
-  const show = (items: [string, number, boolean?][], note = '') => {
+  // [label, mm (an area: mm²), an area?, about only?]
+  const show = (items: [string, number, boolean?, boolean?][], note = '') => {
     buttons.clear();
     box.replaceChildren(
       ...(note ? [Object.assign(document.createElement('span'), { className: 'hint', textContent: note })] : []),
-      ...items.map(([label, mm, area]) => {
+      ...items.map(([label, mm, area, about]) => {
         const text = area ? `${fmt(+(mm / UNITS[u] ** 2).toFixed(4))} ${u}²` : `${fmt(+(mm / UNITS[u]).toFixed(4))} ${u}`;
-        const shown = axisHtml(`${label} ${text}`);
+        const shownText = `${about ? '~' : ''}${text}`;
+        const shown = axisHtml(`${label} ${shownText}`);
         // waiting field: the value goes straight in; else copied: the button says so for a moment (the top bar shows the tool's hint)
         const b = use && !area
           ? panelButton('', `Use ${text}: it goes in the field`, () => (close(), use(mm)))
@@ -2957,12 +2964,54 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     const waiting = [...document.querySelectorAll('.axis-move:not(.measure)')].at(-1);
     if (use && waiting) box.style.top = `${waiting.getBoundingClientRect().bottom + 6}px`;
   };
-  const long = (segs: [Vector3, Vector3][]) => segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
+  // what the solids answered, by part
+  const edgeLengths = new Map<[Vector3, Vector3][], number>();
+  const faceAreas = new Map<string, number>();
+  const faceSides = new Map<string, [number, number]>();
+  const faceKey = (f: FaceItem) => `${f.body} ${f.index}`;
+  const noSolid = (body: string) => !!history.current.bodies.find((b) => b.id === body)?.features.some((f) => f.type === 'mesh'); // a mesh's triangles are all there is
+  const long = (segs: [Vector3, Vector3][]) => edgeLengths.get(segs) ?? segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
   const showParts = () => {
-    if (edges.length) return show(edges.length > 1 ? [[`${edges.length} edges`, edges.reduce((n, e) => n + long(e), 0)]] : [['Edge', long(edges[0])]]);
-    if (faces.length > 1) return show([[`${faces.length} faces`, faces.reduce((n, f) => n + viewer.faceSize(f).area, 0), true]]);
-    const { area, sides } = viewer.faceSize(faces[0]);
-    show([['Area', area, true], ...(sides ? ([['L', sides[0]], ['B', sides[1]]] as [string, number][]) : [])]);
+    if (edges.length) {
+      const about = edges.some((e) => !edgeLengths.has(e));
+      return show(edges.length > 1 ? [[`${edges.length} edges`, edges.reduce((n, e) => n + long(e), 0), false, about]] : [['Edge', long(edges[0]), false, about]]);
+    }
+    const area = (f: FaceItem) => faceAreas.get(faceKey(f)) ?? viewer.faceSize(f).area;
+    const about = faces.some((f) => !faceAreas.has(faceKey(f)) && !noSolid(f.body));
+    if (faces.length > 1) return show([[`${faces.length} faces`, faces.reduce((n, f) => n + area(f), 0), true, about]]);
+    const sides = faceSides.get(faceKey(faces[0])) ?? viewer.faceSize(faces[0]).sides;
+    show([['Area', area(faces[0]), true, about], ...(sides ? ([['L', sides[0], false, about], ['B', sides[1], false, about]] as [string, number, boolean, boolean][]) : [])]);
+  };
+  /** Asks the solid for a part just picked, then shows the true values. */
+  const askEdge = async (segs: [Vector3, Vector3][], ref?: PartRef) => {
+    if (!ref) return;
+    const [length] = await kernel.measure([{ of: 'edge', body: ref.body, edge: ref.edge! }]);
+    const mesh = segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
+    if (typeof length === 'number' && Math.abs(length - mesh) < 1 + mesh * 0.05) edgeLengths.set(segs, length);
+    else if (noSolid(ref.body)) edgeLengths.set(segs, mesh);
+  };
+  const askFace = async (f: FaceItem) => {
+    const mesh = viewer.faceSize(f);
+    const asks: MeasureAsk[] = [{ of: 'face', body: f.body, face: f.index }];
+    if (mesh.sides) asks.push({ of: 'sides', body: f.body, face: f.index, u: viewer.dirToBody(f.body, mesh.x!).toArray(), n: viewer.dirToBody(f.body, mesh.n!).toArray() });
+    const [area, sides] = await kernel.measure(asks);
+    if (typeof area === 'number') faceAreas.set(faceKey(f), area);
+    if (Array.isArray(sides)) faceSides.set(faceKey(f), [sides[0], sides[1]]);
+  };
+  const refreshParts = () => box.isConnected && (edges.length || faces.length) && (showParts(), place());
+  /** The true place of a point picked; about: no solid or sketch curve could tell. */
+  const truePoint = async (face: PickedFace, at: Vector3): Promise<{ at: Vector3; about: boolean }> => {
+    const ref = face.on;
+    if (!ref) {
+      const curve = viewer.onSketchCurve(at);
+      // a line through a section or where bodies cross comes from the triangles
+      return { at: curve ?? at, about: !curve && !!face.what?.startsWith('on edge') };
+    }
+    const near = viewer.toBody(ref.body, at).toArray();
+    const [found] = await kernel.measure([face.what === '1/2' && ref.edge !== undefined ? { of: 'middle', body: ref.body, edge: ref.edge, near } : { of: 'point', body: ref.body, edge: ref.edge, face: ref.face, near }]);
+    if (!Array.isArray(found)) return { at, about: !noSolid(ref.body) };
+    const real = viewer.fromBody(ref.body, new Vector3(found[0], found[1], found[2]));
+    return real.distanceTo(at) < 0.5 ? { at: real, about: false } : { at, about: true };
   };
   // Esc ends this only, not what waits for it; so does its own key, outside a field
   const keys = (e: KeyboardEvent) => {
@@ -3041,18 +3090,36 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           viewer.showMeasured(edges, faces);
           if (edges.length || faces.length) showParts();
           else show([], 'Click a point, or Alt-click an edge or face');
+          void ('edge' in part ? askEdge(part.edge, part.ref) : askFace(part.face)).then(refreshParts);
         } else if (face.snap) {
-          const p = face.snap;
+          const point: NonNullable<typeof last> = { at: face.snap.clone(), about: true };
+          const from = last;
           if (edges.length || faces.length) [edges, faces] = [[], []], viewer.showMeasured([], []);
-          if (last) {
-            const d = p.clone().sub(last);
-            const values: Record<string, number> = { X: Math.abs(d.x), Y: Math.abs(d.y), Z: Math.abs(d.z), L: d.length() };
-            show(viewer.showMeasureLine(last, p)!.map((k) => [k, values[k]]));
-          } else {
-            viewer.showMeasureLine(p);
-            show(face.edge ? [['Edge', face.edge.length]] : [], 'Click the next point');
-          }
-          last = p;
+          const edgeSegs: [Vector3, Vector3][] = []; // the edge clicked, by its length alone
+          const showPoint = () => {
+            if (from) {
+              const d = point.at.clone().sub(from.at);
+              const values: Record<string, number> = { X: Math.abs(d.x), Y: Math.abs(d.y), Z: Math.abs(d.z), L: d.length() };
+              show(viewer.showMeasureLine(from.at, point.at)!.map((k) => [k, values[k], false, point.about || from.about]));
+            } else {
+              viewer.showMeasureLine(point.at);
+              const known = edgeLengths.get(edgeSegs);
+              show(face.edge ? [['Edge', known ?? face.edge.length, false, known === undefined]] : [], 'Click the next point');
+            }
+            place();
+          };
+          last = point;
+          showPoint();
+          // the mesh's answer shows at once, the solid's right after
+          point.settled = (async () => {
+            await from?.settled;
+            Object.assign(point, await truePoint(face, point.at));
+            if (!from && face.edge?.ref) {
+              const [length] = await kernel.measure([{ of: 'edge', body: face.edge.ref.body, edge: face.edge.ref.edge! }]);
+              if (typeof length === 'number') edgeLengths.set(edgeSegs, length);
+            }
+            if (box.isConnected && last === point) showPoint();
+          })();
         }
         place();
         pick();
@@ -6116,9 +6183,20 @@ const terminal = pythonTerminal(
     },
     async measures() {
       await kernel.idle();
+      const bodies = history.current.bodies;
+      const placeOf = (id: string) => {
+        const [offset, turn] = [new Vector3(), new Quaternion()];
+        (bodyPlaces.get(id) ?? new Matrix4()).decompose(offset, turn, new Vector3());
+        const half = Math.acos(Math.min(1, Math.abs(turn.w)));
+        const axis = half > 1e-9 ? new Vector3(turn.x, turn.y, turn.z).normalize().multiplyScalar(Math.sign(turn.w) || 1) : new Vector3(0, 0, 1);
+        return { angle: (2 * half * 180) / Math.PI, axis: axis.toArray(), offset: offset.toArray() };
+      };
+      const real = await kernel.measure(bodies.map((b) => ({ of: 'solid', body: b.id, place: placeOf(b.id) })));
       return Object.fromEntries(
-        history.current.bodies.flatMap((b) => {
-          const m = viewer.measure(b.id);
+        bodies.flatMap((b, k) => {
+          const solid = real[k] as SolidMeasure | null;
+          if (solid) return [[b.id, { volume: solid.volume, min: solid.min, max: solid.max }]];
+          const m = viewer.measure(b.id); // a mesh: its triangles are all there is
           return m ? [[b.id, { volume: m.volume, min: m.box.min.toArray(), max: m.box.max.toArray() }]] : [];
         }),
       );

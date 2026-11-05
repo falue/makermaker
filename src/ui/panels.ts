@@ -905,7 +905,9 @@ function right(ctx: UIContext): Node[] {
     if (what !== undefined) for (const c of cells) Object.assign(c, { className: 'measures', onmouseenter: () => ctx.showMeasure(what), onmouseleave: () => ctx.showMeasure(null) });
     return cells;
   };
-  const info = ctx.info ? [h('section', { className: 'info' }, h('h3', {}, `Info · ${ctx.info.title}`), h('dl', {}, ...ctx.info.rows.flatMap(infoRow)))] : [];
+  const aboutTip = 'About: values with ~ are read from the triangles drawn in the view, so on curves they can be slightly off. The Distance measure reads the real geometry.';
+  const aboutIcon = ctx.info?.rows.some((r) => r[1].startsWith('~')) ? [h('span', { className: 'info-about', title: aboutTip, innerHTML: icon('info') })] : [];
+  const info = ctx.info ? [h('section', { className: 'info' }, h('h3', {}, `Info · ${ctx.info.title}`, ...aboutIcon), h('dl', {}, ...ctx.info.rows.flatMap(infoRow)))] : [];
   return [...status, ...selectionPanel(ctx), ...info];
 }
 

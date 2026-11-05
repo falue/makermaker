@@ -11,7 +11,7 @@ import type { Backdrop, BasePlane, CameraState, Light } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { arcOf, area, bounds, centre, edgeDistance, flattened, inside, bakeTurn, type DrawnProfile } from '../doc/profiles';
+import { arcOf, area, bounds, centre, curved, edgeDistance, flattened, inside, bakeTurn, nearestOnSide, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
 import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, moved, pointHandles, pointMoved, resized, rotated, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
@@ -80,7 +80,9 @@ export type FinishPick = { body: string; feature: string; mid: Vec3 | null };
 /** A face picked for a section: a point on it and the normal pointing away from the camera; `body`: whose face (none: a base plane). */
 /** What a click reaches ("to object"): where, and what it is ('corner', 'centre', '1/2', 'on edge', 'on face'). */
 /** What a click reaches ("to object"): where, what it is, and the line or circle A / Shift A splits finer or coarser there. */
-export type Aim = { at: THREE.Vector3; what: string; key?: string };
+export type Aim = { at: THREE.Vector3; what: string; key?: string; on?: PartRef };
+/** A part of a body's real solid (see `MeasureAsk`): its edge or face by number. */
+export type PartRef = { body: string; edge?: number; face?: number };
 
 /** A sketch shape whose outline is under the pointer. */
 type SketchHit = { sketch: ViewSketch; q: ViewSketch['shapes'][number] };
@@ -103,7 +105,7 @@ export interface PickedFace {
   normal: THREE.Vector3;
   body?: string;
   /** A quiet pick: the corner, edge point or face point clicked (none: empty space), and the edge there (its length). */
-  edge?: { length: number };
+  edge?: { length: number; ref?: PartRef };
   /** A quiet pick: the corner, edge point or face point clicked (none: empty space), what it is ('corner', 'on edge', 'on face' …), and a straight edge there (its ends). */
   snap?: THREE.Vector3;
   what?: string;
@@ -116,8 +118,10 @@ export interface PickedFace {
   item?: FaceItem;
   /** A work plane clicked (picks that take them, in front of any body): its id; `point` on it, `normal` its own, away from the camera. */
   plane?: string;
-  /** A quiet pick taking parts, Alt-clicked: the edge (its segments, world) or the face there; `adds`: Shift held too. */
-  part?: { edge: [THREE.Vector3, THREE.Vector3][] } | { face: FaceItem };
+  /** A quiet pick taking parts, Alt-clicked: the edge (its segments, world; `ref`: its part of the solid, none for section and crossing lines) or the face there; `adds`: Shift held too. */
+  part?: { edge: [THREE.Vector3, THREE.Vector3][]; ref?: PartRef } | { face: FaceItem };
+  /** A quiet pick: the part of the solid `snap` lies on (none: a corner, a sketch's point, or a line no solid has). */
+  on?: PartRef;
   adds?: boolean;
 }
 
@@ -1488,8 +1492,9 @@ export class Viewer implements ToolView {
       ...linePoints(snapLines(this.sketches, this.edges())).map(({ at, what, key }) => ({ at, what, key })),
     ];
     const point = points.reduce<[Aim | null, number]>((best, p) => (dist(p.at) < best[1] ? [p, dist(p.at)] : best), [null, px])[0];
-    if (point) return point;
     const edge = this.edgeAt(e);
+    const ref = edge?.index === undefined ? undefined : { body: edge.body, edge: edge.index };
+    if (point) return point.what === 'corner' || point.what === 'centre' ? point : { ...point, on: ref };
     if (edge) {
       // an open edge's middle, else the edge point nearest the pointer's ray
       const lengths = edge.segs.map(([a, b]) => a.distanceTo(b));
@@ -1497,7 +1502,7 @@ export class Viewer implements ToolView {
       const k = Math.max(0, lengths.findIndex((l) => (half -= l) <= 0));
       const mid = edge.segs[k][0].clone().lerp(edge.segs[k][1], 1 + half / (lengths[k] || 1));
       const open = edge.segs[0][0].distanceTo(edge.segs.at(-1)![1]) > 1e-6;
-      if (open && near(mid)) return { at: mid, what: '1/2' };
+      if (open && near(mid)) return { at: mid, what: '1/2', on: ref };
       const ray = this.ray(e);
       let best: [number, THREE.Vector3] | null = null;
       for (const [a, b] of edge.segs) {
@@ -1505,10 +1510,10 @@ export class Viewer implements ToolView {
         const d = ray.distanceSqToSegment(a, b, undefined, p);
         if (!best || d < best[0]) best = [d, p];
       }
-      return { at: best![1], what: 'on edge' };
+      return { at: best![1], what: 'on edge', on: ref };
     }
     const hit = this.frontHit(e);
-    return hit ? { at: hit.point.clone(), what: 'on face' } : null;
+    return hit ? { at: hit.point.clone(), what: 'on face', on: { body: hit.object.userData.bodyId, face: faceOf(hit) } } : null;
   }
 
   /** Waiting for "to object" (the move fields): told what a click at the pointer would reach (see `aimAt`). */
@@ -1735,7 +1740,7 @@ export class Viewer implements ToolView {
     const depth = pts[0].dot(n);
     const corners = [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]].map(([a, b]) => u.clone().multiplyScalar(a).addScaledVector(v, b).addScaledVector(n, depth));
     const long = hi[0] - lo[0] >= hi[1] - lo[1];
-    return { area, sides: [Math.max(hi[0] - lo[0], hi[1] - lo[1]), Math.min(hi[0] - lo[0], hi[1] - lo[1])] as [number, number], corners, x: long ? u : v };
+    return { area, sides: [Math.max(hi[0] - lo[0], hi[1] - lo[1]), Math.min(hi[0] - lo[0], hi[1] - lo[1])] as [number, number], corners, x: long ? u : v, n };
   }
 
   /** An axis drawn dashed in the cut's red (dashes kept on screen at any zoom), `half` mm both ways from the point on it nearest `mid` (null: gone). */
@@ -2929,7 +2934,7 @@ export class Viewer implements ToolView {
   }
 
   private bodyEdges() {
-    const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true }[] = [...this.cutEdges().lines, ...this.crossEdges().lines];
+    const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true; index?: number }[] = [...this.cutEdges().lines, ...this.crossEdges().lines];
     for (const [id, g] of this.bodies)
       for (const c of this.hidden.has(id) ? [] : g.children) {
         const groups = c.userData.edgeGroups as Uint32Array | undefined;
@@ -2939,7 +2944,7 @@ export class Viewer implements ToolView {
         for (let k = 0; k < groups.length; k += 2) {
           const segs: [THREE.Vector3, THREE.Vector3][] = [];
           for (let i = groups[k]; i + 1 < groups[k] + groups[k + 1]; i += 2) segs.push([at(i), at(i + 1)]);
-          out.push({ body: id, segs });
+          out.push({ body: id, segs, index: k / 2 });
         }
       }
     return out;
@@ -2951,7 +2956,7 @@ export class Viewer implements ToolView {
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
     const ray = this.ray(e);
     const front = this.intersect(this.raycaster(e))[0]?.distance ?? Infinity;
-    let best: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true; d: number } | null = null;
+    let best: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true; index?: number; d: number } | null = null;
     for (const edge of this.bodyEdges())
       for (const [a, b] of edge.segs) {
         const [ax, ay] = this.toScreen(a);
@@ -2963,7 +2968,7 @@ export class Viewer implements ToolView {
         if (a.clone().lerp(b, k).distanceTo(ray.origin) > front + 0.5) continue; // behind a face
         best = { ...edge, d };
       }
-    return best && { body: best.body, segs: best.segs, cut: best.cut };
+    return best && { body: best.body, segs: best.segs, cut: best.cut, index: best.index };
   }
 
   private measureMark = new THREE.Group();
@@ -3138,6 +3143,40 @@ export class Viewer implements ToolView {
     return out;
   }
 
+  /** A world point in a body's own coordinates, and back; a direction likewise. */
+  toBody(body: string, v: THREE.Vector3) {
+    return v.clone().applyMatrix4(this.bodies.get(body)?.matrix.clone().invert() ?? new THREE.Matrix4());
+  }
+  fromBody(body: string, v: THREE.Vector3) {
+    return v.clone().applyMatrix4(this.bodies.get(body)?.matrix ?? new THREE.Matrix4());
+  }
+  dirToBody(body: string, v: THREE.Vector3) {
+    return v.clone().transformDirection(this.bodies.get(body)?.matrix.clone().invert() ?? new THREE.Matrix4());
+  }
+
+  /** The point on the true curve of a curved sketch side or circle within `reach` mm of `at` (world); null: none there. */
+  onSketchCurve(at: THREE.Vector3, reach = 0.2) {
+    for (const s of this.sketches) {
+      const n = new THREE.Vector3(...s.frame.n);
+      if (Math.abs(at.clone().sub(new THREE.Vector3(...s.frame.o)).dot(n)) > reach) continue;
+      const q = uvOf(s.frame, at);
+      for (const p of s.shapes) {
+        if (p.kind === 'circle') {
+          const r = Math.hypot(q[0] - p.x, q[1] - p.y);
+          if (r > 1e-9 && Math.abs(r - p.d / 2) < reach) return new THREE.Vector3(...toWorld(s.frame, p.x + ((q[0] - p.x) * p.d) / 2 / r, p.y + ((q[1] - p.y) * p.d) / 2 / r));
+        } else if ((p.kind === 'polygon' || p.kind === 'line') && curved(p)) {
+          const b = bakeTurn(p);
+          for (const [i, c] of (b.curves ?? []).entries()) {
+            if (!c) continue;
+            const on = nearestOnSide(b.pts[i], c, b.pts[(i + 1) % b.pts.length], q);
+            if (Math.hypot(on[0] - q[0], on[1] - q[1]) < reach) return new THREE.Vector3(...toWorld(s.frame, on[0], on[1]));
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   /** Where the pointer is over the view (client pixels), if it is. */
   pointer() {
     return this.hover && { x: this.hover.clientX, y: this.hover.clientY };
@@ -3253,7 +3292,7 @@ export class Viewer implements ToolView {
     if (this.quietPick && this.pickParts === 'alt' && picksFace(e)) {
       const edge = this.edgeAt(e);
       this.markEdge();
-      if (edge) return this.endFacePick({ point: edge.segs[0][0].clone(), normal: new THREE.Vector3(), part: { edge: edge.segs }, adds: role(e, 'add') });
+      if (edge) return this.endFacePick({ point: edge.segs[0][0].clone(), normal: new THREE.Vector3(), part: { edge: edge.segs, ref: edge.index === undefined ? undefined : { body: edge.body, edge: edge.index } }, adds: role(e, 'add') });
       return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), ...(hit ? { part: { face: this.faceItem(hit) }, adds: role(e, 'add') } : {}) });
     }
     if (this.quietPick) {
@@ -3267,7 +3306,8 @@ export class Viewer implements ToolView {
         normal: hit ? hit.face!.normal.clone().transformDirection(hit.object.matrixWorld).negate() : new THREE.Vector3(),
         snap: snap?.at,
         what: snap?.what,
-        ...(edge ? { edge: { length: edge.segs.reduce((n, [p, q]) => n + p.distanceTo(q), 0) } } : {}),
+        on: snap?.on,
+        ...(edge ? { edge: { length: edge.segs.reduce((n, [p, q]) => n + p.distanceTo(q), 0), ref: edge.index === undefined ? undefined : { body: edge.body, edge: edge.index } } } : {}),
         ...(straight ? { line: { at: a!.clone(), to: b!.clone() } } : {}),
         ...(hit ? { item: this.faceItem(hit) } : {}),
       });

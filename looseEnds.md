@@ -7,6 +7,12 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A typed sweep angle of an arc is used once (its diameter stays). `cad.line` and `cad.polygon` take plain points, no side formulas.
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
 
+## Measuring
+- To object (T) and sketch snapping still read the view's mesh; only the Distance measure and `cad.measure` read the real solid.
+- The middle of a bezier or other free-form edge is where the mesh has it, placed on the true curve: on it, but not exactly half its length.
+- A circle is two half edges in the solid, so one click on a rim gives half its length; Shift Alt-click adds the other half.
+- The worker keeps each body's solid for measuring, which costs memory on very big files. Not measured yet.
+
 ## Curves
 - Tangency is held only by an arc's middle between two straight sides. Moving a point, or an arc next to a curved side, does not hold it.
 - Offset of a bezier side is close, not exact. A side that an offset would turn inside out is not removed.

@@ -6,6 +6,7 @@ import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
 import { dxfOf, laserCuts, svgOf, withKerf } from './laser';
+import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
 import { areasOf, buildBody, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
 
 /**
@@ -22,13 +23,16 @@ export type Request =
   | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[]; tolerance: number }
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
   | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[] }
-  | { kind: 'check'; id: number; bodies: ExportBody[] };
+  | { kind: 'check'; id: number; bodies: ExportBody[] }
+  | { kind: 'measure'; id: number; asks: MeasureAsk[] }
+  | { kind: 'forget'; bodies: string[] };
 export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string; max?: number };
 export type Response =
   | { kind: 'build'; results: BodyResult[]; done: boolean }
   | { kind: 'areas'; id: number; areas: AreaMesh[] }
   | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] }
-  | { kind: 'check'; id: number; results: PrintCheck[] };
+  | { kind: 'check'; id: number; results: PrintCheck[] }
+  | { kind: 'measure'; id: number; answers: MeasureAnswer[] };
 
 const PRINT = { tolerance: 0.01, angularTolerance: 0.1 };
 
@@ -80,8 +84,29 @@ function threeMf(parts: { name: string; points: number[]; triangles: number[] }[
 
 const ready = init({ locateFile: () => wasmUrl }).then(setOC);
 
+/** The last good solid of each body, for measuring (without its mesh: the view has that). */
+const solids = new Map<string, Solid>();
+
 self.onmessage = async ({ data }: MessageEvent<Request>) => {
   await ready;
+  if (data.kind === 'forget') {
+    for (const id of data.bodies) {
+      solids.get(id)?.delete();
+      solids.delete(id);
+    }
+    return;
+  }
+  if (data.kind === 'measure') {
+    const answers = data.asks.map((ask) => {
+      const solid = solids.get(ask.body);
+      try {
+        return solid ? answer(solid, ask) : null;
+      } catch {
+        return null;
+      }
+    });
+    return postMessage({ kind: 'measure', id: data.id, answers } satisfies Response);
+  }
   if (data.kind === 'areas') {
     let areas: AreaMesh[] = [];
     try {
@@ -179,9 +204,15 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
       const finishing: Finishing = { base: null, edges: [] };
       const shape = buildBody(features, finishing);
       try {
-        return { id, mesh: meshBody(shape, finishing, tolerance) };
-      } finally {
+        const mesh = meshBody(shape, finishing, tolerance);
+        getOC().BRepTools.Clean(shape.wrapped, true);
+        solids.get(id)?.delete();
+        solids.set(id, new Solid(shape));
+        return { id, mesh };
+      } catch (err) {
         shape.delete();
+        throw err;
+      } finally {
         finishing.base?.delete();
       }
     } catch (err) {

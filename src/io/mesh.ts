@@ -102,7 +102,7 @@ export function meshBody(vertices: string, triangles: string, scale: number): Bo
     indices: g.index!.array as Uint32Array,
     edges,
     faces: new Uint32Array([0, g.index!.count]), // one face
-    corners: new Float32Array(),
+    corners: new Float64Array(),
     edgeGroups: new Uint32Array(Array.from({ length: segments }, (_, i) => [i * 2, 2]).flat()),
     finishEdges: new Uint8Array(segments),
     finishFaces: new Int32Array(1).fill(-1),
