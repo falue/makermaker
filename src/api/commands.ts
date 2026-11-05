@@ -45,14 +45,14 @@ function check(name: string, c: Command, args: Args) {
 
 const palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f'];
 
-/** A coat as a body of its own beside body `i`, a skin around it: with its own steps, or `linked`, sharing those of the body and attached to it both ways; the id it got. */
+/** A coat as a body of its own beside body `i`, a skin around it: with its own steps, or `linked`, sharing those of the body and attached to it; the id it got. */
 export function coatAsBody(doc: Doc, i: number, coat: CoatFeature, linked = false) {
   const { material: _, ...o } = doc.bodies[i];
   const steps = linked ? (o.link ? o.features : []) : [...(doc.bodies.find((b) => b.id === o.link)?.features ?? []), ...o.features];
   // new ids throughout, also where one step names another
   const own: Feature[] = JSON.parse(steps.reduce((text, f) => text.replaceAll(f.id, newId()), JSON.stringify(steps)));
   const body: Body = { ...structuredClone(o), id: newId(), name: `${o.name} coat`, color: palette.filter((c) => c !== o.color)[doc.bodies.length % 5], link: linked ? (o.link ?? o.id) : null, features: [...own, { ...coat, skin: true }], order: undefined };
-  const joints = linked ? [...doc.joints, attach(doc, newId(), o.id, [body.id], [0, 0, 0], true)] : doc.joints;
+  const joints = linked ? [...doc.joints, attach(doc, newId(), o.id, [body.id], [0, 0, 0])] : doc.joints;
   return { doc: { ...doc, bodies: [...doc.bodies, body], joints }, id: body.id };
 }
 
@@ -285,6 +285,27 @@ export const COMMANDS: Record<string, Command> = {
       const ids = a.ids as string[];
       const into = <T extends { id: string; group: string | null }>(o: T) => (ids.includes(o.id) ? { ...o, group: g.id } : o);
       return { doc: { ...doc, groups: [...doc.groups, g], bodies: doc.bodies.map(into), sketches: doc.sketches.map(into) }, result: g.id };
+    },
+  },
+  attach: {
+    doc: 'Attaches objects (bodies or groups) to one: they move and turn as one, whichever of them moves (its id comes back).',
+    params: [{ name: 'id', type: 'id', doc: 'the body or group' }, { name: 'ids', type: 'ids', doc: 'what moves as one with it' }, { name: 'at', type: 'point3', doc: "its anchor, where it shows: [x, y, z] mm in that object's coordinates (its origin if left out)", optional: true }],
+    run: (doc, a) => {
+      const known = (id: unknown) => doc.bodies.some((b) => b.id === id) || doc.groups.some((g) => g.id === id);
+      if (!known(a.id)) throw new Error(`no body or group "${String(a.id)}"`);
+      const ids = (a.ids as string[]).filter((id) => id !== a.id);
+      const missing = ids.find((id) => !known(id));
+      if (missing || !ids.length) throw new Error(missing ? `no body or group "${missing}"` : 'nothing to attach');
+      const j = attach(doc, newId(), a.id as string, ids, xyz(a.at));
+      return { doc: { ...doc, joints: [...doc.joints, j] }, result: j.id };
+    },
+  },
+  detach: {
+    doc: 'Ends an attach: its objects move on their own again.',
+    params: [{ name: 'id', type: 'id', doc: 'the attach' }],
+    run: (doc, a) => {
+      if (!doc.joints.some((j) => j.id === a.id && j.kind === 'attach')) throw new Error(`no attach "${String(a.id)}"`);
+      return { doc: { ...doc, joints: doc.joints.filter((j) => j.id !== a.id) } };
     },
   },
   delete: {

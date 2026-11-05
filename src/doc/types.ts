@@ -432,14 +432,13 @@ export interface ImageRef {
  * turns them around `axis`, a slider moves them along it (a line through `at` along `dir`, in the parent's
  * coordinates); `value` (degrees or mm, between `min` and `max`) is where they are now, and modelling happens there;
  * playing it runs from `min` to `max` `speed` times as fast as the play time set in Settings. An attach does not move:
- * its children go along with the parent (`both`: and the parent and the others with any of them); `axis.at` is its
- * anchor, where it shows; `min`, `max`, `value`, `speed` and `axis.dir` are unused.
+ * its parent and children move and turn as one, whichever of them moves; `axis.at` is its anchor, where it shows;
+ * `min`, `max`, `value`, `speed` and `axis.dir` are unused.
  */
 export interface Joint {
   id: string;
   name: string;
   kind: 'hinge' | 'slider' | 'attach';
-  both?: boolean;
   parent: string;
   children: string[];
   axis: { at: [number, number, number]; dir: [number, number, number] };

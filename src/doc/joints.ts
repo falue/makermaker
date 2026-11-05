@@ -60,12 +60,11 @@ export const jointsWithout = (joints: Joint[], gone: Set<string>) =>
     return gone.has(j.parent) || !children.length ? [] : [children.length === j.children.length ? j : { ...j, children }];
   });
 
-/** A new attach: `children` go along with `parent` (`both`: either way), anchored at `at` (the parent's coordinates). */
-export const attach = (doc: Doc, id: string, parent: string, children: string[], at: [number, number, number], both: boolean): Joint => ({
+/** A new attach: `parent` and `children` move as one, anchored at `at` (the parent's coordinates). */
+export const attach = (doc: Doc, id: string, parent: string, children: string[], at: [number, number, number]): Joint => ({
   id,
   name: `Attach ${doc.joints.filter((j) => j.kind === 'attach').length + 1}`,
   kind: 'attach',
-  both,
   parent,
   children,
   axis: { at, dir: [0, 0, 1] },

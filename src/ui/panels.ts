@@ -136,6 +136,8 @@ export interface UIContext {
   moveJointEnd(joint: string, from: string, to: string): void;
   /** A joint's edit panel (the one it was made in). */
   editJoint(joint: string): void;
+  /** An attach ends: its objects move on their own. */
+  breakAttach(joint: string): void;
   /** A joint's range in words: `0–110°`, `0–35 mm`. */
   jointRange(joint: Joint): string;
   loftTool(): void;
@@ -598,7 +600,7 @@ function editbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout menu align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
-    tool('attach', 'Attach: objects go along with another one wherever it moves or turns (or, both ways, all together); click the one they go with, then them, then an anchor', ctx.attachTool),
+    tool('attach', 'Attach: objects move and turn as one, whichever of them moves; click one, then the others, then an anchor', ctx.attachTool),
     tool('measure', 'Distance measure (D): click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
   ];
 }
@@ -781,8 +783,9 @@ function left(ctx: UIContext): Node[] {
     const j = doc.joints.find((x) => x.parent === id || x.children.includes(id));
     if (!j) return [];
     const parent = j.parent === id;
-    const role = j.kind === 'attach' ? (j.both ? 'moves as one with the others' : parent ? 'the others go along with it' : 'goes along') : `${parent ? 'stays, the others move' : 'moves'} (${j.kind})`;
-    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon(j.kind === 'attach' ? 'attach' : 'joint'), title: `${j.name}: ${role} · hover: ${j.kind === 'attach' ? 'what goes along' : 'what moves'} · click: edit it · drag onto another object: it takes this one's place`, onclick: () => ctx.editJoint(j.id) });
+    // an attach's icon breaks it, as a linked copy's unlinks
+    const title = j.kind === 'attach' ? `${j.name}: moves as one with the others · hover: what goes along · click: break it (Undo brings it back) · drag onto another object: it takes this one's place` : `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it · drag onto another object: it takes this one's place`;
+    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon(j.kind === 'attach' ? 'attach' : 'joint'), title, onclick: () => (j.kind === 'attach' ? ctx.breakAttach(j.id) : ctx.editJoint(j.id)) });
     // hovered: what stays and what moves light in the list (in two colours) and in the view
     const light = (on: boolean) => {
       lightPair(on ? (r) => (r === j.parent ? 'joint-static' : j.children.includes(r) ? 'joint-moving' : null) : null);
@@ -1227,8 +1230,8 @@ function jointCards(ctx: UIContext, id: string): Node[] {
       h(
         'section',
         { className: 'joint-card' },
-        h('h4', {}, h('span', {}, j.name, h('span', { className: 'range' }, ` ${ctx.jointRange(j)}`)), button('Edit', () => ctx.editJoint(j.id), j.kind === 'attach' ? 'Both ways, anchor' : 'Kind, limits, speed, direction'), remove),
-        h('p', { className: 'hint' }, j.kind === 'attach' ? `${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'go' : 'goes'} along with ${nameOf(j.parent)}${j.both ? ', and it with them: they move and turn as one' : ''}.` : `${nameOf(j.parent)} stays; ${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'move' : 'moves'}. Model them where they are now; play and scrub in the view's joints box.`),
+        h('h4', {}, h('span', {}, j.name, h('span', { className: 'range' }, ` ${ctx.jointRange(j)}`)), button('Edit', () => ctx.editJoint(j.id), j.kind === 'attach' ? 'Its anchor' : 'Kind, limits, speed, direction'), remove),
+        h('p', { className: 'hint' }, j.kind === 'attach' ? `${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'go' : 'goes'} along with ${nameOf(j.parent)}, and it with them: they move and turn as one.` : `${nameOf(j.parent)} stays; ${j.children.map(nameOf).join(', ')} ${j.children.length > 1 ? 'move' : 'moves'}. Model them where they are now; play and scrub in the view's joints box.`),
       ),
     ];
   });

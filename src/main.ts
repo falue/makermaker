@@ -11,7 +11,7 @@ import { pieces } from './doc/arrangement';
 import { fitting, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, icon } from './ui/icons';
 import { axisHtml } from './ui/axes';
-import { attach, jointed, jointsWithout } from './doc/joints';
+import { jointed, jointsWithout } from './doc/joints';
 import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -670,6 +670,12 @@ function update() {
     ),
   );
   viewer.setPhotos([...BUILT_IN_PHOTOS, ...allPhotos()]);
+  // what a body takes along when dragged: a joint's parts (an attach: each one all the others)
+  viewer.carried = new Map();
+  for (const j of doc.joints) {
+    const [p, c] = [contents(doc, [j.parent]), contents(doc, j.children)];
+    for (const [from, to] of j.kind === 'attach' ? [[[...p, ...c], [...p, ...c]]] : [[p, c]]) for (const id of from) viewer.carried.set(id, [...(viewer.carried.get(id) ?? []), ...to.filter((x) => x !== id)]);
+  }
   viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: owner.has(b.id), outlined: b.visible && !hideAll.objects && shownIn(b.group) && doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id && f.free)) })));
   viewer.select(contents(doc, selected), groupKept(doc));
   viewer.setSketches(shown, activeSketch(), shapeSel);
@@ -698,7 +704,7 @@ function commit(next: Doc) {
 
 /**
  * Tool bodies stick to their owner: an owner moved from `before` to `next` takes those that did not move themselves
- * along; so does a joint's parent its parts, and a part of an attach both ways its parent (and so the other parts).
+ * along; so does a joint's parent its parts, and a part of an attach its parent (and so the other parts).
  */
 function follow(before: Doc, next: Doc): Doc {
   const owner = ownersOf(next);
@@ -728,11 +734,11 @@ function follow(before: Doc, next: Doc): Doc {
   for (const b of next.bodies) if (moved(b.id)) drag(b.id, by(b.id)!, new Set([b.id]));
   // what goes along moves by as much in the world (a joint's parts would else swing around an axis that left them),
   // each counting it in its own group's (turned) coordinates
-  const turnOf = (m: Matrix4) => new Matrix4().extractRotation(m);
-  const world = (id: string) => new Vector3(...by(id)!).applyMatrix4(turnOf(parentPlace(id)));
+  const spin = (m: Matrix4) => new Matrix4().extractRotation(m);
+  const world = (id: string) => new Vector3(...by(id)!).applyMatrix4(spin(parentPlace(id)));
   const shift = (id: string, w: Vector3) => {
     if (!still(by(id))) return; // moved itself
-    const local = w.clone().applyMatrix4(turnOf(parentPlace(id)).invert()).toArray();
+    const local = w.clone().applyMatrix4(spin(parentPlace(id)).invert()).toArray();
     const i = out.bodies.findIndex((b) => b.id === id);
     if (i >= 0) {
       const p = at(out, id)!;
@@ -746,16 +752,42 @@ function follow(before: Doc, next: Doc): Doc {
       out = setIn(out, ['groups', String(g), 'origin', 'position'], o.position.map((x, k) => plus(x, p[k], local[k])));
     } else if (o) for (const b of contents(out, [id])) if (out.bodies.some((x) => x.id === b)) shift(b, w);
   };
-  // the parents moved: by themselves, or by a part of an attach both ways
+  // the parents moved: by themselves, or by a part of an attach
   const parents = new Map<string, Vector3>();
   for (const j of next.joints) {
     if (moved(j.parent)) parents.set(j.parent, world(j.parent));
-    const part = j.kind === 'attach' && j.both && !moved(j.parent) && !parents.has(j.parent) && j.children.find(moved);
+    const part = j.kind === 'attach' && !moved(j.parent) && !parents.has(j.parent) && j.children.find(moved);
     if (part) shift(j.parent, world(part)), parents.set(j.parent, world(part));
   }
   for (const j of next.joints) {
     const w = parents.get(j.parent);
     if (w) for (const c of j.children) shift(c, w);
+  }
+  // one object of an attach given a new turn alone (the rotate command): the others turn with it, around its origin
+  const placeIn = (doc: Doc, id: string) => {
+    const b = doc.bodies.find((q) => q.id === id)!;
+    const lookup = paramLookup(doc.params);
+    return new Matrix4().compose(new Vector3(...(resolve(b.position, lookup, '', new Map()) as Vec3)), turnOf(resolve(b.rotation, lookup, '', new Map())), new Vector3(1, 1, 1));
+  };
+  const turned = (id: string) => {
+    const [b, n] = [before.bodies.find((q) => q.id === id), next.bodies.find((q) => q.id === id)];
+    return !!b && !!n && JSON.stringify(b.rotation) !== JSON.stringify(n.rotation);
+  };
+  for (const j of next.joints) {
+    const all = [j.parent, ...j.children];
+    const alone = all.filter(turned);
+    if (j.kind !== 'attach' || alone.length !== 1 || moved(alone[0])) continue;
+    const was = bodyPlaces.get(alone[0]);
+    if (!was) continue;
+    const delta = parentPlace(alone[0]).multiply(placeIn(next, alone[0])).multiply(was.clone().invert());
+    for (const id of all) {
+      if (id === alone[0]) continue;
+      const { position, rotation } = placementIn(parentPlace(id), delta.clone().multiply(bodyPlaces.get(id) ?? groupPlace(id)));
+      const i = out.bodies.findIndex((b) => b.id === id);
+      if (i >= 0) out = setIn(setIn(out, ['bodies', String(i), 'rotation'], rotation), ['bodies', String(i), 'position'], position);
+      const g = out.groups.findIndex((x) => x.id === id);
+      if (g >= 0) out = setIn(out, ['groups', String(g), 'origin'], { kind: 'custom', position, rotation });
+    }
   }
   return out;
 }
@@ -3987,8 +4019,8 @@ function rotateTool() {
   const inTurned = (group: string | null): boolean => !!group && (selected.includes(group) || inTurned(doc0.groups.find((g) => g.id === group)?.parent ?? null));
   const ids = selected.filter((id) => !doc0.bodies.some((b) => b.id === id && inTurned(b.group)) && !doc0.groups.some((g) => g.id === id && inTurned(g.parent)));
   // a joint's parent takes what it moves along (and they their tool bodies)
-  // an attach both ways: a part takes its parent along (and so the other parts)
-  for (const j of doc0.joints) if (j.kind === 'attach' && j.both && j.children.some((c) => ids.includes(c)) && !ids.includes(j.parent)) ids.push(j.parent);
+  // an attach: a part takes its parent along (and so the other parts)
+  for (const j of doc0.joints) if (j.kind === 'attach' && j.children.some((c) => ids.includes(c)) && !ids.includes(j.parent)) ids.push(j.parent);
   for (const j of doc0.joints) if (ids.includes(j.parent)) for (const c of j.children) if (!ids.includes(c)) ids.push(c);
   for (const [owned, by] of owner) if (ids.includes(by) && !ids.includes(owned)) ids.push(owned);
   const start = new Map(ids.map((id) => [id, (bodyPlaces.get(id) ?? groupPlace(id)).clone()]));
@@ -4300,10 +4332,10 @@ function jointTool(attaching = false) {
       if (!face?.snap) return render();
       const doc = history.current;
       const back = (bodyPlaces.get(parent) ?? groupPlace(parent)).clone().invert();
-      const joint = attach(doc, newId(), parent, children, face.snap.clone().applyMatrix4(back).toArray(), false);
+      const made = runCommand(doc, 'attach', { id: parent, ids: children, at: face.snap.clone().applyMatrix4(back).toArray() });
       selected = [parent];
-      commit({ ...doc, joints: [...doc.joints, joint] });
-      attachPanel(joint.id, true);
+      commit(made.doc);
+      attachPanel(made.result as string, true);
     }, true);
   }
   toolHint = 'Joint: click its axis · an edge or line, or a circle or round edge (through its centre, square to it) · [Esc] cancels';
@@ -4385,7 +4417,7 @@ function jointRange(j: Joint, lookup = paramLookup(history.current.params)): [nu
 /** Its range in words, shown grey after its name: `0–110°`, `0–35 mm`. */
 function rangeText(j: Joint) {
   const u = history.current.units;
-  if (j.kind === 'attach') return j.both ? 'both ways' : '';
+  if (j.kind === 'attach') return '';
   const [lo, hi] = jointRange(j).map((v) => (j.kind === 'hinge' ? fmt(v) : fmt(v / UNITS[u])));
   return j.kind === 'hinge' ? `${lo}–${hi}°` : `${lo}–${hi} ${u}`;
 }
@@ -4482,6 +4514,16 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     b.dataset.kind = k;
     return b;
   });
+  // the first moving object becomes the one that stays: the axis counted in its coordinates as it sits at 0, turned
+  // the other way so the same values make the same motion between them
+  const swap = () => {
+    const j = now();
+    const [first, ...rest] = j.children;
+    const at0 = jointed(history.current, ownPlaces, (x) => (x.id === j.id ? 0 : jointValue(x, lookup))).placed;
+    const to = (at0.get(first) ?? new Matrix4()).clone().invert().multiply(at0.get(j.parent) ?? new Matrix4());
+    const axis = { at: new Vector3(...j.axis.at).applyMatrix4(to).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(to).negate().toArray() };
+    write({ parent: first, children: [j.parent, ...rest], axis });
+  };
   const choose = (k: Joint['kind']) => {
     const j = now();
     if (k !== j.kind) {
@@ -4522,6 +4564,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     cell(maxLabel, maxInput, toObjectButton(aim, 'Click a point: the min or max (the last one typed in) points the moving part at it, or reaches it (T)', measureField)),
     cell(speedLabel, speedInput),
     button('⇄ Invert', 'Turn or move the other way round', () => write({ axis: { ...now().axis, dir: now().axis.dir.map((v) => -v) as [number, number, number] } })),
+    button('⇅ Swap', 'Swap: the first moving object stays, the one that stayed moves (the same motion between them)', swap),
     button('▶ Play', 'Play it once from its min to its max to see it (where it is now stays)', () => start(id, false)),
     button('✓', 'Keep the changes (Enter); Esc drops them', () => finish(true)),
   );
@@ -4536,9 +4579,8 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
 }
 
 /**
- * An attach's panel at the top middle of the view (`fresh`: just made; Esc then removes it): Both ways (moving a part
- * moves the parent and the others too), Anchor (click a point: where it shows, orange while the panel is open). Enter
- * or ✓ keeps it, Esc drops the changes.
+ * An attach's panel at the top middle of the view (`fresh`: just made; Esc then removes it): Anchor (click a point:
+ * where it shows, orange while the panel is open). Enter or ✓ keeps it, Esc drops the changes.
  */
 function attachPanel(id: string, fresh: boolean) {
   let changed = fresh;
@@ -4553,7 +4595,6 @@ function attachPanel(id: string, fresh: boolean) {
     viewer.showMeasureLine(anchor());
   };
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
-  const both = checkbox('Both ways', 'Moving or turning one of the parts moves the parent and the other parts too (off: only the parent takes the others along)', !!now().both, (on) => write({ both: on }));
   const pick = panelButton('Anchor', 'Click a corner, centre or point on a face: where the attach shows', () => {
     viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the anchor` : null);
     viewer.pickFace((face) => {
@@ -4579,11 +4620,11 @@ function attachPanel(id: string, fresh: boolean) {
     e.preventDefault();
     finish(pressed(e, 'confirm'));
   };
-  box.append(both, pick, panelButton('✓', 'Keep it (Enter); Esc drops the changes', () => finish(true)));
+  box.append(pick, panelButton('✓', 'Keep it (Enter); Esc drops the changes', () => finish(true)));
   document.body.append(box);
   atTop(box);
   viewer.showMeasureLine(anchor());
-  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name} · both ways or not · its anchor · [Enter] keeps it · [Esc] ${fresh ? 'removes it' : 'drops the changes'}`;
+  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name}, moving as one · its anchor · [Enter] keeps it · [Esc] ${fresh ? 'removes it' : 'drops the changes'}`;
   render();
   addEventListener('keydown', keys, { capture: true });
 }
@@ -4610,11 +4651,11 @@ let jointsKey = '';
  * frame's time, and whether where it stops is kept (else it only showed it: the edit panel's Play).
  */
 const playing = new Map<string, { phase: number; end: number; last: number; keep: boolean }>();
-/** Joints that play back and forth (this session). */
-const repeating = new Set<string>();
+/** Joints that play once, not back and forth (this session; the others repeat). */
+const once = new Set<string>();
 function renderJoints() {
   const doc = history.current;
-  const key = JSON.stringify([doc.joints.map((j) => [j.id, j.name, j.kind, j.min, j.max]), jointProblems, [...playing.keys()], [...repeating], doc.units]);
+  const key = JSON.stringify([doc.joints.map((j) => [j.id, j.name, j.kind, j.min, j.max]), jointProblems, [...playing.keys()], [...once], doc.units]);
   if (key !== jointsKey) {
     jointsKey = key;
     // an attach does not move: not here
@@ -4666,8 +4707,8 @@ function jointRow(j: Joint) {
   const on = playing.has(j.id);
   const play = Object.assign(document.createElement('button'), { className: `icon${on ? ' on' : ''}`, innerHTML: icon(on ? 'pause' : 'play'), title: on ? 'Pause (it stays there)' : 'Play to the max (Repeat: back and forth)' });
   play.onclick = () => (on ? pause(j.id) : start(j.id));
-  const repeat = Object.assign(document.createElement('button'), { className: `icon${repeating.has(j.id) ? ' on' : ''}`, innerHTML: icon('loop'), title: 'Repeat: play back and forth until paused' });
-  repeat.onclick = () => (repeating.has(j.id) ? repeating.delete(j.id) : repeating.add(j.id), render());
+  const repeat = Object.assign(document.createElement('button'), { className: `icon${once.has(j.id) ? '' : ' on'}`, innerHTML: icon('loop'), title: 'Repeat: play back and forth until paused' });
+  repeat.onclick = () => (once.has(j.id) ? once.delete(j.id) : once.add(j.id), render());
   const edit = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('edit'), title: 'Edit the joint: kind, limits, speed, direction', onclick: () => jointPanel(j.id, false) });
   const row = Object.assign(document.createElement('div'), { className: 'joint-row' });
   row.append(name, Object.assign(document.createElement('span'), { className: 'range', textContent: rangeText(j) }), edit, play, repeat, slider, now, nowLabel);
@@ -4751,7 +4792,7 @@ function animate(now: number) {
     }
     p.phase += (now - p.last) / 1000 / Math.max(0.1, settings.jointSeconds / speed);
     p.last = now;
-    if ((!repeating.has(id) || !p.keep) && p.phase >= p.end) {
+    if ((once.has(id) || !p.keep) && p.phase >= p.end) {
       if (p.keep) pause(id, jointRange(j, lookup)[p.end === 1 ? 1 : 0]);
       else playing.delete(id); // a preview: back to where it is
       continue;
@@ -5992,6 +6033,11 @@ function render() {
     previewAlign,
     jointTool: () => jointTool(),
     attachTool: () => jointTool(true),
+    breakAttach: (id) => {
+      const j = history.current.joints.find((x) => x.id === id);
+      commit(runCommand(history.current, 'detach', { id }).doc);
+      notify(`${j?.name ?? 'The attach'} broken: its objects move on their own (Undo brings it back)`);
+    },
     editJoint: (id) => (history.current.joints.find((j) => j.id === id)?.kind === 'attach' ? attachPanel(id, false) : jointPanel(id, false)),
     moveJointEnd(id, from, to) {
       const doc = history.current;
@@ -6727,7 +6773,7 @@ function notify(message: string, error = false, action: (() => void) | null = nu
 
 /**
  * The top bar's note: an error (red), else good news or the tool's hint (green: its first part big, the rest and the
- * pointer's other keys small below), else the last message.
+ * pointer's other keys small below), else the last message (grey; a click copies it, as an error's), else nothing.
  */
 function showNote() {
   const el = document.querySelector<HTMLElement>('#topbar .status');

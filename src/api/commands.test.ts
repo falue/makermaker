@@ -101,15 +101,28 @@ describe('coat', () => {
     expect(b.features[0].id).not.toBe(a.features[0].id);
     expect(b.features.at(-1)).toMatchObject({ skin: true });
   });
-  it('linked: only the skin, the steps shared, attached both ways; not linked: none', () => {
+  it('linked: only the skin, the steps shared, attached; not linked: none', () => {
     const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true, linked: true });
     expect(out.doc.bodies[1]).toMatchObject({ link: made.result, features: [{ type: 'coat', skin: true }] });
-    expect(out.doc.joints).toMatchObject([{ kind: 'attach', both: true, parent: made.result, children: [out.result], name: 'Attach 1' }]);
+    expect(out.doc.joints).toMatchObject([{ kind: 'attach', parent: made.result, children: [out.result], name: 'Attach 1' }]);
     expect(runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true }).doc.joints).toEqual([]);
   });
   it('deleting either takes the attach along', () => {
     const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true, linked: true });
     expect(runCommand(out.doc, 'delete', { ids: [out.result] }).doc.joints).toEqual([]);
     expect(runCommand(out.doc, 'delete', { ids: [made.result] }).doc.joints).toEqual([]);
+  });
+});
+
+describe('attach', () => {
+  it('attaches objects to one and detaches them; refuses what is not there', () => {
+    let doc = runCommand({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, 'box', { width: 10, depth: 10, height: 10 }).doc;
+    doc = runCommand(doc, 'box', { width: 5, depth: 5, height: 5 }).doc;
+    const [a, b] = doc.bodies.map((x) => x.id);
+    const made = runCommand(doc, 'attach', { id: a, ids: [b], at: [0, 0, 10] });
+    expect(made.doc.joints).toMatchObject([{ id: made.result, kind: 'attach', parent: a, children: [b], axis: { at: [0, 0, 10] } }]);
+    expect(runCommand(made.doc, 'detach', { id: made.result }).doc.joints).toEqual([]);
+    expect(() => runCommand(doc, 'attach', { id: a, ids: ['nope'] })).toThrow();
+    expect(() => runCommand(doc, 'attach', { id: a, ids: [a] })).toThrow();
   });
 });

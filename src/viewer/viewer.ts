@@ -2064,10 +2064,16 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** `ids` and the bodies they own, all the way down. */
+  /** Bodies a body takes along when it moves: a joint's parts, an attach's others (set by the host). */
+  carried = new Map<string, string[]>();
+
+  /** `ids` and the bodies they own or take along, all the way down. */
   private withOwned(ids: string[]) {
     const out = [...ids];
-    for (let i = 0; i < out.length; i++) for (const [owned, owner] of this.owners) if (owner === out[i] && !out.includes(owned)) out.push(owned);
+    for (let i = 0; i < out.length; i++) {
+      for (const [owned, owner] of this.owners) if (owner === out[i] && !out.includes(owned)) out.push(owned);
+      for (const c of this.carried.get(out[i]) ?? []) if (!out.includes(c)) out.push(c);
+    }
     return out;
   }
 
@@ -4105,12 +4111,17 @@ export class Viewer implements ToolView {
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(unit(this.facingAxis()), start),
       only: member && this.selection.length > 1 ? id : null,
       apply: (by) => {
+        if (!this.moving) this.previewMove(new THREE.Vector3()); // a ghost stays where they were
         for (const g of group) this.group(g.id).position.copy(g.from).add(by);
         this.applySection(false);
       },
       end: (by) => {
-        if (by) return this.host.move(group.map((g) => ({ id: g.id, position: this.group(g.id).position.toArray() })));
-        for (const g of group) this.group(g.id).position.copy(g.from);
+        const to = group.map((g) => ({ id: g.id, position: this.group(g.id).position.toArray() }));
+        this.previewMove(null); // the ghosts go (and all back where it was)
+        if (by) {
+          for (const t of to) this.group(t.id).position.fromArray(t.position);
+          return this.host.move(to);
+        }
         this.applySection();
       },
     });
