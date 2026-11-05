@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { anchorAt, ballAcross, ballOnFour, ballOnThree, ballsInCorner, placed, sizedTo, tangentAt, tangentFrom, turnedTo } from './shapes';
+import { anchorAt, ballAcross, ballOnFour, ballOnThree, ballsInCorner, placed, sizedTo, bezierCurve, circleCurve, tangentAlong, tangentFrom, turnedTo } from './shapes';
 
 const rect = { kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: 0, rot: 0 } as const;
 
@@ -41,37 +41,51 @@ describe('balls', () => {
   });
 });
 
-describe('tangent from a circle', () => {
-  const round = { c: [10, 5] as [number, number], r: 4, near: [10, 9] as [number, number] }; // clicked on its top
-  const off = (at: number[], dir: number) => Math.abs((round.c[0] - at[0]) * Math.sin(dir) - (round.c[1] - at[1]) * Math.cos(dir));
+describe('tangent from a curve', () => {
+  const circle = circleCurve([10, 5], 4);
+  const off = (at: number[], dir: number) => Math.abs((10 - at[0]) * Math.sin(dir) - (5 - at[1]) * Math.cos(dir));
 
-  it('touches on the side clicked, wherever the pointer goes', () => {
+  it('a circle: touches on the side clicked, wherever the pointer goes', () => {
     for (const to of [[30, 9], [-20, 9], [30, -7], [-3, 14]] as [number, number][]) {
-      const t = tangentFrom(round, round.near, to);
+      const t = tangentFrom(circle, [10, 9], 0.25, to);
       expect(Math.hypot(t.at[0] - 10, t.at[1] - 5)).toBeCloseTo(4, 9);
       expect(off(t.at, t.dir)).toBeCloseTo(4, 9);
       expect(t.at[1]).toBeGreaterThan(5);
-      expect(Math.atan2(to[1] - t.at[1], to[0] - t.at[0])).toBeCloseTo(t.dir, 9);
+      expect(Math.atan2(to[1] - t.at[1], to[0] - t.at[0])).toBeCloseTo(t.dir, 7);
     }
-    expect(tangentFrom(round, round.near, [30, 9]).at).toEqual([expect.closeTo(10, 9), expect.closeTo(9, 9)]);
+    expect(tangentFrom(circle, [10, 1], 0.75, [30, 1]).at[1]).toBeCloseTo(1, 9);
   });
 
-  it('clicked on the other side: the other tangent', () => {
-    expect(tangentFrom({ ...round, near: [10, 1] }, [10, 1], [30, 1]).at[1]).toBeCloseTo(1, 9);
-  });
-
-  it('a pointer inside stays on the circle, along it', () => {
-    const t = tangentFrom(round, [10, 9], [12, 6]);
-    expect(t.at).toEqual([10, 9]);
+  it('a pointer inside stays where it is, along the circle', () => {
+    const t = tangentFrom(circle, [10, 9], 0.25, [12, 6]);
+    expect(t.t).toBe(0.25);
     expect(t.dir).toBeCloseTo(0, 9);
-    expect(tangentFrom(round, [10, 9], [8, 6]).dir).toBeCloseTo(Math.PI, 9);
+    expect(tangentFrom(circle, [10, 9], 0.25, [8, 6]).dir).toBeCloseTo(Math.PI, 9);
   });
 
-  it('a direction set: the same side, still touching', () => {
-    const { at, dir, side } = tangentFrom(round, round.near, [30, 9]);
-    expect(tangentAt(round, dir, side)).toEqual([expect.closeTo(at[0], 9), expect.closeTo(at[1], 9)]);
-    const turned = tangentAt(round, 0.5, side);
-    expect(off(turned, 0.5)).toBeCloseTo(4, 9);
-    expect(turned[1]).toBeGreaterThan(5);
+  it('a short arc: on it while a tangent reaches, else it stays', () => {
+    const arc = circleCurve([0, 0], 10, Math.PI / 3, (2 * Math.PI) / 3); // the top sixth
+    const t = tangentFrom(arc, [0, 10], 0.5, [30, 10]);
+    expect(t.at[0]).toBeCloseTo(0, 7);
+    expect(t.at[1]).toBeCloseTo(10, 7);
+    const beyond = tangentFrom(arc, [0, 10], 0.1, [10, -30]); // touches the circle off the arc
+    expect(beyond.t).toBe(0.1);
+    const [nx, ny] = beyond.at;
+    expect(Math.cos(beyond.dir) * nx + Math.sin(beyond.dir) * ny).toBeCloseTo(0, 9);
+  });
+
+  it('a bezier: the line runs along the curve where it touches', () => {
+    const b = bezierCurve([0, 0], [10, 20], [30, 20], [40, 0]);
+    const t = tangentFrom(b, [20, 15], 0.5, [60, 25]);
+    const d = b.dir(t.t);
+    expect(Math.abs(Math.cos(t.dir) * d[1] - Math.sin(t.dir) * d[0]) / Math.hypot(...d)).toBeCloseTo(0, 9);
+    expect(Math.atan2(25 - t.at[1], 60 - t.at[0])).toBeCloseTo(t.dir, 7);
+  });
+
+  it('a direction set: where it runs that way, the nearest; none on a short arc', () => {
+    const top = circle.at(tangentAlong(circle, 0.5, [10, 9])!);
+    expect(off(top, 0.5)).toBeCloseTo(4, 9);
+    expect(top[1]).toBeGreaterThan(5);
+    expect(tangentAlong(circleCurve([0, 0], 10, Math.PI / 3, (2 * Math.PI) / 3), Math.PI / 2, [0, 10])).toBeNull();
   });
 });

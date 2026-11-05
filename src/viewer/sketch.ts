@@ -4,13 +4,13 @@ import { arcOf, area, centre, corners, curved, flattened, inside, nesting, ontoA
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, Curve, ShapeGroup, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
-import { ballAcross, ballOnFour, ballOnThree, ballsInCorner, tangentAt, tangentFrom, type Ball, type Round } from './shapes';
+import { ballAcross, ballOnFour, ballOnThree, ballsInCorner, bezierCurve, circleCurve, tangentAlong, tangentFrom, tangentStart, type Ball, type TangentCurve } from './shapes';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import { comboText, keysOf, pressed, role, type Action, type ModEvent } from '../ui/keys';
+import { comboText, keysOf, MODIFIER_NAMES, pressed, role, roleKey, roleKeyName, type Action, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import { inName } from '../doc/expr';
@@ -258,10 +258,10 @@ type Phase =
    * open side; `base`: the direction (radians, plane coordinates) its angle counts from: the previous side's (going
    * straight on is 0°), else the plane's x axis, or a line picked with B. `out`: the handle pulled from the last point;
    * `held`: a bezier point pressed, its handle being pulled (`adds`: a new point, `closes`: on the line's start);
-   * `arcEnd`: a first arc's end, its bulge still to come; `arc`: the open arc's middle; `round`: a tangent from a circle,
-   * its first point sliding around it (`line`: the circle, lit).
+   * `arcEnd`: a first arc's end, its bulge still to come; `arc`: the open arc's middle; `round`: a tangent from a curve,
+   * its first point sliding along it, at `t`, near `near` where it was clicked (`line`: the curve, lit).
    */
-  | { kind: 'polygon'; target: Target; pts: UV[]; curves: (Curve | null)[]; sides: NonNullable<Drawn['sides']>; cur: UV; typed: (string | undefined)[]; axis: number; base: number; out: UV | null; held: { at: UV; px: [number, number]; pull: UV | null; adds: boolean; closes: boolean } | null; arcEnd: UV | null; arc: UV | null; round?: Round & { line: Segment[] } }
+  | { kind: 'polygon'; target: Target; pts: UV[]; curves: (Curve | null)[]; sides: NonNullable<Drawn['sides']>; cur: UV; typed: (string | undefined)[]; axis: number; base: number; out: UV | null; held: { at: UV; px: [number, number]; pull: UV | null; adds: boolean; closes: boolean } | null; arcEnd: UV | null; arc: UV | null; round?: { curve: TangentCurve; near: UV; t: number; line: Segment[] } }
   /** A ball in space: the points clicked, or the planes it touches and its radius; `cur`: the point the pointer is on; `typed`: a diameter. */
   | { kind: 'ball'; pts: THREE.Vector3[]; planes: { at: THREE.Vector3; n: THREE.Vector3 }[]; cur: THREE.Vector3 | null; r: number; typed?: string }
   | ({ kind: 'pull'; target: Target; drawn: Drawn; shapes: DrawnProfile[] } & Pulling);
@@ -353,7 +353,10 @@ export class SketchTool implements Tool {
   private dwell: { seg: Segment | null; point: THREE.Vector3 | null; timer: number } = { seg: null, point: null, timer: 0 };
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
   /** Letting Shift go hides the angle rays without waiting for the pointer to move. */
-  private shiftUp = (e: KeyboardEvent) => e.key === 'Shift' && this.shiftHeld && ((this.shiftHeld = false), this.update());
+  private shiftUp = (e: KeyboardEvent) => {
+    if (e.key === 'Shift' && this.shiftHeld) (this.shiftHeld = false), this.update();
+    if (e.key === roleKeyName('tangent')) this.holdTangent(false);
+  };
 
   constructor(
     readonly kind: ToolKind | null,
@@ -395,6 +398,7 @@ export class SketchTool implements Tool {
 
   private press(e: PointerEvent): boolean {
     if (e.button !== 0) return false;
+    this.tangentHeld = role(e, 'tangent');
     const ph = this.phase;
     if (this.ballMode() && (ph.kind === 'hover' || ph.kind === 'ball')) return void this.ballPress(e), true;
     if (ph.kind === 'hover' && this.mode?.kind === 'plane') {
@@ -434,7 +438,7 @@ export class SketchTool implements Tool {
       this.litPlane(null);
       // a tangent circle starts on a line
       const line = this.drawMode()?.lines ? this.lineUV(target) : null;
-      const round = this.tangentOn && { ...this.tangentOn, near: at };
+      const round = this.tangentOn && { ...this.tangentOn, near: at, t: tangentStart(this.tangentOn.curve, at) };
       if (this.drawMode()?.lines && !line) return this.host.hint('Circle tangent to two lines: click the first line · [Alt] another drawing mode'), true;
       this.phase =
         this.kind === 'line'
@@ -480,6 +484,7 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     this.snapWhat = this.snapKey = null;
     this.snapSeg = this.onGuide = null;
+    this.tangentHeld = role(e, 'tangent');
     if (this.ballMode() && (ph.kind === 'hover' || ph.kind === 'ball')) return this.ballMove(e, ph);
     if (ph.kind === 'hover') {
       if (!this.kind && this.mode?.kind !== 'plane') return;
@@ -764,6 +769,7 @@ export class SketchTool implements Tool {
   /** Keys while drawing; returns true if used. Letters only count while typing a size, so tool keys still switch tools. */
   key(e: KeyboardEvent): boolean {
     const ph = this.phase;
+    if (e.key === roleKeyName('tangent')) this.holdTangent(true);
     // a line's length or angle starts with a digit, so letters still snap, fix guides and switch tools
     const sideTyping = ph.kind === 'polygon' && (ph.typed[ph.axis] !== undefined || /[\d.($-]/.test(e.key));
     const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull' || sideTyping || (ph.kind === 'ball' && ph.planes.length === 3));
@@ -1114,12 +1120,27 @@ export class SketchTool implements Tool {
   /** Where the pointer was at the last A or Shift A: the line split stays the line until it moves. */
   private splitAt: [number, number] | null = null;
 
-  /** The circle under the pointer that a click of the line tool starts a tangent from. */
-  private tangentOn: (Omit<Round, 'near'> & { line: Segment[] }) | null = null;
+  /** The curve under the pointer that a click of the line tool starts a tangent from (see `tangentHeld`). */
+  private tangentOn: { curve: TangentCurve; line: Segment[] } | null = null;
+  /** The tangent modifier is held. */
+  private tangentHeld = false;
+  /** The pointer is on a curve the line tool could start a tangent from, with the modifier. */
+  private tangentNear = false;
+
+  /** The tangent modifier pressed or let go: what the pointer is on changes at once. */
+  private holdTangent(on: boolean) {
+    if (on === this.tangentHeld) return;
+    this.tangentHeld = on;
+    if (this.phase.kind === 'hover' && this.kind === 'line' && this.lastPoint) {
+      this.point(...this.lastPoint);
+      this.update();
+    }
+  }
 
   private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], grid: boolean, px = 10, linePx = 8): UV | null {
     this.cycle.count = 0;
     this.tangentOn = null;
+    this.tangentNear = false;
     const p = planeHit(this.view.ray(e), t.frame);
     if (!p) return null;
     const r = this.view.el.getBoundingClientRect();
@@ -1135,7 +1156,7 @@ export class SketchTool implements Tool {
       const d = distance(q);
       if (d < nearest) [near, nearest] = [q, d];
     }
-    type Near = { at: THREE.Vector3; line: Segment[]; what: string; key?: string; seg?: Segment; on: Segment; guide?: (typeof SketchTool.guides)[number]; d: number };
+    type Near = { at: THREE.Vector3; line: Segment[]; what: string; key?: string; seg?: Segment; on: Segment; i: number; guide?: (typeof SketchTool.guides)[number]; d: number };
     const under = new Map<number, Near>();
     const close: { line: number; a: UV; b: UV }[] = [];
     // along lines and at their crossings only in the plane drawn on: a line off it would snap to its projection, away from the pointer
@@ -1153,7 +1174,7 @@ export class SketchTool implements Tool {
         close.push({ line, a: uvOf(t.frame, a), b: uvOf(t.frame, b) });
         // the line for A / Shift A: a circle, a straight side, or a straight body edge
         const key = guide ? undefined : shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : (curves?.[i] ?? (shape ? sideKey(a, b) : edgeKey(segs)));
-        if (!under.has(line) || d < under.get(line)!.d) under.set(line, { at: a.clone().lerp(b, k), line: segs, what, key, seg: key && straightKey(key) ? [a, b] : undefined, on: [a, b], guide, d });
+        if (!under.has(line) || d < under.get(line)!.d) under.set(line, { at: a.clone().lerp(b, k), line: segs, what, key, seg: key && straightKey(key) ? [a, b] : undefined, on: [a, b], i, guide, d });
       }
     // the line just split with A stays the line while the pointer is on it: a point that went must not hand it to what lies near
     const still = this.splitAt && Math.hypot(e.clientX - this.splitAt[0], e.clientY - this.splitAt[1]) < 3;
@@ -1164,8 +1185,22 @@ export class SketchTool implements Tool {
     const real = [...under.entries()].filter(([, u]) => !u.guide).sort(([, u], [, v]) => +(v.key === this.showing) - +(u.key === this.showing) || u.d - v.d);
     const lying = (g: NonNullable<Near['guide']>, [a, b]: Segment) => g.dir.clone().cross(b.clone().sub(a).normalize()).length() < 1e-4 && a.clone().sub(g.at).cross(g.dir).length() < 1e-3;
     for (const [line, u] of under) if (u.guide && real.some(([, r]) => lying(u.guide!, r.on))) under.delete(line);
-    // a line starting on a circle: its line, the tangent, unless right on a point of it
-    if (near?.key?.startsWith('circle:') && near.key !== this.showing && this.phase.kind === 'hover' && this.kind === 'line' && this.straightMode() && distance(near) > 4 && real.some(([, u]) => u.key === near!.key)) near = undefined;
+    // a line starting on a curve: with the modifier its tangent goes before all points
+    if (this.phase.kind === 'hover' && this.kind === 'line' && this.straightMode()) {
+      for (const [line, u] of real) {
+        const round = curveOf(lines[line], u.i, t.frame);
+        if (!round) continue;
+        this.tangentNear = true;
+        if (!this.tangentHeld) break;
+        const uv = uvOf(t.frame, this.onTrueLine(lines[line], u.at, t));
+        this.tangentOn = { curve: round.curve, line: u.line };
+        this.snapped = v3(toWorld(t.frame, ...uv));
+        this.snapLine = u.line;
+        this.snapWhat = `on ${round.name} · Click: a tangent from it`;
+        this.snapPoint = this.snapSeg = this.snapKey = this.onGuide = null;
+        return uv;
+      }
+    }
     // on a line, on an edge or on a point along it, all at once: Tab goes through them (see `key`)
     const along = near?.key ? 1 : 0;
     const seen = [near?.key, ...real.map(([line]) => line)].join();
@@ -1225,11 +1260,6 @@ export class SketchTool implements Tool {
       this.snapKey = best.key ?? null;
       this.snapSeg = best.seg ?? null;
       this.onGuide = best.guide ?? null;
-      const round = this.phase.kind === 'hover' && this.kind === 'line' && this.straightMode() ? roundOf(lines[taken![0]], t.frame) : null;
-      if (round) {
-        this.tangentOn = { ...round, line: best.line };
-        this.snapWhat = 'on circle · Click: a tangent from it';
-      }
       return uv;
     }
     if (off) {
@@ -1259,15 +1289,21 @@ export class SketchTool implements Tool {
     const at = this.point(e, ph.target, false);
     if (!at) return null;
     const sliding = this.sliding(ph);
-    const from = sliding && tangentFrom(sliding, ph.pts[0], at);
+    const from = sliding && tangentFrom(sliding.curve, sliding.near, sliding.t, at);
     const start = from ? from.at : ph.pts[ph.pts.length - 1];
     // relative to the direction it counts from
     const raw = deg((from ? from.dir : Math.atan2(at[1] - start[1], at[0] - start[0])) - ph.base);
     const by = (step: number) => Math.round(raw / step) * step;
     const typedDeg = ph.typed[1] === undefined ? null : this.host.number(ph.typed[1]);
-    const a = ph.base + ((typedDeg ?? (role(e, 'constrain') ? by(SketchTool.angleStep) : this.snapped ? raw : by(role(e, 'precise') ? this.view.minAngle : 1))) * Math.PI) / 180;
-    // a tangent's start slides to where a line in that direction touches
-    const [x0, y0] = from ? (ph.pts[0] = tangentAt(sliding!, a, from.side)) : start;
+    let a = ph.base + ((typedDeg ?? (role(e, 'constrain') ? by(SketchTool.angleStep) : this.snapped ? raw : by(role(e, 'precise') ? this.view.minAngle : 1))) * Math.PI) / 180;
+    if (sliding && from) {
+      // its start slides to where the curve runs that way; nowhere (a short arc): its direction as it is
+      const t = tangentAlong(sliding.curve, a, from.at);
+      if (t === null) a = from.dir;
+      sliding.t = t ?? from.t;
+      ph.pts[0] = t === null ? from.at : sliding.curve.at(t);
+    }
+    const [x0, y0] = from ? ph.pts[0] : start;
     const along = (at[0] - x0) * Math.cos(a) + (at[1] - y0) * Math.sin(a);
     const step = this.view.step(v3(toWorld(ph.target.frame, ...at)), e, false);
     const len = this.typed(ph.typed[0]) ?? (this.snapped ? along : Math.round(along / step) * step);
@@ -1279,7 +1315,7 @@ export class SketchTool implements Tool {
     return ['single', 'polygon'].includes(this.drawMode()?.id ?? '');
   }
 
-  /** The circle the line's first side is drawn tangent to, while it is the open side. */
+  /** The curve the line's first side is drawn tangent to, while it is the open side. */
   private sliding(ph: Extract<Phase, { kind: 'polygon' }>) {
     return ph.pts.length === 1 && this.straightMode() ? ph.round : undefined;
   }
@@ -1725,6 +1761,7 @@ export class SketchTool implements Tool {
       this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(guideSeg(g).flatMap((v) => v.toArray())), m).computeLineDistances());
     }
     // on a point along a line (not anywhere along it)
+    const tangentKey = ph.kind === 'hover' && this.tangentNear && !this.tangentOn ? `${MODIFIER_NAMES[roleKey('tangent')]}-click: a tangent from it` : null;
     const more = this.snapKey && !this.snapWhat?.startsWith('on ') ? `Press ${comboText(keysOf('moreSnaps')[0])} for more points, ${comboText(keysOf('fewerSnaps')[0])} for fewer` : null;
     const guide = this.hoveredGuide();
     const onPoint = this.snapped && !this.snapWhat?.startsWith('on ');
@@ -1737,7 +1774,7 @@ export class SketchTool implements Tool {
     // pulling: while aiming what the pointer reaches (what T does is in the size label)
     const pulling = ph.kind === 'pull' && this.reaching && [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n');
     // at the pointer what it measures and is on; other keys with the tool's hint
-    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, ph.kind === 'polygon' && this.sliding(ph) && 'Tangent', this.snapWhat, split, this.nothingToSplit && 'No line here to split: put the pointer on one'].filter(Boolean).join('\n') || null, [more, cycleHint, fix, base, angles].filter(Boolean).join(' · ') || null);
+    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, ph.kind === 'polygon' && this.sliding(ph) && 'Tangent', this.snapWhat, split, this.nothingToSplit && 'No line here to split: put the pointer on one'].filter(Boolean).join('\n') || null, [tangentKey, more, cycleHint, fix, base, angles].filter(Boolean).join(' · ') || null);
     if (ph.kind === 'polygon' && !ph.arc && !ph.held && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'ball') {
       // see-through orange until made, also inside a body; what was clicked marked
@@ -1886,15 +1923,39 @@ function showMode(el: HTMLElement, kind: ToolKind, m: Mode, ms = 3000) {
   setTimeout(() => note.remove(), ms);
 }
 
-/** The circle a line is part of (plane coordinates): a sketch's circle or a body's round edge, at least half of it there; null: none. */
-function roundOf(l: SnapLine, f: Frame): Omit<Round, 'near'> | null {
-  if (l.guide || (l.shape && l.shape.p.kind !== 'circle') || l.segs.length < 4) return null;
+/**
+ * The curve of line `l` at its segment `i` (plane coordinates) a line can be tangent to, and what it is called: a
+ * sketch's circle, arc or bezier side, a body's round edge (from half a circle on: the whole circle); null: none.
+ */
+function curveOf(l: SnapLine, i: number, f: Frame): { curve: TangentCurve; name: string } | null {
+  const arc = (a: UV, mid: UV, b: UV) => {
+    const o = arcOf(a, mid, b);
+    return o && { curve: circleCurve(o.c, o.r, o.a0, o.a1), name: 'arc' };
+  };
+  if (l.guide) return null;
+  if (l.shape) {
+    const { p, sketch } = l.shape;
+    const uv = (q: UV) => uvOf(f, v3(toWorld(sketch.frame, ...q)));
+    if (p.kind === 'circle') return { curve: circleCurve(uv([p.x, p.y]), p.d / 2), name: 'circle' };
+    if ((p.kind !== 'polygon' && p.kind !== 'line') || !curved(p)) return null;
+    const q = bakeTurn(p);
+    let side = 0;
+    for (const s of sidesOf(q)) {
+      i -= s.length - 1;
+      if (i < 0) break;
+      side++;
+    }
+    const c = q.curves?.[side];
+    if (!c) return null;
+    const [a, b] = [uv(q.pts[side]), uv(q.pts[(side + 1) % q.pts.length])];
+    return 'c1' in c ? { curve: bezierCurve(a, uv(c.c1), uv(c.c2), b), name: 'curve' } : arc(a, uv(c.mid), b);
+  }
+  if (l.segs.length < 4) return null;
   const pts = [...l.segs.map(([a]) => uvOf(f, a)), uvOf(f, l.segs[l.segs.length - 1][1])];
-  const fit = circleThrough(pts[0], pts[Math.floor(pts.length / 3)], pts[Math.floor((2 * pts.length) / 3)]);
-  if (fit?.kind !== 'circle') return null;
-  const r = fit.d / 2;
+  const fit = arcOf(pts[0], pts[Math.floor(pts.length / 3)], pts[Math.floor((2 * pts.length) / 3)]);
+  if (!fit || !pts.every((q) => Math.abs(Math.hypot(q[0] - fit.c[0], q[1] - fit.c[1]) - fit.r) < 1e-3)) return null;
   const length = l.segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
-  return length > 0.98 * Math.PI * r && pts.every((q) => Math.abs(Math.hypot(q[0] - fit.x, q[1] - fit.y) - r) < 1e-3) ? { c: [fit.x, fit.y], r } : null;
+  return length > 0.98 * Math.PI * fit.r ? { curve: circleCurve(fit.c, fit.r), name: 'circle' } : arc(pts[0], pts[pts.length >> 1], pts[pts.length - 1]);
 }
 
 /** The circle through three points (plane coordinates); null: they lie on one line. */
