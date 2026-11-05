@@ -254,6 +254,23 @@ let lastEye: { list: 'objects' | 'sketches' | 'solid'; id: string; on: boolean }
 /** The list row whose name is edited in place (its id). */
 let renaming: string | null = null;
 
+let pairOut = 0;
+let pairLit: ((id: string) => string | null) | null = null;
+/** Paints the lit pair on the list rows (again after a redraw). */
+function paintPair() {
+  for (const r of document.querySelectorAll<HTMLElement>('#left .listed[data-id]')) {
+    r.classList.remove('bool-tool', 'bool-target', 'joint-static', 'joint-moving');
+    const c = pairLit?.(r.dataset.id!);
+    if (c) r.classList.add(c);
+  }
+}
+/** List rows lit as a pair (a boolean's sides, a joint's ends; `classOf` a row's class); null: out a second later, unless another pair lights first. */
+function lightPair(classOf: typeof pairLit) {
+  clearTimeout(pairOut);
+  if (classOf) (pairLit = classOf), paintPair();
+  else pairOut = window.setTimeout(() => ((pairLit = null), paintPair()), 1000);
+}
+
 /** A list row's button; while its name is edited, a plain box (an input cannot sit in a button). */
 function listItem(id: string, className: string, pick: (how: Pick) => void, ...children: (Node | string)[]) {
   if (renaming === id) return h('div', { className }, ...children);
@@ -311,6 +328,7 @@ export function renderUI(ctx: UIContext) {
   const scrolled = new Map([...$('left').querySelectorAll<HTMLElement>('.list-body')].map((b) => [b.dataset.list, b.scrollTop]));
   $('left').replaceChildren(...left(ctx));
   for (const b of $('left').querySelectorAll<HTMLElement>('.list-body')) b.scrollTop = scrolled.get(b.dataset.list) ?? 0;
+  paintPair();
   $('right').replaceChildren(...right(ctx));
   $('hint').innerHTML = axisHtml(ctx.hint ?? (ctx.sketching ? SKETCH_HINT : hint(ctx.selected.length, ctx.shapes.length))).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   rendering = false;
@@ -694,12 +712,8 @@ function left(ctx: UIContext): Node[] {
     // the boolean's other side: the body it cuts, or its tool bodies
     const tools = doc.bodies.find((b) => b.id === id)?.features.flatMap((f) => (f.type === 'boolean' ? [f.body] : [])) ?? [];
     const targets = doc.bodies.filter((b) => b.features.some((f) => f.type === 'boolean' && f.body === id)).map((b) => b.id);
-    const mark = (on: boolean) => {
-      for (const r of document.querySelectorAll<HTMLElement>('#left .listed[data-id]')) {
-        r.classList.toggle('bool-tool', on && tools.includes(r.dataset.id!));
-        r.classList.toggle('bool-target', on && targets.includes(r.dataset.id!));
-      }
-    };
+    const pair = tools.length + targets.length > 0;
+    const mark = (on: boolean) => pair && lightPair(on ? (r) => (tools.includes(r) ? 'bool-tool' : targets.includes(r) ? 'bool-target' : null) : null);
     el.onmouseenter = () => (ctx.lightBodies([id, ...doc.bodies.filter((b) => b.link === id).map((b) => b.id), ...tools, ...targets]), mark(true));
     el.onmouseleave = () => (ctx.lightBodies(null), mark(false));
     el.dataset.id = id;
@@ -763,10 +777,7 @@ function left(ctx: UIContext): Node[] {
     const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon('joint'), title: `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it · drag onto another object: it takes this one's place`, onclick: () => ctx.editJoint(j.id) });
     // hovered: what stays and what moves light in the list (in two colours) and in the view
     const light = (on: boolean) => {
-      for (const r of document.querySelectorAll<HTMLElement>('#left .listed[data-id]')) {
-        r.classList.toggle('joint-static', on && r.dataset.id === j.parent);
-        r.classList.toggle('joint-moving', on && j.children.includes(r.dataset.id!));
-      }
+      lightPair(on ? (r) => (r === j.parent ? 'joint-static' : j.children.includes(r) ? 'joint-moving' : null) : null);
       ctx.showJoint(on ? j.id : null);
     };
     el.onmouseenter = () => light(true);
