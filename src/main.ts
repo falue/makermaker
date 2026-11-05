@@ -3019,19 +3019,38 @@ function coatPanel(body: string, feature: string, isNew = false) {
     const n = now()?.f.exclude.length ?? 0;
     return n ? `${n} excluded` : '';
   };
-  const corners = Object.assign(document.createElement('select'), { title: 'Sharp: a box stays a box. Round: the same distance everywhere', onchange: () => set({ corners: corners.value as CoatFeature['corners'] }) });
+  const corners = Object.assign(document.createElement('select'), { title: 'Sharp: a box stays a box. Round: the same distance everywhere', onchange: () => (picking ? viewer.cancelFacePick() : 0, set({ corners: corners.value as CoatFeature['corners'] })) });
   corners.append(new Option('Sharp corners', 'sharp', false, start.f.corners === 'sharp'), new Option('Round corners', 'round', false, start.f.corners === 'round'));
   const faces = Object.assign(document.createElement('span'), { className: 'hint', textContent: faceWord() });
+  // while picking: no coat to see past, the real faces to click, nothing else changes until it ends
   let picking = false;
-  const pickFaces = () => {
-    if (picking) return;
+  const facesButton = panelButton('Select faces to exclude', 'Click: Show the body without its coat, then click flat faces that stay where they are (again: back)', () => (picking ? viewer.cancelFacePick() : void pickFaces()));
+  const pickFaces = async () => {
+    const c = now();
+    if (!c) return;
     picking = true;
+    facesButton.textContent = 'Done with faces';
+    facesButton.title = 'Click: Show the coat again';
+    let chosen = c.f.exclude.flatMap((e) => ({ ...e, item: null as FaceItem | null }));
+    history.replace(setIn(history.current, ['bodies', String(c.i), 'features', String(c.k)], { ...c.f, thickness: len(0) }));
+    changed = true;
+    update();
+    await kernel.idle();
+    await new Promise(requestAnimationFrame);
+    chosen = chosen.map((e) => ({ ...e, item: viewer.faceItemAt(body, e.at, e.n) }));
     const next = () => {
       toolHint = 'Coat: click flat faces to exclude: they stay where they are · again: back · [Esc] done with faces · [Enter] keeps it all';
       render();
       viewer.pickFace((face) => {
-        const c = now();
-        if (!face || !c) return (picking = false), (toolHint = hint), render();
+        if (!face) {
+          picking = false;
+          viewer.markFaces([]);
+          facesButton.textContent = 'Select faces to exclude';
+          facesButton.title = 'Click: Show the body without its coat, then click flat faces that stay where they are (again: back)';
+          toolHint = hint;
+          set({ thickness: { e: panel.inputs[0].value || '0', u: history.current.units }, exclude: chosen.map(({ at, n }) => ({ at, n })) });
+          return render();
+        }
         if (face.body === body) {
           const pl = bodyPlace(body);
           const at = unplaced(pl, face.point.toArray());
@@ -3047,12 +3066,12 @@ function coatPanel(body: string, feature: string, isNew = false) {
     next();
   };
   const hint = 'Coat: how thick, live · sharp or round corners · faces to exclude · [Enter] keeps it · [Esc] drops it';
-  valuePanel(
+  const panel = valuePanel(
     [{ label: 'Thickness', value: start.f.thickness.e, title: 'How much thicker, on all sides' }],
-    ([t]) => set({ thickness: { e: t, u: history.current.units } }),
+    ([t]) => picking || set({ thickness: { e: t, u: history.current.units } }),
     (ok) => (ok ? render() : changed ? undo() : render()),
     hint,
-    [corners, panelButton('Select faces to exclude', 'Click: then click flat faces that stay where they are (again: back)', pickFaces), faces],
+    [corners, facesButton, faces],
   );
 }
 

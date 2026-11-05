@@ -494,6 +494,7 @@ export function grownShape(shape: Shape3D, by: number, round: boolean): Shape3D 
 
 function coat(shape: Shape3D | null, s: Of<'coat'>): Shape3D {
   if (!shape) throw new Error('nothing to coat yet');
+  if (s.thickness === 0) return shape.clone(); // while its faces are being picked
   positive(s.thickness, 'thickness');
   let out = grownShape(shape, s.thickness, s.corners === 'round');
   for (const { at: p, n } of s.exclude) {

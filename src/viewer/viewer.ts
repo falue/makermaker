@@ -1132,6 +1132,19 @@ export class Viewer implements ToolView {
     });
   }
 
+  /** The face of `body` at a point on it, facing `n` (both in its own coordinates). */
+  faceItemAt(body: string, at: Vec3, n: Vec3): FaceItem | null {
+    const meshes: THREE.Mesh[] = [];
+    this.bodies.get(body)?.traverse((o) => o.userData.faces && meshes.push(o as THREE.Mesh));
+    for (const mesh of meshes) {
+      const out = new THREE.Vector3(...n);
+      const from = new THREE.Vector3(...at).addScaledVector(out, 0.01).applyMatrix4(mesh.matrixWorld);
+      const hit = new THREE.Raycaster(from, out.transformDirection(mesh.matrixWorld).negate()).intersectObject(mesh)[0];
+      if (hit) return this.faceItem(hit);
+    }
+    return null;
+  }
+
   private faceMarks: THREE.Mesh[] = [];
 
   /** Lights picked faces (orange) and the hovered one (blue); faces of meshes gone meanwhile are left out. */
