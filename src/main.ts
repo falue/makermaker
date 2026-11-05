@@ -254,14 +254,32 @@ function number(text: string) {
   }
 }
 
-/** What was picked in the 3D view shows in the left column: its groups open, its row scrolled to, smoothly. */
+let revealFrame = 0;
+/**
+ * What was picked in the 3D view shows in the left column: its groups open, its row scrolled to, smoothly (by hand:
+ * a redraw replaces the list, which ends a browser smooth scroll).
+ */
 function revealInList(id: string | null) {
   const doc = history.current;
   const object = id ? (doc.bodies.find((b) => b.id === id) ?? doc.sketches.find((x) => x.id === id)) : undefined;
   if (!object) return;
   for (let g = doc.groups.find((x) => x.id === object.group); g; g = doc.groups.find((x) => x.id === g!.parent)) folded.delete(g.id);
   render();
-  document.querySelector(`#left [data-id="${CSS.escape(id!)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const row = document.querySelector(`#left [data-id="${CSS.escape(id!)}"]`);
+  const list = row?.closest<HTMLElement>('.list-body');
+  if (!row || !list) return;
+  const [r, c] = [row.getBoundingClientRect(), list.getBoundingClientRect()];
+  const from = list.scrollTop;
+  const to = from + (r.top < c.top ? r.top - c.top : r.bottom > c.bottom ? Math.min(r.top - c.top, r.bottom - c.bottom) : 0);
+  const t0 = performance.now();
+  cancelAnimationFrame(revealFrame);
+  const step = (now: number) => {
+    const t = Math.min(1, (now - t0) / 300);
+    const body = document.querySelector<HTMLElement>(`#left .list-body[data-list="${list.dataset.list}"]`);
+    if (body) body.scrollTop = from + (to - from) * (1 - (1 - t) ** 3);
+    if (t < 1 && body) revealFrame = requestAnimationFrame(step);
+  };
+  if (to !== from) revealFrame = requestAnimationFrame(step);
 }
 
 const viewer = new Viewer(document.getElementById('viewport')!, {
@@ -276,7 +294,10 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     commit(setIn(history.current, ['images', String(i)], { ...im, width: width ?? im.width, frame: { ...im.frame, o } }));
   },
   move: place,
-  pickShape,
+  pickShape(sketch, shape, how) {
+    pickShape(sketch, shape, how);
+    if (selected.includes(sketch)) revealInList(sketch);
+  },
   setShapes,
   length,
   number,
