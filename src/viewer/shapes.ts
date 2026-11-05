@@ -1,3 +1,4 @@
+import { Matrix3, Vector3 } from 'three';
 import { arcOf, bakeTurn, centre, curved, mapPoints, sideDirs, sidesOf, type DrawnProfile } from '../doc/profiles';
 import type { Curve } from '../doc/types';
 
@@ -320,3 +321,42 @@ export function angleAt(p: DrawnProfile, [u, v]: UV) {
   return (Math.atan2(v - cy, u - cx) * 180) / Math.PI;
 }
 
+/** A ball by points or planes (world). */
+export type Ball = { center: Vector3; d: number };
+
+/** x with rows[i]·x = rhs[i]; null: the rows hardly span space. */
+function solve3(rows: Vector3[], rhs: number[]) {
+  const m = new Matrix3().set(...rows[0].toArray(), ...rows[1].toArray(), ...rows[2].toArray());
+  if (Math.abs(m.determinant()) < 1e-6) return null;
+  m.invert();
+  return new Vector3(...rhs).applyMatrix3(m);
+}
+
+/** The ball with `a` and `b` opposite each other. */
+export function ballAcross(a: Vector3, b: Vector3): Ball {
+  return { center: a.clone().add(b).divideScalar(2), d: a.distanceTo(b) };
+}
+
+/** The smallest ball through three points: they lie on its widest circle. Null: on one line. */
+export function ballOnThree(a: Vector3, b: Vector3, c: Vector3): Ball | null {
+  const [u, v] = [b.clone().sub(a), c.clone().sub(a)];
+  const n = u.clone().cross(v);
+  if (n.lengthSq() < 1e-9) return null;
+  const to = v.clone().cross(n).multiplyScalar(u.lengthSq()).add(n.clone().cross(u).multiplyScalar(v.lengthSq())).divideScalar(2 * n.lengthSq());
+  return { center: a.clone().add(to), d: 2 * to.length() };
+}
+
+/** The one ball through four points. Null: they lie in one plane. */
+export function ballOnFour(a: Vector3, b: Vector3, c: Vector3, e: Vector3): Ball | null {
+  const rows = [b, c, e].map((p) => p.clone().sub(a));
+  const to = solve3(rows.map((r) => r.clone().multiplyScalar(2)), rows.map((r) => r.lengthSq()));
+  return to && { center: a.clone().add(to), d: 2 * to.length() };
+}
+
+/** Balls touching three planes on the side their normals point to: the centre at radius r is `at` + r × `along`. Null: they meet in no one point. */
+export function ballsInCorner(planes: { at: Vector3; n: Vector3 }[]) {
+  const rows = planes.map((q) => q.n);
+  const at = solve3(rows, planes.map((q) => q.n.dot(q.at)));
+  const along = solve3(rows, [1, 1, 1]);
+  return at && along && { at, along };
+}

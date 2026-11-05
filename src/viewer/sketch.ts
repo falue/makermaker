@@ -4,6 +4,7 @@ import { arcOf, area, centre, corners, curved, flattened, inside, nesting, ontoA
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, Curve, ShapeGroup, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
+import { ballAcross, ballOnFour, ballOnThree, ballsInCorner, type Ball } from './shapes';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
@@ -93,6 +94,8 @@ export interface ToolView {
   ray(e: MouseEvent): THREE.Ray;
   /** Nearest body surface under the pointer (cut-away regions excluded). */
   hit(e: MouseEvent): THREE.Intersection | undefined;
+  /** Whether the face of a hit is flat. */
+  flatFace(hit: THREE.Intersection): boolean;
   /** What a click points at (world): a corner, an edge point or a face point; null: empty space. */
   pointAt(e: MouseEvent): THREE.Vector3 | null;
   /** Marks what a click at the pointer reaches (as `pointAt` finds it) and returns it; null: clears. */
@@ -221,6 +224,8 @@ export function pullBy(view: ToolView, e: PointerEvent, normal: V3, middle: THRE
 }
 
 export interface ToolHost {
+  /** A ball drawn in space: the next one can start. */
+  ball(ball: NonNullable<SketchResult['sphere']>): void;
   /** The Distance measure tool, this one waiting: `use` gets the length taken, `done` runs when it ends either way. */
   measure(use: (mm: number) => void, done: () => void): void;
   /** A typed size in mm (expressions and units allowed), or null if invalid. */
@@ -256,6 +261,8 @@ type Phase =
    * `arcEnd`: a first arc's end, its bulge still to come; `arc`: the open arc's middle.
    */
   | { kind: 'polygon'; target: Target; pts: UV[]; curves: (Curve | null)[]; sides: NonNullable<Drawn['sides']>; cur: UV; typed: (string | undefined)[]; axis: number; base: number; out: UV | null; held: { at: UV; px: [number, number]; pull: UV | null; adds: boolean; closes: boolean } | null; arcEnd: UV | null; arc: UV | null }
+  /** A ball in space: the points clicked, or the planes it touches and its radius; `cur`: the point the pointer is on; `typed`: a diameter. */
+  | { kind: 'ball'; pts: THREE.Vector3[]; planes: { at: THREE.Vector3; n: THREE.Vector3 }[]; cur: THREE.Vector3 | null; r: number; typed?: string }
   | ({ kind: 'pull'; target: Target; drawn: Drawn; shapes: DrawnProfile[] } & Pulling);
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
@@ -388,6 +395,7 @@ export class SketchTool implements Tool {
   private press(e: PointerEvent): boolean {
     if (e.button !== 0) return false;
     const ph = this.phase;
+    if (this.ballMode() && (ph.kind === 'hover' || ph.kind === 'ball')) return void this.ballPress(e), true;
     if (ph.kind === 'hover' && this.mode?.kind === 'plane') {
       const target = this.target(e);
       if (target) this.host.done({ target, depth: 0, mode: 'add' });
@@ -470,6 +478,7 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     this.snapWhat = this.snapKey = null;
     this.snapSeg = this.onGuide = null;
+    if (this.ballMode() && (ph.kind === 'hover' || ph.kind === 'ball')) return this.ballMove(e, ph);
     if (ph.kind === 'hover') {
       if (!this.kind && this.mode?.kind !== 'plane') return;
       const target = this.target(e);
@@ -494,7 +503,7 @@ export class SketchTool implements Tool {
         ph.dragged ||= Math.hypot(e.clientX - ph.px[0], e.clientY - ph.px[1]) > 4;
         ph.shift = role(e, 'constrain');
       }
-    } else {
+    } else if (ph.kind === 'pull') {
       if (this.reaching) return this.aim(this.view.aimAt(e)); // aiming at what to reach
       ph.alt = role(e, 'centre');
       pullBy(this.view, e, ph.target.frame.n, this.middle(ph), ph);
@@ -543,6 +552,16 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     const now = list.indexOf(this.drawMode(ph.kind === 'shape' ? ph : undefined)!);
     const next = list[(now + by + list.length) % list.length];
+    if (this.kind === 'sphere') {
+      // points already clicked carry over to the next way through points; else it starts over
+      this.view.aimAt(null);
+      this.view.markFace();
+      SketchTool.modes.set(this.kind, next.id);
+      if (ph.kind === 'ball' && BALL_POINTS[next.id] && !ph.planes.length) ph.pts = ph.pts.slice(0, BALL_POINTS[next.id] - 1);
+      else this.phase = { kind: 'hover' };
+      showMode(this.view.el, this.kind, next);
+      return this.host.hint(this.hoverHint());
+    }
     if (ph.kind === 'polygon') {
       SketchTool.modes.set(this.kind!, next.id);
       [ph.arcEnd, ph.arc, ph.typed, ph.axis] = [null, null, [], 0];
@@ -552,6 +571,119 @@ export class SketchTool implements Tool {
     else Object.assign(ph, { mode: next.id, pts: [], lines: [] });
     showMode(this.view.el, this.kind!, next);
     this.host.hint(this.phase.kind === 'shape' ? SHAPE_HINT : this.phase.kind === 'polygon' ? lineHint(next.id) : this.hoverHint());
+  }
+
+  /** The sphere's ways through points or planes, in space (its first is drawn on a plane). */
+  private ballMode() {
+    return this.kind === 'sphere' && this.drawMode()?.id !== 'centre';
+  }
+
+  /** A flat face under the pointer, or a work plane or empty space (the plane it draws on, facing the camera); its side outward. */
+  private planeUnder(e: MouseEvent) {
+    const hit = this.view.hit(e);
+    if (hit) return this.view.flatFace(hit) ? { hit, at: hit.point.clone(), n: hit.face!.normal.clone().transformDirection(hit.object.matrixWorld) } : null;
+    const target = this.target(e);
+    const at = target && planeHit(this.view.ray(e), target.frame);
+    if (!target || !at) return null;
+    const n = v3(target.frame.n);
+    return { hit: undefined, at, n: n.dot(this.view.ray(e).direction) > 0 ? n.negate() : n };
+  }
+
+  /** The point the pointer is on: a snap on what it shows, else on the plane under it. */
+  private ballAim(e: MouseEvent) {
+    const aim = this.view.aimAt(e);
+    this.snapWhat = aim?.what ?? null;
+    if (aim) return aim.at;
+    const target = this.target(e);
+    return target && planeHit(this.view.ray(e), target.frame);
+  }
+
+  /** The ball so far, the pointer's point counting. */
+  private ballNow(ph: Extract<Phase, { kind: 'ball' }>): Ball | null {
+    const typed = ph.typed === undefined ? null : this.host.length(ph.typed);
+    if (ph.planes.length) {
+      const corner = ph.planes.length === 3 ? ballsInCorner(ph.planes) : null;
+      const r = typed !== null ? ((ph.r < 0 ? -1 : 1) * typed) / 2 : ph.r; // below 0: on the planes' other side
+      return corner && r ? { center: corner.at.clone().addScaledVector(corner.along, r), d: 2 * Math.abs(r) } : null;
+    }
+    const [a, b, c, d] = ph.cur ? [...ph.pts, ph.cur] : ph.pts;
+    return d ? ballOnFour(a, b, c, d) : c ? ballOnThree(a, b, c) : b && this.drawMode()?.id === 'diameter' ? ballAcross(a, b) : null;
+  }
+
+  private ballMove(e: PointerEvent, ph: Extract<Phase, { kind: 'hover' | 'ball' }>) {
+    if (this.drawMode()?.id === 'planes' && (ph.kind === 'hover' || ph.planes.length < 3)) {
+      const under = this.planeUnder(e);
+      this.view.markFace(under?.hit);
+      this.snapWhat = under ? null : 'Not flat: a sphere touches flat faces and planes';
+    } else if (ph.kind === 'ball' && ph.planes.length) {
+      // its centre rides the line all such balls have theirs on: a snap projected on it, else the pointer's ray nearest it; its diameter on the zoom's step
+      const corner = ballsInCorner(ph.planes)!;
+      const dir = corner.along.clone().normalize();
+      const aim = this.view.aimAt(e);
+      const snap = aim && aim.what !== 'on face' && !aim.what.startsWith('on ') ? aim.at : null;
+      this.snapWhat = snap ? aim!.what : null;
+      const ray = this.view.ray(e);
+      const point = new THREE.Vector3();
+      if (!snap) new THREE.Ray(corner.at.clone().addScaledVector(dir, -1e6), dir).distanceSqToSegment(ray.origin, ray.origin.clone().addScaledVector(ray.direction, 1e6), point);
+      const along = (snap ?? point).clone().sub(corner.at).dot(dir) / corner.along.length();
+      const step = this.view.step(corner.at, e, false);
+      ph.r = snap ? along : (Math.round((2 * along) / step) * step) / 2;
+    } else {
+      const at = this.ballAim(e);
+      if (ph.kind === 'ball') ph.cur = at;
+    }
+    this.host.hint(this.hoverHint());
+    this.update();
+  }
+
+  private async ballPress(e: PointerEvent) {
+    if (this.phase.kind === 'hover') this.phase = { kind: 'ball', pts: [], planes: [], cur: null, r: 0 };
+    const ph = this.phase;
+    if (ph.kind !== 'ball') return;
+    if (this.drawMode()?.id === 'planes') {
+      if (ph.planes.length === 3) return this.ballDone(ph);
+      const under = this.planeUnder(e);
+      if (!under) return ph.planes.length || (this.phase = { kind: 'hover' }), this.host.hint('Not flat: click a flat face or work plane · [Esc] cancels');
+      ph.planes.push({ at: under.at, n: under.n });
+      if (ph.planes.length === 3 && !ballsInCorner(ph.planes)) {
+        ph.planes.pop();
+        return this.host.hint('These three planes meet in no one point: click another · [Esc] cancels');
+      }
+      this.view.markFace();
+    } else {
+      const at = this.ballAim(e);
+      if (!at) return ph.pts.length || (this.phase = { kind: 'hover' }), undefined;
+      const real = this.view.pointAt(e) ? ((await this.view.truePointAt(e)) ?? at) : at;
+      if (this.phase !== ph) return;
+      if (ph.pts.some((p) => p.distanceTo(real) < 1e-6)) return this.host.hint('That point was clicked already: click another · [Esc] cancels');
+      ph.pts.push(real);
+      ph.cur = null;
+      if (ph.pts.length === BALL_POINTS[this.drawMode()!.id]) return this.ballDone(ph);
+    }
+    this.host.hint(this.hoverHint());
+    this.update();
+  }
+
+  private ballDone(ph: Extract<Phase, { kind: 'ball' }>) {
+    const ball = this.ballNow(ph);
+    if (!ball) {
+      ph.pts.pop();
+      return this.host.hint(ph.planes.length ? 'Move away from the corner, or type its diameter · [Esc] cancels' : 'These points lie on one line or plane: no ball goes through them. Click another · [Esc] cancels');
+    }
+    this.view.aimAt(null);
+    this.host.ball({ center: ball.center.toArray() as V3, d: ball.d, typed: ph.typed && this.host.length(ph.typed) !== null ? ph.typed : undefined });
+  }
+
+  /** What the next click of a sphere in space does. */
+  private ballHint() {
+    const ph = this.phase.kind === 'ball' ? this.phase : null;
+    const name = this.drawMode()!.name;
+    const end = ' · [Alt] another way · [Esc] ' + (ph ? 'starts over' : 'stops');
+    if (this.drawMode()!.id === 'planes') {
+      const n = ph?.planes.length ?? 0;
+      return n < 3 ? `${name}: click flat face or plane ${n + 1} of 3${end}` : `${name}: move along, or type its Ø · click or [Enter] makes it${end}`;
+    }
+    return `${name}: click point ${(ph?.pts.length ?? 0) + 1} of ${BALL_POINTS[this.drawMode()!.id]} · [A] / [Shift A] split a line${end}`;
   }
 
   /** The straight side, edge or guide nearest the pointer within `px` (snap points do not hide it; one in the plane goes before one off it), in the target's plane coordinates; null: none. */
@@ -632,9 +764,9 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     // a line's length or angle starts with a digit, so letters still snap, fix guides and switch tools
     const sideTyping = ph.kind === 'polygon' && (ph.typed[ph.axis] !== undefined || /[\d.($-]/.test(e.key));
-    const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull' || sideTyping);
+    const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull' || sideTyping || (ph.kind === 'ball' && ph.planes.length === 3));
     const more = pressed(e, 'moreSnaps');
-    const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined); // not while typing a size
+    const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined) && !(ph.kind === 'ball' && ph.planes.length === 3); // not while typing a size
     const guide = this.hoveredGuide();
     // Measure while a size is typed: this tool waits, the value goes in (a line: its length or an arc's diameter)
     if ((ph.kind === 'shape' && !(this.kind === 'ngon' && ph.axis === 1)) || ph.kind === 'pull' || (ph.kind === 'polygon' && ph.axis === 0)) {
@@ -665,7 +797,7 @@ export class SketchTool implements Tool {
       return true;
     }
     // Alt: the next drawing mode (before drawing: kept; while drawing: for this shape only)
-    if ((ph.kind === 'hover' || ph.kind === 'shape' || (ph.kind === 'polygon' && !ph.held)) && e.key === 'Alt' && !e.repeat && this.drawMode()) return this.switchMode(e.shiftKey ? -1 : 1), this.update(), true;
+    if ((ph.kind === 'hover' || ph.kind === 'shape' || ph.kind === 'ball' || (ph.kind === 'polygon' && !ph.held)) && e.key === 'Alt' && !e.repeat && this.drawMode()) return this.switchMode(e.shiftKey ? -1 : 1), this.update(), true;
     if (ph.kind === 'hover' && this.cycle.count > 1 && pressed(e, 'otherSide') && this.lastPoint) {
       this.cycle.at++; // the next line under the pointer
       this.point(...this.lastPoint);
@@ -709,6 +841,12 @@ export class SketchTool implements Tool {
       if (ph.kind === 'polygon' && ph.pts.length >= 2) return this.finishLine(), this.update(), true;
       this.phase = { kind: 'hover' };
       this.host.hint(this.hoverHint());
+    } else if (ph.kind === 'ball') {
+      if (typing) ph.typed = (ph.typed ?? '') + e.key;
+      else if (pressed(e, 'erase') && ph.typed !== undefined) ph.typed = ph.typed.slice(0, -1) || undefined;
+      else if (pressed(e, 'erase')) (ph.planes.pop(), ph.pts.pop());
+      else if (pressed(e, 'confirm') && ph.planes.length === 3) this.ballDone(ph);
+      else return false;
     } else if (ph.kind === 'shape') {
       if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
       else if (pressed(e, 'erase')) ph.typed[ph.axis] = ph.typed[ph.axis]?.slice(0, -1) || undefined;
@@ -751,6 +889,7 @@ export class SketchTool implements Tool {
   }
 
   private hoverHint(target?: Target) {
+    if (this.ballMode()) return this.ballHint();
     if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
     const m = this.drawMode();
     const how = this.kind === 'line' ? ({ polygon: 'Click points', bezier: 'Click points, drag to pull handles', arc: 'Click a start and an end, then the bulge' }[m?.id ?? ''] ?? 'Click two points') : m?.lines ? 'Click a line' : m && m.clicks > 2 ? 'Click three times' : 'Drag (or click twice)';
@@ -1568,6 +1707,23 @@ export class SketchTool implements Tool {
     // at the pointer what it measures and is on; other keys with the tool's hint
     this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, this.snapWhat, split, this.nothingToSplit && 'No line here to split: put the pointer on one'].filter(Boolean).join('\n') || null, [more, cycleHint, fix, base, angles].filter(Boolean).join(' · ') || null);
     if (ph.kind === 'polygon' && !ph.arc && !ph.held && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
+    if (ph.kind === 'ball') {
+      // see-through orange until made, also inside a body; what was clicked marked
+      const ball = this.ballNow(ph);
+      if (ball) {
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(ball.d / 2, 48, 24), new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.35, depthTest: false, depthWrite: false }));
+        mesh.position.copy(ball.center);
+        this.view.overlay.add(mesh);
+        label('Ø', ph.typed, ball.d, ball.center, ph.planes.length === 3);
+      }
+      if (ph.pts.length) this.view.overlay.add(marks(ph.pts, 0xff8c1a, 10));
+      for (const q of ph.planes) {
+        const patch = new THREE.Mesh(new THREE.CircleGeometry(18 / this.view.pixelsPerMm(q.at), 32), new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.6, depthTest: false, side: THREE.DoubleSide }));
+        patch.position.copy(q.at);
+        patch.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), q.n);
+        this.view.overlay.add(patch);
+      }
+    }
     if (ph.kind === 'pull') {
       const f = ph.target.frame;
       const { depth, back } = pulled(ph, (t) => this.host.length(t));
@@ -1661,6 +1817,13 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
     { id: 'turned', name: 'Rectangle: turned (a side, then its width)', clicks: 3, next: 'Turned rectangle: click the side\'s other end, then the width · [Esc] cancels' },
     { id: 'turnedCentre', name: 'Rectangle: turned, from the centre (a direction, then its size)', clicks: 3, next: 'Turned rectangle from its centre: click a point it points to, then its size · [Esc] cancels' },
   ],
+  sphere: [
+    { id: 'centre', name: 'Sphere: centre and radius, on a plane', clicks: 2 },
+    { id: 'diameter', name: 'Sphere: two points across', clicks: 2 },
+    { id: 'three', name: 'Sphere: through three points, the smallest', clicks: 3 },
+    { id: 'four', name: 'Sphere: through four points', clicks: 4 },
+    { id: 'planes', name: 'Sphere: touching three planes', clicks: 3 },
+  ],
   circle: [
     { id: 'centre', name: 'Circle: centre and radius', clicks: 2 },
     { id: 'diameter', name: 'Circle: two points across', clicks: 2 },
@@ -1679,6 +1842,9 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
     { id: 'edge', name: 'Regular polygon: one side, end to end', clicks: 2 },
   ],
 };
+
+/** How many points a sphere in space takes, by its way. */
+const BALL_POINTS: Record<string, number> = { diameter: 2, three: 3, four: 4 };
 
 /** The drawing mode's pictogram, name and how to change it, top left in the view for a moment. */
 function showMode(el: HTMLElement, kind: ToolKind, m: Mode, ms = 3000) {

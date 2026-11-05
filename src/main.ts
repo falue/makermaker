@@ -4815,6 +4815,11 @@ function stopTool() {
 }
 
 const toolHost: ToolHost = {
+  ball(ball) {
+    addSphere(ball);
+    stopTool(); // else the tool's start again would be its next mode
+    startTool('sphere');
+  },
   measure: (use, done) => measureTool(use, done),
   length,
   number,
@@ -4828,8 +4833,8 @@ const toolHost: ToolHost = {
     const [was, kind] = [toolMode, viewer.activeTool];
     if (!result) return stopTool(), render();
     if (result.sphere) {
-      addSphere(result.sphere);
-      return startTool('sphere');
+      toolHost.ball(result.sphere);
+      return;
     }
     if (was === 'plane') {
       stopTool();

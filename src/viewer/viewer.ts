@@ -3362,6 +3362,18 @@ export class Viewer implements ToolView {
    * The B-rep face of `hit` if it is round (a cylinder's side, a hole's wall): its axis (from its normals, which all
    * stand square to it), the circle its points lie on, and how far it reaches along the axis; else undefined.
    */
+  flatFace(hit: THREE.Intersection) {
+    const mesh = hit.object as THREE.Mesh;
+    const groups = mesh.userData.faces as Uint32Array | undefined;
+    const [index, nor] = [mesh.geometry.index, mesh.geometry.attributes.normal];
+    if (!groups || !index) return true;
+    const k = faceOf(hit);
+    const [first, n] = [new THREE.Vector3(), new THREE.Vector3()];
+    const ids = index.array.subarray(groups[k * 2], groups[k * 2] + groups[k * 2 + 1]);
+    first.fromBufferAttribute(nor, ids[0]);
+    return ids.every((i) => n.fromBufferAttribute(nor, i).dot(first) > 0.9999);
+  }
+
   private roundOf(hit: THREE.Intersection) {
     const mesh = hit.object as THREE.Mesh;
     const groups = mesh.userData.faces as Uint32Array | undefined;

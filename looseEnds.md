@@ -20,6 +20,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Large documents on Everything can take a while, and the worker builds nothing meanwhile. Not measured on big files; there is no Stop yet.
 - The list says hinge values in degrees and slider values in mm, not in the display unit.
 - Coat: excluding the flat side of a body with rounded corners leaves small horns where the grown corners stand past it (a 30 mm block, R3, coat 3: 33.85 mm, not 33). While faces are picked, the card says thickness 0.
+- Assumed for the sphere's ways: three points give the smallest ball (three alone do not fix one), four the exact one. "Three planes and a centre or diameter": after the third plane, the pointer sets where its centre lies (snaps count) or a typed Ø sets the size. A sphere is plain numbers afterwards: it does not follow the points or planes. No Python command of its own yet: `cad.sphere` takes a centre and diameter. T and M do not reach into its Ø field yet.
 - `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
 ## Coat
