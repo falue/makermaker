@@ -3752,7 +3752,7 @@ export class Viewer implements ToolView {
   /** The wait before a right-click's face menu shows (0: none waiting): a second right press means its edge loop instead. */
   private faceMenu = 0;
 
-  /** A right-click on a face (not a drag, no second press soon): a menu to look at that face in a new view. */
+  /** A right-click on a face (not a drag, no second press soon): a menu to look at that face, here or in a new view. */
   private rightUp(e: PointerEvent, ms = 300) {
     const at = this.rightPress;
     this.rightPress = null;
@@ -3768,7 +3768,8 @@ export class Viewer implements ToolView {
       menu.style.top = `${e.clientY - r.top}px`;
       const gone = () => (menu.remove(), removeEventListener('pointerdown', away, true));
       const away = (ev: Event) => !menu.contains(ev.target as Node) && gone();
-      menu.append(Object.assign(document.createElement('button'), { className: 'menu-item', textContent: 'Look at this face in a new view', onclick: () => (gone(), this.addView('face', look)) }));
+      const item = (name: string, text: string, onclick: () => void) => Object.assign(document.createElement('button'), { className: 'menu-item', innerHTML: `${icon(name)}${text}`, onclick: () => (gone(), onclick()) });
+      menu.append(item('look', 'Look at this face', () => this.lookAlong(look.n, look.at)), item('lookNew', 'Look at this face in new view', () => this.addView('face', look)));
       this.el.append(menu);
       addEventListener('pointerdown', away, true);
     }, ms);
