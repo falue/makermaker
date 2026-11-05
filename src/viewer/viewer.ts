@@ -1130,7 +1130,7 @@ export class Viewer implements ToolView {
       // its first triangle: a point and the outward normal (counter-clockwise from outside)
         const [a, b, c] = [0, 1, 2].map((o) => new THREE.Vector3().fromBufferAttribute(pos, index[groups[k * 2] + o]).applyMatrix4(mesh.matrixWorld));
         const n = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
-        return { body: mesh.userData.bodyId, point: a.add(b).add(c).divideScalar(3), n, mesh, index: k };
+        return { body: mesh.userData.bodyId, point: a.add(b).add(c).divideScalar(3), n, mesh, index: k, round: this.roundOfFace(mesh, k) };
       });
     });
   }
@@ -3405,11 +3405,14 @@ export class Viewer implements ToolView {
   }
 
   private roundOf(hit: THREE.Intersection) {
-    const mesh = hit.object as THREE.Mesh;
+    return this.roundOfFace(hit.object as THREE.Mesh, faceOf(hit));
+  }
+
+  /** Face `k` of `mesh`, if round (a cylinder's or part of one): its axis, length, radius, and whether it is a shaft. */
+  private roundOfFace(mesh: THREE.Mesh, k: number) {
     const groups = mesh.userData.faces as Uint32Array | undefined;
     const index = mesh.geometry.index;
     if (!groups || !index) return undefined;
-    const k = faceOf(hit);
     const [pos, nor] = [mesh.geometry.attributes.position, mesh.geometry.attributes.normal];
     const ids = [...new Set(index.array.subarray(groups[k * 2], groups[k * 2] + groups[k * 2 + 1]))];
     const pts = ids.map((i) => new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld));

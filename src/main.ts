@@ -8,7 +8,7 @@ import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm,
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, flattened, grown, mapPoints, offsetPath, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
-import { fitting, THREADS, type ThreadSize } from './doc/threads';
+import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, icon } from './ui/icons';
 import { axisHtml } from './ui/axes';
 import { jointed, jointsWithout } from './doc/joints';
@@ -2545,73 +2545,119 @@ function mirrorTool() {
 }
 
 /**
- * Thread: the round face of a hole or a shaft clicked: a real thread (ISO basic profile) cut into it from its end
- * nearest the click, all along it. A panel: Metric / Imperial (as the document's units first), the size (the one
- * fitting the face first: a shaft by its diameter, a hole by its tap drill), which fills Ø and Pitch (both editable),
- * and the length (T: to a point). Live, one undo step; Esc leaves nothing.
+ * Thread: the round face of a hole or a shaft (Alt-picked, or last clicked on a selected body, else clicked next): a
+ * real thread (ISO basic profile) cut into it from its end nearest the click, all along it. A panel: the size (the one
+ * of the face's Ø first: Ø 8 is M8), which fills Ø and Pitch (both editable), the length (T: to a point), Metric /
+ * Imperial (as the document's units first). The hole or shaft is resized to fit it (a hole to its minor Ø, a shaft to
+ * its major one) by the circle it was pulled from. Live, one undo step; Esc leaves nothing.
  */
 function threadTool() {
+  const last = viewer.lastFaceItem();
+  const face = viewer.pickedFaceItems().find((f) => f.round) ?? (last?.round && selected.includes(last.body) ? last : null);
+  if (face) return viewer.dropPicked(), threadOn(face.body, face.round!, face.point);
   toolHint = 'Thread: click a round face · of a hole or a shaft · [Esc] cancels';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
-    const round = face?.round;
-    if (!face?.body || !round) return face ? fail("Click a round face: a hole's wall or a shaft's side") : render();
-    const body = face.body;
-    // from the end nearest the click, into the face
-    const far = face.point.clone().sub(round.at).dot(round.dir) > round.length / 2;
-    const [start, dir] = far ? [round.at.clone().addScaledVector(round.dir, round.length), round.dir.clone().negate()] : [round.at.clone(), round.dir.clone()];
-    const doc = history.current;
-    const u = UNITS[doc.units];
-    let system: ThreadSize['system'] = ['in', 'ft'].includes(doc.units) ? 'imperial' : 'metric';
-    let size = fitting(2 * round.r, !round.shaft, system);
-    const i = stepsOf(doc, body);
-    const pl = bodyPlace(body);
-    const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, start.toArray()), dir: unplaced(pl, dir.toArray(), true), r: round.r, inside: !round.shaft, size: size.name, d: len(size.d), pitch: len(size.pitch), length: len(round.length) };
-    [selected, shapeSel] = [[body], []];
-    commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
-    const j = history.current.bodies[i].features.length - 1;
-    const path = ['bodies', String(i), 'features', String(j)];
-    const write = ([d, p, l]: string[]) => {
-      const f = getIn(history.current, path) as Feature;
-      history.replace(setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: doc.units }, pitch: { e: p, u: doc.units }, length: { e: l, u: doc.units } }));
-      update();
-    };
-    // the size list (of the chosen system) fills Ø and Pitch
-    const pick = Object.assign(document.createElement('select'), { title: 'The thread size: fills Ø and Pitch' });
-    const fill = () => {
-      panel.inputs[0].value = fmt(size.d / u);
-      panel.inputs[1].value = fmt(size.pitch / u);
-      panel.inputs[0].dispatchEvent(new Event('input'));
-    };
-    const options = () => pick.replaceChildren(...THREADS.filter((t) => t.system === system).map((t) => Object.assign(document.createElement('option'), { value: t.name, textContent: t.name, selected: t.name === size.name })));
-    pick.onchange = () => ((size = THREADS.find((t) => t.name === pick.value)!), fill());
-    const systems = Object.assign(document.createElement('span'), { className: 'segmented' });
-    for (const k of ['metric', 'imperial'] as const) {
-      const b = Object.assign(document.createElement('button'), { textContent: k === 'metric' ? 'Metric' : 'Imperial', className: k === system ? 'on' : '' });
-      b.onclick = () => {
-        system = k;
-        [...systems.children].forEach((x) => x.classList.toggle('on', x === b));
-        size = fitting(2 * round.r, !round.shaft, system);
-        options();
-        fill();
-      };
-      systems.append(b);
-    }
-    options();
-    const panel = valuePanel(
-      [
-        { label: 'Ø', value: fmt(size.d / u) },
-        { label: 'Pitch', value: fmt(size.pitch / u) },
-        { label: 'Length', value: fmt(round.length / u), reach: (p) => p.clone().sub(start).dot(dir) },
-      ],
-      write,
-      (ok) => (ok ? render() : undo()),
-      `Thread ${round.shaft ? 'on a shaft' : 'in a hole'} Ø ${fmt(2 * round.r)} mm: pick its size · or type Ø and pitch · its length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
-      [systems],
-      [pick],
-    );
+    if (!face?.body || !face.round) return face ? fail("Click a round face: a hole's wall or a shaft's side") : render();
+    threadOn(face.body, face.round, face.point);
   });
+}
+
+/**
+ * Where the diameter of the circle a round face of `body` was pulled from is written (a sketch shape's or an
+ * extrusion's own; `round` in the world); null: none found (a revolve, a mesh, a STEP solid ...).
+ */
+function circleOf(body: string, round: { at: Vector3; dir: Vector3; r: number }): string[] | null {
+  const doc = history.current;
+  const steps = built.get(body) ?? [];
+  const plan = frames(steps as Parameters<typeof frames>[0]);
+  const place = bodyPlace(body);
+  const tol = Math.max(0.1, round.r * 0.02); // the face's circle is read from its mesh
+  for (const f of steps) {
+    const frame = f.type === 'extrude' ? plan.get(f.id) : undefined;
+    if (f.type !== 'extrude' || !frame) continue;
+    const w = placeFrame(place, frame);
+    if (new Vector3(...w.n).cross(round.dir).length() > 1e-3) continue;
+    for (const q of f.profiles) {
+      if (q.kind !== 'circle' || Math.abs(q.d / 2 - round.r) > tol) continue;
+      if (new Vector3(...toWorld(w, q.x, q.y)).sub(round.at).projectOnPlane(round.dir).length() > tol) continue;
+      const k = doc.sketches.findIndex((s) => s.shapes.some((x) => x.id === q.id));
+      if (k >= 0) return ['sketches', String(k), 'shapes', String(doc.sketches[k].shapes.findIndex((x) => x.id === q.id)), 'd'];
+      for (const [i, b] of doc.bodies.entries())
+        for (const [j, g] of b.features.entries())
+          if (g.type === 'extrude' && g.source.kind === 'own') {
+            const p = g.source.profiles.findIndex((x) => x.id === q.id);
+            if (p >= 0) return ['bodies', String(i), 'features', String(j), 'source', 'profiles', String(p), 'd'];
+          }
+    }
+  }
+  return null;
+}
+
+/** A thread on `body`'s round face `round` (world; `point`: where it was picked: the thread starts at the nearer end). */
+function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: number; r: number; shaft: boolean }, point: Vector3) {
+  // from the end nearest the click, into the face
+  const far = point.clone().sub(round.at).dot(round.dir) > round.length / 2;
+  const [start, dir] = far ? [round.at.clone().addScaledVector(round.dir, round.length), round.dir.clone().negate()] : [round.at.clone(), round.dir.clone()];
+  const doc = history.current;
+  const u = UNITS[doc.units];
+  let system: ThreadSize['system'] = ['in', 'ft'].includes(doc.units) ? 'imperial' : 'metric';
+  let size = fitting(2 * round.r, false, system); // by its Ø: Ø 8 is M8
+  const i = stepsOf(doc, body);
+  const pl = bodyPlace(body);
+  const circle = circleOf(body, round);
+  /** `next` with the hole or shaft fitting a thread `d` by `pitch` (mm): its circle resized, the thread's radius with it. */
+  const fitted = (next: Doc, path: string[], d: number, pitch: number) => {
+    const r = round.shaft ? d / 2 : d / 2 - threadDepth(pitch);
+    if (!circle || !(r > 0)) return next;
+    return setIn(setIn(next, circle, len(2 * r)), [...path, 'r'], r);
+  };
+  const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, start.toArray()), dir: unplaced(pl, dir.toArray(), true), r: round.r, inside: !round.shaft, size: size.name, d: len(size.d), pitch: len(size.pitch), length: len(round.length) };
+  [selected, shapeSel] = [[body], []];
+  const added = setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]);
+  const path = ['bodies', String(i), 'features', String(added.bodies[i].features.length - 1)];
+  commit(fitted(added, path, size.d, size.pitch));
+  const write = ([d, p, l]: string[]) => {
+    const f = getIn(history.current, path) as Feature;
+    const next = setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: doc.units }, pitch: { e: p, u: doc.units }, length: { e: l, u: doc.units } });
+    history.replace(fitted(next, path, length(d) ?? size.d, length(p) ?? size.pitch));
+    update();
+  };
+  // the size list (of the chosen system) fills Ø and Pitch
+  const pick = Object.assign(document.createElement('select'), { title: 'The thread size: fills Ø and Pitch, the hole or shaft fits it' });
+  const fill = () => {
+    panel.inputs[0].value = fmt(size.d / u);
+    panel.inputs[1].value = fmt(size.pitch / u);
+    panel.inputs[0].dispatchEvent(new Event('input'));
+  };
+  const options = () => pick.replaceChildren(...THREADS.filter((t) => t.system === system).map((t) => Object.assign(document.createElement('option'), { value: t.name, textContent: t.name, selected: t.name === size.name })));
+  pick.onchange = () => ((size = THREADS.find((t) => t.name === pick.value)!), fill());
+  const systems = Object.assign(document.createElement('span'), { className: 'segmented' });
+  for (const k of ['metric', 'imperial'] as const) {
+    const b = Object.assign(document.createElement('button'), { textContent: k === 'metric' ? 'Metric' : 'Imperial', className: k === system ? 'on' : '' });
+    b.onclick = () => {
+      system = k;
+      [...systems.children].forEach((x) => x.classList.toggle('on', x === b));
+      size = fitting(2 * round.r, false, system);
+      options();
+      fill();
+    };
+    systems.append(b);
+  }
+  options();
+  const panel = valuePanel(
+    [
+      { label: 'Ø', value: fmt(size.d / u) },
+      { label: 'Pitch', value: fmt(size.pitch / u) },
+      { label: 'Length', value: fmt(round.length / u), reach: (p) => p.clone().sub(start).dot(dir) },
+    ],
+    write,
+    (ok) => (ok ? render() : undo()),
+    `Thread ${round.shaft ? 'on a shaft' : 'in a hole'} Ø ${fmt(2 * round.r)} mm: pick its size · or type Ø and pitch · ${circle ? `the ${round.shaft ? 'shaft' : 'hole'} fits it` : `its circle is not found: the ${round.shaft ? 'shaft' : 'hole'} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
+    [systems],
+    [pick],
+  );
 }
 
 /**

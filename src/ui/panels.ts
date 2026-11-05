@@ -586,7 +586,7 @@ function editbar(ctx: UIContext): Node[] {
     tool('clash', 'Interference and clearance: where bodies overlap or come too close, also as their joints move', ctx.clashTool),
     tool('pattern', 'Pattern: copies of the selected bodies in a grid (counts, gap or overall size, a turn per copy) or around an axis (count, angle)', ctx.patternTool),
     tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
-    tool('thread', 'Thread: click the round edge at the end of a hole or a shaft: a real metric thread (coarse pitch) cut into it, pitch and length typed', ctx.threadTool),
+    tool('thread', 'Thread: a round face of a hole or a shaft (Alt-picked, or clicked next): a real thread cut into it, its size by the face\'s Ø first; the hole or shaft is resized to fit it', ctx.threadTool),
     h('hr'),
     tool('move', 'Move (M): type distances along X, Y and Z (Tab: the next); the selection, or what is clicked next', ctx.moveTool, on('move')),
     tool('rotate', 'Rotate (W): turn the selection (or what is clicked next) around an axis clicked next: an edge, line, circle or point', ctx.rotateTool),
