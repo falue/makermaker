@@ -13,7 +13,7 @@ import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { arcOf, area, bounds, centre, curved, edgeDistance, flattened, inside, bakeTurn, nearestOnSide, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
-import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, moved, pointHandles, pointMoved, resized, rotated, sizeOf, smoothToggled, type Handle } from './shapes';
+import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, moved, pointHandles, pointMoved, resized, rotated, simpleLine, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
 import { FacePullTool, type PullLook } from './faces';
 import { closeButton, icon } from '../ui/icons';
@@ -1216,9 +1216,11 @@ export class Viewer implements ToolView {
     const add = (list: { at: [number, number]; handle: Handle }[], h: { sketch: ViewSketch; shape: DrawnProfile & { id: string } }) => {
       for (const { at, handle } of list) out.push({ at, handle, world: new THREE.Vector3(...toWorld(h.sketch.frame, ...at)), ...h });
     };
-    const help = this.helped();
+    const selected = this.handled();
+    // a simple line selected shows its two points, hovered or not
+    const help = this.helped() ?? (!this.tool && selected && simpleLine(selected.shape) ? selected : null);
     if (help) add(pointHandles(help.shape), help); // first: they win over the box's handles
-    const h = this.boxHover ? this.handled() : null;
+    const h = this.boxHover ? selected : null;
     if (h) add(this.boxHandles(h, reachPx), h);
     return out;
   }
@@ -1328,6 +1330,7 @@ export class Viewer implements ToolView {
       const ref = this.shapeRefs.get(q.id) ?? [0, 0];
       if (!this.selectedShapes.includes(q.id)) continue;
       const p = this.overrides.get(q.id) ?? q;
+      if (simpleLine(p)) continue;
       const [u, v] = anchorAt(p, ref);
       const at = new THREE.Vector3(...toWorld(s.frame, u, v));
       points.push(at);

@@ -54,8 +54,12 @@ export function pointHandles(p: DrawnProfile): { at: UV; handle: Handle }[] {
   ];
 }
 
+/** A straight line of two points: those points are all it has to grab. */
+export const simpleLine = (p: DrawnProfile) => p.kind === 'line' && p.pts.length === 2 && !p.curves?.some(Boolean);
+
 /** Handles in plane coordinates; the rotate handle sits `reach` mm beyond the top edge (none for circles). */
 export function handlesOf(p: DrawnProfile, reach: number): { at: UV; handle: Handle }[] {
+  if (simpleLine(p)) return [];
   const [cx, cy] = centre(p);
   const { half, mid } = box(p);
   const at = (lx: number, ly: number): UV => {
