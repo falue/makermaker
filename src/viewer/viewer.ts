@@ -3759,7 +3759,8 @@ export class Viewer implements ToolView {
   private rightUp(e: PointerEvent, ms = 300) {
     const at = this.rightPress;
     this.rightPress = null;
-    if (!at || Math.hypot(e.clientX - at.x, e.clientY - at.y) > 4 || this.tool || this.facePick) return;
+    if (!at || Math.hypot(e.clientX - at.x, e.clientY - at.y) > 4 || this.facePick) return;
+    if (this.tool) return this.tool.rightClick?.(e);
     const hit = this.frontHit(e);
     if (!hit) return;
     const look = { n: hit.face!.normal.clone().transformDirection(hit.object.matrixWorld), at: hit.point.clone() };

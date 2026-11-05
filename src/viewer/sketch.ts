@@ -145,6 +145,8 @@ export interface Tool {
   /** The camera moved: redraw labels and markers. */
   refresh(): void;
   dispose(): void;
+  /** A right click, not a drag. */
+  rightClick?(e: MouseEvent): void;
   /** True while the tool only waits for clicks: a left drag then turns the view, a click without dragging goes to `down`. */
   clicks?(): boolean;
 }
@@ -394,6 +396,18 @@ export class SketchTool implements Tool {
     SketchTool.guides = SketchTool.guides.filter((g) => g.fixed); // a click (which may have snapped to them) drops the others
     this.update();
     return used;
+  }
+
+  /** On a curve the line tool starts a tangent from, as the tangent modifier's click does (a Mac makes a Ctrl-click a right click). */
+  rightClick(e: MouseEvent) {
+    const target = this.phase.kind === 'hover' && this.kind === 'line' ? this.target(e) : null;
+    if (!target) return;
+    this.tangentHeld = true;
+    this.point(e, target);
+    const on = !!this.tangentOn;
+    this.tangentHeld = false;
+    if (on) this.down(new PointerEvent('pointerdown', { button: 0, clientX: e.clientX, clientY: e.clientY, [`${roleKey('tangent')}Key`]: true }));
+    else this.point(e, target);
   }
 
   private press(e: PointerEvent): boolean {
@@ -1761,7 +1775,7 @@ export class SketchTool implements Tool {
       this.view.overlay.add(new LineSegments2(new LineSegmentsGeometry().setPositions(guideSeg(g).flatMap((v) => v.toArray())), m).computeLineDistances());
     }
     // on a point along a line (not anywhere along it)
-    const tangentKey = ph.kind === 'hover' && this.tangentNear && !this.tangentOn ? `${MODIFIER_NAMES[roleKey('tangent')]}-click: a tangent from it` : null;
+    const tangentKey = ph.kind === 'hover' && this.tangentNear && !this.tangentOn ? `${MODIFIER_NAMES[roleKey('tangent')]}-click or right-click: a tangent from it` : null;
     const more = this.snapKey && !this.snapWhat?.startsWith('on ') ? `Press ${comboText(keysOf('moreSnaps')[0])} for more points, ${comboText(keysOf('fewerSnaps')[0])} for fewer` : null;
     const guide = this.hoveredGuide();
     const onPoint = this.snapped && !this.snapWhat?.startsWith('on ');
