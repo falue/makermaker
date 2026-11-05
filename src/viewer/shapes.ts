@@ -142,7 +142,100 @@ export function isSmooth(p: Pathed, i: number) {
   return u[0] * v[0] + u[1] * v[1] > 0.99996; // within half a degree
 }
 
-/** Point `i` moved to `q`: its bezier handles move along, a side's arc keeps its shape. */
+/** The middle of the arc leaving `a` in direction `t` (unit) to reach `b`, and the direction it arrives in. Null: as good as straight, or doubling back. */
+function arcLeaving(a: UV, t: UV, b: UV): { mid: UV; end: UV } | null {
+  const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (l < 1e-9) return null;
+  const v: UV = [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+  const along = t[0] * v[0] + t[1] * v[1];
+  const side = t[1] * v[0] - t[0] * v[1]; // towards the arc's middle, from the chord: on t's side
+  if (Math.abs(side) < 1e-6 || along < -0.9998) return null;
+  const n: UV = side > 0 ? [-v[1], v[0]] : [v[1], -v[0]];
+  const h = (l / 2) * Math.tan(Math.atan2(Math.abs(side), along) / 2);
+  return { mid: [(a[0] + b[0]) / 2 + n[0] * h, (a[1] + b[1]) / 2 + n[1] * h], end: [2 * along * v[0] - t[0], 2 * along * v[1] - t[1]] };
+}
+
+/**
+ * `after` is `before` with point `i` moved; where a curve ran through a point without a corner it still does. An arc is
+ * made anew from the tangent it has to keep, on along arcs that ran on smoothly; before a straight side its far end
+ * slides along that side, as far as it reaches. A bezier's handle turns, and it ends there.
+ */
+function tangentsHeld(before: Pathed, after: Pathed, i: number): Pathed {
+  const n = after.pts.length;
+  const smooth = before.pts.map((_, k) => isSmooth(before, k));
+  const pts = [...after.pts];
+  const curves = [...(after.curves ?? [])];
+  const q = pts[i];
+  const side = (at: number, step: number) => (step > 0 ? sidesAt(after, at).out : sidesAt(after, at).into);
+  const beyond = (at: number, step: number) => (at + step + n) % n;
+  const towards = (a: UV, b: UV) => unit([b[0] - a[0], b[1] - a[1]]);
+  const isArc = (c: Curve | null | undefined) => !!c && 'mid' in c;
+  const walk = (at: number, step: number, t: UV, left = n) => {
+    const k = side(at, step);
+    if (k === null || !left) return;
+    const b = beyond(at, step);
+    const c = curves[k];
+    if (b === i || !c) return;
+    if ('c1' in c) {
+      const key = step > 0 ? 'c1' : 'c2';
+      const l = Math.hypot(c[key][0] - pts[at][0], c[key][1] - pts[at][1]);
+      curves[k] = { ...c, [key]: [pts[at][0] + t[0] * l, pts[at][1] + t[1] * l] };
+      return;
+    }
+    const after2 = side(b, step);
+    if (smooth[b] && after2 !== null && !curves[after2]) {
+      // straight on from it: where the tangent from here crosses that side tells where the arc ends on it
+      const stop = pts[beyond(b, step)];
+      const e = towards(pts[b], stop);
+      const den = t[0] * e[1] - t[1] * e[0];
+      if (Math.abs(den) > 1e-6) {
+        const reach = ((pts[b][0] - pts[at][0]) * e[1] - (pts[b][1] - pts[at][1]) * e[0]) / den;
+        const end: UV = [pts[at][0] + t[0] * reach + e[0] * reach, pts[at][1] + t[1] * reach + e[1] * reach];
+        const made = reach > 1e-6 && (stop[0] - end[0]) * e[0] + (stop[1] - end[1]) * e[1] > 1e-6 ? arcLeaving(pts[at], t, end) : null;
+        if (made) {
+          pts[b] = end;
+          curves[k] = { mid: made.mid };
+          return;
+        }
+      }
+    }
+    const made = arcLeaving(pts[at], t, pts[b]);
+    if (!made) return;
+    curves[k] = { mid: made.mid };
+    if (smooth[b]) walk(b, step, made.end, left - 1);
+  };
+  for (const step of [1, -1]) {
+    const k = side(i, step);
+    if (k === null) continue;
+    const b = beyond(i, step);
+    if (b === i || !smooth[b]) continue;
+    if (!curves[k]) walk(b, step, towards(q, pts[b]));
+    else if (isArc(curves[k]) && !smooth[i]) {
+      // this arc keeps its tangent at the far end, the other way round
+      const [d0, d1] = sideDirs(before.pts[step > 0 ? i : b], before.curves?.[k], before.pts[step > 0 ? b : i]);
+      const made = arcLeaving(pts[b], step > 0 ? unit([-d1[0], -d1[1]]) : unit(d0), q);
+      if (made) curves[k] = { mid: made.mid };
+    }
+  }
+  const [into, out] = [side(i, -1), side(i, 1)];
+  if (smooth[i] && into !== null && out !== null) {
+    const [a, b] = [pts[beyond(i, -1)], pts[beyond(i, 1)]];
+    if (isArc(curves[into]) && isArc(curves[out]) && smooth[beyond(i, -1)]) {
+      const made = arcLeaving(a, unit(sideDirs(before.pts[beyond(i, -1)], before.curves?.[into], before.pts[i])[0]), q);
+      if (made) curves[into] = { mid: made.mid };
+    }
+    if (isArc(curves[out]) && !curves[into]) walk(i, 1, towards(a, q));
+    else if (isArc(curves[into]) && !curves[out]) walk(i, -1, towards(b, q));
+    else if (isArc(curves[out])) walk(i, 1, unit(sideDirs(a, curves[into], q)[1]));
+    else if (isArc(curves[into])) {
+      const d = sideDirs(q, curves[out], b)[0];
+      walk(i, -1, unit([-d[0], -d[1]]));
+    }
+  }
+  return { ...after, pts, curves };
+}
+
+/** Point `i` moved to `q`: its bezier handles move along, a side's arc keeps its shape, and tangents stay (see `tangentsHeld`). */
 export function pointMoved(p: Pathed, i: number, q: UV): Pathed {
   const s = bakeTurn(p);
   const n = s.pts.length;
@@ -163,7 +256,8 @@ export function pointMoved(p: Pathed, i: number, q: UV): Pathed {
     if ('c1' in c) return { c1: k === out ? [c.c1[0] + by[0], c.c1[1] + by[1]] : c.c1, c2: k === into ? [c.c2[0] + by[0], c.c2[1] + by[1]] : c.c2 };
     return { mid: follow(c.mid, was, q, s.pts[k === out ? (i + 1) % n : (i - 1 + n) % n]) };
   });
-  return { ...s, pts: s.pts.map((v, k) => (k === i ? q : v)), ...(curves ? { curves } : {}) };
+  const after = { ...s, pts: s.pts.map((v, k) => (k === i ? q : v)), ...(curves ? { curves } : {}) };
+  return s.curves?.some((c) => c && 'mid' in c) ? tangentsHeld(s, after, i) : after;
 }
 
 /** A curve's handle on side `i` moved to `q`; a bezier handle at a smooth point turns the one across it too (its length kept). */

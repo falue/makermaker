@@ -3,7 +3,7 @@
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
 ## Lines and polygons
-- A point follows a parameter only through a side's typed length, angle or diameter; points clicked freely stay fixed, so what follows a changed side does not move along with it.
+- What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.
 - A typed sweep angle of an arc is used once (its diameter stays). `cad.line` and `cad.polygon` take plain points, no side formulas.
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
 
@@ -15,11 +15,10 @@ Smaller things left open by finished work. Kept up to date with each change; big
 
 ## Interference and clearance
 - "From 30°" comes from steps (hinges 3°, sliders 1 mm, at most 60), so the start can be up to a step late. The sweep: flat faces sliding are exact; curved bodies and hinges also stand at each step (3°, 1 mm, at most 60), so a wall thinner than a step could slip past a curved part only if that part is thinner than a step too, and a cut along a joint has ridges of hundredths of a mm. A long slider (over 60 mm) has bigger steps. Big curved files: not timed.
-- Clashes found only while a joint moves have no Cut buttons: there is nothing there to cut with at the joint's current position.
 - Deleting a body that makes a linked cut removes the cut. A and B cutting each other is refused with the usual build error.
-- Large documents on Everything can take a while, and the worker builds nothing meanwhile. Not measured on big files; there is no Stop yet.
+- Large documents on Everything can take a while, and the worker builds nothing meanwhile (Stop ends it between two tests; one long boolean or a slow grow still has to finish first). Not measured on big files.
 - The list says hinge values in degrees and slider values in mm, not in the display unit.
-- Coat: excluding the flat side of a body with rounded corners leaves small horns where the grown corners stand past it (a 30 mm block, R3, coat 3: 33.85 mm, not 33). While faces are picked, the card says thickness 0.
+- Coat: while faces are picked, the card says thickness 0.
 - Assumed for the sphere's ways: three points give the smallest ball (three alone do not fix one), four the exact one. "Three planes and a centre or diameter": after the third plane, the pointer sets where its centre lies (snaps count) or a typed Ø sets the size. A sphere is plain numbers afterwards: it does not follow the points or planes. No Python command of its own yet: `cad.sphere` takes a centre and diameter. T and M do not reach into its Ø field yet.
 - `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
@@ -28,9 +27,12 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Only flat faces can be excluded. Meshes cannot be coated.
 
 ## Curves
-- Tangency is held only by an arc's middle between two straight sides. Moving a point, or an arc next to a curved side, does not hold it.
+- Moving a point holds tangents through arcs (`tangentsHeld`), with exceptions: an arc turned almost straight or doubling back loses it there, a chain ending back at the moved point cannot close smoothly, a bezier's handle turns and stops there, and dragging a bezier's handles does not reach an arc beyond. Tried through tests, not yet by hand.
 - Offset of a bezier side is close, not exact. A side that an offset would turn inside out is not removed.
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
+
+## Versions
+- Versions are kept per save, up to 50, autosave one every 5 minutes; a design never saved has none. They have no names and cannot be deleted one by one. A version shown replaces what is on screen, so its tool panels and selection reset.
 
 ## Terminal
 - Picked .py files cannot be renamed from the list.
@@ -41,7 +43,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - `cad.move` on a group without its own origin moves its bodies, not sketches that have no body.
 
 ## Imports
-- 3MF and GLB arrive as one mesh body without colours; several parts in a file are not separated.
+- 3MF and GLB parts arrive flat in one group, without a file's sub-assemblies. One colour per part: a texture is left out (the part gets a palette colour), several vertex colours become their average, see-through is ignored. Above 200 parts they merge by colour, as bodies each would be too heavy. An all-white file counts as having no colours. OBJ and STL stay one body.
 
 ## Speed
 - Reading and meshing a 15 MB STEP file (7,948 faces, about 7.7 s per copy) takes the worker's memory up to 1.9 GB; a few times that size could hit the browser's WebAssembly limit. Not caused by keeping solids; the copy or the mesh step is where to look first.
@@ -69,4 +71,4 @@ Answers assumed where a request left a question open.
 - G's guides run along the drawing plane's X and Y only, not the world's.
 - The list's boolean colours reuse the joint's two colours: the body it cuts as "stays", tool bodies as "moves".
 - A tool body's eye: off hides it until selected, on shows its red outlines at all times. Only tool bodies listed elsewhere have it; those under their body keep just the red icon.
-- A joint's sweep shows in see-through orange for the bodies being checked. Interference and clearance are one tool: Clearance 0 is interference. A row's Cut and Ignore buttons show on the row the pointer is on, or the part clicked in the view; Ignore lasts while the panel is open.
+- A joint's sweep shows in see-through orange for the bodies being checked. Interference and clearance are one tool: Clearance 0 is interference. A row's Cut A | Cut B | Ignore control shows on the row the pointer is on, or the part clicked in the view; Ignore lasts while the panel is open.

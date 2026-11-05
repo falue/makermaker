@@ -120,6 +120,44 @@ describe('editing points and handles', () => {
     expect(m.mid[1]).toBeCloseTo(20);
   });
 
+  describe('tangents stay when a point moves', () => {
+    const k = Math.SQRT1_2 * 10;
+    // along x, a quarter arc up, straight up
+    const fillet = { kind: 'line' as const, pts: [[0, 0], [10, 0], [20, 10], [20, 30]] as UV[], curves: [null, { mid: [10 + k, 10 - k] }, null] as (Curve | null)[] };
+    const smoothAll = (p: typeof fillet | ReturnType<typeof pointMoved>, ...at: number[]) => at.forEach((i) => expect(isSmooth(p, i)).toBe(true));
+
+    it('the start of the line before a fillet: the fillet follows, its end sliding up its side', () => {
+      const q = pointMoved(fillet, 0, [0, -5]);
+      smoothAll(q, 1, 2);
+      expect(q.pts[1]).toEqual([10, 0]);
+      expect(q.pts[3]).toEqual([20, 30]);
+      expect(q.pts[2][0]).toBeCloseTo(20);
+    });
+    it('the arc\'s own start: tangent to both sides still', () => {
+      const q = pointMoved(fillet, 1, [8, -3]);
+      smoothAll(q, 1, 2);
+      expect(q.pts[1]).toEqual([8, -3]);
+      expect(q.pts[2][0]).toBeCloseTo(20);
+    });
+    it('arcs running on from each other stay so, in turn', () => {
+      // along x, a quarter up, then a quarter on to the left: radius 10 both, turning the same way
+      const chain = { kind: 'line' as const, pts: [[0, 0], [10, 0], [20, 10], [10, 20]] as UV[], curves: [null, { mid: [10 + k, 10 - k] }, { mid: [10 + k, 10 + k] }] as (Curve | null)[] };
+      smoothAll(chain, 1, 2);
+      smoothAll(pointMoved(chain, 0, [0, -5]), 1, 2);
+    });
+    it('a point between two arcs: both stay tangent there', () => {
+      const r = 10;
+      const a: UV[] = [[0, 0], [r, r], [2 * r, 2 * r]];
+      const s = { kind: 'line' as const, pts: a, curves: [{ mid: [r * Math.SQRT1_2, r * (1 - Math.SQRT1_2)] }, { mid: [r + r * (1 - Math.SQRT1_2), r + r * Math.SQRT1_2] }] as Curve[] };
+      smoothAll(s as never, 1);
+      smoothAll(pointMoved(s, 1, [12, 8]), 1);
+    });
+    it('a corner stays a corner', () => {
+      const corner = { kind: 'line' as const, pts: [[0, 0], [10, 0], [10, 10]] as UV[], curves: [null, null] as (Curve | null)[] };
+      expect(isSmooth(pointMoved(corner, 1, [12, 3]), 1)).toBe(false);
+    });
+  });
+
   it('a smooth point turns the handle across it, keeping its length', () => {
     expect(isSmooth(s, 1)).toBe(true);
     const q = controlMoved(s, 1, 'c1', [10, 8]);
