@@ -21,7 +21,7 @@ export interface TerminalApi {
   snapshots(shots: Snapshot[]): Promise<void>;
 }
 
-/** The scripts that come with the app (src/scripts), always listed until deleted. */
+/** The scripts that come with the app (src/scripts), always listed: edited and renamed in this browser, never deleted. */
 const EXAMPLES: Script[] = Object.entries(import.meta.glob<string>('../scripts/*.py', { query: '?raw', import: 'default', eager: true })).map(([path, text]) => ({ name: path.slice(path.lastIndexOf('/') + 1, -3), text }));
 
 /** A small thing kept in this browser. */
@@ -39,6 +39,9 @@ function store(key: string, value: unknown) {
     // only a convenience
   }
 }
+
+/** The script list's tabs. */
+type Tab = 'folder' | 'files' | 'examples';
 
 /** Where scripts were kept in the browser before: moved into the first folder chosen. */
 const OLD_STORE = 'makermaker.scripts';
@@ -89,7 +92,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const side = Object.assign(document.createElement('div'), { className: 'scripts' });
   const head = Object.assign(document.createElement('div'), { className: 'scripts-head' });
   head.append(Object.assign(document.createElement('span'), { textContent: 'Scripts' }));
-  side.append(head, list);
+  const tabBar = Object.assign(document.createElement('div'), { className: 'segmented script-tabs' });
+  side.append(head, tabBar, list);
   const cols = Object.assign(document.createElement('div'), { className: 'terminal-cols' });
   const scriptsBorder = paneBorder('Drag: the width of the scripts', () => side.offsetWidth, (px) => (panes.scripts = Math.max(120, Math.min(cols.clientWidth - 200, px))));
   cols.append(main, scriptsBorder, side);
@@ -311,9 +315,9 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   let dir: FileSystemDirectoryHandle | null = null;
   /** The folder remembered, its permission still to be given (that takes a click). */
   let waiting: FileSystemDirectoryHandle | null = null;
-  /** What became of the examples in this browser: edited, renamed, deleted (hidden). */
-  const changedExamples = stored<Record<string, { hidden?: boolean; name?: string; text?: string }>>('makermaker.exampleScripts', {});
-  const changeExample = (example: string, change: { hidden?: boolean; name?: string; text?: string }) => {
+  /** What became of the examples in this browser: edited, renamed. */
+  const changedExamples = stored<Record<string, { name?: string; text?: string }>>('makermaker.exampleScripts', {});
+  const changeExample = (example: string, change: { name?: string; text?: string }) => {
     changedExamples[example] = { ...changedExamples[example], ...change };
     store('makermaker.exampleScripts', changedExamples);
   };
@@ -343,6 +347,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     for (const h of handles) if (!(await Promise.all(links.map((x) => x.isSameEntry(h)))).includes(true)) links.push(h);
     await rememberFiles(links);
     await rescan();
+    showTab('files');
     const last = handles[handles.length - 1];
     const script = (await Promise.all(scripts.map(async (s) => ((await s.file?.isSameEntry(last)) ? s : null)))).find(Boolean);
     if (script && !script.locked) open(script);
@@ -358,10 +363,9 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     const again = scripts.find((x) => x.name === s.name);
     if (again) then(again);
   };
-  /** The examples still there, the picked files, the folder's files; a file of the same name goes before an example. */
+  /** The examples, the picked files, the folder's files; a file of the same name goes before an example. */
   const withExamples = (files: Script[]): Script[] => [
-    ...EXAMPLES.filter((e) => !changedExamples[e.name]?.hidden)
-      .map((e) => ({ name: changedExamples[e.name]?.name ?? e.name, text: changedExamples[e.name]?.text ?? e.text, example: e.name }))
+    ...EXAMPLES.map((e) => ({ name: changedExamples[e.name]?.name ?? e.name, text: changedExamples[e.name]?.text ?? e.text, example: e.name }))
       .filter((e) => ![...linked, ...files].some((f) => f.name.toLowerCase() === e.name.toLowerCase())),
     ...linked,
     ...files,
@@ -454,6 +458,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     await flush();
     open(null);
     await connect(folder, true);
+    showTab('folder');
   };
   /** The remembered folder again, by a click. */
   const reopen = async () => {
@@ -540,12 +545,27 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
       return el;
     });
   };
+  /**
+   * The list's tabs: the folder's files, the picked files, then the examples; only the examples (and no tabs) while
+   * there is neither. The tab chosen is remembered in this browser.
+   */
+  let tab = stored<{ tab: Tab }>('makermaker.scriptTab', { tab: 'folder' }).tab;
+  const tabOf = (s: Script): Tab => (s.example ? 'examples' : s.file ? 'files' : 'folder');
+  const showTab = (t: Tab) => {
+    tab = t;
+    store('makermaker.scriptTab', { tab });
+    showList();
+  };
   const showList = () => {
-    folderButton.hidden = !canUseFolders();
-    folderButton.title = dir ? `Scripts folder: ${dir.name} · Click: Choose another` : 'Choose a folder for the scripts';
-    headName.textContent = dir ? `Scripts · ${dir.name}` : 'Scripts';
+    const tabs = ([['folder', dir?.name], ['files', linked.length ? 'Files' : ''], ['examples', 'Examples']] as const).filter(([t, name]) => name && (t !== 'examples' || dir || linked.length));
+    const shown = tabs.find(([t]) => t === tab)?.[0] ?? tabs[0]?.[0] ?? 'examples';
+    tabBar.hidden = !tabs.length;
+    tabBar.replaceChildren(...tabs.map(([t, name]) => Object.assign(document.createElement('button'), { textContent: name, className: t === shown ? 'on' : '', title: t === 'folder' ? `The scripts in ${name}` : t === 'files' ? 'The .py files picked' : 'The scripts that come with the app', onclick: () => showTab(t) })));
+    folderButton.hidden = filesButton.hidden = !canUseFolders();
+    folderButton.title = dir ? `Scripts folder: ${dir.name} · Click: Choose another` : waiting ? `Click: Open "${waiting.name}" again` : 'Click: Choose a folder for the scripts';
+    newButton.hidden = !dir;
     list.replaceChildren(
-      ...scripts.map((s) => {
+      ...scripts.filter((s) => tabOf(s) === shown).map((s) => {
         const label = Object.assign(document.createElement('span'), { className: 'script-name', textContent: s.name });
         const row = Object.assign(document.createElement('div'), {
           className: 'script-row',
@@ -564,11 +584,10 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
             Object.assign(document.createElement('a'), { href: url, download: `${s.name}.py` }).click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           }))]),
-          button('delete', s.example ? 'Click: Delete this example from the list (Undo comes in its place)' : s.file ? 'Click: Take it off the list: the file stays (Undo comes in its place)' : 'Click: Delete the file (Undo comes in its place)', stop(async () => {
+          ...(s.example ? [] : [button('delete', s.file ? 'Click: Take it off the list: the file stays (Undo comes in its place)' : 'Click: Delete the file (Undo comes in its place)', stop(async () => {
             if (current === s) open(null);
             await flush();
-            if (s.example) changeExample(s.example, { hidden: true });
-            else if (s.file) await rememberFiles((links = links.filter((h) => h !== s.file)));
+            if (s.file) await rememberFiles((links = links.filter((h) => h !== s.file)));
             else await removeScript(dir!, s.name).catch(failed);
             scripts = scripts.filter((x) => x !== s);
             const gone = Object.assign(document.createElement('div'), { className: 'script-row gone' });
@@ -576,18 +595,17 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
               textContent: 'Undo',
               title: 'Click: Bring it back',
               onclick: async () => {
-                if (s.example) changeExample(s.example, { hidden: false });
-                else if (s.file) await rememberFiles((links = [...links, s.file]));
+                if (s.file) await rememberFiles((links = [...links, s.file]));
                 else await writeScript(dir!, s).catch(failed);
                 await rescan();
               },
             }));
             row.replaceWith(gone);
-          })),
+          }))]),
         );
         return row;
       }),
-      ...(dir ? [] : noFolder()),
+      ...(tabs.length ? [] : noFolder()),
     );
     markOpen();
   };
@@ -606,23 +624,24 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
       if (files.length) await linkFiles(files);
     })();
   };
-  const headName = head.firstElementChild as HTMLElement;
-  const folderButton = button('open', 'Choose a folder for the scripts', () => void choose());
+  const folderButton = button('open', '', () => void (waiting && !dir ? reopen() : choose()));
+  const filesButton = button('import', 'Click: Pick .py files for this list, edits go into them (or drop files or a folder here)', () => void pickFiles());
   const promptButton = button('terminal', '', () => {
     if (editor.hidden) return showPrompt(!!panes.closed);
     panes.closed = false;
     keep();
     open(null);
   });
-  head.append(promptButton, folderButton, button('import', 'Click: Pick .py files for this list, edits go into them (or drop files or a folder here)', () => void pickFiles()));
-  head.append(button('new', 'New script', async () => {
-    if (!(await needFolder())) return;
+  // a new script is a file in the folder: only with one
+  const newButton = button('new', 'Click: New script in the folder', async () => {
     const s: Script = { name: freeName('New script'), text: '' };
     await writeScript(dir!, s).catch(failed);
     scripts.push(s);
     await rescan();
+    showTab('folder');
     open(scripts.find((x) => x.name === s.name) ?? null);
-  }));
+  });
+  head.append(promptButton, folderButton, filesButton, newButton);
 
   layout();
 

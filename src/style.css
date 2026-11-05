@@ -2489,6 +2489,17 @@ section > h4 .segmented button {
   display: flex;
   flex-direction: column;
 }
+.script-tabs {
+  flex: none;
+  margin: 0 6px 4px;
+}
+.script-tabs button {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.script-tabs[hidden] {
+  display: none;
+}
 .script-list {
   flex: 1;
   min-height: 0;
