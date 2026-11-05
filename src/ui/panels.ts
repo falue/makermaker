@@ -82,8 +82,8 @@ export interface UIContext {
   clashTool(): void;
   /** Coat: a body (selected, or clicked next) made thicker all round. */
   coatTool(): void;
-  /** Clicks choose the flat faces a coat leaves where they are. */
-  coatFaces(body: string, feature: string): void;
+  /** A coat's floating panel. */
+  coatEdit(body: string, feature: string): void;
   mirrorTool(): void;
   patternTool(): void;
   threadTool(): void;
@@ -1538,8 +1538,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         'section',
         {},
         h('h4', {}, 'Coat', remove),
-        h('div', { className: 'row' }, f('thickness', 'Thickness'), select(feature.corners, { sharp: 'Sharp corners', round: 'Round corners' }, (corners) => setFeature({ ...feature, corners }))),
-        h('div', { className: 'row' }, button('Select faces to exclude', () => ctx.coatFaces(body.id, feature.id), 'Click: then click flat faces that stay where they are (again: back), Enter ends'), h('span', { className: 'hint' }, feature.exclude.length ? `${feature.exclude.length} excluded` : '')),
+        h('div', { className: 'row' }, h('span', { className: 'hint' }, `${feature.thickness.e}, ${feature.corners} corners${feature.exclude.length ? `, ${feature.exclude.length} excluded` : ''}`), button('✎', () => ctx.coatEdit(body.id, feature.id), 'Change it')),
       );
     case 'sweep': {
       const name = (q: { sketch: string }) => ctx.doc.sketches.find((k) => k.id === q.sketch)?.name ?? '?';

@@ -24,6 +24,7 @@ import { ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
+import type { CoatFeature } from './doc/types';
 import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
@@ -2976,43 +2977,71 @@ function coatTool() {
   }
   const doc = history.current;
   const i = stepsOf(doc, body);
-  commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, { id: newId(), type: 'coat' as const, thickness: len(1), corners: 'sharp' as const, exclude: [] }]));
-  const field = document.querySelector<HTMLInputElement>(`input[data-path="bodies.${i}.features.${doc.bodies[i].features.length}.thickness"]`);
-  field?.focus();
-  field?.select();
+  const id = newId();
+  commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, { id, type: 'coat' as const, thickness: len(1), corners: 'sharp' as const, exclude: [] }]));
+  coatPanel(body, id, true);
 }
 
-/** Clicks choose the flat faces a coat leaves where they are; again on one: back; Enter or Esc ends. */
-function coatFaces(body: string, feature: string) {
-  const keys = (e: KeyboardEvent) => {
-    if (!pressed(e, 'confirm')) return;
-    e.stopImmediatePropagation();
-    e.preventDefault();
-    viewer.cancelFacePick();
+/** A coat's floating panel, live, one undo step: thickness, corners, the flat faces it leaves where they are. Esc: as before. */
+function coatPanel(body: string, feature: string, isNew = false) {
+  const now = () => {
+    const i = history.current.bodies.findIndex((b) => b.id === body);
+    const k = history.current.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
+    const f = history.current.bodies[i]?.features[k];
+    return f?.type === 'coat' ? { i, k, f } : null;
   };
-  addEventListener('keydown', keys, { capture: true });
-  const next = () => {
-    toolHint = 'Coat: click flat faces to exclude: they stay where they are · again: back · [Enter] done';
-    render();
-    viewer.pickFace((face) => {
-      if (!face) return removeEventListener('keydown', keys, { capture: true }), (toolHint = null), render();
-      const i = history.current.bodies.findIndex((b) => b.id === body);
-      const k = history.current.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
-      const f = history.current.bodies[i]?.features[k];
-      if (face.body === body && f?.type === 'coat') {
-        const pl = bodyPlace(body);
-        const at = unplaced(pl, face.point.toArray());
-        const n = unplaced(pl, face.normal.clone().negate().toArray(), true);
-        const v3 = (q: Vec3) => new Vector3(...q);
-        // the same plane, the coat on it or not: a click takes it back
-        const same = (e: { at: Vec3; n: Vec3 }) => v3(e.n).dot(v3(n)) > 0.999 && Math.abs(v3(at).sub(v3(e.at)).dot(v3(n))) <= (length(f.thickness.e) ?? 0) + 1e-3;
-        const exclude = f.exclude.some(same) ? f.exclude.filter((e) => !same(e)) : [...f.exclude, { at, n }];
-        commit(setIn(history.current, ['bodies', String(i), 'features', String(k), 'exclude'], exclude));
-      }
-      next();
-    });
+  let changed = isNew;
+  const set = (patch: Partial<CoatFeature>) => {
+    const c = now();
+    if (!c) return;
+    const next = setIn(history.current, ['bodies', String(c.i), 'features', String(c.k)], { ...c.f, ...patch });
+    if (changed) history.replace(next);
+    else history.push(next);
+    changed = true;
+    update();
+    faces.textContent = patch.exclude ? faceWord() : faces.textContent;
   };
-  next();
+  const start = now();
+  if (!start) return;
+  const faceWord = () => {
+    const n = now()?.f.exclude.length ?? 0;
+    return n ? `${n} excluded` : '';
+  };
+  const corners = Object.assign(document.createElement('select'), { title: 'Sharp: a box stays a box. Round: the same distance everywhere', onchange: () => set({ corners: corners.value as CoatFeature['corners'] }) });
+  corners.append(new Option('Sharp corners', 'sharp', false, start.f.corners === 'sharp'), new Option('Round corners', 'round', false, start.f.corners === 'round'));
+  const faces = Object.assign(document.createElement('span'), { className: 'hint', textContent: faceWord() });
+  let picking = false;
+  const pickFaces = () => {
+    if (picking) return;
+    picking = true;
+    const next = () => {
+      toolHint = 'Coat: click flat faces to exclude: they stay where they are · again: back · [Esc] done with faces · [Enter] keeps it all';
+      render();
+      viewer.pickFace((face) => {
+        const c = now();
+        if (!face || !c) return (picking = false), (toolHint = hint), render();
+        if (face.body === body) {
+          const pl = bodyPlace(body);
+          const at = unplaced(pl, face.point.toArray());
+          const n = unplaced(pl, face.normal.clone().negate().toArray(), true);
+          const v = (q: Vec3) => new Vector3(...q);
+          // the same plane, the coat on it or not: a click takes it back
+          const same = (e: { at: Vec3; n: Vec3 }) => v(e.n).dot(v(n)) > 0.999 && Math.abs(v(at).sub(v(e.at)).dot(v(n))) <= (length(c.f.thickness.e) ?? 0) + 1e-3;
+          set({ exclude: c.f.exclude.some(same) ? c.f.exclude.filter((e) => !same(e)) : [...c.f.exclude, { at, n }] });
+        }
+        next();
+      });
+    };
+    next();
+  };
+  const hint = 'Coat: how thick, live · sharp or round corners · faces to exclude · [Enter] keeps it · [Esc] drops it';
+  valuePanel(
+    [{ label: 'Thickness', value: start.f.thickness.e, title: 'How much thicker, on all sides' }],
+    ([t]) => set({ thickness: { e: t, u: history.current.units } }),
+    (ok) => (ok ? render() : changed ? undo() : render()),
+    hint,
+    [corners, panelButton('Select faces to exclude', 'Click: then click flat faces that stay where they are (again: back)', pickFaces), faces],
+  );
 }
 
 /** Offset of the selected shapes of `sketch`: new outlines beside them (see `offsetTool`), the distance live. */
@@ -5556,7 +5585,7 @@ function render() {
     offsetTool,
     clashTool,
     coatTool,
-    coatFaces,
+    coatEdit: (body, feature) => coatPanel(body, feature),
     mirrorTool,
     patternTool: () => patternTool(),
     threadTool,
