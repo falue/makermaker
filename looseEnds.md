@@ -47,10 +47,10 @@ Answers assumed where a request left a question open.
 - Clicking an image's list row again deselects it. Bodies and sketches in the lists still stay selected on a second click.
 - An image's rotate button turns it right away with the pointer, as Rotate does for bodies; the Turn field stays typed from 0 each time, because images store no turn value of their own.
 - Cross-browser is noted as a goal only; nothing about it is built yet.
-- Moving the body a tool body was dragged away from moves the body against the tool, so its cut shifts too.
-- Deleting a dragged-away tool body removes its cut too, since the cut is built from it. Keeping the cut would need a Flatten step (see CAD goals).
-- Dragging a tool body right under its owner, or among that owner's other tool bodies, keeps it a tool; anywhere else lets it go.
+- A tool body listed in another group than its body: moving that whole group moves the tool alone and so reshapes the cut, and moving a group holding only the body leaves the tool behind. Moving the body itself takes the tool along.
+- A tool body in a group turned differently from its body's: going along with the body is not tested there.
+- Deleting a tool body removes its cut too, also when it is listed elsewhere, since the cut is built from it. Keeping the cut would need a Flatten step (see CAD goals).
+- Dragging a tool body right under its owner, or among that owner's other tool bodies, lists it under the owner again; anywhere else lists it there.
 - Tab goes through on line / on edge / a point along it only before anything is drawn; while drawing Tab keeps its other uses (a size's other field, a line's angle), so the nearest wins there.
 - G's guides run along the drawing plane's X and Y only, not the world's.
 - The list's boolean colours reuse the joint's two colours: the body it cuts as "stays", tool bodies as "moves".
-- A and Shift A could not be made to fail in testing: rectangle sides, lines, body edges, with helper lines up, resting or moving, before and during drawing. If they still do nothing, the pointer's note ("3 points") or the top bar's note shows how far the key gets.

@@ -4327,17 +4327,20 @@ function ungroup() {
 }
 
 /** Moves objects before or after another one in its list (into that one's group), or into a group; they stay in place. */
-/** Tool bodies dragged away from their owner go free: they still cut it, where they are (`stay`: the owner they are dragged within). */
-function letToolsGo(doc: Doc, ids: string[], stay?: string): Doc {
+/** Tool bodies dragged in the list: listed there from now on, under their body again if dragged back there (`under`: the body they were dropped by). */
+function listedElsewhere(doc: Doc, ids: string[], under?: string): Doc {
   const owner = ownersOf(doc);
-  const leaving = ids.filter((id) => owner.has(id) && owner.get(id) !== stay);
-  if (!leaving.length) return doc;
+  const tools = ids.filter((id) => owner.has(id));
+  if (!tools.length) return doc;
   return {
     ...doc,
     bodies: doc.bodies.map((b) => ({
       ...b,
-      visible: leaving.includes(b.id) ? true : b.visible,
-      features: b.features.map((f) => (f.type === 'boolean' && !f.free && leaving.includes(f.body) && owner.get(f.body) === b.id ? { ...f, free: true } : f)),
+      features: b.features.map((f) => {
+        if (f.type !== 'boolean' || !tools.includes(f.body) || owner.get(f.body) !== b.id) return f;
+        const { free: _, ...rest } = f;
+        return b.id === under ? rest : { ...rest, free: true };
+      }),
     })),
   };
 }
@@ -4345,7 +4348,7 @@ function letToolsGo(doc: Doc, ids: string[], stay?: string): Doc {
 function arrange(ids: string[], target: string, where: 'before' | 'after' | 'into') {
   if (ids.includes(target)) return;
   const owners = ownersOf(history.current);
-  let doc = letToolsGo(history.current, ids, owners.get(target) ?? (where === 'after' ? target : undefined));
+  let doc = listedElsewhere(history.current, ids, owners.get(target) ?? (where === 'after' ? target : undefined));
   const parent = where === 'into' ? target : (doc.groups.find((g) => g.id === target)?.parent ?? doc.bodies.find((b) => b.id === target)?.group ?? null);
   doc = movedInto(doc, ids, parent);
   if (where !== 'into') {
@@ -5288,7 +5291,7 @@ function render() {
       if (!folded.delete(id)) folded.add(id);
       render();
     },
-    moveInto: (ids, group) => commit(movedInto(letToolsGo(history.current, ids), ids, group)),
+    moveInto: (ids, group) => commit(movedInto(listedElsewhere(history.current, ids), ids, group)),
     groupTool,
     moveTool: () => moveAlong(0, true),
     cutTool,

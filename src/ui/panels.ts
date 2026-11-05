@@ -795,7 +795,7 @@ function left(ctx: UIContext): Node[] {
       ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Based on sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.editSketch(own[0].id) })]
       : bools.length ? [] : [h('span', { className: 'fold-space' })];
     // a boolean's tool body: the op, and whose
-    const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id && !f.free));
+    const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id));
     const op = user?.features.find((f) => f.type === 'boolean' && f.body === id);
     // a boolean's tool body: the op as a button in the eye's place (whose; a click frees it)
     const tool =
@@ -1108,7 +1108,7 @@ function selectionPanel(ctx: UIContext): Node[] {
   const setBody = (next: Body) => ctx.commit(setIn(ctx.doc, ['bodies', String(i)], next));
   const failure = ctx.kernelErrors.get(body.id);
   // a boolean's tool body: whose, and a way out
-  const user = ctx.doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === body.id && !f.free));
+  const user = ctx.doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === body.id));
   const freeing = user
     ? [h('div', { className: 'row' }, h('span', { className: 'hint' }, `A tool body of ${user.name}`), button('Free from boolean', () => ctx.commit(freed(ctx.doc, body.id)), 'Remove the booleans that use it: it becomes a normal body again'))]
     : [];
@@ -1437,7 +1437,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const other = ctx.doc.bodies.find((b) => b.id === feature.body);
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
       const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error', title: COPY_TIP }, 'its tool body was deleted');
-      const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), feature.free ? 'Remove: the cut goes' : 'Remove: the tool body becomes a body of its own');
+      const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), 'Remove: the tool body becomes a body of its own');
       return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, 'with'), tool, drop));
     }
     case 'mesh': {

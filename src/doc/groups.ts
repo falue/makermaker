@@ -52,7 +52,8 @@ export function rank(doc: Doc, id: string): number {
 
 export function tree(doc: Doc, folded: Set<string>): Row[] {
   const out: Row[] = [];
-  const owner = ownersOf(doc);
+  // tool bodies listed under their body, but for those dragged elsewhere
+  const owner = new Map([...ownersOf(doc)].filter(([tool, o]) => !doc.bodies.find((b) => b.id === o)?.features.some((f) => f.type === 'boolean' && f.body === tool && f.free)));
   // a linked copy in its source's group sits under the source
   const under = (b: DocBody) => !!b.link && doc.bodies.some((s) => s.id === b.link && s.group === b.group);
   // a body, then the tool bodies of its booleans and its linked copies under it, like a group's contents; these start
@@ -81,10 +82,10 @@ export function tree(doc: Doc, folded: Set<string>): Row[] {
   return out;
 }
 
-/** The body each boolean tool body belongs to (the first whose boolean uses it); a tool dragged away is its own. */
+/** The body each boolean tool body belongs to (the first whose boolean uses it). */
 export function ownersOf(doc: Doc) {
   const out = new Map<string, string>();
-  for (const b of doc.bodies) for (const f of b.features) if (f.type === 'boolean' && !f.free && !out.has(f.body)) out.set(f.body, b.id);
+  for (const b of doc.bodies) for (const f of b.features) if (f.type === 'boolean' && !out.has(f.body)) out.set(f.body, b.id);
   return out;
 }
 

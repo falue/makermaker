@@ -98,7 +98,7 @@ export type FinishFeature = { id: string; type: 'finish'; mode: 'fillet' | 'cham
 export type SphereFeature = { id: string; type: 'sphere'; x: Expr; y: Expr; z: Expr; d: Expr };
 
 /** Joins, cuts or intersects with another body (the tool body: stays editable, normally hidden). */
-/** `free`: its tool body was dragged away: it no longer goes along with the body or under it in the list; it still cuts, where it is. */
+/** `free`: its tool body was dragged elsewhere in the object list: it is listed there, and stays a tool in every other way. */
 export type BooleanFeature = { id: string; type: 'boolean'; op: BooleanOp; body: string; free?: boolean };
 export type BooleanOp = 'union' | 'subtract' | 'intersect';
 
