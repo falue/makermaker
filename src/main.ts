@@ -32,7 +32,7 @@ import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
-import { coatAsBody, describe as describeCommands, runCommand, shared, type Args } from './api/commands';
+import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
@@ -470,7 +470,7 @@ function update() {
     const before = exprErrors.size;
     // a linked copy: its source's steps (errors shown at the source), then its own
     const k = p.link ? doc.bodies.findIndex((b) => b.id === p.link) : -1;
-    const shared = k >= 0 ? resolve(doc.bodies[k].features, lookup, `bodies.${k}.features`, exprErrors) : [];
+    const shared = k >= 0 ? resolve(doc.bodies[k].features, lookup, `bodies.${k}.features`, exprErrors).filter((f) => f.type !== 'fingers') : [];
     const resolved = [...shared, ...resolve(p.features, lookup, `bodies.${i}.features`, exprErrors)];
     return exprErrors.size === before ? [{ id: p.id, resolved, at: bodyPlace(p.id) }] : [];
   });
@@ -2526,6 +2526,7 @@ function threadTool() {
       write,
       (ok) => (ok ? render() : undo()),
       `Thread ${round.shaft ? 'on a shaft' : 'in a hole'} Ø ${fmt(2 * round.r)} mm: pick its size · or type Ø and pitch · its length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
+      [],
       [systems, pick],
     );
   });
@@ -3200,7 +3201,6 @@ function coatPanel(body: string, feature: string, isNew = false) {
       else undo();
     },
     hint,
-    [],
     [corners, facesButton, asBody, link],
   );
 }
@@ -3263,7 +3263,11 @@ function boxJoint() {
   }
   const [a, b] = ids;
   const [fa, fb] = [newId(), newId()];
-  const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex('7'), width: len(0), from: null, first });
+  const [boxA, boxB] = [viewer.measure(a)?.box, viewer.measure(b)?.box];
+  const sides = boxA && boxB ? boxA.clone().intersect(boxB).getSize(new Vector3()).toArray() : [];
+  if (sides.length && Math.min(...sides) <= 1e-3) return fail('Box joint: these two do not overlap. Move one into the other, its fingers need a place to go');
+  const count = sides.length ? fingersFor(Math.max(...sides), Math.min(...sides)) : 7;
+  const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex(String(count)), width: len(0), from: null, first });
   commit({ ...doc, bodies: doc.bodies.map((x) => (x.id === a ? { ...x, features: [...x.features, step(b, true, fa)] } : x.id === b ? { ...x, features: [...x.features, step(a, false, fb)] } : x)) });
   fingersPanel(a, fa, true);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Doc } from '../doc/types';
-import { COMMANDS, describe as tools, runCommand, shared } from './commands';
+import { COMMANDS, describe as tools, fingersFor, runCommand, shared } from './commands';
 
 const empty = (): Doc => ({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] });
 
@@ -77,6 +77,15 @@ describe('move', () => {
     const doc = { ...empty(), bodies: [body('a', 'g'), body('b', 'h'), body('c', null)], groups: [{ id: 'g', parent: null, origin: { kind: 'parent' } }, { id: 'h', parent: 'g', origin: { kind: 'parent' } }] } as unknown as Doc;
     const next = runCommand(doc, 'move', { ids: ['g'], by: [5, 0, 0] }).doc;
     expect(next.bodies.map((b) => b.position[0].e)).toEqual(['6', '6', '1']);
+  });
+});
+
+describe('box joint fingers', () => {
+  it('each about three thicknesses long, an odd number, 3 at least', () => {
+    expect(fingersFor(80, 5)).toBe(5); // 16 mm each
+    expect(fingersFor(300, 3)).toBe(33);
+    expect(fingersFor(90, 5)).toBe(5); // 6 exactly: the odd one below
+    expect(fingersFor(10, 5)).toBe(3);
   });
 });
 

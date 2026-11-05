@@ -54,6 +54,13 @@ export function coatAsBody(doc: Doc, i: number, coat: CoatFeature, linked = fals
   return { doc: { ...doc, bodies: [...doc.bodies, body] }, id: body.id };
 }
 
+/** A box joint's fingers for an overlap `long` by `thick`: each about three thicknesses long, an odd number so both ends match, 3 at least. */
+export function fingersFor(long: number, thick: number) {
+  const exact = long / (3 * thick);
+  const n = Math.round(exact);
+  return Math.max(3, n % 2 ? n : exact > n ? n + 1 : n - 1);
+}
+
 const bodyOf = (doc: Doc, id: unknown) => {
   const i = doc.bodies.findIndex((b) => b.id === id);
   if (i < 0) throw new Error(`no body "${String(id)}"`);
