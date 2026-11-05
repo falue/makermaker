@@ -1,7 +1,7 @@
 import { assignMaterial, changeLook, findMaterial } from '../doc/materials';
 import { ownersOf } from '../doc/groups';
 import { ex, newId, unturned } from '../doc/sample';
-import type { Body, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
+import type { Body, CoatFeature, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
 
 /**
  * The CAD command API: every modelling command as a pure step from one document to the next, described well enough
@@ -9,7 +9,7 @@ import type { Body, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Ske
  * `cad` in main); `run` here stays free of the view and the kernel. Lengths are millimetres, angles degrees; a value
  * may also be an expression string (`'2*$ply'`).
  */
-export type Param = { name: string; type: 'number' | 'string' | 'id' | 'ids' | 'point2' | 'point3' | 'points2' | 'points3' | 'curves' | 'enum'; doc: string; optional?: true; values?: readonly string[] };
+export type Param = { name: string; type: 'number' | 'boolean' | 'string' | 'id' | 'ids' | 'point2' | 'point3' | 'points2' | 'points3' | 'curves' | 'enum'; doc: string; optional?: true; values?: readonly string[] };
 export type Args = Record<string, unknown>;
 export type Result = { doc: Doc; result?: unknown };
 export interface Command {
@@ -33,12 +33,23 @@ function check(name: string, c: Command, args: Args) {
     }
     const bad =
       (p.type === 'number' && typeof v !== 'number' && typeof v !== 'string') ||
+      (p.type === 'boolean' && typeof v !== 'boolean') ||
       ((p.type === 'string' || p.type === 'id') && typeof v !== 'string') ||
       (p.type === 'ids' && !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) ||
       (p.type === 'enum' && !p.values!.includes(v as string)) ||
       ((p.type === 'point2' || p.type === 'point3') && !(Array.isArray(v) && v.length === (p.type === 'point2' ? 2 : 3)));
     if (bad) throw new Error(`${name}: "${p.name}" should be ${p.type === 'enum' ? `one of ${p.values!.join(', ')}` : `a ${p.type}`}`);
   }
+}
+
+const palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f'];
+
+/** A coat as a body of its own beside body `i`: a linked copy of it, a skin around it; the id it got. */
+export function coatAsBody(doc: Doc, i: number, coat: CoatFeature) {
+  const { material: _, ...o } = doc.bodies[i];
+  const own = o.link ? structuredClone(o.features).map((f) => ({ ...f, id: newId() })) : [];
+  const body: Body = { ...structuredClone(o), id: newId(), name: `${o.name} coat`, color: palette.filter((c) => c !== o.color)[doc.bodies.length % 5], link: o.link ?? o.id, features: [...own, { ...coat, skin: true }], order: undefined };
+  return { doc: { ...doc, bodies: [...doc.bodies, body] }, id: body.id };
 }
 
 const bodyOf = (doc: Doc, id: unknown) => {
@@ -52,7 +63,6 @@ const sketchOf = (doc: Doc, id: unknown) => {
   return i;
 };
 const withBody = (doc: Doc, i: number, b: Body): Doc => ({ ...doc, bodies: doc.bodies.map((x, k) => (k === i ? b : x)) });
-const palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f'];
 
 /** A new body from `features`, at `at` (mm), named `name` (else "Body n"). */
 function addBody(doc: Doc, features: Feature[], at: unknown, name: unknown): Result {
@@ -245,11 +255,15 @@ export const COMMANDS: Record<string, Command> = {
     },
   },
   coat: {
-    doc: 'Makes a body thicker all round by `thickness`, like paint: sharp corners (a 5 mm cube and 1 mm: 7 mm) or round (the same distance everywhere).',
-    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'thickness', type: 'number', doc: 'mm' }, { name: 'corners', type: 'enum', values: ['sharp', 'round'], doc: 'sharp (the default) or round', optional: true }],
+    doc: 'Makes a body thicker all round by `thickness`, like paint: sharp corners (a 5 mm cube and 1 mm: 7 mm) or round (the same distance everywhere). `newBody`: the body stays as it is, the coat becomes a body of its own, hollow around it (its id comes back).',
+    params: [{ name: 'id', type: 'id', doc: 'the body' }, { name: 'thickness', type: 'number', doc: 'mm' }, { name: 'corners', type: 'enum', values: ['sharp', 'round'], doc: 'sharp (the default) or round', optional: true }, { name: 'newBody', type: 'boolean', doc: 'a body of its own', optional: true }],
     run: (doc, a) => {
       const i = bodyOf(doc, a.id);
-      const f: Feature = { id: newId(), type: 'coat', thickness: len(a.thickness), corners: a.corners === 'round' ? 'round' : 'sharp', exclude: [] };
+      const f: CoatFeature = { id: newId(), type: 'coat', thickness: len(a.thickness), corners: a.corners === 'round' ? 'round' : 'sharp', exclude: [] };
+      if (a.newBody) {
+        const made = coatAsBody(doc, i, f);
+        return { doc: made.doc, result: made.id };
+      }
       return { doc: withBody(doc, i, { ...doc.bodies[i], features: [...doc.bodies[i].features, f] }), result: f.id };
     },
   },

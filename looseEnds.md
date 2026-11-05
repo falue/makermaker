@@ -6,8 +6,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.
 - A typed sweep angle of an arc is used once (its diameter stays). `cad.line` and `cad.polygon` take plain points, no side formulas.
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
-
-- A tangent line starts on a circle only: not from a smaller arc or rounded corner, no line ending tangent from a free start, none tangent to two circles. It holds while drawing, no lasting link to the circle. In the one-line and polygon modes, not bezier or arc. Starting a plain line on a free spot of a circle now takes drawing it from its other end (its points still snap).
+- A tangent line starts on a sketch circle, arc or bezier side, or a body's round edge: not on a rounded rectangle's corner (its outline has no arc to snap to) or a body's elliptic or spline edge. No line ending tangent from a free start, none tangent to two curves. It holds while drawing, no lasting link to the curve. In the one-line and polygon modes, not bezier or arc. A typed angle no tangent of a short arc runs at is ignored.
 
 ## Measuring
 - A drawing tool's snap onto a free-form body edge (a spline, say) is very close but not exact: it uses the circle through the mesh points next to it. Round edges come out exact to the view's number precision.
@@ -27,6 +26,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Coat
 - Excluding a flat face removes what grew out of it over the face's own box and a margin; where another part of the body rises right beside that face, its coat there can get cut too.
 - Only flat faces can be excluded. Meshes cannot be coated.
+- A coat as a new body is a linked copy with its own place: moving the body leaves it behind unless both move together. Reopened, its New body checkbox cannot be switched off.
 
 ## Curves
 - Moving a point holds tangents through arcs (`tangentsHeld`), with exceptions: an arc turned almost straight or doubling back loses it there, a chain ending back at the moved point cannot close smoothly, a bezier's handle turns and stops there, and dragging a bezier's handles does not reach an arc beyond. Tried through tests, not yet by hand.

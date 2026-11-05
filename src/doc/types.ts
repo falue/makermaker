@@ -130,8 +130,9 @@ export type ShellFeature = { id: string; type: 'shell'; thickness: Expr; open: [
 /**
  * The body made thicker all round by `thickness`, its corners `sharp` (a box stays a box) or `round` (the same distance
  * everywhere); flat faces `exclude`d stay where they are (a point on or over one, and its outward normal, body-local).
+ * `skin`: only what it adds is left, hollow where the body was.
  */
-export type CoatFeature = { id: string; type: 'coat'; thickness: Expr; corners: 'sharp' | 'round'; exclude: { at: [number, number, number]; n: [number, number, number] }[] };
+export type CoatFeature = { id: string; type: 'coat'; thickness: Expr; corners: 'sharp' | 'round'; exclude: { at: [number, number, number]; n: [number, number, number] }[]; skin?: boolean };
 
 /** The body mirrored across a plane (body-local: through `o`, normal `n`). */
 export type MirrorFeature = { id: string; type: 'mirror'; o: [number, number, number]; n: [number, number, number] };

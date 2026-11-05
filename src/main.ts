@@ -32,7 +32,7 @@ import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
-import { describe as describeCommands, runCommand, shared, type Args } from './api/commands';
+import { coatAsBody, describe as describeCommands, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
@@ -3026,6 +3026,8 @@ function coatTool() {
 
 /** A coat's floating panel, live, one undo step: thickness, corners, the flat faces it leaves where they are. Esc: as before. */
 function coatPanel(body: string, feature: string, isNew = false) {
+  /** The body it coats when it is a new body of its own, made here (reopened later: none). */
+  let source: string | null = null;
   const now = () => {
     const i = history.current.bodies.findIndex((b) => b.id === body);
     const k = history.current.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
@@ -3052,6 +3054,30 @@ function coatPanel(body: string, feature: string, isNew = false) {
   const corners = Object.assign(document.createElement('select'), { title: 'Sharp: a box stays a box. Round: the same distance everywhere', onchange: () => (picking ? viewer.cancelFacePick() : 0, set({ corners: corners.value as CoatFeature['corners'] })) });
   corners.append(new Option('Sharp corners', 'sharp', false, start.f.corners === 'sharp'), new Option('Round corners', 'round', false, start.f.corners === 'round'));
   const faces = Object.assign(document.createElement('span'), { className: 'hint', textContent: faceWord() });
+  // moves the coat onto a linked copy (a skin around the body, which stays as it is) and back
+  const toBody = (on: boolean) => {
+    if (picking) viewer.cancelFacePick();
+    const c = now();
+    if (!c) return;
+    const doc = history.current;
+    const { skin: _, ...coat } = c.f;
+    const made = on ? coatAsBody(setIn(doc, ['bodies', String(c.i), 'features'], doc.bodies[c.i].features.filter((f) => f.id !== feature)), c.i, coat) : null;
+    const back = () => {
+      const i = doc.bodies.findIndex((b) => b.id === source);
+      const d = setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, coat]);
+      return { ...d, bodies: d.bodies.filter((b) => b.id !== body) };
+    };
+    const next = made ? made.doc : back();
+    [source, body] = made ? [body, made.id] : [null, source!];
+    selected = [body];
+    if (changed) history.replace(next);
+    else history.push(next);
+    changed = true;
+    showSelection();
+    update();
+  };
+  const asBody = checkbox('New body', start.f.skin ? 'This coat is a body of its own' : 'Click: Make the coat a body of its own, hollow around this one, which stays as it is', !!start.f.skin, toBody);
+  asBody.querySelector('input')!.disabled = !!start.f.skin;
   // while picking: no coat to see past, the real faces to click, nothing else changes until it ends
   let picking = false;
   const facesButton = panelButton('Select faces to exclude', 'Click: Show the body without its coat, then click flat faces that stay where they are (again: back)', () => (picking ? viewer.cancelFacePick() : void pickFaces()));
@@ -3082,7 +3108,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
           set({ thickness: { e: panel.inputs[0].value || '0', u: history.current.units }, exclude: chosen.map(({ at, n }) => ({ at, n })) });
           return render();
         }
-        if (face.body === body) {
+        if (face.body === body || face.body === source) {
           const pl = bodyPlace(body);
           const at = unplaced(pl, face.point.toArray());
           const n = unplaced(pl, face.normal.clone().negate().toArray(), true);
@@ -3096,13 +3122,17 @@ function coatPanel(body: string, feature: string, isNew = false) {
     };
     next();
   };
-  const hint = 'Coat: how thick, live · sharp or round corners · faces to exclude · [Enter] keeps it · [Esc] drops it';
+  const hint = 'Coat: how thick, live · sharp or round corners · faces to exclude · new body: a skin around it · [Enter] keeps it · [Esc] drops it';
   const panel = valuePanel(
     [{ label: 'Thickness', value: start.f.thickness.e, title: 'How much thicker, on all sides' }],
     ([t]) => picking || set({ thickness: { e: t, u: history.current.units } }),
-    (ok) => (ok ? render() : changed ? undo() : render()),
+    (ok) => {
+      if (!ok && source) selected = [source]; // the new body goes with Esc
+      if (ok || !changed) render();
+      else undo();
+    },
     hint,
-    [corners, facesButton, faces],
+    [corners, asBody, facesButton, faces],
   );
 }
 

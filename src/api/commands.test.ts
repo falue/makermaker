@@ -79,3 +79,13 @@ describe('move', () => {
     expect(next.bodies.map((b) => b.position[0].e)).toEqual(['6', '6', '1']);
   });
 });
+
+describe('coat', () => {
+  it('as a new body: a linked copy holding the skin, the body itself as it was', () => {
+    const made = runCommand({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, 'box', { width: 10, depth: 10, height: 10 });
+    const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true });
+    const [a, b] = out.doc.bodies;
+    expect(a).toBe(made.doc.bodies[0]);
+    expect(b).toMatchObject({ id: out.result, link: a.id, features: [{ type: 'coat', skin: true }] });
+  });
+});

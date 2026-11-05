@@ -583,7 +583,10 @@ function coat(shape: Shape3D | null, s: Of<'coat'>): Shape3D {
     slab.delete();
     out = cut;
   }
-  return out;
+  if (!s.skin) return out;
+  const skin = out.cut(shape);
+  out.delete();
+  return skin;
 }
 
 /**

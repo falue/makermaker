@@ -655,6 +655,11 @@ describe('coat', () => {
     expect(measureVolume(s)).toBeCloseTo(326.31, 1);
     s.delete();
   });
+  it('as a skin: only what it adds, hollow where the body was; an excluded face left open', () => {
+    expect(measureVolume(buildBody([cube, coat({ skin: true })]))).toBeCloseTo(7 ** 3 - 5 ** 3, 3);
+    expect(measureVolume(buildBody([cube, coat({ skin: true, exclude: [{ at: [0, 0, 5], n: [0, 0, 1] }] })]))).toBeCloseTo(7 * 7 * 6 - 5 ** 3, 3);
+    expect(measureVolume(buildBody([cube, coat({ skin: true, corners: 'round' })]))).toBeLessThan(7 ** 3 - 5 ** 3);
+  });
   it('a flat face excluded stays where it is, clicked on it or on the coat over it', () => {
     for (const at of [[0, 0, 5], [0, 0, 6]]) {
       const s = buildBody([cube, coat({ exclude: [{ at, n: [0, 0, 1] }] })]);
