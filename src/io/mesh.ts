@@ -33,20 +33,44 @@ export function extents(vertices: ArrayLike<number>): [number, number, number] {
   }) as [number, number, number];
 }
 
-/** The triangles of mesh `o` in its world, added to `all`; a mirroring transform keeps the faces facing out. */
-function addTriangles(o: THREE.Mesh, all: number[]) {
+/**
+ * The triangles of mesh `o` in its world, added to `all`; a mirroring transform keeps the faces facing out. `uvs`: its
+ * texture coordinates too, v upward (`flipV`: a glTF texture has it downward).
+ */
+function addTriangles(o: THREE.Mesh, all: number[], uvs?: number[], flipV = false) {
   const v = new THREE.Vector3();
   const { index, attributes } = o.geometry as THREE.BufferGeometry;
   const flip = o.matrixWorld.determinant() < 0;
   const count = (index ?? attributes.position).count;
   for (let i = 0; i + 2 < count; i += 3)
     for (const k of flip ? [0, 2, 1] : [0, 1, 2]) {
-      v.fromBufferAttribute(attributes.position as THREE.BufferAttribute, index ? index.getX(i + k) : i + k).applyMatrix4(o.matrixWorld);
+      const at = index ? index.getX(i + k) : i + k;
+      v.fromBufferAttribute(attributes.position as THREE.BufferAttribute, at).applyMatrix4(o.matrixWorld);
       all.push(v.x, v.y, v.z);
+      if (uvs) uvs.push(attributes.uv.getX(at), flipV ? 1 - attributes.uv.getY(at) : attributes.uv.getY(at));
     }
 }
 
-const shared = (all: number[]) => mergeVertices(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(all), 3)));
+/** Triangle corners as a mesh, corners shared (not where their texture coordinates differ). */
+function shared(all: number[], uvs?: number[]) {
+  const g = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(all), 3));
+  if (uvs) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+  return mergeVertices(g);
+}
+
+/**
+ * A mesh's picture (its material's texture) as a data URL and the material's name: set by the reader (`userData.picture`),
+ * else drawn from the loaded texture (in a browser only); none without a texture.
+ */
+function pictureOf(o: THREE.Mesh): { url: string; name: string } | null {
+  if (o.userData.picture) return o.userData.picture;
+  const material = (Array.isArray(o.material) ? o.material[0] : o.material) as THREE.MeshStandardMaterial;
+  const image = material?.map?.image as CanvasImageSource & { width: number; height: number } | undefined;
+  if (!image?.width || typeof document === 'undefined' || !o.geometry.attributes.uv) return null;
+  const canvas = Object.assign(document.createElement('canvas'), { width: image.width, height: image.height });
+  canvas.getContext('2d')!.drawImage(image, 0, 0);
+  return { url: canvas.toDataURL('image/png'), name: material.name };
+}
 
 /** All meshes under `root` as one, in its world, corners shared. */
 function merged(root: THREE.Object3D, kind: string) {
@@ -61,7 +85,7 @@ function merged(root: THREE.Object3D, kind: string) {
  * A part of an imported file: its name and colour (#rrggbb) as the file has them (none: '', null), its triangles, and
  * the groups (sub-assemblies) it lies in, outermost first (`id` tells two of the same name apart).
  */
-export type MeshPart = { name: string; color: string | null; vertices: Float32Array; triangles: Uint32Array; in?: { id: string; name: string }[] };
+export type MeshPart = { name: string; color: string | null; vertices: Float32Array; triangles: Uint32Array; in?: { id: string; name: string }[]; uvs?: Float32Array; picture?: { url: string; name: string } | null };
 
 /** A mesh's colour: its vertices' on average, else its material's; a texture alone tells none. */
 function colorOf(o: THREE.Mesh) {
@@ -81,33 +105,37 @@ function colorOf(o: THREE.Mesh) {
  */
 function partsOf(root: THREE.Object3D, kind: string, most = 200): (Omit<MeshPart, 'vertices' | 'triangles'> & { g: THREE.BufferGeometry })[] {
   root.updateMatrixWorld(true);
-  const found: { name: string; color: string | null; all: number[]; in: { id: string; name: string }[] }[] = [];
+  const found: { name: string; color: string | null; all: number[]; in: { id: string; name: string }[]; uvs?: number[]; picture: { url: string; name: string } | null }[] = [];
   root.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
     const all: number[] = [];
-    addTriangles(o, all);
+    const picture = pictureOf(o);
+    const uvs = picture ? [] : undefined;
+    const material = (Array.isArray(o.material) ? o.material[0] : o.material) as THREE.MeshStandardMaterial;
+    addTriangles(o, all, uvs, material?.map?.flipY === false);
     let name = '';
     for (let p: THREE.Object3D | null = o; p && p !== root && !name; p = p.parent) name = p.name;
     const chain: { id: string; name: string }[] = [];
     for (let p = o.parent; p && p !== root; p = p.parent) chain.unshift({ id: p.uuid, name: p.name });
-    if (all.length) found.push({ name, color: colorOf(o), all, in: chain });
+    if (all.length) found.push({ name, color: picture ? null : colorOf(o), all, in: chain, uvs, picture });
   });
   if (!found.length) throw new Error(`no triangles in this ${kind} file`);
   if (found.every((f) => f.color === '#ffffff')) found.forEach((f) => (f.color = null));
   let parts = found;
   if (found.length > most) {
-    const byColor = new Map<string | null, (typeof found)[number]>();
+    const byLook = new Map<string, (typeof found)[number]>();
     for (const f of found) {
-      const in_ = byColor.get(f.color);
-      if (in_) for (const x of f.all) in_.all.push(x);
-      else byColor.set(f.color, { ...f, name: '', in: [] });
+      const key = `${f.color} ${f.picture?.url}`;
+      const in_ = byLook.get(key);
+      if (in_) for (const [to, from] of [[in_.all, f.all], [in_.uvs, f.uvs]]) for (const x of from ?? []) to!.push(x);
+      else byLook.set(key, { ...f, name: '', in: [], all: [...f.all], uvs: f.uvs && [...f.uvs] });
     }
-    parts = [...byColor.values()];
+    parts = [...byLook.values()];
   }
-  return parts.map(({ all, ...f }) => ({ ...f, g: shared(all) }));
+  return parts.map(({ all, uvs, ...f }) => ({ ...f, g: shared(all, uvs) }));
 }
 
-const meshOf = (g: THREE.BufferGeometry) => ({ vertices: g.attributes.position.array as Float32Array, triangles: new Uint32Array(g.index!.array) });
+const meshOf = (g: THREE.BufferGeometry) => ({ vertices: g.attributes.position.array as Float32Array, triangles: new Uint32Array(g.index!.array), ...(g.attributes.uv ? { uvs: g.attributes.uv.array as Float32Array } : {}) });
 
 /** The triangles of an OBJ file, corners shared; y up is turned to z up unless `zUp`. */
 export function parseObj(text: string, zUp = false): { vertices: Float32Array; triangles: Uint32Array } {
@@ -144,13 +172,18 @@ export async function parseSkp(data: ArrayBuffer): Promise<MeshPart[]> {
   let from = 0;
   for (const p of scene.glbPrimitives) {
     const g = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(p.positions, 3)).setIndex(new THREE.BufferAttribute(p.indices, 1));
-    const c = (scene.gltfMaterials[p.materialIndex] as { pbrMetallicRoughness?: { baseColorFactor?: number[] } } | undefined)?.pbrMetallicRoughness?.baseColorFactor;
+    const look = scene.gltfMaterials[p.materialIndex] as { name?: string; pbrMetallicRoughness?: { baseColorFactor?: number[]; baseColorTexture?: { index: number } } } | undefined;
+    const c = look?.pbrMetallicRoughness?.baseColorFactor;
+    const texture = scene.textures[look?.pbrMetallicRoughness?.baseColorTexture?.index ?? -1];
+    if (texture) g.setAttribute('uv', new THREE.BufferAttribute(p.uvs, 2));
     const m = scene.meshIndex[p.geomName];
     const mine = (n: (typeof nodes)[number]) => !!m && n.path === m.path && n.at.every((v, k) => Math.abs(v - m.positionMm[k]) < 1e-3);
     const k = nodes.findIndex((n, i) => i >= from && mine(n));
     const at = k >= 0 ? k : nodes.findIndex(mine);
     if (at >= 0) from = at;
-    (nodes[at]?.group ?? root).add(new THREE.Mesh(g, new THREE.MeshStandardMaterial(c ? { color: new THREE.Color(c[0], c[1], c[2]) } : {})));
+    const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial(c ? { color: new THREE.Color(c[0], c[1], c[2]) } : {}));
+    if (texture) Object.assign(mesh.userData, { picture: { url: `data:${texture.mimeType};base64,${toBase64(texture.data)}`, name: look?.name ?? '' } });
+    (nodes[at]?.group ?? root).add(mesh);
   }
   return partsOf(root, 'SketchUp').map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
 }
@@ -174,11 +207,12 @@ export function parseStl(data: ArrayBuffer): { vertices: Float32Array; triangles
   return { vertices: merged.attributes.position.array as Float32Array, triangles: new Uint32Array(merged.index!.array) };
 }
 
-/** A stored mesh as the viewer shows it, `scale` times its size: smooth normals, edges where faces bend more than 30°. */
-export function meshBody(vertices: string, triangles: string, scale: number): BodyMesh {
+/** A stored mesh as the viewer shows it, `scale` times its size: smooth normals, edges where faces bend more than 30°, its texture coordinates if any. */
+export function meshBody(vertices: string, triangles: string, scale: number, uvs?: string): BodyMesh {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(fromBase64(vertices)), 3));
   g.setIndex(new THREE.BufferAttribute(new Uint32Array(fromBase64(triangles)), 1));
+  if (uvs) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(fromBase64(uvs)), 2));
   g.scale(scale, scale, scale);
   g.computeVertexNormals();
   const edges = new THREE.EdgesGeometry(g, 30).attributes.position.array as Float32Array;
@@ -195,5 +229,6 @@ export function meshBody(vertices: string, triangles: string, scale: number): Bo
     finishFaces: new Int32Array(1).fill(-1),
     finishes: [],
     lostEdges: {},
+    ...(uvs ? { uvs: g.attributes.uv.array as Float32Array } : {}),
   };
 }

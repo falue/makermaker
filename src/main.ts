@@ -622,7 +622,7 @@ function update() {
     const mesh = resolvedOf.get(id)?.find((f) => f.type === 'mesh');
     if (mesh) {
       const key = `${mesh.id} ${mesh.scale}`;
-      if (shownMeshes.get(id) !== key && mesh.scale > 0) viewer.setBody(id, meshBody(mesh.vertices, mesh.triangles, mesh.scale)), shownMeshes.set(id, key);
+      if (shownMeshes.get(id) !== key && mesh.scale > 0) viewer.setBody(id, meshBody(mesh.vertices, mesh.triangles, mesh.scale, mesh.uvs)), shownMeshes.set(id, key);
       continue;
     }
     const features = fullOf(id);
@@ -6294,13 +6294,17 @@ function importMesh(name: string, parts: MeshPart[], unit: Unit = 'mm', known = 
     }
     return parent;
   };
+  // a texture: a material of the file with its picture, one per picture
+  const looks = new Map<string, Material>();
+  for (const p of parts)
+    if (p.picture && !looks.has(p.picture.url)) looks.set(p.picture.url, { ...plainLook('#ffffff'), id: newId(), name: p.picture.name || `${title} texture ${looks.size + 1}`, image: p.picture.url });
   const bodies = parts.map((p, k) => {
-    const mesh: Feature = { id: newId(), type: 'mesh', source: name, vertices: toBase64(p.vertices), triangles: toBase64(p.triangles), scale: ex(fmt(UNITS[unit])) };
+    const mesh: Feature = { id: newId(), type: 'mesh', source: name, vertices: toBase64(p.vertices), triangles: toBase64(p.triangles), ...(p.uvs ? { uvs: toBase64(p.uvs) } : {}), scale: ex(fmt(UNITS[unit])) };
     const body = newBody(doc.bodies.length + k, [mesh], placeOf(p));
-    return { ...body, name: group ? p.name || `Part ${k + 1}` : title, ...(p.color ? { color: p.color } : {}) };
+    return { ...body, name: group ? p.name || `Part ${k + 1}` : title, ...(p.color ? { color: p.color } : {}), ...(p.picture ? { material: looks.get(p.picture.url)!.id } : {}) };
   });
   [selected, shapeSel] = [group ? [group.id] : [bodies[0].id], []];
-  commit({ ...doc, groups: group ? [...doc.groups, group, ...subs.values()] : doc.groups, bodies: [...doc.bodies, ...bodies] });
+  commit({ ...doc, groups: group ? [...doc.groups, group, ...subs.values()] : doc.groups, bodies: [...doc.bodies, ...bodies], materials: [...doc.materials, ...looks.values()] });
   notify(`Imported ${name}: ${group ? `${parts.length} parts, ` : ''}${parts.reduce((n, p) => n + p.triangles.length, 0) / 3} triangles`);
   const all = new Float32Array(parts.reduce((n, p) => n + p.vertices.length, 0));
   parts.reduce((at, p) => (all.set(p.vertices, at), at + p.vertices.length), 0);

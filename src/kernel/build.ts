@@ -34,6 +34,8 @@ export interface BodyMesh {
   finishes: { feature: string; mid: V3 }[];
   /** By finish: how many of its picked edges could not be found any more. */
   lostEdges: Record<string, number>;
+  /** An imported mesh's texture coordinates (u, v per vertex). */
+  uvs?: Float32Array;
 }
 
 type V3 = [number, number, number];

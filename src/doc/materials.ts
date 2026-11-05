@@ -10,6 +10,7 @@ export interface Look {
   glow: string;
   glowStrength: number;
   overlay?: MaterialLook['overlay'];
+  image?: string;
 }
 
 export const DEFAULT_LIGHT: Light = { sunHeight: 53, sunAround: -63, sun: 2, sunColor: '#ffffff', ambient: 2, ambientColor: '#ffffff', followCamera: false, cameraOn: false, cameraLight: 1, standard: false };
@@ -33,6 +34,7 @@ export const toLook = (m: MaterialLook): Look => ({
   glow: m.glow,
   glowStrength: m.glowStrength,
   ...(m.overlay ? { overlay: m.overlay } : {}),
+  ...(m.image ? { image: m.image } : {}),
 });
 
 /** A plain look of a colour: what a body without a material has. */

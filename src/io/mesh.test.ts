@@ -97,6 +97,19 @@ describe('SketchUp import', () => {
     expect(parts[0].color).toBe('#ff0000');
     expect(parts[0].name).toBe('Box');
   });
+  it('keeps a texture: its picture and where it lies', async () => {
+    // one face 40 × 20 inches, the picture once across it
+    const skp = create();
+    const png = new Uint8Array(readFileSync('src/io/fixtures/texture.png'));
+    skp.addFace([[0, 0, 0], [40, 0, 0], [40, 20, 0], [0, 20, 0]], { material: skp.addTextureMaterial('Flag', png, 'flag.png', 20, 40) });
+    const bytes = skp.toBytes();
+    const [part] = await parseSkp(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    expect(part.picture?.url).toBe(`data:image/png;base64,${Buffer.from(png).toString('base64')}`);
+    expect(part.color).toBeNull();
+    // u along x, v along y (up), 0 to 1
+    const at = (k: number) => [part.vertices[k * 3] / 0.0254, part.vertices[k * 3 + 1] / 0.0254, part.uvs![k * 2], part.uvs![k * 2 + 1]].map((x) => +x.toFixed(3));
+    expect(Array.from({ length: part.vertices.length / 3 }, (_, k) => at(k)).sort((a, b) => a[0] - b[0] || a[1] - b[1])).toEqual([[0, 0, 0, 0], [0, 20, 0, 1], [40, 0, 1, 0], [40, 20, 1, 1]]);
+  });
   it('keeps its components inside each other, each placement apart', async () => {
     // two tables, each a component of two legs
     const skp = create();

@@ -85,7 +85,22 @@ function overlayMap(kind: 'metric' | 'imperial') {
 }
 
 /** Whether a look needs a mesh's texture coordinates (`boxUv`). */
-export const needsUv = (l: Look) => l.bump > 0 || !!l.overlay;
+export const needsUv = (l: Look) => l.bump > 0 || !!l.overlay || !!l.image;
+
+const pictures = new Map<string, THREE.Texture>();
+/** Called when a picture has loaded (the view draws again). */
+export const pictureLoaded = new Set<() => void>();
+
+/** A material's picture (a data URL) as a repeating texture, loaded once. */
+function pictureMap(url: string) {
+  let t = pictures.get(url);
+  if (!t) {
+    t = new THREE.TextureLoader().load(url, () => pictureLoaded.forEach((f) => f()));
+    Object.assign(t, { wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, colorSpace: THREE.SRGBColorSpace, anisotropy: 4 });
+    pictures.set(url, t);
+  }
+  return t;
+}
 
 /** Dresses a body's material in the 3D view; see-through there is plain opacity. `around`: what a reflecting one mirrors. */
 export function applyLook(m: THREE.MeshStandardMaterial, l: Look, around: THREE.Texture | null = null) {
@@ -94,7 +109,7 @@ export function applyLook(m: THREE.MeshStandardMaterial, l: Look, around: THREE.
   m.metalness = l.metalness;
   m.emissive.set(l.glow);
   m.emissiveIntensity = l.glowStrength * 2;
-  const [normal, map, transparent] = [l.bump > 0 ? bumpMap() : null, l.overlay ? overlayMap(l.overlay) : null, l.translucency > 0];
+  const [normal, map, transparent] = [l.bump > 0 ? bumpMap() : null, l.image ? pictureMap(l.image) : l.overlay ? overlayMap(l.overlay) : null, l.translucency > 0];
   if (m.normalMap !== normal || m.map !== map || m.transparent !== transparent || m.envMap !== around) m.needsUpdate = true;
   m.normalMap = normal;
   m.map = map;
@@ -114,7 +129,7 @@ export function renderMaterial(l: Look) {
     emissiveIntensity: l.glowStrength * 4,
     transmission: l.translucency,
     ior: 1.5,
-    map: l.overlay ? overlayMap(l.overlay) : null,
+    map: l.image ? pictureMap(l.image) : l.overlay ? overlayMap(l.overlay) : null,
     normalMap: l.bump > 0 ? bumpMap() : null,
     normalScale: new THREE.Vector2(strength(l.bump), strength(l.bump)),
   });

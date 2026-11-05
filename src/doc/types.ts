@@ -111,7 +111,8 @@ export type BooleanOp = 'union' | 'subtract' | 'intersect';
  * An imported mesh (stays a mesh: no CAD operations on it yet): triangles as base64 data, `vertices` float32 xyz and
  * `triangles` uint32 corner indices (z up), times `scale`; `source`: the file it came from.
  */
-export type MeshFeature = { id: string; type: 'mesh'; source: string; vertices: string; triangles: string; scale: Expr };
+/** A mesh read from a file: base64 float xyz `vertices`, uint32 `triangles`, `uvs` (float u, v per vertex: where its material's picture lies) if it had a texture. */
+export type MeshFeature = { id: string; type: 'mesh'; source: string; vertices: string; triangles: string; uvs?: string; scale: Expr };
 
 /** A solid read from a STEP file (`data`: the file's text, in mm); `source`: the file it came from. */
 export type StepFeature = { id: string; type: 'step'; source: string; data: string };
@@ -302,6 +303,7 @@ export interface Group {
 /**
  * What a surface looks like. `bump`: mirror (0) over matte (0.5) to bumpy (1); `reflection`: how much it mirrors what
  * is around it, in its colour, like metal; `translucency` and `glowStrength` run 0 to 1. `overlay`: a measuring grid on it.
+ * `image`: a picture on it (a data URL; an imported texture), tinted by `color`, where a mesh's UVs put it, else every 12 mm.
  */
 export interface MaterialLook {
   color: string;
@@ -311,6 +313,7 @@ export interface MaterialLook {
   glow: string;
   glowStrength: number;
   overlay?: 'metric' | 'imperial';
+  image?: string;
 }
 
 /** A look with a name, saved in the file. */

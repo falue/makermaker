@@ -22,7 +22,7 @@ import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayou
 import { fastRaycast } from './pick';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { DEFAULT_LIGHT, lightDirections, plainLook, toLook, type Look } from '../doc/materials';
-import { applyLook, boxUv, needsUv, renderMaterial } from './look';
+import { applyLook, boxUv, needsUv, pictureLoaded, renderMaterial } from './look';
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { drawSky, SKIES, twoColours } from './sky';
@@ -569,6 +569,7 @@ export class Viewer implements ToolView {
     readonly el: HTMLElement,
     private host: ViewerHost,
   ) {
+    pictureLoaded.add(() => this.render());
     this.renderer.setPixelRatio(devicePixelRatio);
     this.renderer.localClippingEnabled = true;
     const canvas = this.renderer.domElement;
@@ -1911,6 +1912,7 @@ export class Viewer implements ToolView {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+    if (mesh.uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(mesh.uvs, 2));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     const solid = Object.assign(new THREE.Mesh(geometry), { raycast: fastRaycast });
     Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes });
