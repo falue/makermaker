@@ -204,6 +204,8 @@ let file: { name: string; handle?: FileSystemFileHandle; versions: Version[]; sa
 };
 let status = '';
 let statusError = false;
+/** The message is good news: green as a tool's note, for a while. */
+let statusGood = false;
 /** What a click on the top bar's message does (null: nothing). */
 let statusAction: (() => void) | null = null;
 /** An unsaved design offers once to be saved with autosave on, after this many undo steps. */
@@ -5805,7 +5807,7 @@ function render() {
           : null),
     autosave,
     notify: fail,
-    tell: (message) => notify(message),
+    cheer,
     statusError,
     info,
     minStep: settings.minStep,
@@ -6597,6 +6599,7 @@ function download(blob: Blob, name: string) {
 function notify(message: string, error = false, action: (() => void) | null = null) {
   status = message;
   statusError = error;
+  statusGood = false;
   statusAction = action;
   render();
   // an error shows a while, then the tool's note again
@@ -6604,14 +6607,14 @@ function notify(message: string, error = false, action: (() => void) | null = nu
 }
 
 /**
- * The top bar's note: an error (red), else the tool's hint (green: its first part big, the rest and the pointer's
- * other keys small below), else the last message.
+ * The top bar's note: an error (red), else good news or the tool's hint (green: its first part big, the rest and the
+ * pointer's other keys small below), else the last message.
  */
 function showNote() {
   const el = document.querySelector<HTMLElement>('#topbar .status');
   if (!el) return;
   const note = [toolHint, pointerNote].filter(Boolean).join(' · ');
-  const [text, kind] = statusError && status ? [status, 'error'] : note ? [note, 'note'] : [status, ''];
+  const [text, kind] = statusError && status ? [status, 'error'] : statusGood && status ? [status, 'note'] : note ? [note, 'note'] : [status, ''];
   const html = (t: string) => axisHtml(t).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   const [head, ...rest] = kind === 'note' ? text.split(' · ') : [text];
   const action = !kind && statusAction;
@@ -6622,6 +6625,14 @@ function showNote() {
 }
 
 const fail = (message: string) => notify(message, true);
+
+/** Good news in the top bar, green as a tool's note, a while over it. */
+function cheer(message: string) {
+  notify(message);
+  statusGood = true;
+  render();
+  setTimeout(() => status === message && statusGood && ((statusGood = false), (status = ''), render()), 5000);
+}
 
 async function run(task: () => Promise<unknown>) {
   try {
