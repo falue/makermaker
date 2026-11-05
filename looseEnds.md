@@ -8,6 +8,11 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
 - A tangent line starts on a sketch circle, arc or bezier side, or a body's round edge: not on a rounded rectangle's corner (its outline has no arc to snap to) or a body's elliptic or spline edge. No line ending tangent from a free start, none tangent to two curves. It holds while drawing, no lasting link to the curve. In the one-line and polygon modes, not bezier or arc. A typed angle no tangent of a short arc runs at is ignored.
 
+## Cut and sections
+- Cutting several bodies needs them selected first: with none selected a click picks one.
+- A body not crossed shows as an error for a moment during the preview of a cut; it is left whole when the cut is kept.
+- A section's axis shows only while it is being picked; there is no way back to its own line except a new section.
+
 ## Measuring
 - A drawing tool's snap onto a free-form body edge (a spline, say) is very close but not exact: it uses the circle through the mesh points next to it. Round edges come out exact to the view's number precision.
 - While a long build runs, a picked point waits up to 1.5 s for the solid, then takes the mesh's point (the Distance measure shows it with ~).
