@@ -396,6 +396,7 @@ function applySettings() {
   viewer.minAngle = settings.minAngle;
   SketchTool.guideMs = settings.guideMs;
   viewer.setAO(settings.ao);
+  viewer.setSurroundings(settings.surroundings);
   viewer.setBackdrop(settings.background);
   viewer.setLight(effectiveLight(settings.light));
 }

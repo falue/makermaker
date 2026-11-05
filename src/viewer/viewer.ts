@@ -2034,12 +2034,15 @@ export class Viewer implements ToolView {
     const cutter = this.cutters.has(id);
     const dropped = !cutter && this.dropped.has(id);
     const missed = !cutter && this.missed.has(id);
-    const faded = dropped || missed || (!cutter && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id)));
+    // outside a sketch's focus or a group's objects: as the settings have it
+    const around = this.focus ? this.surroundings.sketch : this.surroundings.group;
+    const outside = !cutter && around !== 'none' && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id));
+    const faded = dropped || missed || outside;
     (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : this.materialOf(id);
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
-    // in sketch mode and the cut tool see-through bodies hide each other: their depth, drawn before the see-through
-    // colours (sections and picking skip it); fading around a group's objects shows what lies inside
-    const hides = faded && (dropped || missed || !!this.focus);
+    // reduced opacity (and the cut tool): see-through bodies hide each other, their depth drawn before the see-through
+    // colours (sections and picking skip it); x-ray shows what lies inside
+    const hides = faded && (dropped || missed || around === 'dim');
     const g = this.bodies.get(id)!;
     let depth = g.children.find((c) => c.userData.depth);
     if (hides && !depth) {
@@ -2052,6 +2055,14 @@ export class Viewer implements ToolView {
   }
 
   private dropped = new Set<string>();
+  private surroundings: Settings['surroundings'] = { group: 'xray', sketch: 'dim' };
+
+  /** How the rest looks around a group's objects and a sketch (see `Settings`). */
+  setSurroundings(s: Settings['surroundings']) {
+    this.surroundings = s;
+    for (const id of this.bodies.keys()) this.dress(id);
+    this.render();
+  }
   private missed = new Set<string>();
   private kept: Set<string> | null = null;
   private droppedFill = new THREE.MeshStandardMaterial({ color: 0xe5484d, roughness: 0.7, transparent: true, opacity: 0.35, depthWrite: false });

@@ -160,6 +160,8 @@ Chromium-based browsers only.
 - Autosave toggle: writes into the open file a moment after each change (Chromium; no history snapshot, ⌘S adds one). Off for a new design (and the one at start); an opened file as last switched. An unsaved design offers once, after 10 undo steps, in the top bar (blue): a click saves it and turns autosave on.
 - Icons and toolbar in incase's style.
 
+- Settings → 3D view → Surroundings: how everything else looks while a group's objects are selected (Group view: X-ray first, see-through all through each other) and while drawing in a sketch (Sketch view: Reduced opacity first, faded but hiding each other), or No effect; `surroundings` in the settings, `setSurroundings` in the view.
+
 ## Left aside on purpose
 
 Known and decided against; not loose ends.

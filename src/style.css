@@ -474,6 +474,17 @@ input.invalid {
 .row > * {
   flex: 1;
 }
+/* Settings → 3D view: a label and its three choices on one line */
+.row.surround {
+  align-items: center;
+}
+.row.surround > .segmented {
+  flex: none;
+}
+.row.surround button {
+  white-space: nowrap;
+}
+
 /* an icon button in a row of fields: its own size, centred on them */
 .row > .tool {
   flex: none;

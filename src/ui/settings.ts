@@ -28,14 +28,18 @@ export interface Settings {
   renderLight: Light & { same: boolean; haze: number; fog: number };
   /** How far (mm) the 3D view's surfaces may stray from the real ones. */
   meshDetail: number;
+  /** How the rest looks while a group's objects are selected, and in a sketch: see-through (`xray`: seeing each other), faded (`dim`: hiding each other) or as it is. */
+  surroundings: { group: Surroundings; sketch: Surroundings };
 }
 
+export type Surroundings = 'xray' | 'dim' | 'none';
+
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, renderLight: { ...DEFAULT_LIGHT, same: true, haze: 0, fog: 0 }, meshDetail: 0.05 };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, renderLight: { ...DEFAULT_LIGHT, same: true, haze: 0, fog: 0 }, meshDetail: 0.05, surroundings: { group: 'xray', sketch: 'dim' } };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-  return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background }, light: { ...DEFAULTS.light, ...saved.light }, renderLight: { ...DEFAULTS.renderLight, ...saved.renderLight } };
+  return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background }, light: { ...DEFAULTS.light, ...saved.light }, renderLight: { ...DEFAULTS.renderLight, ...saved.renderLight }, surroundings: { ...DEFAULTS.surroundings, ...saved.surroundings } };
 }
 
 /**
@@ -145,7 +149,19 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
           el.oninput = () => set({ ...s, background: { ...s.background, [key]: el.value } }, false); // a redraw would close the picker
           return make('label', { className: 'check' }, el, label);
         };
+        const around = (key: 'group' | 'sketch') =>
+          make(
+            'span',
+            { className: 'segmented' },
+            ...([['xray', 'X-ray'], ['dim', 'Reduced opacity'], ['none', 'No effect']] as const).map(([v, label]) =>
+              make('button', { className: s.surroundings[key] === v ? 'on' : '', textContent: label, title: { xray: 'See-through, all seen through each other', dim: 'Faded, hiding what lies behind', none: 'As it is' }[v], onclick: () => set({ ...s, surroundings: { ...s.surroundings, [key]: v } }) }),
+            ),
+          );
         return [
+          make('h3', {}, 'Surroundings'),
+          make('p', { className: 'hint' }, 'How everything else looks while objects of a group are selected, and while drawing in a sketch.'),
+          make('div', { className: 'row surround' }, make('span', { textContent: 'Group view' }), around('group')),
+          make('div', { className: 'row surround' }, make('span', { textContent: 'Sketch view' }), around('sketch')),
           make('h3', {}, 'Ambient occlusion'),
           make('label', { className: 'check' }, ao, 'Soft shadows in corners and creases'),
           make('h3', {}, 'Background'),
