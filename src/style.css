@@ -712,7 +712,7 @@ body.scrubbing * {
 .drawers-right {
   position: absolute;
   right: 10px;
-  bottom: var(--drawers-up, 0px);
+  bottom: calc(var(--drawers-up, 0px) + var(--joints-up, 0px));
   z-index: 5;
   display: flex;
   align-items: flex-end;
@@ -725,15 +725,15 @@ body.scrubbing * {
   bottom: 0;
   transform: none;
 }
+/* under the tabs when open, which ride on top of it (--joints-up) */
 .drawers-right .drawer > :not(.drawer-tab) {
   position: absolute;
   right: 0;
-  bottom: var(--tab);
-  transform: translateY(calc(100% + var(--tab)));
-  transition: transform 0.12s ease-out;
+  top: 100%;
+  visibility: hidden;
 }
 .drawers-right .drawer.open > :not(.drawer-tab) {
-  transform: none;
+  visibility: visible;
 }
 .drawer-tab {
   display: flex;

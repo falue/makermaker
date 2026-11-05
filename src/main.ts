@@ -4271,6 +4271,10 @@ const jointsDrawer = drawer('Joint animation', 'right', jointsBox);
 const rightDrawers = Object.assign(document.createElement('div'), { className: 'drawers-right' });
 rightDrawers.append(jointsDrawer);
 viewer.el.append(rightDrawers);
+// open, the joints sit under the tabs: the tabs ride on top of them
+const liftTabs = () => rightDrawers.style.setProperty('--joints-up', jointsDrawer.classList.contains('open') ? `${jointsBox.offsetHeight}px` : '0px');
+new ResizeObserver(liftTabs).observe(jointsBox);
+new MutationObserver(liftTabs).observe(jointsDrawer, { attributes: true, attributeFilter: ['class'] });
 let jointsKey = '';
 /**
  * Joints playing: their phase (0 → 1 from min to max, 1 → 2 back), where a single play stops (1 or 2), the last
