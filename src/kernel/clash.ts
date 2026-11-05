@@ -1,13 +1,12 @@
-import { cast, getOC, measureDistanceBetween, measureVolume, type Shape3D } from 'replicad';
+import { measureDistanceBetween, measureVolume, type Shape3D } from 'replicad';
 import type { Place } from '../doc/frames';
-import { grownShape, placeShape } from './build';
+import { grownShape, placeShape, swept, type Sweep } from './build';
 import type { Solid } from './measure';
 
 /**
  * What to check: `of` against all `bodies` as they are placed, each of `of` grown by `clearance` (0: only real overlaps);
  * then each joint in `motions` through its positions, one at a time: the bodies it moves against those it does not.
  */
-export type Sweep = { kind: 'hinge' | 'slider'; at: [number, number, number]; dir: [number, number, number]; amount: number };
 export type ClashAsk = {
   bodies: { id: string; place: Place }[];
   of: string[];
@@ -24,34 +23,6 @@ export type ClashZone = { id: string; vertices: Float32Array; indices: Uint32Arr
 export type ClashResult = { hits: ClashHit[]; zones: ClashZone[]; sweeps: ClashZone[]; failed: string[] };
 
 export const pairKey = (a: string, b: string) => [a, b].sort().join(' ');
-
-/**
- * The space a shape goes through on `way`, as solids: OpenCascade sweeps faces, not solids, so each face on its own (what
- * it reaches is the shape's way but for what stays inside the shape all along, which is checked at rest). Together they
- * overlap; faces that sweep no volume (lying along the way) are left out.
- */
-function swept(shape: Shape3D, way: Sweep): Shape3D[] {
-  const oc = getOC();
-  const dir = new oc.gp_Dir(way.dir[0], way.dir[1], way.dir[2]);
-  const pnt = new oc.gp_Pnt(way.at[0], way.at[1], way.at[2]);
-  const axis = new oc.gp_Ax1(pnt, dir);
-  const by = new oc.gp_Vec(way.dir[0] * way.amount, way.dir[1] * way.amount, way.dir[2] * way.amount);
-  const out: Shape3D[] = [];
-  for (const face of shape.faces) {
-    try {
-      const made = way.kind === 'hinge' ? new oc.BRepPrimAPI_MakeRevol(face.wrapped, axis, Math.min((way.amount * Math.PI) / 180, 2 * Math.PI), false) : new oc.BRepPrimAPI_MakePrism(face.wrapped, by, false, true);
-      const piece = cast(made.Shape()) as Shape3D;
-      made.delete();
-      if (measureVolume(piece) > NOTHING) out.push(piece);
-      else piece.delete();
-    } catch {
-      // this face does not sweep (it turns on itself): the others and the steps still tell
-    }
-    face.delete();
-  }
-  [dir, pnt, axis, by].forEach((x) => x.delete());
-  return out;
-}
 
 function merged(parts: { vertices: Float32Array; indices: Uint32Array }[]) {
   const [nv, ni] = [parts.reduce((n, p) => n + p.vertices.length, 0), parts.reduce((n, p) => n + p.indices.length, 0)];
@@ -176,7 +147,7 @@ export function clashes(solids: Map<string, Solid>, ask: ClashAsk): ClashResult 
               real.delete();
             }
             start = { value: step.value, closest };
-            if (!parts.length) parts.push(meshed(hit.common)); // what no face sweeps: inside it all along, or a face that would not
+            if (!parts.length) parts.push(meshed(hit.common)); // what stays inside it all along: nothing sweeps past it
             volume = Math.max(volume, hit.volume);
             hit.common.delete();
           }

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
-import { makeBox, setOC, type Shape3D } from 'replicad';
+import { makeBox, makeCylinder, setOC, type Shape3D } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { clashes, pairKey } from './clash';
 import { Solid } from './measure';
@@ -61,6 +61,14 @@ describe('clashes', () => {
     expect(r.hits).toHaveLength(1);
     expect(r.hits[0].joint).toBe('j');
     expect(r.hits[0].indices.length).toBeGreaterThan(0);
+  });
+  it('a round part sliding: found on its whole way, not only where it starts', () => {
+    const pin = new Solid(makeCylinder(5, 10, [0, 0, 0], [0, 0, 1]) as Shape3D);
+    const wall = new Solid(makeBox([-0.1, -5, 0], [0.1, 5, 10]) as Shape3D);
+    const steps = [0, 30].map((value) => ({ value, places: { a: place(value) } }));
+    const r = clashes(new Map([['a', pin], ['t', wall]]), { bodies: [{ id: 'a', place: place() }, { id: 't', place: place(15) }], of: ['a'], clearance: 0, motions: [{ joint: 'j', sweep: along(30), steps }], ignore: [] });
+    expect(r.hits).toHaveLength(1);
+    expect(r.sweeps.map((z) => z.id)).toEqual(['a']);
   });
   it('a hinge: what the arm passes on its way, in place', () => {
     const arm = new Solid(makeBox([20, -3, 0], [60, 3, 6]) as Shape3D);

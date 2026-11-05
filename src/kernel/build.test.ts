@@ -4,7 +4,7 @@ import init from 'replicad-opencascadejs';
 import { measureVolume, setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { STILL } from '../doc/frames';
-import { areasOf, buildBody, FeatureError, meshBody, type BuildFeature, type Finishing } from './build';
+import { areasOf, buildBody, FeatureError, meshBody, type BooleanBuild, type BuildFeature, type Finishing } from './build';
 
 const wasm = readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm'));
 
@@ -358,6 +358,21 @@ describe('buildBody', () => {
     b.done();
   });
 
+  it('a cut along a joint takes all the tool goes through', () => {
+    const pin: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false }];
+    const slab = base(100);
+    const left = (sweep: BooleanBuild['sweep']) => {
+      const shape = buildBody([slab, { id: 'b', type: 'boolean', op: 'subtract', features: pin, place: { ...STILL, offset: [20, 0, -5] }, sweep }]);
+      const v = measureVolume(shape);
+      shape.delete();
+      return v;
+    };
+    const whole = 100 * 60 * 4;
+    const slid = (30 * 10 + Math.PI * 25) * 4;
+    const turned = ((Math.PI / 4) * (25 * 25 - 15 * 15) + Math.PI * 25) * 4;
+    expect(Math.abs(whole - left({ kind: 'slider', at: [0, 0, 0], dir: [-1, 0, 0], amount: 30 }) - slid) / slid).toBeLessThan(0.005);
+    expect(Math.abs(whole - left({ kind: 'hinge', at: [0, 0, 0], dir: [0, 0, 1], amount: 90 }) - turned) / turned).toBeLessThan(0.005);
+  });
   it('joins, cuts and intersects with a tool body', () => {
     const pin: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'c', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false }];
     const slab = base(100); // 100 x 60 x 4 at the origin

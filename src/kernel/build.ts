@@ -1,4 +1,4 @@
-import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
+import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import type { DrawingPen } from 'replicad';
 import { bakeTurn, beside, centre, corners, curved, flattened, mapPoints, nesting, sideDirs } from '../doc/profiles';
@@ -7,7 +7,9 @@ import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/types';
 
 /** A boolean with its tool body's features at hand, placed as the tool body sits in this body's coordinates. */
-export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place; grow?: number };
+/** A joint's way: turning about or sliding along an axis, `amount` degrees or mm (above 0). */
+export type Sweep = { kind: 'hinge' | 'slider'; at: [number, number, number]; dir: [number, number, number]; amount: number };
+export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place; grow?: number; sweep?: Sweep };
 /** A box joint as the kernel builds it: the other body's features (without its box joint) where it sits, the finger count or width, which fingers stay. */
 export type FingersBuild = { id: string; type: 'fingers'; features: BuildFeature[]; place: Place; count: number; width: number; from?: V3; first: boolean };
 export type BuildFeature = Resolved<BuildIn> | BooleanBuild | FingersBuild;
@@ -357,10 +359,61 @@ function boolean(shape: Shape3D | null, s: Of<'boolean'>): Shape3D {
       if (s.op !== 'union') throw new Error('nothing to cut or intersect yet');
       return tool.clone();
     }
+    if (s.op === 'subtract' && s.sweep) {
+      // all it goes through: where it starts, and what its faces pass on the way
+      let out = shape.cut(tool);
+      for (const piece of swept(tool, s.sweep)) {
+        const next = out.cut(piece);
+        out.delete();
+        piece.delete();
+        out = next;
+      }
+      return out;
+    }
     return s.op === 'union' ? shape.fuse(tool) : s.op === 'subtract' ? shape.cut(tool) : shape.intersect(tool);
   } finally {
     tool.delete();
   }
+}
+
+/**
+ * The space a shape goes through on `way`, as overlapping solids. OpenCascade sweeps faces, not solids. A flat face sliding
+ * sweeps exactly; a curved one can cancel itself out (front against back) and a turning one can fold, so with those the
+ * shape itself also stands at each step (3°, 1 mm, at most 60): ridges between them stay tiny. What stays inside the
+ * shape all along is its own at the start: the caller's.
+ */
+export function swept(shape: Shape3D, way: Sweep): Shape3D[] {
+  const oc = getOC();
+  const dir = new oc.gp_Dir(way.dir[0], way.dir[1], way.dir[2]);
+  const pnt = new oc.gp_Pnt(way.at[0], way.at[1], way.at[2]);
+  const axis = new oc.gp_Ax1(pnt, dir);
+  const hinge = way.kind === 'hinge';
+  const by = new oc.gp_Vec(way.dir[0] * way.amount, way.dir[1] * way.amount, way.dir[2] * way.amount);
+  const out: Shape3D[] = [];
+  let curved = false;
+  for (const face of shape.faces) {
+    if (face.geomType === 'PLANE')
+      try {
+        const made = hinge ? new oc.BRepPrimAPI_MakeRevol(face.wrapped, axis, Math.min((way.amount * Math.PI) / 180, 2 * Math.PI), false) : new oc.BRepPrimAPI_MakePrism(face.wrapped, by, false, true);
+        const piece = cast(made.Shape()) as Shape3D;
+        made.delete();
+        if (Math.abs(measureVolume(piece)) > 1e-3) out.push(piece);
+        else piece.delete();
+      } catch {
+        curved = true; // this face does not sweep: the steps tell
+      }
+    else curved = true;
+    face.delete();
+  }
+  [dir, pnt, axis, by].forEach((x) => x.delete());
+  if (hinge || curved) {
+    const n = Math.min(60, Math.ceil(way.amount / (hinge ? 3 : 1)));
+    for (let k = 1; k <= n; k++) {
+      const t = (way.amount * k) / n;
+      out.push(hinge ? shape.clone().rotate(t, way.at, way.dir) : shape.clone().translate(way.dir[0] * t, way.dir[1] * t, way.dir[2] * t));
+    }
+  }
+  return out;
 }
 
 /** `shape` turned and moved by `pl` (replicad's transforms consume the shape they are called on). */

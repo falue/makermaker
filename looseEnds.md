@@ -14,12 +14,12 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A circle is two half edges in the solid, so one click on a rim gives half its length; Shift Alt-click adds the other half.
 
 ## Interference and clearance
-- "From 30°" comes from steps (hinges 3°, sliders 1 mm, at most 60), so the start can be up to a step late; what is in the way comes from the sweep, which misses nothing. Sweeping a part with many curved faces on big files: not timed.
-- A body that only touches its joint's axis faces may lose single faces to the sweep (a face turning on itself): then the steps still find what it hits.
+- "From 30°" comes from steps (hinges 3°, sliders 1 mm, at most 60), so the start can be up to a step late. The sweep: flat faces sliding are exact; curved bodies and hinges also stand at each step (3°, 1 mm, at most 60), so a wall thinner than a step could slip past a curved part only if that part is thinner than a step too, and a cut along a joint has ridges of hundredths of a mm. A long slider (over 60 mm) has bigger steps. Big curved files: not timed.
 - Clashes found only while a joint moves have no Cut buttons: there is nothing there to cut with at the joint's current position.
 - Deleting a body that makes a linked cut removes the cut. A and B cutting each other is refused with the usual build error.
 - Large documents on Everything can take a while, and the worker builds nothing meanwhile. Not measured on big files; there is no Stop yet.
 - The list says hinge values in degrees and slider values in mm, not in the display unit.
+- Coat: excluding the flat side of a body with rounded corners leaves small horns where the grown corners stand past it (a 30 mm block, R3, coat 3: 33.85 mm, not 33). While faces are picked, the card says thickness 0.
 - `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
 ## Coat

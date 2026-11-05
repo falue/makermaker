@@ -102,8 +102,9 @@ export type SphereFeature = { id: string; type: 'sphere'; x: Expr; y: Expr; z: E
  * `free`: its tool body was dragged elsewhere in the object list: it is listed there, and stays a tool in every other way.
  * `linked`: the other body stays an ordinary body, seen and moved on its own, and this one is cut where it is.
  * `grow`: the tool counts this much bigger all round, so a gap stays: a clearance.
+ * `along`: all that joint's way Min to Max counts, so the two pass each other, wherever the joint is now.
  */
-export type BooleanFeature = { id: string; type: 'boolean'; op: BooleanOp; body: string; free?: boolean; linked?: boolean; grow?: Expr };
+export type BooleanFeature = { id: string; type: 'boolean'; op: BooleanOp; body: string; free?: boolean; linked?: boolean; grow?: Expr; along?: string };
 export type BooleanOp = 'union' | 'subtract' | 'intersect';
 
 /**

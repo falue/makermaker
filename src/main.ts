@@ -575,7 +575,18 @@ function update() {
       // as the tool sits by the body it belongs to (a linked copy: by its source, so the copy is cut the same)
       const owner = doc.bodies.find((b) => b.id === id)?.link ?? id;
       const relative = (bodyPlaces.get(owner) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
-      out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative), ...(s.grow ? { grow: s.grow } : {}) });
+      const grow = s.grow ? { grow: s.grow } : {};
+      const joint = s.along ? doc.joints.find((j) => j.id === s.along) : undefined;
+      const way = joint && jointWay(doc, joint);
+      if (way) {
+        // from the joint's start, in this body's coordinates; a body that moves itself sees the tool go the other way round
+        const home = way.from.get(owner) ?? new Matrix4();
+        const moves = !home.equals(way.to.get(owner) ?? home);
+        const back = home.clone().invert();
+        const dir = new Vector3(...way.sweep.dir).transformDirection(back).multiplyScalar(moves ? -1 : 1).toArray();
+        const sweep = { ...way.sweep, at: new Vector3(...way.sweep.at).applyMatrix4(back).toArray(), dir };
+        out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(back.multiply(way.from.get(s.body) ?? new Matrix4())), ...grow, sweep });
+      } else out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative), ...grow });
     }
     full.set(bare ? `${id} bare` : id, out);
     return out;
@@ -2783,23 +2794,33 @@ let clashXray = false;
 let clashAgain: (() => void) | null = null;
 let clashClose: (() => void) | null = null;
 
+/** Joint `j` from Min to Max, the others where they are: where things are along it, its way in the world. Null: it has no way. */
+function jointWay(doc: Doc, j: Joint) {
+  const lookup = paramLookup(doc.params);
+  const value = (e: Expr) => (j.kind === 'hinge' ? evalQuantity(e, lookup).v : evalLength(e, lookup));
+  const [lo, hi] = [value(j.min), value(j.max)];
+  if (!(hi > lo)) return null;
+  const at = (v: number) => jointed(doc, ownPlaces, (x) => (x === j ? v : jointValue(x, lookup))).placed;
+  const [from, to] = [at(lo), at(hi)];
+  const parent = from.get(j.parent) ?? new Matrix4();
+  const sweep = { kind: j.kind, at: new Vector3(...j.axis.at).applyMatrix4(parent).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(parent).toArray(), amount: hi - lo };
+  return { lo, hi, at, from, to, sweep };
+}
+
 /**
  * What to check: `ids` (null: everything) against all shown bodies, grown by `clearance`; joints through Min to Max.
  * Tool bodies are skipped (their cuts count), hidden bodies and meshes are left out (`left`: how many).
  */
 function clashAsk(doc: Doc, ids: string[] | null, clearance: number, joints: boolean, ignore: Iterable<string>): { ask: ClashAsk; left: number } {
   const owners = ownersOf(doc);
-  const lookup = paramLookup(doc.params);
   const usable = doc.bodies.filter((b) => b.visible && !owners.has(b.id) && !meshOnly(b.id));
   const of = ids ? contents(doc, ids).filter((id) => usable.some((b) => b.id === id)) : usable.map((b) => b.id);
   const motions = !joints
     ? []
     : doc.joints.flatMap((j) => {
-        const value = (e: Expr) => (j.kind === 'hinge' ? evalQuantity(e, lookup).v : evalLength(e, lookup));
-        const [lo, hi] = [value(j.min), value(j.max)];
-        if (!(hi > lo)) return [];
-        const at = (v: number) => jointed(doc, ownPlaces, (x) => (x === j ? v : jointValue(x, lookup))).placed;
-        const [from, to] = [at(lo), at(hi)];
+        const way = jointWay(doc, j);
+        if (!way) return [];
+        const { lo, hi, at, from, to, sweep } = way;
         const movers = usable.filter((b) => from.get(b.id) && to.get(b.id) && !from.get(b.id)!.equals(to.get(b.id)!));
         if (!movers.length) return [];
         const n = Math.min(60, Math.max(2, Math.ceil((hi - lo) / (j.kind === 'hinge' ? 3 : 1))));
@@ -2807,8 +2828,6 @@ function clashAsk(doc: Doc, ids: string[] | null, clearance: number, joints: boo
           const placed = at(v);
           return { value: v, places: Object.fromEntries(movers.map((b) => [b.id, toPlace(placed.get(b.id)!)])) };
         });
-        const parent = from.get(j.parent) ?? new Matrix4();
-        const sweep = { kind: j.kind, at: new Vector3(...j.axis.at).applyMatrix4(parent).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(parent).toArray(), amount: hi - lo };
         return [{ joint: j.id, sweep, steps }];
       });
   return { ask: { bodies: usable.map((b) => ({ id: b.id, place: bodyPlace(b.id) })), of, clearance, motions, ignore: [...ignore] }, left: doc.bodies.filter((b) => !owners.has(b.id) && !usable.includes(b)).length };
@@ -2861,7 +2880,7 @@ function clashTool() {
       clashXray = state.xray = v;
       showSelection();
     }),
-    check('Cut with clearance', state.cutWide, 'Cut from … leaves the clearance as a gap. Off: the other body exactly as it is', (v) => (state.cutWide = v)),
+    check('Cut with clearance', state.cutWide, 'Cut … leaves the clearance as a gap. Off: the other body exactly as it is', (v) => (state.cutWide = v)),
   );
   const note = Object.assign(document.createElement('p'), { className: 'hint' });
   const list = Object.assign(document.createElement('div'), { className: 'clash-list' });
@@ -2882,11 +2901,11 @@ function clashTool() {
     viewer.lightClash(k);
     for (const [i, r] of [...list.children].entries()) r.classList.toggle('lit', i === k);
   };
-  /** Cuts one body by the other where they are; the other stays an ordinary body. */
-  const cutFrom = (target: string, by: string) => {
+  /** Cuts one body by the other, where they are or all along `along`; the other stays an ordinary body. */
+  const cutFrom = (target: string, by: string, along?: string) => {
     const doc = history.current;
     const grow = state.cutWide && clearanceNow > 0 ? { grow: { e: state.clearance, u: u() } } : {};
-    commit({ ...doc, bodies: doc.bodies.map((b) => (b.id === target ? { ...b, features: [...b.features, { id: newId(), type: 'boolean' as const, op: 'subtract' as const, body: by, linked: true, ...grow }] } : b)) });
+    commit({ ...doc, bodies: doc.bodies.map((b) => (b.id === target ? { ...b, features: [...b.features, { id: newId(), type: 'boolean' as const, op: 'subtract' as const, body: by, linked: true, ...grow, ...(along ? { along } : {}) }] } : b)) });
   };
   const draw = () => {
     list.replaceChildren(
@@ -2896,8 +2915,9 @@ function clashTool() {
         const words = Object.assign(document.createElement('span'), { className: 'clash-words' });
         words.append(Object.assign(document.createElement('b'), { textContent: pair }), Object.assign(document.createElement('small'), { textContent: how }));
         r.append(words);
-        // a joint's clash is at another position: nothing there to cut with now
-        if (!h.joint && h.volume > 0) r.append(panelButton(`Cut from ${name(h.a)}`, `Click: Cut ${name(h.b)} out of ${name(h.a)}, where it is; ${name(h.b)} stays as it is`, () => cutFrom(h.a, h.b)), panelButton(`Cut from ${name(h.b)}`, `Click: Cut ${name(h.a)} out of ${name(h.b)}, where it is; ${name(h.a)} stays as it is`, () => cutFrom(h.b, h.a)));
+        const way = (target: string, by: string) =>
+          h.joint ? `Click: Cut all ${name(by)} goes through on its joint's way, Min to Max, out of ${name(target)}; ${name(by)} stays as it is` : `Click: Cut ${name(by)} out of ${name(target)}, where it is; ${name(by)} stays as it is`;
+        if (h.joint || h.volume > 0) r.append(panelButton(`Cut ${name(h.a)}`, way(h.a, h.b), () => cutFrom(h.a, h.b, h.joint)), panelButton(`Cut ${name(h.b)}`, way(h.b, h.a), () => cutFrom(h.b, h.a, h.joint)));
         r.append(panelButton('Ignore', 'Click: Leave this pair out while the panel is open (fits made to overlap, a thread, say)', () => (ignore.add(pairKey(h.a, h.b)), soon())));
         return r;
       }),
@@ -3039,7 +3059,8 @@ function coatPanel(body: string, feature: string, isNew = false) {
     await new Promise(requestAnimationFrame);
     chosen = chosen.map((e) => ({ ...e, item: viewer.faceItemAt(body, e.at, e.n) }));
     const next = () => {
-      toolHint = 'Coat: click flat faces to exclude: they stay where they are · again: back · [Esc] done with faces · [Enter] keeps it all';
+      viewer.markFaces(chosen.flatMap((e) => e.item ?? []));
+      toolHint = 'Coat: click flat faces to exclude: they stay where they are · again: back · [Esc] shows the coat again';
       render();
       viewer.pickFace((face) => {
         if (!face) {
@@ -3056,9 +3077,9 @@ function coatPanel(body: string, feature: string, isNew = false) {
           const at = unplaced(pl, face.point.toArray());
           const n = unplaced(pl, face.normal.clone().negate().toArray(), true);
           const v = (q: Vec3) => new Vector3(...q);
-          // the same plane, the coat on it or not: a click takes it back
-          const same = (e: { at: Vec3; n: Vec3 }) => v(e.n).dot(v(n)) > 0.999 && Math.abs(v(at).sub(v(e.at)).dot(v(n))) <= (length(c.f.thickness.e) ?? 0) + 1e-3;
-          set({ exclude: c.f.exclude.some(same) ? c.f.exclude.filter((e) => !same(e)) : [...c.f.exclude, { at, n }] });
+          const same = (e: { at: Vec3; n: Vec3 }) => v(e.n).dot(v(n)) > 0.999 && Math.abs(v(at).sub(v(e.at)).dot(v(n))) <= 1e-3;
+          chosen = chosen.some(same) ? chosen.filter((e) => !same(e)) : [...chosen, { at, n, item: face.item ?? null }];
+          faces.textContent = chosen.length ? `${chosen.length} excluded` : '';
         }
         next();
       });
