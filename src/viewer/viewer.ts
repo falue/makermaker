@@ -3186,27 +3186,29 @@ export class Viewer implements ToolView {
     return v.clone().transformDirection(this.bodies.get(body)?.matrix.clone().invert() ?? new THREE.Matrix4());
   }
 
-  /** The point on the true curve of a curved sketch side or circle within `reach` mm of `at` (world); null: none there. */
-  onSketchCurve(at: THREE.Vector3, reach = 0.2) {
+  /** The nearest point on the true curve of a curved sketch side or circle (`only`: of that shape) within `reach` mm of `at` (world); null: none there. */
+  onSketchCurve(at: THREE.Vector3, reach = 0.2, only?: string) {
+    let best: { d: number; p: THREE.Vector3 } | null = null;
+    const found = (frame: ViewSketch['frame'], on: [number, number], q: [number, number]) => {
+      const d = Math.hypot(on[0] - q[0], on[1] - q[1]);
+      if (d < reach && (!best || d < best.d)) best = { d, p: new THREE.Vector3(...toWorld(frame, on[0], on[1])) };
+    };
     for (const s of this.sketches) {
       const n = new THREE.Vector3(...s.frame.n);
       if (Math.abs(at.clone().sub(new THREE.Vector3(...s.frame.o)).dot(n)) > reach) continue;
       const q = uvOf(s.frame, at);
       for (const p of s.shapes) {
+        if (only && p.id !== only) continue;
         if (p.kind === 'circle') {
           const r = Math.hypot(q[0] - p.x, q[1] - p.y);
-          if (r > 1e-9 && Math.abs(r - p.d / 2) < reach) return new THREE.Vector3(...toWorld(s.frame, p.x + ((q[0] - p.x) * p.d) / 2 / r, p.y + ((q[1] - p.y) * p.d) / 2 / r));
+          if (r > 1e-9) found(s.frame, [p.x + ((q[0] - p.x) * p.d) / 2 / r, p.y + ((q[1] - p.y) * p.d) / 2 / r], q);
         } else if ((p.kind === 'polygon' || p.kind === 'line') && curved(p)) {
           const b = bakeTurn(p);
-          for (const [i, c] of (b.curves ?? []).entries()) {
-            if (!c) continue;
-            const on = nearestOnSide(b.pts[i], c, b.pts[(i + 1) % b.pts.length], q);
-            if (Math.hypot(on[0] - q[0], on[1] - q[1]) < reach) return new THREE.Vector3(...toWorld(s.frame, on[0], on[1]));
-          }
+          for (const [i, c] of (b.curves ?? []).entries()) if (c) found(s.frame, nearestOnSide(b.pts[i], c, b.pts[(i + 1) % b.pts.length], q), q);
         }
       }
     }
-    return null;
+    return (best as { p: THREE.Vector3 } | null)?.p ?? null;
   }
 
   /** Where the pointer is over the view (client pixels), if it is. */

@@ -8,11 +8,10 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
 
 ## Measuring
-- A drawing tool's pointer snapping onto a body's curved edge still reads the view's mesh; the clicks of To object, the Distance measure and `cad.measure` read the real solid.
+- A drawing tool's snap onto a free-form body edge (a spline, say) is very close but not exact: it uses the circle through the mesh points next to it. Round edges come out exact to the view's number precision.
 - While a long build runs, a picked point waits up to 1.5 s for the solid, then takes the mesh's point (the Distance measure shows it with ~).
 - The middle of a bezier or other free-form edge is where the mesh has it, placed on the true curve: on it, but not exactly half its length.
 - A circle is two half edges in the solid, so one click on a rim gives half its length; Shift Alt-click adds the other half.
-- The worker keeps each body's solid for measuring, which costs memory on very big files. Not measured yet.
 
 ## Curves
 - Tangency is held only by an arc's middle between two straight sides. Moving a point, or an arc next to a curved side, does not hold it.
@@ -31,6 +30,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - 3MF and GLB arrive as one mesh body without colours; several parts in a file are not separated.
 
 ## Speed
+- Reading and meshing a 15 MB STEP file (7,948 faces, about 7.7 s per copy) takes the worker's memory up to 1.9 GB; a few times that size could hit the browser's WebAssembly limit. Not caused by keeping solids; the copy or the mesh step is where to look first.
+- Rebuilding a body leaves some memory behind in the worker even when its shape is deleted; dropping the mesh first reduced this. Over very long sessions it could add up.
 - Only joint animation on the lamp has been measured against the 50-60 fps goal. Dragging bodies, editing sketches and big STEP files have not.
 
 ## Tests

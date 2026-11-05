@@ -63,6 +63,14 @@ export function nearestOnSide(a: UV, c: Curve, b: UV, q: UV): UV {
   return at((lo + hi) / 2);
 }
 
+/** `q` moved onto the circle through three points that lie on a curve, between them: how far a chord's point really is from the curve (they lie on one line: `q`). */
+export function ontoArcThrough(a: UV, b: UV, c: UV, q: UV): UV {
+  const arc = arcOf(a, b, c);
+  if (!arc) return q;
+  const r = Math.hypot(q[0] - arc.c[0], q[1] - arc.c[1]);
+  return r > 1e-9 ? [arc.c[0] + ((q[0] - arc.c[0]) * arc.r) / r, arc.c[1] + ((q[1] - arc.c[1]) * arc.r) / r] : q;
+}
+
 /** Whether a side bends. */
 export const curved = (p: P) => (p.kind === 'polygon' || p.kind === 'line') && !!p.curves?.some(Boolean);
 

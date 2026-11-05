@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arcOf, area, bakeTurn, bounds, closedLoop, flattened, inside, mapPoints, sideDirs, sidesOf, offsetPath } from './profiles';
+import { arcOf, area, bakeTurn, bounds, closedLoop, flattened, inside, mapPoints, ontoArcThrough, sideDirs, sidesOf, offsetPath } from './profiles';
 import { lineFaces } from './arrangement';
 import { centreMoved, controlMoved, isSmooth, pointHandles, pointMoved, smoothToggled } from '../viewer/shapes';
 import { followSizes, sized } from './sizes';
@@ -258,5 +258,17 @@ describe('sides keep their formulas', () => {
     const p = sized({ kind: 'line', pts: [[0, 0], [10, 0]], sizes: [{ l: 10, deg: 90, base: 0 }] } as Parameters<typeof sized>[0]);
     expect(p.pts[1][0]).toBeCloseTo(0);
     expect(p.pts[1][1]).toBeCloseTo(10);
+  });
+});
+
+describe('onto the true curve', () => {
+  it('a point on a chord goes onto the circle through its neighbours', () => {
+    const at = (deg: number): UV => [25 * Math.cos((deg * Math.PI) / 180), 25 * Math.sin((deg * Math.PI) / 180)];
+    const [a, b, c] = [at(0), at(5), at(10)];
+    const on = ontoArcThrough(a, b, c, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+    expect(Math.hypot(...on)).toBeCloseTo(25, 9);
+  });
+  it('three points in line: stays', () => {
+    expect(ontoArcThrough([0, 0], [1, 0], [2, 0], [0.5, 0])).toEqual([0.5, 0]);
   });
 });

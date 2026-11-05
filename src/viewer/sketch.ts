@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BASE, extent, toWorld, type Frame, type V3 } from '../doc/frames';
-import { arcOf, area, centre, corners, curved, flattened, inside, nesting, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
+import { arcOf, area, centre, corners, curved, flattened, inside, nesting, ontoArcThrough, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, Curve, ShapeGroup, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
@@ -101,6 +101,8 @@ export interface ToolView {
   aimHere(): { at: THREE.Vector3; what: string } | null;
   /** The point a click reaches, from the real geometry; null: nothing there. */
   truePointAt(e: MouseEvent): Promise<THREE.Vector3 | null>;
+  /** The nearest point on the true curve of a curved sketch side or circle (`only`: of that shape) within `reach` mm. */
+  onSketchCurve(at: THREE.Vector3, reach?: number, only?: string): THREE.Vector3 | null;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   toScreen(p: THREE.Vector3): [number, number];
@@ -926,6 +928,24 @@ export class SketchTool implements Tool {
     return uv;
   }
 
+  /**
+   * A point near line `l` (world) on what it really is: a sketch's curve exactly; a curved body edge on the circle through
+   * the points next to it, which lie on the real edge; a straight line where it is.
+   */
+  private onTrueLine(l: SnapLine, at: THREE.Vector3, t: Target): THREE.Vector3 {
+    const nearest = l.segs.reduce<[number, number]>((best, [a, b], i) => {
+      const d = at.distanceTo(new THREE.Line3(a, b).closestPointToPoint(at, true, new THREE.Vector3()));
+      return d < best[1] ? [i, d] : best;
+    }, [0, Infinity])[0];
+    const [a, b] = l.segs[nearest];
+    if (l.shape?.p.kind === 'circle' || (l.shape && curved(l.shape.p))) return this.view.onSketchCurve(at, a.distanceTo(b) + 0.1, l.shape.p.id) ?? at;
+    if (l.shape || l.guide || l.segs.length === 1) return new THREE.Line3(a, b).closestPointToPoint(at, false, new THREE.Vector3());
+    const third = l.segs[nearest + 1]?.[1] ?? l.segs[nearest - 1]?.[0];
+    if (!third) return at;
+    const on = ontoArcThrough(uvOf(t.frame, a), uvOf(t.frame, b), uvOf(t.frame, third), uvOf(t.frame, at));
+    return v3(toWorld(t.frame, ...on));
+  }
+
   private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], grid: boolean, px = 10, linePx = 8): UV | null {
     const p = planeHit(this.view.ray(e), t.frame);
     if (!p) return null;
@@ -946,6 +966,15 @@ export class SketchTool implements Tool {
     this.snapSeg = near?.key && straightKey(near.key) ? near.line![0] : null;
     if (near?.parts) this.snapWhat = `${near.what} (${near.parts.map((mm) => this.host.lengthText(mm)).join(' | ')})`;
     if (near) {
+      // a point along a curve: on the curve, not on its flattened piece
+      if (near.key?.startsWith('curve:')) {
+        const on = this.view.onSketchCurve(v3(toWorld(t.frame, ...near.at)), 1);
+        if (on) {
+          near = { ...near, at: uvOf(t.frame, on) };
+          this.snapped = v3(toWorld(t.frame, ...near.at));
+          if (this.snapPoint) this.snapPoint = this.snapped;
+        }
+      }
       this.snapLine = near.line ?? null;
       const c = near.corner;
       if (c) {
@@ -973,10 +1002,16 @@ export class SketchTool implements Tool {
         close.push({ line, a: uvOf(t.frame, a), b: uvOf(t.frame, b) });
         // the line for A / Shift A: a circle, a straight side, or a straight body edge
         const key = guide ? undefined : shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : (curves?.[i] ?? (shape || segs.length === 1 ? sideKey(a, b) : undefined));
-        if (!best || d < best.d) best = { at: a.clone().lerp(b, k), line: segs, what, key, seg: key && straightKey(key) ? [a, b] : undefined, guide, d };
+        if (!best || d < best.d) best = { at: this.onTrueLine(lines[line], a.clone().lerp(b, k), t), line: segs, what, key, seg: key && straightKey(key) ? [a, b] : undefined, guide, d };
       }
     const cross = this.crossing(close, t, mx, my, px);
     if (cross) {
+      // where they really cross: from one true line to the next until they meet (straight lines cross as they are)
+      if (cross.lines.some((i) => lines[i].shape?.p.kind === 'circle' || (lines[i].shape ? curved(lines[i].shape!.p) : lines[i].segs.length > 1))) {
+        let at = v3(toWorld(t.frame, ...cross.at));
+        for (let k = 0; k < 12; k++) for (const i of cross.lines) at = this.onTrueLine(lines[i], at, t);
+        cross.at = uvOf(t.frame, at);
+      }
       this.snapped = v3(toWorld(t.frame, ...cross.at));
       this.snapLine = cross.lines.flatMap((i) => lines[i].segs);
       this.snapWhat = 'crossing';
