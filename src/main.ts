@@ -30,7 +30,7 @@ import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, versionDate, type Version } from './io/design';
 import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
-import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64, type MeshPart } from './io/mesh';
+import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
 import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
@@ -6259,9 +6259,9 @@ async function previewOf(image: Blob, width = 320, type = 'image/jpeg') {
 
 /**
  * Imports a mesh file's triangles as a mesh body at the origin (it stays a mesh). Most have no unit: `unit` is the
- * guess or what the file says, and a dialog lets it be changed while the body shows at that size.
+ * guess or what the file says (`known`), and a dialog lets it be changed while the body shows at that size.
  */
-function importMesh(name: string, parts: MeshPart[], unit: Unit = 'mm') {
+function importMesh(name: string, parts: MeshPart[], unit: Unit = 'mm', known = false) {
   const doc = history.current;
   const title = name.replace(/\.[^.]*$/, '');
   const group: Group | null = parts.length > 1 ? { id: newId(), name: title, parent: null, visible: true, origin: { kind: 'parent' } } : null;
@@ -6275,15 +6275,15 @@ function importMesh(name: string, parts: MeshPart[], unit: Unit = 'mm') {
   notify(`Imported ${name}: ${group ? `${parts.length} parts, ` : ''}${parts.reduce((n, p) => n + p.triangles.length, 0) / 3} triangles`);
   const all = new Float32Array(parts.reduce((n, p) => n + p.vertices.length, 0));
   parts.reduce((at, p) => (all.set(p.vertices, at), at + p.vertices.length), 0);
-  meshUnits(bodies.map((b) => b.id), extents(all), unit);
+  meshUnits(bodies.map((b) => b.id), extents(all), unit, known);
 }
 
 /**
- * The size of an imported mesh (its file has no unit), all its parts as one: a small dialog with the units (its numbers are mm, cm …) and
+ * The size of an imported mesh (its file's unit, or none: a guess), all its parts as one: a small dialog with the units (its numbers are mm, cm …) and
  * its size along X, Y and Z: typing one scales it so, the others follow. The bodies show at each size as it is set (the
  * import's undo step, rewritten). ✓, Enter or Esc closes it.
  */
-function meshUnits(bodies: string[], size: Vec3, unit: Unit) {
+function meshUnits(bodies: string[], size: Vec3, unit: Unit, known: boolean) {
   const box = Object.assign(document.createElement('div'), { className: 'mesh-units' });
   const buttons = (['mm', 'cm', 'm', 'in'] as Unit[]).map((u) => Object.assign(document.createElement('button'), { textContent: u, onclick: () => scaleTo(UNITS[u]) }));
   const fields = size.map((_, k) => Object.assign(document.createElement('input'), { className: 'number', spellcheck: false, title: `Its size along ${'XYZ'[k]} (the others follow)` }));
@@ -6309,7 +6309,7 @@ function meshUnits(bodies: string[], size: Vec3, unit: Unit) {
   };
   const axis = (k: number) => Object.assign(document.createElement('span'), { className: `axis-${'xyz'[k]}`, textContent: 'XYZ'[k] });
   const text = (t: string) => Object.assign(document.createElement('span'), { textContent: t });
-  box.append(text('The file has no unit. Its numbers are'), ...buttons, text('or its size'), ...fields.flatMap((f, k) => [axis(k), f]), panelButton('✓', 'Done (Enter)', close));
+  box.append(text(known ? 'Its real size, from the file. Its numbers are' : 'The file has no unit. Its numbers are'), ...buttons, text('or its size'), ...fields.flatMap((f, k) => [axis(k), f]), panelButton('✓', 'Done (Enter)', close));
   scaleTo(UNITS[unit]);
   document.body.append(box);
   addEventListener('keydown', keys, { capture: true });
@@ -6367,7 +6367,7 @@ addEventListener(
   { capture: true },
 );
 
-const IMPORTS = ['.step', '.stp', '.stl', '.obj', '.3mf', '.glb', '.svg', '.dxf', ...PICTURES];
+const IMPORTS = ['.step', '.stp', '.stl', '.obj', '.3mf', '.glb', '.skp', '.svg', '.dxf', ...PICTURES];
 
 /**
  * Imports a file by its extension; false: not one it takes. STEP and meshes become bodies; SVG and DXF a sketch,
@@ -6395,10 +6395,11 @@ function importFile(f: File, at?: { x: number; y: number }) {
     if (PICTURES.includes(ext)) return importPicture(f, target.frame, target.point);
     const plain = (mesh: { vertices: Float32Array; triangles: Uint32Array }): MeshPart[] => [{ ...mesh, name: '', color: null }];
     if (ext === '.stl') return importMesh(f.name, plain(parseStl(await f.arrayBuffer())));
-    if (ext === '.glb') return importMesh(f.name, await parseGlb(await f.arrayBuffer()), 'm');
+    if (ext === '.glb') return importMesh(f.name, await parseGlb(await f.arrayBuffer()), 'm', true);
+    if (ext === '.skp') return importMesh(f.name, await parseSkp(await f.arrayBuffer()), 'm', true);
     if (ext === '.3mf') {
       const { parts, unit } = parse3mf(await f.arrayBuffer());
-      return importMesh(f.name, parts, unit);
+      return importMesh(f.name, parts, unit, true);
     }
     if (ext !== '.obj') return importStep(f.name, await f.text());
     const text = await f.text();
@@ -6876,7 +6877,7 @@ addEventListener('drop', (e) => {
           const h = await handle;
           loadFile(h instanceof FileSystemFileHandle ? await readHandle(h) : { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
         });
-      } else fail(`${f.name}: this kind of file cannot be opened or imported. These can: ${EXTENSION.slice(1).toUpperCase()}, STEP, STL, OBJ, 3MF, GLB, SVG, DXF, pictures, Python scripts.`);
+      } else fail(`${f.name}: this kind of file cannot be opened or imported. These can: ${EXTENSION.slice(1).toUpperCase()}, STEP, STL, OBJ, 3MF, GLB, SketchUp, SVG, DXF, pictures, Python scripts.`);
     }
     if (scripts.length) await terminal.addFiles(scripts);
   });

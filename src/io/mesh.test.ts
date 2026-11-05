@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { extents, objKind, parseGlb, parseObj, parseStl } from './mesh';
+import { create } from 'openskp';
+import { extents, objKind, parseGlb, parseObj, parseSkp, parseStl } from './mesh';
 
 // a 50 × 50 × 50 mm cube exported from Fusion 360 (z up, standing on the ground)
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
@@ -65,5 +66,35 @@ describe('GLB', () => {
       }),
     );
     expect(parts.map((p) => [p.name, p.color])).toEqual([['Arm', '#ff0000'], ['Leg', '#0000ff']]);
+  });
+});
+
+describe('SketchUp import', () => {
+  it('reads a box placed as a component, in metres, z up, with its colour', async () => {
+    // 10 × 20 × 30 inches, red, placed 100 inches along x
+    const skp = create();
+    const red = skp.addMaterial('Red', [255, 0, 0, 255]);
+    const box = skp.addComponentDefinition('Box', (d) => {
+      const [x, y, z] = [10, 20, 30];
+      const c = (i: number, j: number, k: number): [number, number, number] => [i * x, j * y, k * z];
+      for (const f of [
+        [c(0, 0, 0), c(0, 1, 0), c(1, 1, 0), c(1, 0, 0)],
+        [c(0, 0, 1), c(1, 0, 1), c(1, 1, 1), c(0, 1, 1)],
+        [c(0, 0, 0), c(1, 0, 0), c(1, 0, 1), c(0, 0, 1)],
+        [c(0, 1, 0), c(0, 1, 1), c(1, 1, 1), c(1, 1, 0)],
+        [c(0, 0, 0), c(0, 0, 1), c(0, 1, 1), c(0, 1, 0)],
+        [c(1, 0, 0), c(1, 1, 0), c(1, 1, 1), c(1, 0, 1)],
+      ])
+        d.addFace(f, { material: red });
+    });
+    skp.addInstance(box, { translation: [100, 0, 0] });
+    const bytes = skp.toBytes();
+    const parts = await parseSkp(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    const vertices = parts.flatMap((p) => [...p.vertices]);
+    expect(extents(vertices).map((v) => +(v / 0.0254).toFixed(3))).toEqual([10, 20, 30]);
+    expect(Math.min(...vertices.filter((_, i) => i % 3 === 0)) / 0.0254).toBeCloseTo(100, 3);
+    expect(parts.reduce((n, p) => n + p.triangles.length / 3, 0)).toBe(12);
+    expect(parts[0].color).toBe('#ff0000');
+    expect(parts[0].name).toBe('Box');
   });
 });

@@ -117,6 +117,23 @@ export async function parseGlb(data: ArrayBuffer): Promise<MeshPart[]> {
   return partsOf(scene, 'GLB').map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
 }
 
+/**
+ * A SketchUp file's parts (openskp, loaded when first needed): what is placed, as SketchUp shows it (hidden faces left
+ * out, each face once), in metres, named and coloured as there.
+ */
+export async function parseSkp(data: ArrayBuffer): Promise<MeshPart[]> {
+  const { buildScene } = await import('openskp');
+  const scene = buildScene(data, { respectEdgeVisibility: true, frontSideOnly: true });
+  const root = new THREE.Group();
+  for (const p of scene.glbPrimitives) {
+    const g = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(p.positions, 3)).setIndex(new THREE.BufferAttribute(p.indices, 1));
+    const c = (scene.gltfMaterials[p.materialIndex] as { pbrMetallicRoughness?: { baseColorFactor?: number[] } } | undefined)?.pbrMetallicRoughness?.baseColorFactor;
+    const m = scene.meshIndex[p.geomName];
+    root.add(Object.assign(new THREE.Mesh(g, new THREE.MeshStandardMaterial(c ? { color: new THREE.Color(c[0], c[1], c[2]) } : {})), { name: m?.name || m?.definitionName || '' }));
+  }
+  return partsOf(root, 'SketchUp').map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
+}
+
 const UNITS_3MF: Record<string, Unit> = { millimeter: 'mm', centimeter: 'cm', meter: 'm', inch: 'in', foot: 'ft' };
 
 /** A 3MF's parts as placed on its build plate, corners shared (z up), and the file's unit. */
