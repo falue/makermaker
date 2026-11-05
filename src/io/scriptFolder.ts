@@ -1,5 +1,6 @@
 /** Python scripts as .py files in a folder on disk (File System Access API: Chrome, Edge); the folder is remembered in this browser. */
-export type Script = { name: string; text: string };
+/** `example`: one that comes with the app (its file's name), not a file in the folder. */
+export type Script = { name: string; text: string; example?: string };
 
 export const canUseFolders = () => !!window.showDirectoryPicker;
 

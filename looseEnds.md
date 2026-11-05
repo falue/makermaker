@@ -13,6 +13,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
 ## Terminal
+- A deleted example script comes back only with its Undo; there is no way yet to bring it back later, other than clearing the browser's data.
 - A script's result arriving while a tool is in the middle of a drag or a drawing is not held back. Not tested what that does to the drag.
 
 - `cad.measure` knows bodies as built when the run began: a shape changed in the same run is measured as it was. Its boxes ignore a group's turn when something moved in the run. It only gets its numbers if the run's text contains the word measure, so a helper function loaded from elsewhere would not.

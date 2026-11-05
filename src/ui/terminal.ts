@@ -16,11 +16,25 @@ export interface TerminalApi {
   snapshots(shots: Snapshot[]): Promise<void>;
 }
 
-/** Written into an empty folder when it is first chosen. */
-const STARTERS: Script[] = [
-  { name: 'Row of boxes', text: "# five boxes, each taller\nfor k in range(5):\n    cad.box(20, 20, 10 + k * 10, at=[k * 30, 0, 0], name=f'Box {k + 1}')\n" },
-  { name: 'Ring of cylinders', text: "import math\n\ncount = 8\nfor k in range(count):\n    a = 2 * math.pi * k / count\n    cad.cylinder(diameter=12, height=30, at=[60 * math.cos(a), 60 * math.sin(a), 0], name=f'Post {k + 1}')\n" },
-];
+/** The scripts that come with the app (src/scripts), always listed until deleted. */
+const EXAMPLES: Script[] = Object.entries(import.meta.glob<string>('../scripts/*.py', { query: '?raw', import: 'default', eager: true })).map(([path, text]) => ({ name: path.slice(path.lastIndexOf('/') + 1, -3), text }));
+
+/** A small thing kept in this browser. */
+function stored<T extends object>(key: string, fallback: T): T {
+  try {
+    return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function store(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // only a convenience
+  }
+}
+
 /** Where scripts were kept in the browser before: moved into the first folder chosen. */
 const OLD_STORE = 'makermaker.scripts';
 
@@ -46,20 +60,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const editor = Object.assign(document.createElement('div'), { className: 'script-editor', hidden: true });
   editor.append(editorBar);
   // the panes: what is kept in this browser, and the borders between them, dragged as the view's
-  const panes = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('makermaker.terminalPanes') ?? '{}') as { closed?: boolean; editor?: number; scripts?: number };
-    } catch {
-      return {};
-    }
-  })();
-  const keep = () => {
-    try {
-      localStorage.setItem('makermaker.terminalPanes', JSON.stringify(panes));
-    } catch {
-      // only a convenience
-    }
-  };
+  const panes = stored<{ closed?: boolean; editor?: number; scripts?: number }>('makermaker.terminalPanes', {});
+  const keep = () => store('makermaker.terminalPanes', panes);
   const paneBorder = (title: string, from: () => number, to: (px: number) => void, sign: 1 | -1) => {
     const border = Object.assign(document.createElement('div'), { className: 'view-border column terminal-border', title });
     border.onpointerdown = (down) => {
@@ -93,8 +95,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     scroll.hidden = !!panes.closed;
     editorBorder.hidden = !!panes.closed || !open;
     main.hidden = scriptsBorder.hidden = !!panes.closed && !open;
-    editor.style.flex = panes.editor && !panes.closed ? `0 0 ${panes.editor}px` : '1';
-    side.style.flex = main.hidden ? '1' : `0 0 ${panes.scripts ?? 220}px`;
+    editor.style.flex = panes.editor && !panes.closed ? `0 1 ${panes.editor}px` : '1';
+    side.style.flex = main.hidden ? '1' : `0 1 ${panes.scripts ?? 220}px`;
     promptButton.classList.toggle('on', !panes.closed);
     promptButton.title = panes.closed ? 'Click: Open the Python prompt' : 'Click: Close the Python prompt: scripts stay';
   };
@@ -292,7 +294,21 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   let dir: FileSystemDirectoryHandle | null = null;
   /** The folder remembered, its permission still to be given (that takes a click). */
   let waiting: FileSystemDirectoryHandle | null = null;
-  let scripts: Script[] = [];
+  /** What became of the examples in this browser: edited, renamed, deleted (hidden). */
+  const changedExamples = stored<Record<string, { hidden?: boolean; name?: string; text?: string }>>('makermaker.exampleScripts', {});
+  const changeExample = (example: string, change: { hidden?: boolean; name?: string; text?: string }) => {
+    changedExamples[example] = { ...changedExamples[example], ...change };
+    store('makermaker.exampleScripts', changedExamples);
+  };
+  /** The examples still there, then the folder's files; a file of the same name goes before an example. */
+  const withExamples = (files: Script[]) => [
+    ...EXAMPLES.filter((e) => !changedExamples[e.name]?.hidden)
+      .map((e) => ({ name: changedExamples[e.name]?.name ?? e.name, text: changedExamples[e.name]?.text ?? e.text, example: e.name }))
+      .filter((e) => !files.some((f) => f.name.toLowerCase() === e.name.toLowerCase())),
+    ...files,
+  ];
+  const saveScript = async (s: Script) => (s.example ? changeExample(s.example, { name: s.name, text: s.text }) : writeScript(dir!, s));
+  let scripts = withExamples([]);
   let current: Script | null = null;
   let unsaved: Script | null = null;
   let saveTimer = 0;
@@ -301,7 +317,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     clearTimeout(saveTimer);
     const s = unsaved;
     unsaved = null;
-    if (s && dir) await writeScript(dir, s).catch(failed);
+    if (s && (dir || s.example)) await saveScript(s).catch(failed);
   };
   const freeName = (name: string, except?: Script) => {
     const taken = (n: string) => scripts.some((s) => s !== except && s.name.toLowerCase() === n.toLowerCase());
@@ -334,9 +350,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   };
   /** The folder read again: changes made elsewhere show, also in the editor. */
   const rescan = async () => {
-    if (!dir) return showList();
     await flush();
-    scripts = await listScripts(dir).catch((err) => (failed(err), scripts));
+    scripts = withExamples(dir ? await listScripts(dir).catch((err) => (failed(err), scripts.filter((s) => !s.example))) : []);
     const again = current && scripts.find((s) => s.name === current!.name);
     if (current && !again) open(null);
     else if (again) {
@@ -345,11 +360,11 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     }
     showList();
   };
-  /** A folder in use: what the browser kept moves into it; empty, it gets the starters. */
+  /** A folder in use: what the browser kept moves into it. */
   const connect = async (folder: FileSystemDirectoryHandle, chosen: boolean) => {
     dir = folder;
     waiting = null;
-    scripts = await listScripts(folder).catch((err) => (failed(err), []));
+    scripts = withExamples(await listScripts(folder).catch((err) => (failed(err), [])));
     if (chosen) {
       await rememberFolder(folder);
       let moving: Script[] = [];
@@ -358,7 +373,6 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
       } catch {
         // nothing readable to move
       }
-      if (!moving.length && !scripts.length) moving = STARTERS;
       for (const s of moving) {
         const script = { name: freeName(cleanName(s.name)), text: s.text };
         await writeScript(folder, script);
@@ -393,7 +407,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     if (kept && (await kept.queryPermission({ mode: 'readwrite' })) === 'granted') await connect(kept, false);
     else {
       waiting = kept ?? null;
-      showList();
+      await rescan();
     }
   };
   addEventListener('focus', () => !box.hidden && void rescan());
@@ -410,12 +424,15 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
       if (done) return;
       done = true;
       const name = freeName(cleanName(field.value), s);
-      if (save && name && name !== s.name && dir) {
+      if (save && name && name !== s.name && (dir || s.example)) {
         await flush();
         try {
-          await writeScript(dir, { name, text: s.text });
-          await removeScript(dir, s.name);
+          if (!s.example) {
+            await writeScript(dir!, { name, text: s.text });
+            await removeScript(dir!, s.name);
+          }
           s.name = name;
+          await (s.example ? saveScript(s) : undefined);
           if (current === s) editorName.textContent = name;
         } catch (err) {
           failed(err);
@@ -444,7 +461,6 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     folderButton.hidden = !canUseFolders();
     folderButton.title = dir ? `Scripts folder: ${dir.name} · Click: Choose another` : 'Choose a folder for the scripts';
     headName.textContent = dir ? `Scripts · ${dir.name}` : 'Scripts';
-    if (!dir) return list.replaceChildren(...noFolder());
     list.replaceChildren(
       ...scripts.map((s) => {
         const label = Object.assign(document.createElement('span'), { className: 'script-name', textContent: s.name });
@@ -460,17 +476,19 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
             Object.assign(document.createElement('a'), { href: url, download: `${s.name}.py` }).click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           })),
-          button('delete', 'Delete the file (Undo comes in its place)', stop(async () => {
+          button('delete', s.example ? 'Click: Delete this example from the list (Undo comes in its place)' : 'Click: Delete the file (Undo comes in its place)', stop(async () => {
             if (current === s) open(null);
             await flush();
-            await removeScript(dir!, s.name).catch(failed);
+            if (s.example) changeExample(s.example, { hidden: true });
+            else await removeScript(dir!, s.name).catch(failed);
             scripts = scripts.filter((x) => x !== s);
             const gone = Object.assign(document.createElement('div'), { className: 'script-row gone' });
             gone.append(Object.assign(document.createElement('span'), { className: 'script-name', textContent: `${s.name} deleted` }), Object.assign(document.createElement('button'), {
               textContent: 'Undo',
               title: 'Click: Bring it back',
               onclick: async () => {
-                await writeScript(dir!, s).catch(failed);
+                if (s.example) changeExample(s.example, { hidden: false });
+                else await writeScript(dir!, s).catch(failed);
                 await rescan();
               },
             }));
@@ -479,6 +497,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
         );
         return row;
       }),
+      ...(dir ? [] : noFolder()),
     );
     markOpen();
   };
