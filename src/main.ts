@@ -620,7 +620,13 @@ function update() {
   viewer.setCustomSections(
     doc.sections.flatMap((c, i) => {
       const offset = resolve(c.offset, lookup, `sections.${i}.offset`, exprErrors);
-      return c.enabled && Number.isFinite(offset) ? [{ point: c.origin.map((v, k) => v + c.normal[k] * offset) as Vec3, normal: c.normal }] : [];
+      const turn = c.turn ? resolve(c.turn, lookup, `sections.${i}.turn`, exprErrors) : 0;
+      if (!c.enabled || !Number.isFinite(offset) || !Number.isFinite(turn)) return [];
+      const n = new Vector3(...c.normal);
+      const x = new Vector3(0, 0, 1).cross(n);
+      if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+      const f = cutPlane({ o: c.origin, x: x.normalize().toArray(), n: c.normal, turn, axis: c.axis ?? null, offset });
+      return [{ point: f.o, normal: f.n }];
     }),
   );
   const ids = new Set(doc.bodies.map((p) => p.id));
@@ -5309,6 +5315,27 @@ function newSection() {
   }, false, false, null, true);
 }
 
+/** The next click sets what a custom section turns around (shown while hovering); Esc keeps it. */
+function sectionAxis(i: number) {
+  toolHint = 'Click what the section turns around · an edge or line, or a circle (its centre) · [Esc] keeps it';
+  render();
+  const id = history.current.sections[i].id;
+  viewer.pickAxis(
+    (a) => {
+      toolHint = null;
+      tips.cursorTip(null);
+      viewer.showAxis(null);
+      const doc = history.current;
+      if (a) commit({ ...doc, sections: doc.sections.map((c) => (c.id === id ? { ...c, axis: { at: a.at.toArray(), dir: a.dir.toArray() } } : c)) });
+      else render();
+    },
+    (a) => {
+      tips.cursorTip(a ? `${a.what}\nClick: the section turns around it` : null);
+      viewer.showAxis(a, a?.at, 100);
+    },
+  );
+}
+
 function setMaterialOf(ids: string[], material: string | undefined) {
   commit(runCommand(history.current, 'material', { ids, ...(material ? { material } : {}) }).doc);
 }
@@ -5749,6 +5776,7 @@ function render() {
     offsetTool,
     clashTool,
     coatTool,
+    sectionAxis,
     coatEdit: (body, feature) => coatPanel(body, feature),
     mirrorTool,
     patternTool: () => patternTool(),

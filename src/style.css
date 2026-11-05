@@ -974,6 +974,14 @@ canvas.drawing,
   gap: 4px;
   margin-top: 4px;
 }
+#custom-sections .turn {
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns: 96px auto;
+  justify-content: start;
+  align-items: end;
+  gap: 4px;
+}
 
 .listed {
   display: flex;

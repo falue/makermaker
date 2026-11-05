@@ -270,13 +270,15 @@ export interface Body {
   material?: string;
 }
 
-/** Custom section plane (world coordinates): keeps the side `normal` points to, cut at `origin` moved `offset` along it. */
+/** Custom section plane (world coordinates): keeps the side `normal` points to, cut at `origin` moved `offset` along it, turned `turn` degrees around `axis` (none: a line in the plane through that point). */
 export interface Section {
   id: string;
   name: string;
   origin: [number, number, number];
   normal: [number, number, number];
   offset: Expr;
+  turn?: Expr;
+  axis?: { at: [number, number, number]; dir: [number, number, number] } | null;
   enabled: boolean;
 }
 

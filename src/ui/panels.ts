@@ -82,6 +82,8 @@ export interface UIContext {
   offsetTool(): void;
   /** Interference and clearance: the floating panel (again: closes). */
   clashTool(): void;
+  /** The next click sets what custom section `i` turns around. */
+  sectionAxis(i: number): void;
   /** Coat: a body (selected, or clicked next) made thicker all round. */
   coatTool(): void;
   /** A coat's floating panel. */
@@ -637,7 +639,7 @@ function booleanTools(ctx: UIContext, picked = () => {}) {
   return [...ops.map(([op, title]) => tool(op, title, () => (picked(), ctx.boolean(op)))), tool('fingers', 'Box joint: the two bodies cut into interlocking fingers where they overlap', () => (picked(), ctx.boxJoint()))];
 }
 
-/** Rows of the custom sections, in the section panel: on/off, name, offset, flip, delete. */
+/** Rows of the custom sections, in the section panel: on/off, name, offset, flip, delete; its turn and what it turns around. */
 function customSections(ctx: UIContext): Node[] {
   const { doc } = ctx;
   const set = (i: number, next: Partial<(typeof doc.sections)[number]>) =>
@@ -649,9 +651,14 @@ function customSections(ctx: UIContext): Node[] {
     // flipping keeps the plane where it is: the offset turns with the normal
     const e = c.offset.e.trim();
     const negated = isPlain(e) ? fmt(-parseFloat(e)) : /^-\(.*\)$/.test(e) ? e.slice(2, -1) : `-(${e})`;
-    const flip = button('⇄', () => set(i, { normal: c.normal.map((v) => -v) as typeof c.normal, offset: { ...c.offset, e: negated } }), 'Keep the other side');
+    const turnText = c.turn?.e.trim() ?? '0';
+    // around its own line that line turns with the normal too, so the turn changes sign; around a set axis it does not
+    const turnFlipped = c.axis || turnText === '0' ? turnText : isPlain(turnText) ? fmt(-parseFloat(turnText)) : `-(${turnText})`;
+    const flip = button('⇄', () => set(i, { normal: c.normal.map((v) => -v) as typeof c.normal, offset: { ...c.offset, e: negated }, turn: { e: turnFlipped, u: doc.units } }), 'Keep the other side');
     const drop = button('×', () => ctx.commit({ ...doc, sections: doc.sections.filter((_, k) => k !== i) }), 'Delete this section');
-    return h('div', { className: 'custom' }, on, name, exprField(ctx, `sections.${i}.offset`, 'Offset'), flip, drop);
+    const turn = exprField(ctx, `sections.${i}.turn`, 'Turn °', true, { value: c.turn ?? { e: '0', u: doc.units }, set: (x, live) => ctx.setValue(['sections', String(i), 'turn'], x, live), error: ctx.exprErrors.get(`sections.${i}.turn`) });
+    const axis = button('Set axis', () => ctx.sectionAxis(i), c.axis ? 'Click: Pick another line for it to turn around' : 'Click: Pick a line for it to turn around (now: a line in its plane)');
+    return h('div', { className: 'custom' }, on, name, exprField(ctx, `sections.${i}.offset`, 'Offset'), flip, drop, h('div', { className: 'turn' }, turn, axis));
   });
 }
 
