@@ -41,6 +41,8 @@ export interface UIContext {
   versions(): void;
   /** A refusal in the top bar, in red. */
   notify(message: string): void;
+  /** Good news in the top bar, as Saved shows. */
+  tell(message: string): void;
   statusError: boolean;
   /** The smallest step values move in (mm; Settings → General). */
   minStep: number;
@@ -531,7 +533,7 @@ function toolbar(ctx: UIContext): Node[] {
     return [
       tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.active),
       ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw into the sketch${MODED.includes(kind) ? MODE_TIP : ''}`, () => ctx.startTool(kind), on(kind))),
-      rocket(ctx.notify),
+      rocket(ctx.tell),
     ];
   return [
     tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
@@ -542,7 +544,7 @@ function toolbar(ctx: UIContext): Node[] {
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? "Ungroup (⇧⌘G): the contents move to the group's parent, staying where they are" : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
     tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
     tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
-    rocket(ctx.notify),
+    rocket(ctx.tell),
   ];
 }
 

@@ -15,10 +15,13 @@ try {
 
 const looks = () => ACHIEVEMENTS.filter((a) => 'icon' in a && a.at <= count).at(-1)?.icon ?? 'rocket';
 
-/** The button and its counter below it (shown from the first click), built anew with each toolbar. */
+/** The button and its counter below it (seen from the first click), built anew with each toolbar. */
 export function rocket(notify: (message: string) => void) {
-  const button = Object.assign(document.createElement('button'), { className: 'tool', title: 'Rocket clicker: click to fuel the rocket', innerHTML: icon(looks()) });
-  const counter = Object.assign(document.createElement('span'), { className: 'counter', textContent: String(count), hidden: !count });
+  // no tooltip: what it does is the surprise
+  const button = Object.assign(document.createElement('button'), { className: 'tool', innerHTML: icon(looks()) });
+  // its place kept before the first click, so the button never moves
+  const counter = Object.assign(document.createElement('span'), { className: 'counter', textContent: String(count) });
+  counter.style.visibility = count ? '' : 'hidden';
   button.onclick = () => {
     count++;
     try {
@@ -29,7 +32,8 @@ export function rocket(notify: (message: string) => void) {
     const won = ACHIEVEMENTS.find((a) => a.at === count);
     if (won) notify(won.text);
     button.innerHTML = icon(looks());
-    Object.assign(counter, { textContent: String(count), hidden: false });
+    counter.textContent = String(count);
+    counter.style.visibility = '';
     counter.classList.remove('plop');
     void counter.offsetWidth; // restarts the animation
     counter.classList.add('plop');

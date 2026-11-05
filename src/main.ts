@@ -5805,6 +5805,7 @@ function render() {
           : null),
     autosave,
     notify: fail,
+    tell: (message) => notify(message),
     statusError,
     info,
     minStep: settings.minStep,
