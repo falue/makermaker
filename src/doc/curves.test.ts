@@ -240,14 +240,23 @@ describe('an arc tangent at both ends', () => {
 describe('sides keep their formulas', () => {
   const ex2 = (e: string) => ({ e, u: 'mm' as const });
   const doc = (d: string) => ({ params: { $d: ex2(d) }, bodies: [], sketches: [{ shapes: [{ id: 'a', kind: 'line', pts: [[0, 0], [30, 0], [30, 10]], sizes: [{ l: ex2('$d*3') }, null] }, { id: 'b', kind: 'line', pts: [[0, 0], [10, 0], [20, 10]], curves: [null, { mid: [17.0711, 2.9289] }], sizes: [null, { d: ex2('$d*2') }] }, { id: 'c', kind: 'line', pts: [[0, 0], [10, 0]] }] }] }) as unknown as Doc;
-  it('a side follows its length, an arc its diameter, the rest stays', () => {
+  it('a side follows its length, what comes after it along; an arc its diameter', () => {
     const prev = doc('10');
     const next = followSizes({ ...prev, params: { $d: ex2('20') } }, prev);
     const [a, b, c] = next.sketches[0].shapes as unknown as { pts: UV[]; curves?: ({ mid: UV } | null)[] }[];
     expect(a.pts[1]).toEqual([60, 0]);
-    expect(a.pts[2]).toEqual([30, 10]);
+    expect(a.pts[2]).toEqual([60, 10]);
     expect(arcOf(b.pts[1], b.curves![1]!.mid, b.pts[2])!.r).toBeCloseTo(20, 2);
     expect(c).toBe(prev.sketches[0].shapes[2]);
+  });
+  it('a polygon keeps its form: a rectangle stays one, its last point stays', () => {
+    const p = sized({ kind: 'polygon', pts: [[0, 0], [30, 0], [30, 10], [0, 10]], r: 0, rot: 0, sizes: [{ l: 50 }] } as Parameters<typeof sized>[0]);
+    expect(p.pts).toEqual([[0, 0], [50, 0], [50, 10], [0, 10]]);
+  });
+  it('a bend after a changed side comes along unchanged', () => {
+    const p = sized({ kind: 'line', pts: [[0, 0], [10, 0], [20, 0], [30, 10]], curves: [null, { c1: [12, 2], c2: [18, 2] }, { mid: [26, 2] }], sizes: [{ l: 15 }] } as Parameters<typeof sized>[0]);
+    expect(p.pts).toEqual([[0, 0], [15, 0], [25, 0], [35, 10]]);
+    expect(p.curves).toEqual([null, { c1: [17, 2], c2: [23, 2] }, { mid: [31, 2] }]);
   });
   it('nothing happens while the parameters stay', () => {
     const prev = doc('10');

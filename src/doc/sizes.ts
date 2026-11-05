@@ -14,7 +14,26 @@ export function sideNow(p: Pathed, i: number) {
   return { l: Math.hypot(b[0] - a[0], b[1] - a[1]), d: arc ? arc.r * 2 : null, dir: Math.atan2(b[1] - a[1], b[0] - a[0]), straight: !c };
 }
 
-/** The points as a resolved line's or polygon's sides' sizes say, side after side, as if each were dragged there. */
+/**
+ * Point `from` moved by `by`, and what follows it along with it, up to `to` (all rigid); the side after `to` takes up the
+ * change.
+ */
+function followingMoved(p: Pathed, from: number, to: number, by: UV): Pathed {
+  const at = (v: UV): UV => [v[0] + by[0], v[1] + by[1]];
+  const moved = pointMoved(p, to, at(p.pts[to]));
+  const curves = moved.curves && [...moved.curves];
+  for (let k = from; k < to; k++) {
+    const c = p.curves?.[k];
+    if (curves) curves[k] = !c ? null : 'c1' in c ? { c1: at(c.c1), c2: at(c.c2) } : { mid: at(c.mid) };
+  }
+  return { ...moved, pts: moved.pts.map((v, k) => (k >= from && k < to ? at(p.pts[k]) : v)), ...(curves ? { curves } : {}) };
+}
+
+/**
+ * The points as a resolved line's or polygon's sides' sizes say, side after side, as if each were dragged there; what
+ * follows a changed side moves along. A polygon's last point stays, so it stays closed the way it was: the side before
+ * it takes up the change.
+ */
 export function sized<T extends Pathed>(p: T): T {
   if (!p.sizes?.some(Boolean)) return p;
   let q: Pathed = p.kind === 'polygon' ? { ...p, rot: 0 } : p;
@@ -29,7 +48,10 @@ export function sized<T extends Pathed>(p: T): T {
       const next = (i + 1) % q.pts.length;
       const a = q.pts[i];
       const end: UV = [a[0] + l * Math.cos(dir), a[1] + l * Math.sin(dir)];
-      if (Math.hypot(end[0] - q.pts[next][0], end[1] - q.pts[next][1]) > 1e-7) q = pointMoved(q, next, end);
+      if (Math.hypot(end[0] - q.pts[next][0], end[1] - q.pts[next][1]) > 1e-7) {
+        const last = q.pts.length - (q.kind === 'polygon' ? 2 : 1);
+        q = next && next < last ? followingMoved(q, next, last, [end[0] - q.pts[next][0], end[1] - q.pts[next][1]]) : pointMoved(q, next, end);
+      }
     }
   });
   return { ...p, pts: q.pts, ...(q.curves ? { curves: q.curves } : {}) };
