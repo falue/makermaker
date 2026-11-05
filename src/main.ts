@@ -6517,6 +6517,14 @@ const terminal = pythonTerminal(
         }),
       );
     },
+    async check({ ids, clearance, joints }) {
+      await kernel.idle();
+      const doc = history.current;
+      const { ask } = clashAsk(doc, ids, clearance, joints, []);
+      const { hits } = ask.of.length ? await kernel.clash(ask) : { hits: [] };
+      const name = (id?: string) => [...doc.bodies, ...doc.joints].find((o) => o.id === id)?.name;
+      return hits.map((h) => ({ a: h.a, b: h.b, a_name: name(h.a), b_name: name(h.b), volume: h.volume, closest: h.closest ?? null, joint: h.joint ?? null, joint_name: name(h.joint) ?? null, value: h.value ?? null }));
+    },
     async snapshots(shots) {
       busy.add('Snapshots');
       render();

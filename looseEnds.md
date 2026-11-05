@@ -14,12 +14,13 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A circle is two half edges in the solid, so one click on a rim gives half its length; Shift Alt-click adds the other half.
 
 ## Interference and clearance
-- A joint is checked in steps (hinges 3°, sliders 1 mm, at most 60): a very thin part can slip between two steps, and a long arm travels further than a step suggests.
+- "From 30°" comes from steps (hinges 3°, sliders 1 mm, at most 60), so the start can be up to a step late; what is in the way comes from the sweep, which misses nothing. Sweeping a part with many curved faces on big files: not timed.
+- A body that only touches its joint's axis faces may lose single faces to the sweep (a face turning on itself): then the steps still find what it hits.
 - Clashes found only while a joint moves have no Cut buttons: there is nothing there to cut with at the joint's current position.
-- Cut from A cuts the other body as it is, without the clearance.
 - Deleting a body that makes a linked cut removes the cut. A and B cutting each other is refused with the usual build error.
 - Large documents on Everything can take a while, and the worker builds nothing meanwhile. Not measured on big files; there is no Stop yet.
 - The list says hinge values in degrees and slider values in mm, not in the display unit.
+- `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
 ## Coat
 - Excluding a flat face removes what grew out of it over the face's own box and a margin; where another part of the body rises right beside that face, its coat there can get cut too.
@@ -67,4 +68,4 @@ Answers assumed where a request left a question open.
 - G's guides run along the drawing plane's X and Y only, not the world's.
 - The list's boolean colours reuse the joint's two colours: the body it cuts as "stays", tool bodies as "moves".
 - A tool body's eye: off hides it until selected, on shows its red outlines at all times. Only tool bodies listed elsewhere have it; those under their body keep just the red icon.
-- Interference and clearance are one tool: Clearance 0 is interference. A row's Cut and Ignore buttons show on the row the pointer is on, or the part clicked in the view; Ignore lasts while the panel is open.
+- A joint's sweep shows in see-through orange for the bodies being checked. Interference and clearance are one tool: Clearance 0 is interference. A row's Cut and Ignore buttons show on the row the pointer is on, or the part clicked in the view; Ignore lasts while the panel is open.

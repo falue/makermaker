@@ -2,7 +2,7 @@ import type { Doc } from '../doc/types';
 import { icon } from './icons';
 import { COPY_TIP } from './panels';
 import type { PythonField } from './pythonField';
-import type { FromPython, Measured, Snapshot, ToPython } from './pythonWorker';
+import type { CheckArgs, FromPython, Measured, Snapshot, ToPython } from './pythonWorker';
 import { canUseFolders, cleanName, listScripts, recallFiles, recallFolder, rememberFiles, rememberFolder, removeScript, writeFile, writeScript, type Script } from '../io/scriptFolder';
 
 /** What the terminal reaches in the app (see `terminalApi` in main). */
@@ -11,6 +11,8 @@ export interface TerminalApi {
   selection(): string[];
   /** A run's outcome, taken unless the design changed since `start` (then false). */
   apply(start: Doc, outcome: { doc?: Doc; selection?: string[]; moves: number }): boolean;
+  /** Interference and clearance for `cad.check`, when all is built. */
+  check(args: CheckArgs): Promise<unknown[]>;
   /** The bodies as built, when all is built. */
   measures(): Promise<Record<string, Measured>>;
   /** Takes the pictures, when all is built. */
@@ -133,6 +135,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   let sent: Doc | null = null;
   let running: ((m: Extract<FromPython, { kind: 'done' }>) => void) | null = null;
   let onFound: ((names: string[]) => void) | null = null;
+  let onCheck: ((m: Extract<FromPython, { kind: 'check' }>) => Promise<void>) | null = null;
   /** What Python knows for a dotted word; nothing before it is ready or while it runs. */
   const known = (word: string) =>
     new Promise<string[]>((done) => {
@@ -151,6 +154,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
       if (data.kind === 'out') print(data.text, data.error ? 'terminal-error' : '');
       else if (data.kind === 'found') onFound?.(data.names);
       else if (data.kind === 'done') running?.(data);
+      else if (data.kind === 'check') void onCheck?.(data);
       else {
         ready = true;
         print(`Python ${data.version} · cad is ready: cad.box(80, 60, 40) · cad.commands() lists all · help(cad.box) tells about one`, 'terminal-note');
@@ -185,7 +189,17 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     running = () => {}; // busy from here on
     const measures = /\bmeasure\b/.test(text) ? await api.measures() : undefined;
     return new Promise<string>((done) => {
-      const start = api.doc();
+      let start = api.doc();
+      onCheck = async (m) => {
+        try {
+          if (m.doc && !api.apply(start, { doc: m.doc, moves: 0 })) throw new Error('check: the design changed while this ran');
+          start = sent = api.doc();
+          const hits = await api.check(m.args);
+          tell({ kind: 'checked', hits, doc: start, ...(m.wantMeasures ? { measures: await api.measures() } : {}) });
+        } catch (err) {
+          tell({ kind: 'checked', error: (err as Error).message });
+        }
+      };
       tell({ kind: 'run', fn, text, selection: api.selection(), ...(start === sent ? {} : { doc: start }), ...(measures ? { measures } : {}) });
       sent = start;
       stopSoon = window.setTimeout(() => {

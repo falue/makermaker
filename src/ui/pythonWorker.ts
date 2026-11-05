@@ -13,16 +13,19 @@ type V3 = [number, number, number];
 export type Measured = { volume: number; min: V3; max: V3 };
 /** A picture to take when the run has been taken over. */
 export type Snapshot = { ids: string[]; from: V3; name: string };
-export type ToPython = { kind: 'init'; indexURL: string } | { kind: 'run'; fn: '_step' | '_run'; text: string; doc?: Doc; selection: string[]; measures?: Record<string, Measured> } | { kind: 'complete'; word: string };
+export type CheckArgs = { ids: string[] | null; clearance: number; joints: boolean };
+export type ToPython = { kind: 'checked'; hits?: unknown[]; error?: string; doc?: Doc; measures?: Record<string, Measured> } | { kind: 'init'; indexURL: string } | { kind: 'run'; fn: '_step' | '_run'; text: string; doc?: Doc; selection: string[]; measures?: Record<string, Measured> } | { kind: 'complete'; word: string };
 export type FromPython =
   | { kind: 'out'; text: string; error: boolean }
   | { kind: 'ready'; version: string }
   | { kind: 'found'; names: string[] }
+  /** `cad.check`: what the run did so far goes in first (`doc`), then the answer comes as `checked`. */
+  | { kind: 'check'; args: CheckArgs; doc?: Doc; wantMeasures: boolean }
   /** `doc`: changed; `selection`: changed; `moves`: undo (below 0) or redo steps past the run's start. */
   | { kind: 'done'; state: string; doc?: Doc; selection?: string[]; moves: number; failedAfterChange: boolean; snapshots?: Snapshot[] };
 
 const PRELUDE = `
-import codeop, json, re, rlcompleter, sys, traceback, types
+import ast, codeop, inspect, json, re, rlcompleter, sys, traceback, types
 import makermaker_bridge as _bridge
 
 cad = types.ModuleType('cad', 'The modelling commands. cad.commands() lists them, help(cad.box) tells about one.')
@@ -53,6 +56,13 @@ def _snapshot(id, view='front', name=''):
     """A picture of one body or group alone, framed, straight from a side: front, back, left, right, top or bottom.
     Taken when the run has ended: a PNG download, several as one zip."""
     _bridge.snapshot(id, view, name)
+async def _check(ids=None, clearance=0, joints=True):
+    """Interference and clearance: await cad.check(clearance=0.1). ids: the bodies or groups to check (none: everything).
+    A list of what clashes, each with a, b, a_name, b_name, volume (mm³), closest (mm, with a clearance), and with a joint
+    moving: joint, joint_name, value (where it starts). Empty: all clear. Joints count over their whole way. What the run
+    did so far is kept first, as its own undo step, because the real solids get built for the check."""
+    return json.loads(await _bridge.check(json.dumps({'ids': list(ids) if ids is not None else None, 'clearance': clearance, 'joints': joints})))
+cad.check = _check
 cad.measure = _measure
 cad.snapshot = _snapshot
 cad.undo = _bridge.undo
@@ -69,25 +79,32 @@ def _report():
     message = [re.sub(r'^.*JsException: Error: ', '', m) for m in traceback.format_exception_only(kind, error)]
     sys.stderr.write(''.join(traceback.format_list(frames) + message))
 
-def _step(source):
+_AWAIT = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
+
+async def _exec(code):
+    done = eval(code, _ns)
+    if inspect.iscoroutine(done):
+        await done
+
+async def _step(source):
     """Runs what was typed: 'more' if it goes on, 'error' if it failed, else 'done'."""
     try:
         try:
-            code = codeop.compile_command(source, '<cad>', 'single')
+            code = codeop.compile_command(source, '<cad>', 'single', flags=_AWAIT)
         except SyntaxError:
-            code = compile(source, '<cad>', 'exec')  # several statements at once, pasted
+            code = compile(source, '<cad>', 'exec', flags=_AWAIT)  # several statements at once, pasted
         if code is None:
             return 'more'
-        exec(code, _ns)
+        await _exec(code)
         return 'done'
     except BaseException:
         _report()
         return 'error'
 
-def _run(source):
+async def _run(source):
     """Runs a whole script: 'error' if it failed, else 'done'."""
     try:
-        exec(compile(source, '<cad>', 'exec'), _ns)
+        await _exec(compile(source, '<cad>', 'exec', flags=_AWAIT))
         return 'done'
     except BaseException:
         _report()
@@ -129,6 +146,8 @@ let selection: string[] = [];
 let moves = 0;
 let measures: Record<string, Measured> = {};
 let snapshots: Snapshot[] = [];
+/** A `cad.check` waiting for the page. */
+let answer: { done: (json: string) => void; fail: (err: Error) => void } | null = null;
 
 const VIEWS: Record<string, V3> = { front: [0, -1, 0], back: [0, 1, 0], right: [1, 0, 0], left: [-1, 0, 0], top: [0, 0, 1], bottom: [0, 0, -1] };
 
@@ -190,6 +209,14 @@ const bridge = {
     const own = [...doc.bodies, ...doc.groups].find((o) => o.id === id)!;
     snapshots.push({ ids, from, name: name || own.name });
   },
+  check(args: string) {
+    if (moves) throw new Error("check: cad.undo / cad.redo left this run's start: go on in the next run");
+    return new Promise<string>((done, fail) => {
+      answer = { done, fail };
+      flush();
+      post({ kind: 'check', args: JSON.parse(args), wantMeasures: Object.keys(measures).length > 0, ...(steps[at] !== base ? { doc: steps[at] } : {}) });
+    });
+  },
   select: (ids: string) => void (selection = JSON.parse(ids)),
   selection: () => JSON.stringify(selection),
   undo() {
@@ -217,6 +244,13 @@ const load = async (indexURL: string) => {
 
 onmessage = async ({ data }: MessageEvent<ToPython>) => {
   if (data.kind === 'init') return void (ready = load(data.indexURL));
+  if (data.kind === 'checked') {
+    const waiting = answer;
+    answer = null;
+    if (data.doc) [base, steps, at] = [data.doc, [data.doc], 0];
+    if (data.measures) measures = data.measures;
+    return data.error ? waiting?.fail(new Error(data.error)) : waiting?.done(JSON.stringify(data.hits ?? []));
+  }
   await ready;
   const fn = python.globals.get(data.kind === 'run' ? data.fn : '_complete');
   if (data.kind === 'complete') {
@@ -227,7 +261,7 @@ onmessage = async ({ data }: MessageEvent<ToPython>) => {
   [steps, at, moves, snapshots] = [[base], 0, 0, []];
   if (data.measures) measures = data.measures;
   const before = (selection = data.selection);
-  const state: string = fn(data.text);
+  const state: string = await fn(data.text);
   fn.destroy();
   flush();
   const changed = steps[at] !== base;
