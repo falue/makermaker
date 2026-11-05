@@ -1448,7 +1448,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
       const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error', title: COPY_TIP }, 'its tool body was deleted');
       const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), 'Remove: the tool body becomes a body of its own');
-      return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, 'with'), tool, drop));
+      return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, 'with'), tool, drop), ...(feature.grow ? [h('div', { className: 'row' }, f('grow', 'Clearance'))] : []));
     }
     case 'mesh': {
       const triangles = Math.floor((feature.triangles.length * 3) / 4 / 12); // base64 → bytes → 3 uint32 per triangle

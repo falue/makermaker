@@ -575,7 +575,7 @@ function update() {
       // as the tool sits by the body it belongs to (a linked copy: by its source, so the copy is cut the same)
       const owner = doc.bodies.find((b) => b.id === id)?.link ?? id;
       const relative = (bodyPlaces.get(owner) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(s.body) ?? new Matrix4());
-      out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative) });
+      out.push({ id: s.id, type: 'boolean', op: s.op, features: tool, place: toPlace(relative), ...(s.grow ? { grow: s.grow } : {}) });
     }
     full.set(bare ? `${id} bare` : id, out);
     return out;
@@ -2823,7 +2823,8 @@ function clashAsk(doc: Doc, ids: string[] | null, clearance: number, joints: boo
 function clashTool() {
   if (clashClose) return clashClose();
   const u = () => history.current.units;
-  const state = { clearance: '0', scope: (selected.length ? 'selected' : 'all') as 'selected' | 'all', joints: true, xray: true };
+  const state = { clearance: '0', scope: (selected.length ? 'selected' : 'all') as 'selected' | 'all', joints: true, xray: true, cutWide: true };
+  let clearanceNow = 0;
   const ignore = new Set<string>();
   let run = 0;
   let timer = 0;
@@ -2860,6 +2861,7 @@ function clashTool() {
       clashXray = state.xray = v;
       showSelection();
     }),
+    check('Cut with clearance', state.cutWide, 'Cut from … leaves the clearance as a gap. Off: the other body exactly as it is', (v) => (state.cutWide = v)),
   );
   const note = Object.assign(document.createElement('p'), { className: 'hint' });
   const list = Object.assign(document.createElement('div'), { className: 'clash-list' });
@@ -2883,7 +2885,8 @@ function clashTool() {
   /** Cuts one body by the other where they are; the other stays an ordinary body. */
   const cutFrom = (target: string, by: string) => {
     const doc = history.current;
-    commit({ ...doc, bodies: doc.bodies.map((b) => (b.id === target ? { ...b, features: [...b.features, { id: newId(), type: 'boolean' as const, op: 'subtract' as const, body: by, linked: true }] } : b)) });
+    const grow = state.cutWide && clearanceNow > 0 ? { grow: { e: state.clearance, u: u() } } : {};
+    commit({ ...doc, bodies: doc.bodies.map((b) => (b.id === target ? { ...b, features: [...b.features, { id: newId(), type: 'boolean' as const, op: 'subtract' as const, body: by, linked: true, ...grow }] } : b)) });
   };
   const draw = () => {
     list.replaceChildren(

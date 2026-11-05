@@ -7,7 +7,7 @@ import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/types';
 
 /** A boolean with its tool body's features at hand, placed as the tool body sits in this body's coordinates. */
-export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place };
+export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place; grow?: number };
 /** A box joint as the kernel builds it: the other body's features (without its box joint) where it sits, the finger count or width, which fingers stay. */
 export type FingersBuild = { id: string; type: 'fingers'; features: BuildFeature[]; place: Place; count: number; width: number; from?: V3; first: boolean };
 export type BuildFeature = Resolved<BuildIn> | BooleanBuild | FingersBuild;
@@ -345,7 +345,12 @@ function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
 
 /** Joins, cuts or intersects with the tool body (built here from its features). */
 function boolean(shape: Shape3D | null, s: Of<'boolean'>): Shape3D {
-  const built = buildBody(s.features);
+  let built = buildBody(s.features);
+  if (s.grow) {
+    const wider = grownShape(built, s.grow, true);
+    built.delete();
+    built = wider;
+  }
   const tool = placeShape(built, s.place);
   try {
     if (!shape) {
