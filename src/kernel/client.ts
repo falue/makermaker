@@ -76,7 +76,7 @@ export class Kernel {
   /** Overlaps and clearances of the bodies (see `ClashAsk`). */
   async clash(ask: ClashAsk): Promise<ClashResult> {
     const answer = await this.ask({ kind: 'clash', id: this.nextAsk++, ask });
-    return answer.kind === 'clash' ? answer.result : { hits: [], zones: [], failed: [] };
+    return answer.kind === 'clash' ? answer.result : { hits: [], zones: [], sweeps: [], failed: [] };
   }
 
   private ask(request: Extract<Request, { id: number }>): Promise<Response> {

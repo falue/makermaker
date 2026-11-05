@@ -3238,8 +3238,8 @@ export class Viewer implements ToolView {
   }
 
   private clashView = new THREE.Group();
-  /** Overlaps in red, on top of everything, clearance zones in see-through green (world). Nothing: gone. */
-  showClashes(hits: { vertices: Float32Array; indices: Uint32Array }[], zones: { vertices: Float32Array; indices: Uint32Array }[]) {
+  /** Overlaps in red, on top of everything, clearance zones in see-through green, the space moving parts go through in see-through orange (world). Nothing: gone. */
+  showClashes(hits: { vertices: Float32Array; indices: Uint32Array }[], zones: { vertices: Float32Array; indices: Uint32Array }[], sweeps: { vertices: Float32Array; indices: Uint32Array }[] = []) {
     if (!this.clashView.parent) this.scene.add(this.clashView);
     for (const o of this.clashView.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
     this.clashView.clear();
@@ -3250,6 +3250,7 @@ export class Viewer implements ToolView {
       mesh.userData.hit = hit;
       this.clashView.add(mesh);
     };
+    sweeps.forEach((z) => add(z, 0xff8c1a, 0.1, 9e3, null));
     zones.forEach((z) => add(z, 0x2fae5a, 0.22, 1e4, null));
     hits.forEach((h, k) => add(h, 0xe5484d, 0.85, 1e5, k));
     this.render();

@@ -28,7 +28,7 @@ import type { CoatFeature } from './doc/types';
 import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, type Version } from './io/design';
-import { pairKey, type ClashHit } from './kernel/clash';
+import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseStl, toBase64 } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
@@ -2784,10 +2784,41 @@ let clashAgain: (() => void) | null = null;
 let clashClose: (() => void) | null = null;
 
 /**
+ * What to check: `ids` (null: everything) against all shown bodies, grown by `clearance`; joints through Min to Max.
+ * Tool bodies are skipped (their cuts count), hidden bodies and meshes are left out (`left`: how many).
+ */
+function clashAsk(doc: Doc, ids: string[] | null, clearance: number, joints: boolean, ignore: Iterable<string>): { ask: ClashAsk; left: number } {
+  const owners = ownersOf(doc);
+  const lookup = paramLookup(doc.params);
+  const usable = doc.bodies.filter((b) => b.visible && !owners.has(b.id) && !meshOnly(b.id));
+  const of = ids ? contents(doc, ids).filter((id) => usable.some((b) => b.id === id)) : usable.map((b) => b.id);
+  const motions = !joints
+    ? []
+    : doc.joints.flatMap((j) => {
+        const value = (e: Expr) => (j.kind === 'hinge' ? evalQuantity(e, lookup).v : evalLength(e, lookup));
+        const [lo, hi] = [value(j.min), value(j.max)];
+        if (!(hi > lo)) return [];
+        const at = (v: number) => jointed(doc, ownPlaces, (x) => (x === j ? v : jointValue(x, lookup))).placed;
+        const [from, to] = [at(lo), at(hi)];
+        const movers = usable.filter((b) => from.get(b.id) && to.get(b.id) && !from.get(b.id)!.equals(to.get(b.id)!));
+        if (!movers.length) return [];
+        const n = Math.min(60, Math.max(2, Math.ceil((hi - lo) / (j.kind === 'hinge' ? 3 : 1))));
+        const steps = Array.from({ length: n + 1 }, (_, k) => lo + ((hi - lo) * k) / n).map((v) => {
+          const placed = at(v);
+          return { value: v, places: Object.fromEntries(movers.map((b) => [b.id, toPlace(placed.get(b.id)!)])) };
+        });
+        const parent = from.get(j.parent) ?? new Matrix4();
+        const sweep = { kind: j.kind, at: new Vector3(...j.axis.at).applyMatrix4(parent).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(parent).toArray(), amount: hi - lo };
+        return [{ joint: j.id, sweep, steps }];
+      });
+  return { ask: { bodies: usable.map((b) => ({ id: b.id, place: bodyPlace(b.id) })), of, clearance, motions, ignore: [...ignore] }, left: doc.bodies.filter((b) => !owners.has(b.id) && !usable.includes(b)).length };
+}
+
+/**
  * Interference and clearance, one tool: a floating panel, checking at once and whenever something changes. Clearance 0
  * finds real overlaps; above it each checked body also shows its zone in green, what reaches into it in red (the same
- * thing, further out). Selected bodies against all, or everything against everything; joints one at a time through Min
- * to Max. Tool bodies are skipped (their cuts count), hidden bodies and meshes are left out and it says so.
+ * thing, further out). Selected bodies against all, or everything against everything; joints one at a time over their
+ * whole way Min to Max, whatever their position now: the space they go through in orange, what is in it in red.
  */
 function clashTool() {
   if (clashClose) return clashClose();
@@ -2824,7 +2855,7 @@ function clashTool() {
   row.append(
     label('Clearance', clearance),
     scope,
-    check('Joints', state.joints, 'Each joint one at a time, through Min to Max', (v) => ((state.joints = v), soon())),
+    check('Joints', state.joints, 'Each joint one at a time, its whole way Min to Max, wherever it is now', (v) => ((state.joints = v), soon())),
     check('X-ray', state.xray, 'Everything see-through, so overlaps stand out', (v) => {
       clashXray = state.xray = v;
       showSelection();
@@ -2840,8 +2871,8 @@ function clashTool() {
   const distance = (mm: number) => `${fmt(+(mm / UNITS[u()]).toFixed(4))} ${u()}`;
   const said = (h: ClashHit) => {
     const j = jointName(h.joint);
-    const where = j ? ` · ${j.name} at ${fmt(+(h.value ?? 0).toFixed(1))}${j.kind === 'hinge' ? '°' : ' mm'}` : '';
-    const how = h.closest === undefined ? `overlap ${size(h.volume)}` : h.closest > 1e-4 ? `only ${distance(h.closest)} apart` : 'touching or overlapping';
+    const where = j ? ` · ${j.name}${h.value === undefined ? ' on its way' : ` from ${fmt(+h.value.toFixed(1))}${j.kind === 'hinge' ? '°' : ' mm'}`}` : '';
+    const how = j && h.closest === undefined ? 'in the way' : h.closest === undefined ? `overlap ${size(h.volume)}` : h.closest > 1e-4 ? `only ${distance(h.closest)} apart` : 'touching or overlapping';
     return { pair: `${name(h.a)} ↔ ${name(h.b)}`, how: `${how}${where}` };
   };
   const light = (k: number | null) => {
@@ -2878,36 +2909,14 @@ function clashTool() {
     render();
     await kernel.idle();
     const doc = history.current;
-    const owners = ownersOf(doc);
-    const lookup = paramLookup(doc.params);
-    const usable = doc.bodies.filter((b) => b.visible && !owners.has(b.id) && !meshOnly(b.id));
-    const place = (id: string) => bodyPlace(id);
-    const chosen = contents(doc, selected).filter((id) => usable.some((b) => b.id === id));
-    const of = state.scope === 'all' ? usable.map((b) => b.id) : chosen;
-    const motions = !state.joints
-      ? []
-      : doc.joints.flatMap((j) => {
-          const value = (e: Expr) => (j.kind === 'hinge' ? evalQuantity(e, lookup).v : evalLength(e, lookup));
-          const [lo, hi] = [value(j.min), value(j.max)];
-          if (!(hi > lo)) return [];
-          const n = Math.min(60, Math.max(2, Math.ceil((hi - lo) / (j.kind === 'hinge' ? 3 : 1))));
-          const steps = Array.from({ length: n + 1 }, (_, k) => lo + ((hi - lo) * k) / n).map((v) => {
-            const { placed } = jointed(doc, ownPlaces, (x) => (x === j ? v : jointValue(x, lookup)));
-            const places: Record<string, ReturnType<typeof toPlace>> = {};
-            for (const b of usable) {
-              const m = placed.get(b.id);
-              if (m && !m.equals(bodyPlaces.get(b.id) ?? m)) places[b.id] = toPlace(m);
-            }
-            return { value: v, places };
-          });
-          return [{ joint: j.id, steps }];
-        });
-    const left = doc.bodies.filter((b) => !owners.has(b.id) && !usable.includes(b)).length;
-    const result = of.length ? await kernel.clash({ bodies: usable.map((b) => ({ id: b.id, place: place(b.id) })), of, clearance: c, motions, ignore: [...ignore] }) : { hits: [], zones: [], failed: [] };
+    const { ask, left } = clashAsk(doc, state.scope === 'all' ? null : selected, c, state.joints, ignore);
+    const of = ask.of;
+    const result = of.length ? await kernel.clash(ask) : { hits: [], zones: [], sweeps: [], failed: [] };
     if (mine !== run || !box.isConnected) return;
     busy.delete('Checking');
     hits = result.hits;
-    viewer.showClashes(hits, result.zones);
+    viewer.showClashes(hits, result.zones, result.sweeps);
+    clearanceNow = c;
     note.textContent = [
       !of.length ? 'Select the bodies to check, or check Everything.' : hits.length ? `${hits.length} found` : c ? `All clear: nothing within ${distance(c)}` : 'All clear: no overlaps',
       left ? `${left} left out (hidden, or a mesh)` : '',
@@ -2967,7 +2976,7 @@ function clashTool() {
   soon();
 }
 
-/** Coat: the body (selected, or clicked next) gets a coat, 1 mm at first; its card has the thickness, corners and faces to exclude. */
+/** Coat: the body (selected, or clicked next) gets a coat, 1 mm at first, shown at once; its panel has the rest. */
 function coatTool() {
   const body = selected.find((id) => history.current.bodies.some((b) => b.id === id));
   if (!body) {

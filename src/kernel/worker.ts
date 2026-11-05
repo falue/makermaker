@@ -101,7 +101,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
   }
   if (data.kind === 'clash') {
     const result = clashes(solids, data.ask);
-    const transfer = [...result.hits, ...result.zones].flatMap((m) => [m.vertices.buffer as ArrayBuffer, m.indices.buffer as ArrayBuffer]);
+    const transfer = [...result.hits, ...result.zones, ...result.sweeps].flatMap((m) => [m.vertices.buffer as ArrayBuffer, m.indices.buffer as ArrayBuffer]);
     return postMessage({ kind: 'clash', id: data.id, result } satisfies Response, { transfer });
   }
   if (data.kind === 'measure') {
