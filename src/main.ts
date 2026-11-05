@@ -2527,8 +2527,8 @@ function threadTool() {
       write,
       (ok) => (ok ? render() : undo()),
       `Thread ${round.shaft ? 'on a shaft' : 'in a hole'} Ø ${fmt(2 * round.r)} mm: pick its size · or type Ø and pitch · its length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
-      [],
-      [systems, pick],
+      [systems],
+      [pick],
     );
   });
 }
