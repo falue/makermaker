@@ -3260,15 +3260,20 @@ function boxJoint() {
         if (picked.length === 2) cancelPending(), boxJoint();
       },
     };
-    toolHint = 'Box joint: click the two bodies that overlap · [Esc] cancels';
+    toolHint = 'Box joint: click the two bodies that overlap or touch · [Esc] cancels';
     return render();
   }
   const [a, b] = ids;
   const [fa, fb] = [newId(), newId()];
   const [boxA, boxB] = [viewer.measure(a)?.box, viewer.measure(b)?.box];
-  const sides = boxA && boxB ? boxA.clone().intersect(boxB).getSize(new Vector3()).toArray() : [];
-  if (sides.length && Math.min(...sides) <= 1e-3) return fail('Box joint: these two do not overlap. Move one into the other, its fingers need a place to go');
-  const count = sides.length ? fingersFor(Math.max(...sides), Math.min(...sides)) : 7;
+  const meet = boxA && boxB && boxA.clone().intersect(boxB);
+  const sides: number[] = meet && !meet.isEmpty() ? meet.getSize(new Vector3()).toArray() : [];
+  // only touching along one axis: the thinner one there is the material
+  const flat = sides.filter((x) => x <= 1e-3).length;
+  if (meet && (!sides.length || flat > 1)) return fail('Box joint: these two do not touch. Move one onto or into the other');
+  const k = sides.indexOf(Math.min(...sides));
+  const thick = flat ? Math.min(boxA!.getSize(new Vector3()).getComponent(k), boxB!.getSize(new Vector3()).getComponent(k)) : sides[k];
+  const count = sides.length ? fingersFor(Math.max(...sides), thick) : 7;
   const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex(String(count)), width: len(0), from: null, first });
   commit({ ...doc, bodies: doc.bodies.map((x) => (x.id === a ? { ...x, features: [...x.features, step(b, true, fa)] } : x.id === b ? { ...x, features: [...x.features, step(a, false, fb)] } : x)) });
   fingersPanel(a, fa, true);

@@ -81,10 +81,11 @@ describe('move', () => {
 });
 
 describe('box joint fingers', () => {
-  it('each about three thicknesses long, an odd number, 3 at least', () => {
-    expect(fingersFor(80, 5)).toBe(5); // 16 mm each
-    expect(fingersFor(300, 3)).toBe(33);
-    expect(fingersFor(90, 5)).toBe(5); // 6 exactly: the odd one below
+  it('each about five thicknesses long, rounded up to an odd number, 3 at least', () => {
+    expect(fingersFor(80, 5)).toBe(5); // 3.2: up to 5, 16 mm each
+    expect(fingersFor(125, 5)).toBe(5); // exactly 5
+    expect(fingersFor(150, 5)).toBe(7); // 6: the odd one above
+    expect(fingersFor(300, 3)).toBe(21);
     expect(fingersFor(10, 5)).toBe(3);
   });
 });

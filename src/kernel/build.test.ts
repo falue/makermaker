@@ -181,6 +181,15 @@ describe('buildBody', () => {
     const centred = buildBody([base(100), exact([48, 0, 2])]);
     expect(measureVolume(centred)).toBeCloseTo(100 * 60 * 4 - (2 + 4 * 7) * 16, 0);
     centred.delete();
+    // the sheet standing on the plate, only touching: it grows through the plate's 4
+    const on = (features: BuildFeature[], first: boolean, z: number) => ({ ...(fingers(features, first) as object), place: { offset: [0, 0, z], axis: [0, 0, 1], angle: 0 } }) as BuildFeature;
+    const under = buildBody([base(100), on([sheet], true, 4)]);
+    expect(measureVolume(under)).toBeCloseTo(100 * 60 * 4 - 3 * slice, 0);
+    under.delete();
+    const grown = buildBody([sheet, on([base(100)], false, -4)]);
+    expect(measureVolume(grown)).toBeCloseTo(4 * 60 * 40 + 7 * slice - 4 * slice, 0);
+    grown.delete();
+    expect(() => buildBody([sheet, on([base(100)], false, -5)])).toThrow();
   });
 
   it('drafts a flat face about its hinge', async () => {

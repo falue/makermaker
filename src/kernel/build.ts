@@ -643,12 +643,29 @@ const fullness = (k: number) => Math.max(-4, Math.min(4, k));
 /**
  * A box joint: where the body and the other overlap, sliced across the overlap's longest side into fingers (`width`
  * above 0: exactly that long from the low end, or from `from` both ways, the rest at the ends; else `count` equal
- * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`).
+ * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`). Two that only
+ * touch (boxes, along one axis): the one longer along it first grows through the other where they meet.
  */
 function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   if (!shape) throw new Error('nothing to joint yet');
   const other = placeShape(buildBody(s.features), s.place);
-  const overlap = shape.clone().intersect(other);
+  const [[la, ha], [lb, hb]] = [shape.boundingBox.bounds, other.boundingBox.bounds];
+  const gaps = [0, 1, 2].map((a) => Math.max(lb[a] - ha[a], la[a] - hb[a]));
+  const touch = gaps.filter((g) => g > -EPS);
+  let base = shape;
+  let overlap: Shape3D;
+  if (!touch.length) overlap = shape.clone().intersect(other);
+  else {
+    const k = gaps.findIndex((g) => g > -EPS);
+    if (touch.length > 1 || gaps[k] > EPS) throw new Error('the two bodies do not touch');
+    // where they meet, through the shorter one along k
+    const grows = ha[k] - la[k] > hb[k] - lb[k];
+    const [l, h] = grows ? [lb, hb] : [la, ha];
+    const zone = makeBox([0, 1, 2].map((a) => (a === k ? l[a] : Math.max(la[a], lb[a]))) as V3, [0, 1, 2].map((a) => (a === k ? h[a] : Math.min(ha[a], hb[a]))) as V3) as unknown as Shape3D;
+    overlap = (grows ? other : shape).clone().intersect(zone);
+    zone.delete();
+    if (grows) base = shape.fuse(overlap);
+  }
   other.delete();
   try {
     const box = overlap.boundingBox;
@@ -674,12 +691,13 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
       [a[k], b[k]] = [from, to];
       cut = joined(cut, makeBox(a, b) as unknown as Shape3D, 'add');
     }
-    if (!cut) return shape.clone();
+    if (!cut) return base.clone();
     const away = overlap.clone().intersect(cut);
     cut.delete();
-    return joined(shape.clone(), away, 'cut');
+    return joined(base.clone(), away, 'cut');
   } finally {
     overlap.delete();
+    if (base !== shape) base.delete();
   }
 }
 
