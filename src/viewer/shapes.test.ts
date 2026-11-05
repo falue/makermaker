@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { anchorAt, ballAcross, ballOnFour, ballOnThree, ballsInCorner, placed, sizedTo, turnedTo } from './shapes';
+import { anchorAt, ballAcross, ballOnFour, ballOnThree, ballsInCorner, placed, sizedTo, tangentAt, tangentFrom, turnedTo } from './shapes';
 
 const rect = { kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: 0, rot: 0 } as const;
 
@@ -38,5 +38,40 @@ describe('balls', () => {
     expect(corner.at.toArray()).toEqual([1, 2, 3]);
     expect(corner.along.toArray()).toEqual([1, 1, 1]);
     expect(ballsInCorner([{ at: v(0, 0, 0), n: v(1, 0, 0) }, { at: v(5, 0, 0), n: v(1, 0, 0) }, { at: v(0, 0, 0), n: v(0, 0, 1) }])).toBeNull();
+  });
+});
+
+describe('tangent from a circle', () => {
+  const round = { c: [10, 5] as [number, number], r: 4, near: [10, 9] as [number, number] }; // clicked on its top
+  const off = (at: number[], dir: number) => Math.abs((round.c[0] - at[0]) * Math.sin(dir) - (round.c[1] - at[1]) * Math.cos(dir));
+
+  it('touches on the side clicked, wherever the pointer goes', () => {
+    for (const to of [[30, 9], [-20, 9], [30, -7], [-3, 14]] as [number, number][]) {
+      const t = tangentFrom(round, round.near, to);
+      expect(Math.hypot(t.at[0] - 10, t.at[1] - 5)).toBeCloseTo(4, 9);
+      expect(off(t.at, t.dir)).toBeCloseTo(4, 9);
+      expect(t.at[1]).toBeGreaterThan(5);
+      expect(Math.atan2(to[1] - t.at[1], to[0] - t.at[0])).toBeCloseTo(t.dir, 9);
+    }
+    expect(tangentFrom(round, round.near, [30, 9]).at).toEqual([expect.closeTo(10, 9), expect.closeTo(9, 9)]);
+  });
+
+  it('clicked on the other side: the other tangent', () => {
+    expect(tangentFrom({ ...round, near: [10, 1] }, [10, 1], [30, 1]).at[1]).toBeCloseTo(1, 9);
+  });
+
+  it('a pointer inside stays on the circle, along it', () => {
+    const t = tangentFrom(round, [10, 9], [12, 6]);
+    expect(t.at).toEqual([10, 9]);
+    expect(t.dir).toBeCloseTo(0, 9);
+    expect(tangentFrom(round, [10, 9], [8, 6]).dir).toBeCloseTo(Math.PI, 9);
+  });
+
+  it('a direction set: the same side, still touching', () => {
+    const { at, dir, side } = tangentFrom(round, round.near, [30, 9]);
+    expect(tangentAt(round, dir, side)).toEqual([expect.closeTo(at[0], 9), expect.closeTo(at[1], 9)]);
+    const turned = tangentAt(round, 0.5, side);
+    expect(off(turned, 0.5)).toBeCloseTo(4, 9);
+    expect(turned[1]).toBeGreaterThan(5);
   });
 });

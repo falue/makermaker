@@ -454,3 +454,29 @@ export function ballsInCorner(planes: { at: Vector3; n: Vector3 }[]) {
   const along = solve3(rows, [1, 1, 1]);
   return at && along && { at, along };
 }
+
+/** A circle a line is drawn tangent to; `near`: the point clicked, which of the two tangents it means. */
+export type Round = { c: [number, number]; r: number; near: [number, number] };
+
+/**
+ * The tangent from circle `o` to `to`: where it touches, its direction (radians) and `side` (1: the circle on its left).
+ * With `to` not outside the circle it stays at `from`, on the circle, running the way `to` lies.
+ */
+export function tangentFrom(o: Round, from: [number, number], to: [number, number]) {
+  const [x, y] = [to[0] - o.c[0], to[1] - o.c[1]];
+  const d = Math.hypot(x, y);
+  const touch = (a: number): [number, number] => [o.c[0] + o.r * Math.cos(a), o.c[1] + o.r * Math.sin(a)];
+  const far = (q: [number, number]) => Math.hypot(q[0] - o.near[0], q[1] - o.near[1]);
+  const [a, b] = d > o.r ? [1, -1].map((k) => touch(Math.atan2(y, x) + k * Math.acos(o.r / d))) : [from, from];
+  const at = far(a) <= far(b) ? a : b;
+  const [nx, ny] = [at[0] - o.c[0], at[1] - o.c[1]];
+  // along the circle there when `to` is inside
+  const k = d > o.r ? 0 : -ny * (to[0] - at[0]) + nx * (to[1] - at[1]) < 0 ? -1 : 1;
+  const [vx, vy] = k ? [-ny * k, nx * k] : [to[0] - at[0], to[1] - at[1]];
+  return { at, dir: Math.atan2(vy, vx), side: vx * ny - vy * nx < 0 ? 1 : -1 };
+}
+
+/** Where a line in direction `dir` (radians) touches circle `o`, with it on its `side`. */
+export function tangentAt(o: Round, dir: number, side: number): [number, number] {
+  return [o.c[0] + side * o.r * Math.sin(dir), o.c[1] - side * o.r * Math.cos(dir)];
+}

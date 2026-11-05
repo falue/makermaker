@@ -7,6 +7,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A typed sweep angle of an arc is used once (its diameter stays). `cad.line` and `cad.polygon` take plain points, no side formulas.
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
 
+- A tangent line starts on a circle only: not from a smaller arc or rounded corner, no line ending tangent from a free start, none tangent to two circles. It holds while drawing, no lasting link to the circle. In the one-line and polygon modes, not bezier or arc. Starting a plain line on a free spot of a circle now takes drawing it from its other end (its points still snap).
+
 ## Measuring
 - A drawing tool's snap onto a free-form body edge (a spline, say) is very close but not exact: it uses the circle through the mesh points next to it. Round edges come out exact to the view's number precision.
 - While a long build runs, a picked point waits up to 1.5 s for the solid, then takes the mesh's point (the Distance measure shows it with ~).
