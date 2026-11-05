@@ -1,5 +1,5 @@
 import { assignMaterial, changeLook, findMaterial } from '../doc/materials';
-import { ownersOf } from '../doc/groups';
+import { listedAfter, ownersOf } from '../doc/groups';
 import { attach, jointsWithout } from '../doc/joints';
 import { ex, newId, unturned } from '../doc/sample';
 import type { Body, CoatFeature, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
@@ -53,7 +53,7 @@ export function coatAsBody(doc: Doc, i: number, coat: CoatFeature, linked = fals
   const own: Feature[] = JSON.parse(steps.reduce((text, f) => text.replaceAll(f.id, newId()), JSON.stringify(steps)));
   const body: Body = { ...structuredClone(o), id: newId(), name: `${o.name} coat`, color: palette.filter((c) => c !== o.color)[doc.bodies.length % 5], link: linked ? (o.link ?? o.id) : null, features: [...own, { ...coat, skin: true }], order: undefined };
   const joints = linked ? [...doc.joints, attach(doc, newId(), o.id, [body.id], [0, 0, 0])] : doc.joints;
-  return { doc: { ...doc, bodies: [...doc.bodies, body], joints }, id: body.id };
+  return { doc: listedAfter({ ...doc, bodies: [...doc.bodies, body], joints }, [[o.id, body.id]]), id: body.id };
 }
 
 /** A box joint's fingers for an overlap `long` by `thick`: each about five thicknesses long, rounded up to an odd number so both ends match, 3 at least. */

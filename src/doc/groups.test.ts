@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contents, sketchesOf, tree } from './groups';
+import { contents, listedAfter, sketchesOf, tree } from './groups';
 import { sampleDoc } from './sample';
 import type { Doc } from './types';
 
@@ -43,5 +43,17 @@ describe('groups', () => {
 
   it('expands groups into what is inside', () => {
     expect(contents(doc(), ['a'])).toEqual(['p1']);
+  });
+});
+
+describe('listedAfter', () => {
+  it('puts each new body right after the one it came from, in its group, copies of one in the order made', () => {
+    const doc = sampleDoc();
+    const top = doc.bodies.filter((b) => b.group === null);
+    const [a, b] = [top[0], top[1]];
+    const copy = (from: typeof a, id: string) => ({ ...from, id, order: undefined });
+    const next = listedAfter({ ...doc, bodies: [...doc.bodies, copy(a, 'a2'), copy(a, 'a3'), copy(b, 'b2')] }, [[a.id, 'a2'], [a.id, 'a3'], [b.id, 'b2']]);
+    const rows = tree(next, new Set()).filter((r) => r.depth === 0 && r.kind === 'body').map((r) => r.id);
+    expect(rows.slice(rows.indexOf(a.id), rows.indexOf(a.id) + 5)).toEqual([a.id, 'a2', 'a3', b.id, 'b2']);
   });
 });

@@ -22,7 +22,7 @@ import { fromMtlx, toMtlx } from './io/materials';
 import { openMaterials } from './ui/materials';
 import { emptyDoc, ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { carrierOf, contents, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
+import { carrierOf, contents, listedAfter, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { CoatFeature } from './doc/types';
 import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
@@ -1502,9 +1502,9 @@ function copyMoved(by: Vector3, linked: boolean) {
     shapeSel = copies.map((q) => q.id);
     history.replace(setIn(before, ['sketches', String(k), 'shapes'], [...before.sketches[k].shapes, ...copies]));
   } else {
-    const { bodies, sketches } = copiesOf(moved.bodies.filter((b) => selected.includes(b.id)), moved.sketches.filter((s) => selected.includes(s.id)), ' copy', linked);
+    const { bodies, sketches, pairs } = copiesOf(moved.bodies.filter((b) => selected.includes(b.id)), moved.sketches.filter((s) => selected.includes(s.id)), ' copy', linked);
     selected = [...bodies, ...sketches].map((c) => c.id);
-    history.replace({ ...before, bodies: [...before.bodies, ...bodies], sketches: [...before.sketches, ...sketches] });
+    history.replace(listedAfter({ ...before, bodies: [...before.bodies, ...bodies], sketches: [...before.sketches, ...sketches] }, pairs));
   }
   update();
 }
@@ -1661,10 +1661,10 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
     return { body: b, from, a: doc0.bodies[stepsOf(doc0, b)].id, chunk: { ...copy, color: newBody(doc0.bodies.length + 1 + k, []).color, features: [...copy.features, split(b, -1)] } as Body };
   });
   const ofA = (id: string) => parts.find((q) => q.a === id);
-  history.push({ ...doc0, bodies: doc0.bodies.flatMap((x) => {
+  history.push(listedAfter({ ...doc0, bodies: doc0.bodies.flatMap((x) => {
     const own = ofA(x.id) ? { ...x, features: [...x.features, split(ofA(x.id)!.body, 1)] } : x;
     return [own, ...parts.filter((q) => q.body === x.id).map((q) => q.chunk)];
-  }) });
+  }) }, parts.map((q) => [q.body, q.chunk.id])));
   const chunkIds = parts.map((q) => q.chunk.id);
   // a body the cut does not cross (an error in its build or its chunk's) stays as it is: faded, no error shown
   const refresh = () => {
@@ -2367,11 +2367,13 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
   const apply = () => {
     // counts and degrees as numbers, the spacings as lengths (mm)
     const v = texts.map((t, i) => (mode === 'grid' && i >= 3 && i < 6 ? (length(t) ?? 0) : Number(t) || 0));
+    const made: [string, string][] = [];
     const copies = placements(v).flatMap((worlds, k) => {
-      const { bodies } = copiesOf(doc0.bodies.filter((b) => sources.includes(b.id)), [], ` ${k + 2}`, linkedCopies);
+      const { bodies, pairs } = copiesOf(doc0.bodies.filter((b) => sources.includes(b.id)), [], ` ${k + 2}`, linkedCopies);
+      made.push(...pairs);
       return bodies.map((b, n) => ({ ...b, ...placementIn(parentPlace(sources[n]), worlds[n]) }));
     });
-    const next = { ...doc0, bodies: [...doc0.bodies, ...copies] };
+    const next = listedAfter({ ...doc0, bodies: [...doc0.bodies, ...copies] }, made);
     if (history.current === doc0) history.push(next);
     else history.replace(next);
     update();
@@ -2531,14 +2533,14 @@ function mirrorTool() {
     if (!face) return render();
     const doc = history.current;
     const sources = doc.bodies.filter((b) => bodies.includes(b.id));
-    const { bodies: copies } = copiesOf(sources, [], ' mirrored', linkedCopies);
+    const { bodies: copies, pairs } = copiesOf(sources, [], ' mirrored', linkedCopies);
     const made = copies.map((c, i) => {
       // the plane in the copy's coordinates: those of the body it was copied from
       const pl = bodyPlace(sources[i].id);
       return { ...c, features: [...c.features, { id: newId(), type: 'mirror' as const, o: unplaced(pl, face.point.toArray()), n: unplaced(pl, face.normal.toArray(), true) }] };
     });
     selected = made.map((b) => b.id);
-    commit({ ...doc, bodies: [...doc.bodies, ...made] });
+    commit(listedAfter({ ...doc, bodies: [...doc.bodies, ...made] }, pairs));
   });
 }
 
@@ -5847,14 +5849,14 @@ function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string, linked = f
       return { ...c, source: { ...src, sketch: renamed(src.sketch), shapes: src.shapes.map(renamed), areas: src.areas?.map((a) => ({ ...a, in: a.in.map(renamed), out: a.out.map(renamed) })) } };
     }),
   }));
-  return { bodies: bodyCopies, sketches: sketchCopies };
+  return { bodies: bodyCopies, sketches: sketchCopies, pairs: bodies.map((p, k): [string, string] => [p.id, bodyCopies[k].id]) };
 }
 
 /** Adds copies (see `copiesOf`), selects them and opens the move fields at `start` (mm), to type where they go. */
-function placeCopies({ bodies, sketches }: ReturnType<typeof copiesOf>, start: Vec3, made?: { sources: string[]; copies: string[] }) {
+function placeCopies({ bodies, sketches, pairs }: ReturnType<typeof copiesOf>, start: Vec3, made?: { sources: string[]; copies: string[] }) {
   const doc = history.current;
   selected = [...bodies, ...sketches].map((c) => c.id);
-  commit({ ...doc, bodies: [...doc.bodies, ...bodies], sketches: [...doc.sketches, ...sketches] });
+  commit(listedAfter({ ...doc, bodies: [...doc.bodies, ...bodies], sketches: [...doc.sketches, ...sketches] }, pairs));
   if (selected.length) moveAlong(0, true, start, made);
 }
 

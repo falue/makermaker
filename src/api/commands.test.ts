@@ -95,7 +95,8 @@ describe('coat', () => {
   it('as a new body: its own steps and the skin, the body itself as it was', () => {
     const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true });
     const [a, b] = out.doc.bodies;
-    expect(a).toBe(made.doc.bodies[0]);
+    expect({ ...a, order: undefined }).toEqual({ ...made.doc.bodies[0], order: undefined });
+    expect([a.order, b.order]).toEqual([0, 1]); // listed right after it
     expect(b).toMatchObject({ id: out.result, link: null });
     expect(b.features.map((f) => f.type)).toEqual([...a.features.map((f) => f.type), 'coat']);
     expect(b.features[0].id).not.toBe(a.features[0].id);

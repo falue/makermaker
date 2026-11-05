@@ -50,6 +50,23 @@ export function rank(doc: Doc, id: string): number {
   return doc.bodies[b]?.order ?? b;
 }
 
+/**
+ * `doc` with each new body of `made` ([body it came from, new body]) listed right after the body it came from (after
+ * the ones made of it before), when both are in the same group; that level numbered anew.
+ */
+export function listedAfter(doc: Doc, made: [string, string][]): Doc {
+  const groupOf = (id: string) => doc.bodies.find((b) => b.id === id)?.group;
+  const mine = made.filter(([from, to]) => groupOf(from) !== undefined && groupOf(from) === groupOf(to));
+  const order = new Map<string, number>();
+  for (const parent of new Set(mine.map(([from]) => groupOf(from)!))) {
+    const fresh = new Set(mine.map(([, to]) => to));
+    const level = [...doc.groups.filter((g) => g.parent === parent), ...doc.bodies.filter((b) => b.group === parent && !fresh.has(b.id))].map((o) => o.id).sort((a, b) => rank(doc, a) - rank(doc, b));
+    level.flatMap((id) => [id, ...mine.filter(([from]) => from === id).map(([, to]) => to)]).forEach((id, k) => order.set(id, k));
+  }
+  const numbered = <T extends { id: string; order?: number }>(list: T[]) => list.map((o) => (order.has(o.id) ? { ...o, order: order.get(o.id) } : o));
+  return order.size ? { ...doc, bodies: numbered(doc.bodies), groups: numbered(doc.groups) } : doc;
+}
+
 export function tree(doc: Doc, folded: Set<string>): Row[] {
   const out: Row[] = [];
   // tool bodies listed under their body, but for those dragged elsewhere
