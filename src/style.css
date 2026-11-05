@@ -2460,6 +2460,11 @@ section > h4 .segmented button {
 .script-note {
   margin: 4px 6px 6px;
 }
+.script-choose {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
 .script-name {
   flex: 1;
   min-width: 0;

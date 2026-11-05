@@ -1,6 +1,6 @@
 /** Python scripts as .py files in a folder on disk (File System Access API: Chrome, Edge); the folder is remembered in this browser. */
-/** `example`: one that comes with the app (its file's name), not a file in the folder. */
-export type Script = { name: string; text: string; example?: string };
+/** `example`: one that comes with the app (its file's name); `file`: a file picked by itself, not in the folder; `locked`: its permission still to be given (that takes a click). */
+export type Script = { name: string; text: string; example?: string; file?: FileSystemFileHandle; locked?: boolean };
 
 export const canUseFolders = () => !!window.showDirectoryPicker;
 
@@ -12,16 +12,16 @@ const open = () =>
     request.onerror = () => fail(request.error);
   });
 
-export async function rememberFolder(dir: FileSystemDirectoryHandle) {
+async function remember(key: string, value: unknown) {
   const db = await open();
-  db.transaction('folder', 'readwrite').objectStore('folder').put(dir, 'scripts');
+  db.transaction('folder', 'readwrite').objectStore('folder').put(value, key);
   db.close();
 }
 
-export async function recallFolder() {
+async function recall<T>(key: string) {
   const db = await open();
-  return new Promise<FileSystemDirectoryHandle | undefined>((done, fail) => {
-    const request = db.transaction('folder').objectStore('folder').get('scripts');
+  return new Promise<T | undefined>((done, fail) => {
+    const request = db.transaction('folder').objectStore('folder').get(key);
     request.onsuccess = () => (db.close(), done(request.result));
     request.onerror = () => (db.close(), fail(request.error));
   });
@@ -35,11 +35,20 @@ export async function listScripts(dir: FileSystemDirectoryHandle): Promise<Scrip
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function writeScript(dir: FileSystemDirectoryHandle, { name, text }: Script) {
-  const file = await (await dir.getFileHandle(`${name}.py`, { create: true })).createWritable();
+export const rememberFolder = (dir: FileSystemDirectoryHandle) => remember('scripts', dir);
+export const recallFolder = () => recall<FileSystemDirectoryHandle>('scripts');
+export const rememberFiles = (files: FileSystemFileHandle[]) => remember('files', files);
+export const recallFiles = async () => (await recall<FileSystemFileHandle[]>('files')) ?? [];
+
+/** Writes a picked file, asking for permission if it takes that. */
+export async function writeFile(handle: FileSystemFileHandle, text: string) {
+  if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') await handle.requestPermission({ mode: 'readwrite' });
+  const file = await handle.createWritable();
   await file.write(text);
   await file.close();
 }
+
+export const writeScript = async (dir: FileSystemDirectoryHandle, { name, text }: Script) => writeFile(await dir.getFileHandle(`${name}.py`, { create: true }), text);
 
 export const removeScript = (dir: FileSystemDirectoryHandle, name: string) => dir.removeEntry(`${name}.py`);
 
