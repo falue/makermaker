@@ -8,6 +8,10 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
 - A tangent line starts on a sketch circle, arc or bezier side, or a body's round edge: not on a rounded rectangle's corner (its outline has no arc to snap to) or a body's elliptic or spline edge. No line ending tangent from a free start, none tangent to two curves. It holds while drawing, no lasting link to the curve. In the one-line and polygon modes, not bezier or arc. A typed angle no tangent of a short arc runs at is ignored.
 
+## Box joint
+- Two plates that only touch are refused: nothing to interlock until one reaches into the other.
+- The starting number of fingers comes from the bodies' boxes in the world, so it is off for plates at a slant.
+
 ## Cut and sections
 - Cutting several bodies needs them selected first: with none selected a click picks one.
 - A body not crossed shows as an error for a moment during the preview of a cut; it is left whole when the cut is kept.

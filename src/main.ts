@@ -468,7 +468,7 @@ function update() {
       viewer.setPlacement(p.id, at, turn);
     }
     const before = exprErrors.size;
-    // a linked copy: its source's steps (errors shown at the source), then its own
+    // a linked copy: its source's steps (errors shown at the source), then its own; a box joint belongs to its two bodies
     const k = p.link ? doc.bodies.findIndex((b) => b.id === p.link) : -1;
     const shared = k >= 0 ? resolve(doc.bodies[k].features, lookup, `bodies.${k}.features`, exprErrors).filter((f) => f.type !== 'fingers') : [];
     const resolved = [...shared, ...resolve(p.features, lookup, `bodies.${i}.features`, exprErrors)];
@@ -1375,7 +1375,7 @@ function moveBy(by: Vector3) {
   commit(next);
 }
 
-/** Copies are made linked (sharing their source's steps): the Linked checkboxes of copy-move, Duplicate, Mirror, Pattern and a coat as a new body (this session). */
+/** Copies are made linked (sharing their source's steps): the Linked checkboxes of copy-move, Duplicate, Mirror and Pattern (this session). */
 let linkedCopies = false;
 
 /** Where a body's shape edits go (its index): a linked copy's source, so all its copies change too; else the body. */
@@ -3084,6 +3084,7 @@ function coatTool() {
 function coatPanel(body: string, feature: string, isNew = false) {
   /** The body it coats when it is a new body of its own, made here (reopened later: none). */
   let source: string | null = null;
+  let linked = false;
   const now = () => {
     const i = history.current.bodies.findIndex((b) => b.id === body);
     const k = history.current.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
@@ -3111,7 +3112,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
     if (!c) return;
     const doc = history.current;
     const { skin: _, ...coat } = c.f;
-    const made = on ? coatAsBody(setIn(doc, ['bodies', String(c.i), 'features'], doc.bodies[c.i].features.filter((f) => f.id !== feature)), c.i, coat, linkedCopies) : null;
+    const made = on ? coatAsBody(setIn(doc, ['bodies', String(c.i), 'features'], doc.bodies[c.i].features.filter((f) => f.id !== feature)), c.i, coat, linked) : null;
     const back = () => {
       const i = doc.bodies.findIndex((b) => b.id === source);
       const d = setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, coat]);
@@ -3132,7 +3133,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
   };
   // the new body made again, linked or with its own steps
   const relink = (on: boolean) => {
-    linkedCopies = on;
+    linked = on;
     if (picking) viewer.cancelFacePick();
     const c = now();
     if (!c || !source) return;
@@ -3145,7 +3146,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
   };
   const asBody = checkbox('New body', start.f.skin ? 'This coat is a body of its own' : 'Click: Make the coat a body of its own, hollow around this one, which stays as it is', !!start.f.skin, toBody);
   asBody.querySelector('input')!.disabled = !!start.f.skin;
-  const link = checkbox('Linked', 'The new body is a linked copy: it shares the steps of this one, editing one edits both', linkedCopies, relink);
+  const link = checkbox('Linked', 'The new body is a linked copy: it shares the steps of this one, editing one edits both', false, relink);
   link.style.display = 'none';
   // while picking: no coat to see past, the real faces to click, nothing else changes until it ends
   let picking = false;
