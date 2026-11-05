@@ -976,9 +976,13 @@ export class SketchTool implements Tool {
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
     let near: SnapPoint | undefined;
     let nearest = px;
-    for (const q of this.snapPoints(t, lines)) {
+    const points = this.snapPoints(t, lines);
+    const distance = (q: SnapPoint) => {
       const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...q.at)));
-      const d = Math.hypot(mx - x, my - y);
+      return Math.hypot(mx - x, my - y);
+    };
+    for (const q of points) {
+      const d = distance(q);
       if (d < nearest) [near, nearest] = [q, d];
     }
     type Near = { at: THREE.Vector3; line: Segment[]; what: string; key?: string; seg?: Segment; on: Segment; guide?: (typeof SketchTool.guides)[number]; d: number };
@@ -1001,8 +1005,11 @@ export class SketchTool implements Tool {
         const key = guide ? undefined : shape?.p.kind === 'circle' ? `circle:${shape.p.id}` : (curves?.[i] ?? (shape || segs.length === 1 ? sideKey(a, b) : undefined));
         if (!under.has(line) || d < under.get(line)!.d) under.set(line, { at: a.clone().lerp(b, k), line: segs, what, key, seg: key && straightKey(key) ? [a, b] : undefined, on: [a, b], guide, d });
       }
+    // the line just split with A stays the line while the pointer is on it: a point that went must not hand it to what lies near
+    const splitting = !!this.showing && [...under.values()].some((u) => u.key === this.showing);
+    if (splitting) near = points.filter((q) => q.key === this.showing && distance(q) < px).sort((u, v) => distance(u) - distance(v))[0];
     // a helper line on a real one is not there: only beyond it
-    const real = [...under.entries()].filter(([, u]) => !u.guide).sort(([, u], [, v]) => u.d - v.d);
+    const real = [...under.entries()].filter(([, u]) => !u.guide).sort(([, u], [, v]) => +(v.key === this.showing) - +(u.key === this.showing) || u.d - v.d);
     const lying = (g: NonNullable<Near['guide']>, [a, b]: Segment) => g.dir.clone().cross(b.clone().sub(a).normalize()).length() < 1e-4 && a.clone().sub(g.at).cross(g.dir).length() < 1e-3;
     for (const [line, u] of under) if (u.guide && real.some(([, r]) => lying(u.guide!, r.on))) under.delete(line);
     // on a line, on an edge or on a point along it, all at once: Tab goes through them (see `key`)
@@ -1013,7 +1020,7 @@ export class SketchTool implements Tool {
     const turn = this.cycle.at % Math.max(1, this.cycle.count);
     if (turn >= along && along) near = undefined; // a line instead of the point on it
     const nearest2 = [...under.entries()].sort(([, u], [, v]) => u.d - v.d)[0];
-    const taken = turn ? real[turn - along] : nearest2;
+    const taken = turn ? real[turn - along] : splitting ? real[0] : nearest2;
     const best = taken ? { ...taken[1], at: this.onTrueLine(lines[taken[0]], taken[1].at, t) } : null;
     this.snapLine = null;
     this.snapped = near ? v3(toWorld(t.frame, ...near.at)) : null;
@@ -1042,7 +1049,7 @@ export class SketchTool implements Tool {
       }
       return near.at;
     }
-    const cross = turn ? null : this.crossing(close, t, mx, my, px);
+    const cross = turn || splitting ? null : this.crossing(close, t, mx, my, px);
     if (cross) {
       // where they really cross: from one true line to the next until they meet (straight lines cross as they are)
       if (cross.lines.some((i) => lines[i].shape?.p.kind === 'circle' || (lines[i].shape ? curved(lines[i].shape!.p) : lines[i].segs.length > 1))) {
