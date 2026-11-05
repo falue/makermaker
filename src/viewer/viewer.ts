@@ -3243,15 +3243,21 @@ export class Viewer implements ToolView {
     if (!this.clashView.parent) this.scene.add(this.clashView);
     for (const o of this.clashView.children) ((o as THREE.Mesh).geometry.dispose(), ((o as THREE.Mesh).material as THREE.Material).dispose());
     this.clashView.clear();
-    const add = (m: { vertices: Float32Array; indices: Uint32Array }, color: number, opacity: number, order: number, hit: number | null) => {
+    const add = (m: { vertices: Float32Array; indices: Uint32Array }, color: number, opacity: number, order: number, hit: number | null, depthOnly = false) => {
       const g = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(m.vertices, 3)).setIndex(new THREE.BufferAttribute(m.indices, 1));
-      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: hit === null, depthWrite: false, side: THREE.DoubleSide }));
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: hit === null, depthWrite: depthOnly, colorWrite: !depthOnly, side: THREE.DoubleSide }));
       mesh.renderOrder = order;
       mesh.userData.hit = hit;
       this.clashView.add(mesh);
     };
-    sweeps.forEach((z) => add(z, 0xff8c1a, 0.1, 9e3, null));
-    zones.forEach((z) => add(z, 0x2fae5a, 0.22, 1e4, null));
+    zones.forEach((z) => add(z, 0x2fae5a, 0.22, 8e3, null));
+    // a sweep is many overlapping solids: only the front layer gets drawn
+    sweeps.forEach((z) => {
+      add(z, 0, 0, 9e3, null, true);
+      add(z, 0xff8c1a, 0.08, 9e3 + 1, null);
+      // coplanar ones too: each pixel once
+      Object.assign((this.clashView.children.at(-1) as THREE.Mesh).material as THREE.Material, { stencilWrite: true, stencilFunc: THREE.NotEqualStencilFunc, stencilRef: 128, stencilFuncMask: 128, stencilWriteMask: 128, stencilZPass: THREE.ReplaceStencilOp });
+    });
     hits.forEach((h, k) => add(h, 0xe5484d, 0.85, 1e5, k));
     this.render();
   }
