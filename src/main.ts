@@ -2839,8 +2839,8 @@ function clashTool() {
   const distance = (mm: number) => `${fmt(+(mm / UNITS[u()]).toFixed(4))} ${u()}`;
   const said = (h: ClashHit) => {
     const j = jointName(h.joint);
-    const where = j ? ` · ${j.name} at ${fmt(h.value ?? 0)}${j.kind === 'hinge' ? '°' : ` ${'mm'}`}` : '';
-    const how = h.closest === undefined ? `overlap ${size(h.volume)}` : h.closest > 0 ? `only ${distance(h.closest)} apart` : `overlap`;
+    const where = j ? ` · ${j.name} at ${fmt(+(h.value ?? 0).toFixed(1))}${j.kind === 'hinge' ? '°' : ' mm'}` : '';
+    const how = h.closest === undefined ? `overlap ${size(h.volume)}` : h.closest > 1e-4 ? `only ${distance(h.closest)} apart` : 'touching or overlapping';
     return { pair: `${name(h.a)} ↔ ${name(h.b)}`, how: `${how}${where}` };
   };
   const light = (k: number | null) => {

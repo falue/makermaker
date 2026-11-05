@@ -2543,7 +2543,7 @@ section > h4 .segmented button {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  width: 400px;
+  width: 440px;
   max-height: 60vh;
   padding: 8px 10px;
   border: 1px solid var(--accent);
