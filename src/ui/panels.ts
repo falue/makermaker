@@ -1072,7 +1072,7 @@ function materialRows(ctx: UIContext, ids: string[], inherited: string): Node[] 
   // the same chapters, in the same order, as the materials dialog
   const list = h('select', { title: 'Its material' }, option('', inherited), ...chapter('In this file', doc.materials), ...STANDARD_SECTIONS.flatMap(([name, materials]) => chapter(name, materials)), option('new', '+ New…'));
   list.onchange = () => (list.value === 'new' ? ctx.openMaterials(true) : ctx.setMaterialOf(ids, list.value || undefined));
-  return [h('h3', {}, 'Material'), h('div', { className: 'row' }, list, tool('material', 'Edit material…', () => ctx.openMaterials()))];
+  return [h('h3', {}, 'Material'), h('div', { className: 'row material' }, list, tool('material', 'Edit material…', () => ctx.openMaterials()))];
 }
 
 /** An image's card: name, Delete; width (mm), opacity, a colour shown transparent (and how far off still counts), Calibrate. */

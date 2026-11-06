@@ -1616,9 +1616,9 @@ button.primary.wide {
   flex: 1;
   min-width: 0;
 }
-.row.material > input:first-child {
-  flex: 1;
-  min-width: 0;
+/* the material list and its button, centred on each other */
+.row.material {
+  align-items: center;
 }
 .shot-light summary {
   cursor: pointer;
