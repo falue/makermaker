@@ -39,7 +39,7 @@ import { Kernel } from './kernel/client';
 import { canUseFolders, recall, remember } from './io/scriptFolder';
 import { openVersions, type Picture } from './ui/versions';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
-import { COPY_TIP, measureButton, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { COPY_TIP, measureButton, renderUI, scrub, showRenderProgress, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { pythonTerminal } from './ui/terminal';
@@ -6666,7 +6666,7 @@ async function renderQueue() {
           show: (canvas) => ((job.canvas = canvas), render()),
           progress(done) {
             job.done = done;
-            if (Math.floor(done * 100) !== shown) (shown = Math.floor(done * 100)), render();
+            if (Math.floor(done * 100) !== shown) (shown = Math.floor(done * 100)), showRenderProgress(shot.id, done);
           },
           cancelled: () => !!job.cancel || !history.current.renders.some((r) => r.id === shot.id),
           slow: () => !rendersOpen,

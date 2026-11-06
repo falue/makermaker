@@ -958,9 +958,9 @@ function right(ctx: UIContext): Node[] {
   if (ctx.renders.open) return rendersPanel(ctx);
   // renders going on while the panel is closed: a status row on top
   const busy = ctx.doc.renders.filter((r) => ['waiting', 'rendering'].includes(ctx.renders.jobs.get(r.id)?.state ?? ''));
-  const now = busy.map((r) => ctx.renders.jobs.get(r.id)!).find((j) => j.state === 'rendering');
+  const now = busy.find((r) => ctx.renders.jobs.get(r.id)!.state === 'rendering');
   const status = busy.length
-    ? [h('button', { className: 'render-status', onclick: ctx.renders.toggle, title: 'Show the renders' }, `Rendering${busy.length > 1 ? ` (${busy.length} queued)` : ''}: ${Math.floor((now?.done ?? 0) * 100)} %`)]
+    ? [h('button', { className: 'render-status', onclick: ctx.renders.toggle, title: 'Show the renders' }, `Rendering${busy.length > 1 ? ` (${busy.length} queued)` : ''}: `, now ? percent(now.id, ctx.renders.jobs.get(now.id)!.done) : '0 %')]
     : [];
   // a row with a measure shows it in the view while hovered
   const infoRow = ([k, v, what]: [string, string, Measure?]) => {
@@ -1004,11 +1004,11 @@ function rendersPanel(ctx: UIContext): Node[] {
       : job.state === 'waiting'
         ? 'Waiting'
         : job.state === 'rendering'
-          ? `Rendering ${Math.floor(job.done * 100)} %`
+          ? h('span', {}, 'Rendering ', percent(shot.id, job.done))
           : job.state === 'done'
             ? 'Done'
             : job.error ?? 'Failed';
-    const bar = job?.state === 'rendering' ? [h('div', { className: 'track' }, Object.assign(h('div', { className: 'fill' }), { style: `width:${job.done * 100}%` }))] : [];
+    const bar = job?.state === 'rendering' ? [h('div', { className: 'track' }, progressEl(h('div', { className: 'fill' }), shot.id, job.done))] : [];
     const busy = job?.state === 'waiting' || job?.state === 'rendering';
     const nice = shot.results.some((r) => r.nice);
     const actions = [
@@ -1065,6 +1065,16 @@ function rendersPanel(ctx: UIContext): Node[] {
     h('p', { className: 'hint' }, 'Each render keeps its camera and background (new ones take the background of the settings), its light comes from Settings, Light, Rendering: Render again renders the same view with the model as it is now and saves itself (Save to: Downloads, or a folder keeping every version). Snapshots land here too. Full pictures stay until the page reloads; small copies are saved in the file.'),
     ...shots,
   ];
+}
+
+/** A render's progress, marked so `showRenderProgress` updates it in place. */
+const progressEl = <T extends HTMLElement>(el: T, id: string, done: number) => ((el.dataset.progress = id), setProgress(el, done), el);
+const percent = (id: string, done: number) => progressEl(h('span'), id, done);
+const setProgress = (el: HTMLElement, done: number) => (el.classList.contains('fill') ? (el.style.width = `${done * 100}%`) : (el.textContent = `${Math.floor(done * 100)} %`));
+
+/** A render's progress shown again in place: drawing the panel anew would close an open dropdown. */
+export function showRenderProgress(id: string, done: number) {
+  for (const el of document.querySelectorAll<HTMLElement>(`[data-progress="${id}"]`)) setProgress(el, done);
 }
 
 /** Where finished renders go: Downloads, or a folder of the document's that keeps every version. */
