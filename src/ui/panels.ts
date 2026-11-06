@@ -208,6 +208,8 @@ export interface UIContext {
     cancel(id: string): void;
     download(id: string): void;
     useView(id: string): void;
+    /** Its versions in a gallery. */
+    versions(id: string): void;
     /** The document's render folder (`name` null: Downloads), whether writing there failed, whether this browser can pick folders. */
     folder: { name: string | null; lost: boolean; can: boolean };
     /** Pick a render folder (`downloads`: back to Downloads). */
@@ -1008,6 +1010,7 @@ function rendersPanel(ctx: UIContext): Node[] {
       ...(job?.state === 'done' ? [button('Download', () => renders.download(shot.id), 'Save the picture')] : []),
       ...(busy ? [button('Cancel', () => renders.cancel(shot.id))] : [button(nice ? 'Render again' : 'Render nice', () => renders.again(shot.id), 'Render this view nicely with the model as it is now (saves itself)')]),
       button('Use view', () => renders.useView(shot.id), 'Turn the 3D view to this camera'),
+      ...(shot.results.length || renders.folder.name ? [button('Versions', () => renders.versions(shot.id), 'All its pictures, newest first (with a render folder: every one saved there, full size)')] : []),
       button('×', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) }), 'Delete this render'),
     ];
     // its photo sphere, for the next render of this view

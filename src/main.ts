@@ -36,6 +36,7 @@ import { coatAsBody, describe as describeCommands, fingersFor, runCommand, share
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { canUseFolders, recall, remember } from './io/scriptFolder';
+import { openVersions, type Picture } from './ui/versions';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
 import { COPY_TIP, measureButton, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
@@ -6398,6 +6399,7 @@ function render() {
         render();
       },
       download: downloadRender,
+      versions: (id) => run(() => showVersions(id)),
       folder: { name: history.current.renderFolder ?? null, lost: renderFolderLost, can: canUseFolders() },
       pickFolder: (downloads) => run(() => pickRenderFolder(downloads)),
       useView(id) {
@@ -6690,6 +6692,37 @@ async function keepRender(id: string, image: Blob, fallback: boolean) {
     notify(`Render saved to Downloads: ${(err as Error).name === 'NotFoundError' ? `the folder "${name}" is gone` : (err as Error).message}. Pick it again in the renders panel`, true);
   }
   render();
+}
+
+/**
+ * Render `id`'s versions in a gallery: every picture of it in the render folder (asking for permission, this is a
+ * click), else the small copies the file keeps and this session's full picture.
+ */
+async function showVersions(id: string) {
+  const shot = history.current.renders.find((r) => r.id === id);
+  if (!shot) return;
+  const urls: string[] = [];
+  const url = (blob: Blob) => (urls.push(URL.createObjectURL(blob)), urls.at(-1)!);
+  let versions: Picture[] = shot.results.map((r) => ({ at: new Date(r.at), nice: r.nice, url: async () => r.preview }));
+  const image = jobs.get(id)?.image;
+  if (image) versions[0] = { ...versions[0], url: async () => url(image) };
+  const dir = history.current.renderFolder && (await recall<FileSystemDirectoryHandle>(renderKey()));
+  if (dir && (await dir.requestPermission({ mode: 'readwrite' }).catch(() => 'denied')) === 'granted') {
+    // its files: `<file>_render_<n>_<date>_<time>.png`
+    const name = project().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const named = new RegExp(`^${name}_render_${shotNumber(shot)}_(\\d{4})-(\\d\\d)-(\\d\\d)_(\\d\\d)-(\\d\\d)-(\\d\\d)\\.png$`);
+    const found: Picture[] = [];
+    try {
+      for await (const entry of dir.values()) {
+        const m = entry.kind === 'file' && entry.name.match(named);
+        if (m) found.push({ at: new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]), nice: true, url: async () => url(await (entry as FileSystemFileHandle).getFile()) });
+      }
+      if (found.length) versions = found.sort((a, b) => +b.at - +a.at);
+    } catch {
+      renderFolderLost = true; // gone: the copies in the file
+    }
+  }
+  openVersions(`Render ${shotNumber(shot)}: versions`, versions, async (v) => download(await (await fetch(await v.url())).blob(), renderName(id, v.at)), () => urls.forEach((u) => URL.revokeObjectURL(u)));
 }
 
 /** Picks the folder renders are saved to (starting in the last one, else beside the document); null: Downloads. */
