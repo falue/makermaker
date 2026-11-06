@@ -1335,12 +1335,23 @@ section.render .listed {
   margin-top: 6px;
   gap: 6px;
 }
+section.render .listed > .remove {
+  margin-left: auto;
+}
+/* buttons sharing a row equally */
 section.render .actions {
-  flex-wrap: wrap;
-  margin: 6px 0 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  margin-top: 6px;
 }
 section.render .actions > button {
-  flex: none;
+  min-width: 0;
+  white-space: nowrap;
+  padding-inline: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 button.primary {
   flex: none;

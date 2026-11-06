@@ -1011,14 +1011,16 @@ function rendersPanel(ctx: UIContext): Node[] {
     const bar = job?.state === 'rendering' ? [h('div', { className: 'track' }, progressEl(h('div', { className: 'fill' }), shot.id, job.done))] : [];
     const busy = job?.state === 'waiting' || job?.state === 'rendering';
     const nice = shot.results.some((r) => r.nice);
-    const actions = [
+    const main = [
+      busy ? button('Cancel', () => renders.cancel(shot.id)) : Object.assign(button(nice ? 'Render again' : 'Render nice', () => renders.again(shot.id), 'Render this view nicely with the model as it is now (saves itself)'), { className: 'primary' }),
       ...(job?.state === 'done' ? [button('Download', () => renders.download(shot.id), 'Save the picture')] : []),
-      ...(busy ? [button('Cancel', () => renders.cancel(shot.id))] : [button(nice ? 'Render again' : 'Render nice', () => renders.again(shot.id), 'Render this view nicely with the model as it is now (saves itself)')]),
-      button('Use view', () => renders.useView(shot.id), 'Turn the 3D view to this camera'),
-      button('See in live render', () => renders.live(shot.id), 'A live render view with this camera and background: it renders again whenever something changes, Save adds a version here'),
-      ...(shot.results.length || renders.folder.name ? [button('Versions', () => renders.versions(shot.id), 'All its pictures, newest first (with a render folder: every one saved there, full size)')] : []),
-      button('×', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) }), 'Delete this render'),
     ];
+    const more = [
+      button('Use view', () => renders.useView(shot.id), 'Turn the 3D view to this camera'),
+      button('Live render', () => renders.live(shot.id), 'See it in a live render view with this camera and background: it renders again whenever something changes, Save adds a version here'),
+      button('Versions', () => renders.versions(shot.id), 'All its pictures, newest first (with a render folder: every one saved there, full size)'),
+    ];
+    const remove = Object.assign(button('×', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) }), 'Delete this render'), { className: 'icon remove' });
     // its photo sphere, for the next render of this view
     const spheres = [...BUILT_IN_PHOTOS, ...ctx.photos()];
     const photos = [
@@ -1045,17 +1047,14 @@ function rendersPanel(ctx: UIContext): Node[] {
       h('div', { className: 'picture', title: 'Click: Versions', onclick: () => renders.versions(shot.id) }, picture),
       ...bar,
       ...(older.length ? [h('div', { className: 'older' }, ...older)] : []),
-      h('div', { className: 'listed' }, h('span', { className: 'hint' }, `${new Date(shot.at).toLocaleString()} · ${how}`)),
-      h(
-        'div',
-        { className: 'listed' },
-        h('strong', {}, state),
-        h('span', { className: 'backdrop-pick', title: 'Background of the next render of this view: above and below the horizon (the same twice: solid)' }, colour('top', 'Above the horizon'), colour('bottom', 'Below')),
-      ),
+      h('div', { className: 'listed' }, h('strong', {}, state), remove),
+      h('div', { className: 'hint', title: `Made ${new Date(shot.at).toLocaleString()}` }, how),
       h('div', { className: 'row' }, h('span', {}, 'Aspect'), aspect),
+      h('div', { className: 'row', title: 'Background of the next render of this view: above and below the horizon (the same twice: solid)' }, h('span', {}, 'Background'), h('span', { className: 'backdrop-pick' }, colour('top', 'Above the horizon'), colour('bottom', 'Below'))),
       ...photos,
-      h('div', { className: 'row actions' }, button('Light setting', ctx.openRenderLight, 'The light every render takes: Settings, Light, Rendering')),
-      h('div', { className: 'row actions' }, ...actions),
+      h('div', { className: 'row' }, h('span', {}, 'Light'), button('Edit…', ctx.openRenderLight, 'The light every render of this file takes: Settings, Light, Rendering')),
+      h('div', { className: 'actions' }, ...main),
+      h('div', { className: 'actions' }, ...more),
     );
   });
   return [
