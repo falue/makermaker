@@ -85,7 +85,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     model.add(lamp);
   }
   const hazeColour = hazeColourOf(light.ambientColor);
-  // the real fog: a box of it around everything, at full about 2/3 of the light gone across the model's size
+  // the real fog: a box of it around everything, at 1 about 2/3 of the light gone across the model's size (at 4: 98 %)
   const size = box.getSize(new THREE.Vector3()).length();
   const fogMaterial = fog > 0 ? new FogVolumeMaterial({ color: hazeColour, density: fog / size }) : null;
   const fogBox = fogMaterial && new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), fogMaterial);
