@@ -119,7 +119,7 @@ export interface UIContext {
   editPlane(id: string): void;
   /** Measure: an edge's length or two points' distances (see main's measureTool). */
   measureTool(): void;
-  /** Box joint: two overlapping bodies cut into interlocking fingers (see main's boxJoint). */
+  /** Box joint: bodies that overlap or touch cut into interlocking fingers, each pair that meets (see main's boxJoint). */
   boxJoint(): void;
   /** Outlines objects orange in the view, a temporary mark (hovered in the list; groups: their contents; null: none). */
   lightBodies(ids: string[] | null): void;
@@ -653,7 +653,7 @@ function booleanMenu(ctx: UIContext) {
   ];
   return [
     ...ops.map(([op, label, title]) => menuItem(op, label, title, () => ctx.boolean(op))),
-    menuItem('fingers', 'Box joint', 'Two overlapping bodies cut into interlocking fingers (7 first, or a finger length): for gluing sheets together', ctx.boxJoint),
+    menuItem('fingers', 'Box joint', 'Bodies that overlap or touch cut into interlocking fingers (two, or a whole box: each pair that meets): for gluing sheets together', ctx.boxJoint),
   ];
 }
 
@@ -663,7 +663,7 @@ function booleanTools(ctx: UIContext, picked = () => {}) {
     ['subtract', 'Cut: the others cut the first'],
     ['intersect', 'Intersect: only where all of them overlap'],
   ];
-  return [...ops.map(([op, title]) => tool(op, title, () => (picked(), ctx.boolean(op)))), tool('fingers', 'Box joint: the two bodies cut into interlocking fingers where they overlap', () => (picked(), ctx.boxJoint()))];
+  return [...ops.map(([op, title]) => tool(op, title, () => (picked(), ctx.boolean(op)))), tool('fingers', 'Box joint: the bodies cut into interlocking fingers where they overlap or touch (several: each pair that meets)', () => (picked(), ctx.boxJoint()))];
 }
 
 /** Rows of the custom sections, in the section panel: on/off, name, offset, flip, delete; its turn and what it turns around. */

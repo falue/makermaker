@@ -3458,45 +3458,60 @@ function offsetShapes(sketch: string) {
 }
 
 /**
- * Box joint: two overlapping bodies (selected, or clicked next) cut each other into interlocking fingers across the
- * overlap's longest side, for gluing sheets; then its panel (see `fingersPanel`).
+ * Box joint: bodies that overlap or touch (selected, or clicked next; Shift-click more, Enter) cut each other into
+ * interlocking fingers across each overlap's longest side, for gluing sheets. Two: its panel (see `fingersPanel`).
+ * More (a whole box): every pair that meets gets one, the earlier selected keeping the end fingers; each card edits its own.
  */
 function boxJoint() {
   const doc = history.current;
   const ids = selected.filter((id) => doc.bodies.some((b) => b.id === id));
-  if (ids.length !== 2) {
+  if (ids.length < 2) {
     const picked: string[] = ids.slice(0, 1);
+    const run = () => (cancelPending(), boxJoint());
     pending = {
       tool: 'boolean',
-      pick(id) {
+      pick(id, how) {
         picked.splice(0, picked.length, ...(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]));
         selected = [...picked];
         showSelection();
-        if (picked.length === 2) cancelPending(), boxJoint();
+        if (picked.length >= 2 && !how) run();
       },
+      apply: () => picked.length >= 2 && run(),
     };
-    toolHint = 'Box joint: click the two bodies that overlap or touch · [Esc] cancels';
+    toolHint = 'Box joint: click the two bodies that overlap or touch · Shift-click more (a whole box), then [Enter] · [Esc] cancels';
     return render();
   }
-  const [a, b] = ids;
-  const [fa, fb] = [newId(), newId()];
+  const pairs = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b, fingerPair(a, b)] as const));
+  const made = pairs.filter((p): p is readonly [string, string, number] => typeof p[2] === 'number');
+  if (!made.length) return fail(ids.length === 2 ? (pairs[0][2] as string) : `Box joint: none of the ${ids.length} bodies meet another. Move them onto or into each other`);
+  const step = (body: string, first: boolean, count: number): Feature => ({ id: newId(), type: 'fingers', body, count: ex(String(count)), width: len(0), from: null, first, clearance: len(0) });
+  const added = new Map<string, Feature[]>();
+  for (const [a, b, count] of made) {
+    added.set(a, [...(added.get(a) ?? []), step(b, true, count)]);
+    added.set(b, [...(added.get(b) ?? []), step(a, false, count)]);
+  }
+  commit({ ...doc, bodies: doc.bodies.map((x) => (added.has(x.id) ? { ...x, features: [...x.features, ...added.get(x.id)!] } : x)) });
+  if (made.length === 1) return fingersPanel(made[0][0], added.get(made[0][0])!.at(-1)!.id, true);
+  notify(`Box joint: ${made.length} joints, one for each pair that meets; each body's card edits its own`);
+}
+
+/** Box joint between bodies `a` and `b`: the number of fingers to start with, or why they cannot have one. */
+function fingerPair(a: string, b: string): number | string {
+  const doc = history.current;
   const [boxA, boxB] = [viewer.measure(a)?.box, viewer.measure(b)?.box];
-  const meet = boxA && boxB && boxA.clone().intersect(boxB);
-  const sides: number[] = meet && !meet.isEmpty() ? meet.getSize(new Vector3()).toArray() : [];
+  if (!boxA || !boxB) return 7;
+  const meet = boxA.clone().intersect(boxB);
+  const sides: number[] = meet.isEmpty() ? [] : meet.getSize(new Vector3()).toArray();
   const flat = sides.filter((x) => x <= 1e-3).length;
   const names = `${doc.bodies.find((x) => x.id === a)?.name} and ${doc.bodies.find((x) => x.id === b)?.name}`;
-  if (meet && !sides.length) return fail(`Box joint: ${names} do not touch. Move one onto or into the other`);
-  if (flat > 2) return fail(`Box joint: ${names} meet only at a corner. Put one onto or into the other`);
+  if (!sides.length) return `Box joint: ${names} do not touch. Move one onto or into the other`;
+  if (flat > 2) return `Box joint: ${names} meet only at a corner. Put one onto or into the other`;
   // only touching: they must stand square to each other (each one's axes along the other's)
   const turn = new Matrix4().extractRotation((bodyPlaces.get(a) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(b) ?? new Matrix4())).elements;
-  if (flat && turn.some((x) => Math.abs(x) > 1e-6 && Math.abs(Math.abs(x) - 1) > 1e-6)) return fail(`Box joint: ${names} only touch and stand slanted to each other. Turn them square, or move one into the other`);
+  if (flat && turn.some((x) => Math.abs(x) > 1e-6 && Math.abs(Math.abs(x) - 1) > 1e-6)) return `Box joint: ${names} only touch and stand slanted to each other. Turn them square, or move one into the other`;
   // the material: the thinner one along the meeting's short side (it may only touch or partly reach in)
   const k = sides.indexOf(Math.min(...sides));
-  const thick = sides.length ? Math.min(boxA!.getSize(new Vector3()).getComponent(k), boxB!.getSize(new Vector3()).getComponent(k)) : 0;
-  const count = sides.length ? fingersFor(Math.max(...sides), thick) : 7;
-  const step = (body: string, first: boolean, id: string): Feature => ({ id, type: 'fingers', body, count: ex(String(count)), width: len(0), from: null, first, clearance: len(0) });
-  commit({ ...doc, bodies: doc.bodies.map((x) => (x.id === a ? { ...x, features: [...x.features, step(b, true, fa)] } : x.id === b ? { ...x, features: [...x.features, step(a, false, fb)] } : x)) });
-  fingersPanel(a, fa, true);
+  return fingersFor(Math.max(...sides), Math.min(boxA.getSize(new Vector3()).getComponent(k), boxB.getSize(new Vector3()).getComponent(k)));
 }
 
 /**
