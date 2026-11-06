@@ -302,6 +302,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     const im = history.current.images[i];
     commit(setIn(history.current, ['images', String(i)], { ...im, width: width ?? im.width, frame: { ...im.frame, o } }));
   },
+  imageDragged: (by) => moveImages(by),
   dragMove: () => moveAlong(0, true) ?? (() => {}),
   pickShape(sketch, shape, how) {
     pickShape(sketch, shape, how);
@@ -7133,7 +7134,7 @@ const selectedImages = () => history.current.images.filter((im) => selected.incl
 /** The selected images, each changed from how it was at the start of a tool, one undo step; Esc puts them back. */
 function imagePanel(fields: Parameters<typeof valuePanel>[0], change: (im: ImageRef, values: string[]) => ImageRef | null, hint: string, done = () => {}) {
   const doc0 = history.current;
-  valuePanel(
+  return valuePanel(
     fields,
     (values) => {
       const doc = { ...doc0, images: doc0.images.map((im) => (selected.includes(im.id) ? (change(im, values) ?? im) : im)) };
@@ -7146,18 +7147,19 @@ function imagePanel(fields: Parameters<typeof valuePanel>[0], change: (im: Image
   );
 }
 
-/** Move on images: X / Y / Z distances, live. */
-function moveImages() {
+/** Move on images: X / Y / Z distances, live, starting at `by` (mm: a drag's, shown moved at once). */
+function moveImages(by: Vec3 = [0, 0, 0]) {
   const u = history.current.units;
   const label = (k: number) => 'XYZ'[k];
-  imagePanel(
-    [0, 1, 2].map((k) => ({ label: label(k), value: '0', title: `How far along ${label(k)}, in ${u}` })),
+  const panel = imagePanel(
+    [0, 1, 2].map((k) => ({ label: label(k), value: fmt(by[k] / UNITS[u]), title: `How far along ${label(k)}, in ${u}` })),
     (im, values) => {
       const by = values.map((t) => length(t));
       return by.every((v) => v !== null) ? { ...im, frame: { ...im.frame, o: im.frame.o.map((v, k) => v + by[k]!) as Vec3 } } : null;
     },
     'Move the picture: X, Y, Z · [Enter] keeps it · [Esc] puts it back · or drag it in the view',
   );
+  if (by.some(Boolean)) panel.inputs[0].dispatchEvent(new Event('input'));
 }
 
 /** Rotate on images: each turns about its middle, in its plane, the angle shown as for a line. */

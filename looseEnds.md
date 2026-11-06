@@ -44,7 +44,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 
 ## View
 - After the view cube was dragged over the top or bottom, the camera stays upside down until a cube side, a corner or Home: orbiting the view itself meanwhile feels the other way round sideways, and the view's own orbit still stops at the poles.
-- Dragging a body opens the move fields; dragging sketch shapes or an image still moves them at once on letting go.
+- Dragging a body or sketch shapes opens the move fields at the first step; an image's open only on letting go (its fields have no gizmo for the drag to write).
 
 ## Renders
 - A material's own render look and its glow Reach are not in MaterialX exports or imports; the Python `look` command cannot set the render look.

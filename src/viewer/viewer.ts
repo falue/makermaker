@@ -13,7 +13,7 @@ import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
 import { arcOf, area, bounds, centre, curved, edgeDistance, flattened, inside, bakeTurn, nearestOnSide, type DrawnProfile } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
-import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, moved, pointHandles, pointMoved, resized, rotated, simpleLine, sizeOf, smoothToggled, type Handle } from './shapes';
+import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, pointHandles, pointMoved, resized, rotated, simpleLine, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
 import { FacePullTool, type PullLook } from './faces';
 import { closeButton, icon } from '../ui/icons';
@@ -44,8 +44,10 @@ export interface ViewerHost {
   select(id: string | null, add: boolean): void;
   /** A drag of the selected bodies began: the move fields open (all three at 0); returns their close. */
   dragMove(): () => void;
-  /** An image was dragged to a new middle (world, mm) or corner-dragged to a new width too. */
+  /** An image was corner-dragged to a new middle (world, mm) and width. */
   placeImage(id: string, o: Vec3, width?: number): void;
+  /** The selected images were dragged by `by` (world, mm): the move fields open with it. */
+  imageDragged(by: Vec3): void;
   /** A sketch shape was clicked; `add`: Shift or ⌘ / Ctrl, toggles it in the selection. */
   pickShape(sketch: string, shape: string, add: boolean): void;
   /** Shapes of a sketch were moved, resized or turned (mm, degrees); sizes typed as text are kept as expressions. */
@@ -949,7 +951,7 @@ export class Viewer implements ToolView {
       only: null,
       apply: (by) => this.showImageAt(im.id, placed(by)),
       end: (by) => {
-        if (by) return this.host.placeImage(im.id, placed(by).toArray());
+        if (by) return this.host.imageDragged(placed(by).sub(from).toArray());
         this.showImageAt(im.id, from);
       },
     });
@@ -4288,16 +4290,21 @@ export class Viewer implements ToolView {
       // the base plane facing the camera most (top view: XY, front: XZ, side: YZ)
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(unit(this.facingAxis()), start),
       only: member && this.selection.length > 1 ? id : null,
-      // the first step opens the move fields; the drag then writes them (they show it moved), Enter or ✓ there moves
-      apply: (by) => {
-        const close = this.host.dragMove();
-        const d = this.drag!;
-        d.apply = (b) => [0, 1, 2].forEach((k) => this.gizmo?.set(k, b.getComponent(k)));
-        d.end = (b) => void (!b?.lengthSq() && close()); // let go where it started: no move
-        d.apply(by);
-      },
+      apply: (by) => this.dragIntoFields(by),
       end: () => {},
     });
+  }
+
+  /** A drag's first step opens the move fields; the drag then writes them (they show it moved, kept off normal `n`), Enter or ✓ there moves. */
+  private dragIntoFields(by: THREE.Vector3, n?: THREE.Vector3) {
+    const close = this.host.dragMove();
+    const d = this.drag!;
+    d.apply = (b) => {
+      const v = n ? b.clone().projectOnPlane(n) : b;
+      [0, 1, 2].forEach((k) => this.gizmo?.set(k, v.getComponent(k)));
+    };
+    d.end = (b) => void (!b?.lengthSq() && close()); // let go where it started: no move
+    d.apply(by);
   }
 
   /** Readies a move of the selected shapes of `sketch` within its plane (along its two axes). */
@@ -4307,22 +4314,14 @@ export class Viewer implements ToolView {
     const [fx, fy] = [new THREE.Vector3(...f.x), new THREE.Vector3(...f.y)];
     const from = s.shapes.filter((q) => this.selectedShapes.includes(q.id));
     const start = planeHit(ray, f) ?? new THREE.Vector3(...f.o);
-    const shifted = (by: THREE.Vector3) => from.map((q) => ({ id: q.id, profile: moved(q, by.dot(fx), by.dot(fy)) }));
     const strongest = (v: THREE.Vector3) => [v.x, v.y, v.z].map(Math.abs).reduce((best, c, k, a) => (c > a[best] ? k : best), 0);
     this.startDrag(e, ray, start, {
       axes: [strongest(fx), strongest(fy)],
       lead: new THREE.Vector3(...toWorld(f, ...centre(from[0]))),
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(...f.n), start),
       only,
-      apply: (by) => {
-        for (const { id, profile } of shifted(by)) this.overrides.set(id, profile);
-        this.renderSketches();
-      },
-      end: (by) => {
-        if (by) return this.host.setShapes(sketch, shifted(by));
-        this.overrides.clear();
-        this.renderSketches();
-      },
+      apply: (by) => this.dragIntoFields(by, new THREE.Vector3(...f.n)), // in its plane: a slanted one's axes leave it
+      end: () => {},
     });
   }
 
