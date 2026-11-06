@@ -5057,21 +5057,31 @@ function cancelPending() {
   toolHint = null;
 }
 
-/** Deletes the selected part of a finish, the selected shapes of the selected sketch, else the selected bodies and sketches (not while faces or edges are picked). */
+/**
+ * Deletes the selected part of a finish (or the fillets' and chamfers' faces picked), the selected shapes of the
+ * selected sketch, else the selected bodies and sketches (not while other faces or edges are picked).
+ */
 function remove() {
   if (!selected.length) return pickFor('delete', remove);
-  if (pickedPart && !finishSel) return fail('Picked faces and edges are not deleted: Esc lets them go, then Del deletes the body');
-  const doc = history.current;
-  if (finishSel) {
-    // a part of a finish: its edge is left out (its last picked edge: the finish goes); the whole finish: it goes
-    const { body, feature, mid } = finishSel;
+  const parts = finishSel ? [finishSel] : pickedPart?.kind === 'face' ? viewer.pickedFinishes() : null;
+  if (pickedPart && !parts) return fail('Only picked faces of fillets and chamfers are deleted (a rounded rectangle\'s corners are its R): Esc lets them go, then Del deletes the body');
+  let doc = history.current;
+  if (parts) {
+    // each part of a finish: its edge is left out (its last picked edge: the finish goes); the whole finish: it goes
     viewer.setFinishMark((finishSel = null));
+    viewer.dropPicked();
     const last = (f: Extract<Feature, { type: 'finish' }>) => typeof f.edges === 'object' && f.edges.pts.length - f.skip.length <= 1;
-    const steps = doc.bodies[stepsOf(doc, body)]?.id; // a linked copy's finish is its source's
-    const bodies = doc.bodies.map((b) =>
-      b.id !== steps ? b : { ...b, features: b.features.flatMap((f) => (f.id !== feature || f.type !== 'finish' ? [f] : mid && !last(f) ? [{ ...f, skip: [...f.skip, mid] }] : [])) },
-    );
-    return commit({ ...doc, bodies });
+    for (const { body, feature, mid } of parts) {
+      const steps = doc.bodies[stepsOf(doc, body)]?.id; // a linked copy's finish is its source's
+      const fresh = (f: Extract<Feature, { type: 'finish' }>) => !!mid && !f.skip.some((s) => s.every((v, k) => Math.abs(v - mid[k]) < 1e-6)); // a part seen twice (two faces of it) counts once
+      doc = {
+        ...doc,
+        bodies: doc.bodies.map((b) =>
+          b.id !== steps ? b : { ...b, features: b.features.flatMap((f) => (f.id !== feature || f.type !== 'finish' ? [f] : !mid ? [] : !fresh(f) ? [f] : last(f) ? [] : [{ ...f, skip: [...f.skip, mid] }])) },
+        ),
+      };
+    }
+    return commit(doc);
   }
   const sketch = activeSketch();
   if (sketch && shapeSel.length) {
@@ -6208,7 +6218,9 @@ function render() {
         ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · drag it to resize (past 0: the other kind) · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
         : pickedPart?.kind === 'edge'
           ? 'Drag a picked edge up: fillet, down: chamfer · [Alt]-click another edge ([Shift]: more), double-click: its tangent chain (a circle, a rounded outline) · [Esc] deselect'
-          : null),
+          : pickedPart?.kind === 'face' && viewer.pickedFinishes()
+            ? 'Picked faces of fillets or chamfers · [Del] leaves their edges out (the last one: the whole finish goes) · [Esc] deselect'
+            : null),
     autosave,
     notify: fail,
     cheer,

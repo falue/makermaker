@@ -3152,6 +3152,17 @@ export class Viewer implements ToolView {
   }
 
   /** Picked faces (per body mesh): lit, their area reported (none: cleared). */
+  /** The finish parts the picked faces belong to (null: none picked, or one is not a fillet's or chamfer's face). */
+  pickedFinishes(): FinishPick[] | null {
+    const parts = this.pickedFaces.flatMap(({ mesh, faces }) =>
+      faces.map((f) => {
+        const k = (mesh.userData.finishFaces as Int32Array | undefined)?.[f] ?? -1;
+        return k < 0 ? null : { body: mesh.userData.bodyId as string, ...(mesh.userData.finishes as { feature: string; mid: Vec3 }[])[k] };
+      }),
+    );
+    return parts.length && parts.every(Boolean) ? (parts as FinishPick[]) : null;
+  }
+
   private pickFaces(picked: { mesh: THREE.Mesh; faces: number[] }[]) {
     for (const m of this.pickedMarks) this.replaceMark(m, undefined, [], 0);
     this.pickedFaces = picked.filter((p) => p.faces.length);
