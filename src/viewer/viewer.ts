@@ -660,7 +660,7 @@ export class Viewer implements ToolView {
       this.hover = null;
       unpreview();
       this.markSketch(null);
-      if (this.helpShape && !this.edit) ((this.helpShape = null), this.renderSketches());
+      if ((this.helpShape || this.boxHover) && !this.edit) ((this.helpShape = null), (this.boxHover = false), this.renderSketches());
     });
     addEventListener('keyup', (e) => (e.key === 'Control' || e.key === 'Alt') && unpreview());
     canvas.addEventListener('pointermove', (e) => {
@@ -1331,11 +1331,12 @@ export class Viewer implements ToolView {
 
   /**
    * Blue marks on the reference points of the active sketch's selected shapes (and of shapes measured from
-   * elsewhere than their centre), each with an arrow in the direction the shape grows.
+   * elsewhere than their centre), each with an arrow in the direction the shape grows; only while the pointer is over
+   * the selected shape's box (`boxHover`), as its handles.
    */
   private refMarks(arrowPx = 36, headPx = 10) {
     const s = this.sketches.find((v) => v.id === this.activeSketch);
-    if (!s) return [];
+    if (!s || !this.boxHover) return [];
     const points: THREE.Vector3[] = [];
     const lines: THREE.Vector3[] = [];
     for (const q of s.shapes) {
