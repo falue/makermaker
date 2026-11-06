@@ -5,10 +5,10 @@ import { icon } from './icons';
  * Rocket clicker: a little game at the bottom of the toolbar. Each click counts one, kept in this browser whatever
  * file is open; reaching an achievement's `at` (rocket.json) shows its text, and its `icon`, if any, from then on.
  * Liftoff flies the rocket around the screen, stars pass behind it until it is home, mission complete fires fireworks.
- * With ?rocket in the address, each click jumps to the next icon instead, counting nothing.
+ * On localhost, Shift-click jumps to the next icon, for trying the stages.
  */
 const STORE = 'makermaker.rocket';
-const TEST = new URLSearchParams(location.search).has('rocket');
+const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
 const STAGES = ACHIEVEMENTS.filter((a) => 'icon' in a);
 const stage = (name: string) => STAGES.find((a) => a.icon === name)!.at;
 const LIFTOFF = stage('liftoff');
@@ -16,7 +16,7 @@ const HOME = stage('missionComplete');
 let count = 0;
 let flying = false;
 try {
-  if (!TEST) count = Number(localStorage.getItem(STORE)) || 0;
+  count = Number(localStorage.getItem(STORE)) || 0;
 } catch {
   // no storage: it counts this session only
 }
@@ -36,15 +36,12 @@ export function rocket(notify: (message: string) => void) {
   // its place kept before the first click, so the button never moves
   const counter = Object.assign(document.createElement('span'), { className: 'counter', textContent: String(count) });
   counter.style.visibility = count ? '' : 'hidden';
-  button.onclick = () => {
-    if (TEST) count = STAGES.find((a) => a.at > count)?.at ?? 0;
-    else {
-      count++;
-      try {
-        localStorage.setItem(STORE, String(count));
-      } catch {
-        // kept for this session only
-      }
+  button.onclick = (e) => {
+    count = LOCAL && e.shiftKey ? (STAGES.find((a) => a.at > count)?.at ?? 0) : count + 1;
+    try {
+      localStorage.setItem(STORE, String(count));
+    } catch {
+      // kept for this session only
     }
     // before the message, which builds the toolbar anew
     if (count === LIFTOFF && !flying) fly();
@@ -63,7 +60,10 @@ export function rocket(notify: (message: string) => void) {
   return box;
 }
 
-/** Liftoff: the rocket darts about like a balloon let go, leaves at the top and comes down into its button again. */
+/**
+ * Liftoff: the rocket darts about like a balloon let go, leaves the screen at the top straight above its button and,
+ * as in Pac-Man, comes in again from the bottom, up into its button.
+ */
 function fly(roam = 3, speed = 650) {
   // the toolbar, and with it the button, is built anew on each message
   const home = () => {
@@ -74,42 +74,39 @@ function fly(roam = 3, speed = 650) {
   document.body.append(el);
   flying = true;
   let [x, y] = home();
-  let [a, wobble, t, puff] = [-Math.PI / 2, 0, 0, 0];
+  let [a, wobble, t] = [-Math.PI / 2, 0, 0];
   let last = performance.now();
   const place = (turn: number) => (el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${turn}rad)`);
   const step = (now: number) => {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     t += dt;
-    // roams around the middle at first, then heads for the top
-    const [tx, ty] = t < roam ? [innerWidth / 2, innerHeight / 2] : [x, -500];
+    // roams around the middle at first, then calms down and heads up the button's column
+    const out = t > roam;
+    const hx = home()[0];
+    const [tx, ty] = out ? [hx, y - 200] : [innerWidth / 2, innerHeight / 2];
     const off = Math.atan2(ty - y, tx - x) - a;
-    wobble = Math.max(-9, Math.min(9, (wobble + (Math.random() - 0.5) * 80 * dt) * 0.97));
+    wobble = Math.max(-9, Math.min(9, (wobble + (Math.random() - 0.5) * 80 * dt) * (out ? 0.85 : 0.97)));
     a += (Math.atan2(Math.sin(off), Math.cos(off)) * 3 + wobble) * dt;
     // speeds up as it goes, as a balloon let go
     const v = speed * Math.min(1, 0.2 + t);
     x += Math.cos(a) * v * dt;
     y += Math.sin(a) * v * dt;
+    if (out) x += (hx - x) * Math.min(1, (y < 150 ? 15 : 4) * dt);
     place(a + Math.PI / 2);
-    if ((puff += dt) > 0.04) {
-      puff = 0;
-      const p = Object.assign(document.createElement('div'), { className: 'rocket-puff' });
-      p.style.transform = `translate(${x - Math.cos(a) * 18}px, ${y - Math.sin(a) * 18}px)`;
-      p.onanimationend = () => p.remove();
-      document.body.append(p);
-    }
-    if ((t > roam && y < -60) || t > roam + 5) land();
+    puff(x - Math.cos(a) * 14, y - Math.sin(a) * 14, a);
+    if (out && y < -50) land();
     else requestAnimationFrame(step);
   };
-  // down from above the button, settling into it
+  // up from below the screen, settling into the button
   const land = () => {
     const [hx, hy] = home();
     el.animate(
       [
-        { transform: `translate(${hx}px, -60px) translate(-50%, -50%)` },
+        { transform: `translate(${hx}px, ${innerHeight + 50}px) translate(-50%, -50%)` },
         { transform: `translate(${hx}px, ${hy}px) translate(-50%, -50%)` },
       ],
-      { duration: 1600, easing: 'cubic-bezier(.2,.7,.3,1)' },
+      { duration: 1200, easing: 'cubic-bezier(.2,.7,.3,1)' },
     ).onfinish = () => {
       el.remove();
       flying = false;
@@ -117,6 +114,19 @@ function fly(roam = 3, speed = 650) {
     };
   };
   requestAnimationFrame(step);
+}
+
+/** A puff of exhaust at the flame's tip (`x`, `y`), drifting straight back from a rocket heading `a`. */
+function puff(x: number, y: number, a: number, drift = 30) {
+  const p = Object.assign(document.createElement('div'), { className: 'rocket-puff' });
+  document.body.append(p);
+  p.animate(
+    [
+      { transform: `translate(${x}px, ${y}px)`, opacity: 0.5 },
+      { transform: `translate(${x - Math.cos(a) * drift}px, ${y - Math.sin(a) * drift}px) scale(2.5)`, opacity: 0 },
+    ],
+    { duration: 600, easing: 'ease-out' },
+  ).onfinish = () => p.remove();
 }
 
 /** Mission complete: shells rise from the bottom and burst all over the screen for a few seconds. */

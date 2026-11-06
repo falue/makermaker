@@ -1050,20 +1050,12 @@ canvas.drawing,
   stroke: color-mix(in srgb, currentColor 50%, transparent);
 }
 .rocket-puff {
-  left: -5px;
-  top: -5px;
-  width: 10px;
-  height: 10px;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--muted);
-  opacity: 0.5;
-  animation: puff 0.7s ease-out forwards;
-}
-@keyframes puff {
-  to {
-    opacity: 0;
-    scale: 2.5;
-  }
 }
 .fireworks {
   width: 100vw;
