@@ -195,7 +195,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
             title: 'All the settings below left aside for the standard light (they are kept)',
             onclick: () => put({ standard: !l.standard }),
           });
-        const head = make('div', { className: 'segmented' }, tab('view', '3D view'), tab('render', 'Rendering'));
+        const head = make('div', { className: 'tabs' }, tab('view', '3D view'), tab('render', 'Rendering'));
         if (lightTab === 'view') {
           const put = (patch: Partial<Light>) => set({ ...s, light: { ...s.light, ...patch } });
           return [

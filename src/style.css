@@ -2519,17 +2519,22 @@ section > h4 .segmented button {
   flex-direction: column;
 }
 /* folder tabs across the list: the open one joins the list below it (no bottom border) */
-.script-tabs {
+/* tabs over a panel (the script list, Settings, Light) */
+.script-tabs,
+.tabs {
   flex: none;
   display: flex;
   gap: 2px;
-  margin: 6px 6px 0;
   border-bottom: 1px solid var(--line);
+}
+.script-tabs {
+  margin: 6px 6px 0;
 }
 .script-tabs[hidden] {
   display: none;
 }
-.script-tabs button {
+.script-tabs button,
+.tabs button {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -2544,7 +2549,8 @@ section > h4 .segmented button {
   border: 1px solid var(--line);
   border-radius: 5px 5px 0 0;
 }
-.script-tabs button.on {
+.script-tabs button.on,
+.tabs button.on {
   color: var(--text);
   background: var(--panel);
   border-bottom-color: var(--panel);
