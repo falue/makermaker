@@ -7252,7 +7252,7 @@ async function run(task: () => Promise<unknown>) {
 function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   history.reset(doc);
   file = { ...f, saved: doc };
-  if (f.handle) void remember('lastDesign', f.handle); // opened again on the next start (`reopenLast`)
+  void remember('lastDesign', f.handle); // opened again on the next start (`reopenLast`); a new design: none
   autosave = !!f.handle && localStorage.getItem('makermaker.autosave') === 'on';
   offered = false;
   selected = [];
