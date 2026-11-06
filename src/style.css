@@ -95,8 +95,16 @@ body {
   background: var(--panel);
 }
 #topbar strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-right: 10px;
   letter-spacing: 0.05em;
+}
+#topbar .logo svg {
+  display: block;
+  width: 20px;
+  height: 20px;
 }
 #topbar select {
   width: auto;

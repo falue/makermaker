@@ -7546,3 +7546,4 @@ async function reopenLast() {
 void reopenLast();
 
 update();
+document.getElementById('loading')?.remove(); // the static one in index.html, shown until the app runs

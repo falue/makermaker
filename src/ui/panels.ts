@@ -501,7 +501,7 @@ const button = (label: string, onclick: () => void, title = '') => h('button', {
 
 function topbar(ctx: UIContext): Node[] {
   return [
-    h('strong', {}, 'MAKERMAKER'),
+    h('strong', {}, h('span', { className: 'logo', innerHTML: icon('logo') }), 'MAKERMAKER'),
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
