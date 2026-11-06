@@ -21,14 +21,22 @@ function pointsOf(e: Edge, step = 0.5): V3[] {
   return Array.from({ length: n + 1 }, (_, i) => e.pointAt(i / n).toTuple() as V3);
 }
 
-/** A wire's edges chained into one closed loop of points (each edge turned to follow the last; the start not repeated). */
+/**
+ * A wire's edges chained into one closed loop of points (the start not repeated). OpenCascade lists them in no set
+ * order or direction: each next one is the edge with an end nearest the loop's end, turned to follow it.
+ */
 function loopOf(w: Wire): V3[] {
-  const out: V3[] = [];
-  for (const e of w.edges) {
-    const pts = pointsOf(e);
-    const last = out.at(-1);
-    if (last && Math.hypot(...sub(pts[0], last)) > Math.hypot(...sub(pts.at(-1)!, last))) pts.reverse();
-    out.push(...(last ? pts.slice(1) : pts));
+  const left = w.edges.map((e) => pointsOf(e));
+  const out = left.shift()!;
+  while (left.length) {
+    const end = out.at(-1)!;
+    const gap = (p: V3) => Math.hypot(...sub(p, end));
+    let [best, flip, d] = [0, false, Infinity];
+    left.forEach((pts, i) => {
+      for (const [p, f] of [[pts[0], false], [pts.at(-1)!, true]] as const) if (gap(p) < d) [best, flip, d] = [i, f, gap(p)];
+    });
+    const pts = left.splice(best, 1)[0];
+    out.push(...(flip ? pts.reverse() : pts).slice(1));
   }
   return Math.hypot(...sub(out[0], out.at(-1)!)) < 1e-6 ? out.slice(0, -1) : out;
 }

@@ -199,8 +199,8 @@ async function handle(data: Job) {
         try {
           const cuts = withKerf(laserCuts(features, face), kerf ?? 0);
           files.push({ name, data: new TextEncoder().encode(data.format === 'svg' ? svgOf(cuts) : dxfOf(cuts)).buffer as ArrayBuffer });
-        } catch {
-          failed.push(name);
+        } catch (e) {
+          failed.push(`${name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
         }
         continue;
       }

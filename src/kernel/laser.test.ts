@@ -52,3 +52,14 @@ describe('curved outlines', () => {
   });
 });
 
+describe('loops', () => {
+  it('chains edges OpenCascade lists out of order: an upright board with a slot and a hole', () => {
+    const ext = (id: string, x: number, w: number, h: number, depth: number, z: number) => ({ id, type: 'extrude', plane: { ...ground, offset: z }, profiles: [{ id: `${id}p`, kind: 'rect', x, y: 0, w, h, r: 0, rot: 0 }], depth, mode: 'add', through: false }) as BuildFeature;
+    const cut = (id: string, z: number, depth: number) => ({ id, type: 'boolean', op: 'subtract', features: [ext(`${id}b`, -10, 4, 10, depth, z)], place: { offset: [0, 0, 0], axis: [0, 0, 1], angle: 0 } }) as unknown as BuildFeature;
+    // 60 × 40 standing, a slot 4 × 19 up from the bottom, a hole 4 × 10 above it
+    const [outline, hole] = laserCuts([ext('a', 0, 60, 4, 40, 0), cut('s', -1, 20), cut('h', 26, 10)]);
+    const area = (pts: [number, number][]) => Math.abs(pts.reduce((t, [x, y], i) => t + x * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * y, 0)) / 2;
+    expect(area(outline.pts)).toBeCloseTo(60 * 40 - 4 * 19, 3);
+    expect(area(hole.pts)).toBeCloseTo(4 * 10, 3);
+  });
+});
