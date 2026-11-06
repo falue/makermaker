@@ -78,7 +78,7 @@ const lostEdges = new Map<string, Record<string, number>>();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 /** A new document: one 50 mm cube. */
-const cubeDoc = (units?: Unit) => runCommand(emptyDoc(units), 'box', { width: 50, depth: 50, height: 50, name: 'Cube' }).doc;
+const cubeDoc = (units?: Unit) => runCommand(emptyDoc(units), 'box', { width: 50, depth: 50, height: 50, name: 'Default cube' }).doc;
 // the test pieces only while developing
 const history = new History<Doc>(import.meta.env.DEV ? sampleDoc() : cubeDoc(), 200, followSizes);
 /** Selected objects (bodies and sketches) and, inside a single selected sketch, its selected shapes. */
