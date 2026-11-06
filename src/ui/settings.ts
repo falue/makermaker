@@ -216,8 +216,8 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         lightPreview.canvas.title = 'These settings on the teapot of the material pictures, in Plastic, light grey';
         showLight();
         const same = input({ type: 'checkbox', checked: r.same, onchange: () => put({ same: same.checked }) });
-        const haze = (key: 'haze' | 'fog', label: string, title: string, max = 1) => {
-          const el = input({ type: 'range', min: '0', max: String(max), step: '0.01', value: String(r[key]), title });
+        const haze = (key: 'haze' | 'fog', label: string, title: string, max = 1, step = 0.01) => {
+          const el = input({ type: 'range', min: '0', max: String(max), step: String(step), value: String(r[key]), title });
           el.oninput = () => put({ [key]: +el.value }, false);
           return make('div', { className: 'row light' }, make('span', {}, label), el);
         };
@@ -234,7 +234,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
               ]),
           make('h3', {}, 'Haze'),
           haze('haze', 'Haze', 'Far things fade into haze. Fast, no grain'),
-          haze('fog', 'Real fog', 'A fog in the path tracer: light scatters in it, the sun can make beams. For people with time: slower, and grainier', 4),
+          haze('fog', 'Real fog', 'A fog in the path tracer: light scatters in it, the sun can make beams. For people with time: slower, and grainier', 40, 0.1),
         ];
       },
     ],

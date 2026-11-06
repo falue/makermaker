@@ -499,5 +499,5 @@ export interface Views {
   views: { kind: string; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number; live?: boolean }[];
 }
 
-/** The light of renders (`same`: the 3D view's instead), and their haze: fast by depth (0 to 1), and real fog in the path tracer (0 to 4). */
+/** The light of renders (`same`: the 3D view's instead), and their haze: fast by depth (0 to 1), and real fog in the path tracer (0 to 40). */
 export type RenderLight = Light & { same: boolean; haze: number; fog: number };
