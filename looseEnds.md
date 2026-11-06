@@ -43,6 +43,9 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Offset of a bezier side is close, not exact. A side that an offset would turn inside out is not removed.
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
+## View
+- After the view cube was dragged over the top or bottom, the camera stays upside down until a cube side, a corner or Home: orbiting the view itself meanwhile feels the other way round sideways, and the view's own orbit still stops at the poles.
+
 ## Versions
 - Versions are kept per save, up to 50, autosave one every 5 minutes; a design never saved has none. They have no names and cannot be deleted one by one. A version shown replaces what is on screen, so its tool panels and selection reset.
 

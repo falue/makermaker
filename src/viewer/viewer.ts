@@ -2201,6 +2201,7 @@ export class Viewer implements ToolView {
   home(ms = 600) {
     // seen from the front-right corner: 45° around the vertical axis, ~40° above the horizon
     const dir = new THREE.Vector3(1.1 * Math.SQRT1_2, -1.1 * Math.SQRT1_2, 0.9).normalize();
+    this.upright();
     const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), this.camera.up));
     this.frameAll(this.allBox().getCenter(new THREE.Vector3()), turn, ms);
   }
@@ -4477,9 +4478,15 @@ export class Viewer implements ToolView {
       }
       const target = this.controls.target;
       const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(target).applyQuaternion(toCube));
-      s.theta -= e.movementX * dragSpeed;
-      s.phi -= e.movementY * dragSpeed;
-      const offset = new THREE.Vector3().setFromSpherical(s.makeSafe()).applyQuaternion(toCube.clone().invert());
+      // over a pole it goes on upside down (up flipped) instead of stopping there; phi < 0: that side
+      const flip = this.camera.up.z < 0;
+      s.theta -= (flip ? -1 : 1) * e.movementX * dragSpeed;
+      let phi = THREE.MathUtils.euclideanModulo((flip ? -s.phi : s.phi) - e.movementY * dragSpeed + Math.PI, 2 * Math.PI) - Math.PI;
+      phi = Math.sign(phi || 1) * THREE.MathUtils.clamp(Math.abs(phi), 1e-6, Math.PI - 1e-6); // never on the pole itself
+      if (phi < 0 !== flip) s.theta += Math.PI;
+      s.phi = Math.abs(phi);
+      this.upright(phi > 0);
+      const offset = new THREE.Vector3().setFromSpherical(s).applyQuaternion(toCube.clone().invert());
       this.camera.position.copy(target).add(offset);
       this.controls.update();
     };
@@ -4526,8 +4533,14 @@ export class Viewer implements ToolView {
     this.setOrthographic(false);
   }
 
+  /** Both cameras' up: Z, or -Z after the view cube was dragged over a pole. */
+  private upright(on = true) {
+    for (const c of [this.perspective, this.orthographic]) c.up.set(0, 0, on ? 1 : -1);
+  }
+
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
   private viewFrom(dir: THREE.Vector3, side = true, ms = 600, at?: THREE.Vector3) {
+    this.upright();
     // leaving an angled view for a flat one: remember it, so pulling can return to it
     if (side && !this.flat) this.angledView = this.camera.position.clone().sub(this.controls.target).normalize();
     if (!side) this.leaveSideView();
