@@ -2527,8 +2527,7 @@ section > h4 .segmented button {
   display: flex;
   flex-direction: column;
 }
-/* folder tabs across the list: the open one joins the list below it (no bottom border) */
-/* tabs over a panel (the script list, Settings, Light) */
+/* folder tabs (the script list, Settings, Light): the open one joins what is below it (no bottom border) */
 .script-tabs,
 .tabs {
   flex: none;
