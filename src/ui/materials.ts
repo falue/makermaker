@@ -65,11 +65,17 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
   const search = make('input', { className: 'mat-search', placeholder: 'Search materials', title: 'Shows the materials with this in their name', oninput: () => drawList() }) as HTMLInputElement;
   const folded = new Set<string>(JSON.parse(localStorage.getItem(OPEN_SECTIONS) ?? '[]'));
   const list = make('div', { className: 'mat-list' });
-  // the picture: the 3D view's left of the slider, the rendered one right of it
+  /** Which look the sliders change when renders have their own. */
+  let tab: 'view' | 'render' = 'view';
+  // the picture: the 3D view's left of the slider, the rendered one right of it; only the tab's while renders have their own look
   const split = make('input', { type: 'range', min: '0', max: '100', step: '0.1', value: '50', title: 'Left: as in the 3D view. Right: rendered', oninput: () => placeSplit() }) as HTMLInputElement;
-  const placeSplit = () => (preview.viewCanvas.style.clipPath = `inset(0 ${100 - +split.value}% 0 0)`);
-  placeSplit();
-  const compare = make('div', { className: 'mat-compare' }, preview.canvas, preview.viewCanvas, make('span', { className: 'left', textContent: '3D view' }), make('span', { className: 'right', textContent: 'Rendered' }), split);
+  const [left, right] = [make('span', { className: 'left', textContent: '3D view' }), make('span', { className: 'right', textContent: 'Rendered' })];
+  const placeSplit = () => {
+    const only = editedLook()?.render ? tab : null;
+    preview.viewCanvas.style.clipPath = only === 'view' ? 'none' : only === 'render' ? 'inset(0 100% 0 0)' : `inset(0 ${100 - +split.value}% 0 0)`;
+    [split.hidden, left.hidden, right.hidden] = [!!only, only === 'render', only === 'view'];
+  };
+  const compare = make('div', { className: 'mat-compare' }, preview.canvas, preview.viewCanvas, left, right, split);
   const side = make('div', { className: 'mat-edit' });
 
   const editedLook = (): MaterialLook | undefined => (editing ? host.saved().find((m) => m.id === editing) : host.target() ? host.current().look : undefined);
@@ -82,8 +88,8 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
 
   const thumb = (look: MaterialLook) => {
     const light = host.light();
-    const { color, bump, reflection, translucency, glow, glowStrength, overlay } = look;
-    const key = JSON.stringify([PREVIEW_SCENE, color, bump, reflection, translucency, glow, glowStrength, overlay, light]);
+    const { color, bump, reflection, translucency, glow, glowStrength, overlay, render } = look;
+    const key = JSON.stringify([PREVIEW_SCENE, color, bump, reflection, translucency, glow, glowStrength, overlay, render, light]);
     const img = make('img', { className: 'mat-thumb', alt: '', ...(cache.get(key) ? { src: cache.get(key) } : {}) }) as HTMLImageElement;
     if (!cache.get(key))
       void preview.thumbnail(toLook(look), light).then((url) => {
@@ -187,10 +193,30 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       showPreview();
       if (!editing && host.current().material !== before) drawList();
     };
+    // the tab's look: the render's own while it has one
+    const own = tab === 'render' && look?.render;
+    const shown = look && own ? { ...look, ...own } : look;
+    /** A change of the tab's look. */
+    const put = (patch: Partial<NonNullable<MaterialLook['render']>>, live: boolean) => {
+      const render = tab === 'render' && editedLook()?.render;
+      change(render ? { render: { ...render, ...patch } } : patch, live);
+    };
+    const same = make('input', {
+      type: 'checkbox',
+      checked: !look?.render,
+      onchange: () => {
+        const { color, bump, reflection, translucency, glow, glowStrength, overlay } = editedLook()!;
+        // its own: a copy of the 3D view's to start from, edited next
+        change({ render: same.checked ? undefined : { color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}) } }, false);
+        tab = same.checked ? 'view' : 'render';
+        drawAll();
+      },
+    }) as HTMLInputElement;
+    const tabButton = (name: typeof tab, label: string) => make('button', { className: tab === name ? 'on' : '', textContent: label, onclick: () => ((tab = name), drawSide()) });
     const slider = (key: 'bump' | 'reflection' | 'translucency' | 'glowStrength', label: string, title: string, left = '', right = '') => {
-      const el = make('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(look![key]), title }) as HTMLInputElement;
+      const el = make('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(shown![key]), title }) as HTMLInputElement;
       let live = false;
-      el.oninput = () => (change({ [key]: +el.value }, live), (live = true));
+      el.oninput = () => (put({ [key]: +el.value }, live), (live = true));
       el.onchange = () => {
         live = false;
         drawList(); // its picture
@@ -198,9 +224,9 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       return make('div', { className: 'row light' }, make('span', { textContent: label }), ...(left ? [make('small', { textContent: left })] : []), el, ...(right ? [make('small', { textContent: right })] : []));
     };
     const colour = (key: 'color' | 'glow', title: string) => {
-      const el = make('input', { type: 'color', value: look![key], title, className: 'color' }) as HTMLInputElement;
+      const el = make('input', { type: 'color', value: shown![key], title, className: 'color' }) as HTMLInputElement;
       let live = false;
-      el.oninput = () => (change({ [key]: el.value }, live), (live = true));
+      el.oninput = () => (put({ [key]: el.value }, live), (live = true));
       el.onchange = () => {
         live = false;
         drawList();
@@ -213,11 +239,11 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
         title: 'Drawn over its colour',
         onchange: () => {
           const v = (overlay as HTMLSelectElement).value;
-          change({ overlay: v === 'metric' || v === 'imperial' ? v : undefined }, false);
+          put({ overlay: v === 'metric' || v === 'imperial' ? v : undefined }, false);
           drawList();
         },
       },
-      ...[['', 'None'], ['metric', 'Grid 10 × 10 cm, lines every 1 cm'], ['imperial', 'Grid 1 × 1 ft, lines every 1 in']].map(([value, textContent]) => make('option', { value, textContent, selected: (look?.overlay ?? '') === value })),
+      ...[['', 'None'], ['metric', 'Grid 10 × 10 cm, lines every 1 cm'], ['imperial', 'Grid 1 × 1 ft, lines every 1 in']].map(([value, textContent]) => make('option', { value, textContent, selected: (shown?.overlay ?? '') === value })),
     );
     side.replaceChildren(
       compare,
@@ -236,14 +262,17 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
                 })
               : make('h3', { className: 'mat-title', textContent: `Custom material for object: ${target}` }),
             ...(saved ? [make('p', { className: 'hint', textContent: 'Changes everything that uses this material.' })] : []),
+            make('label', { className: 'check', title: 'Off: renders get a look of their own, edited in its tab' }, same, 'Renders look the same as the 3D view'),
+            ...(look.render ? [make('div', { className: 'tabs' }, tabButton('view', '3D view'), tabButton('render', 'Rendering'))] : []),
             make('div', { className: 'row light' }, make('span', { textContent: 'Colour' }), colour('color', 'Its colour')),
             slider('bump', 'Surface', 'From a mirror over matte to bumpy', 'mirror', 'bumpy'),
             slider('reflection', 'Reflection', 'How much it mirrors what is around it, like metal'),
             slider('translucency', 'See-through', 'Solid to clear'),
-            make('div', { className: 'row light' }, make('span', { textContent: 'Glow' }), (slider('glowStrength', '', 'How strong it glows (in renders it lights what is around)').querySelector('input') as HTMLElement), colour('glow', 'Colour of the glow')),
+            make('div', { className: 'row light' }, make('span', { textContent: 'Glow' }), (slider('glowStrength', '', 'How strong it glows: it lights what is around').querySelector('input') as HTMLElement), colour('glow', 'Colour of the glow')),
             make('div', { className: 'row light' }, make('span', { textContent: 'Overlay' }), overlay),
           ]),
     );
+    placeSplit();
     showPreview();
   };
 

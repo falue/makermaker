@@ -48,6 +48,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Dragging a body opens the move fields; dragging sketch shapes or an image still moves them at once on letting go.
 
 ## Renders
+- A material's own render look is not in MaterialX exports or imports, and the Python `material` command cannot set it.
 - Not tried in a real browser yet: writing into a picked render folder, reading its files in Versions, a folder gone or without permission (headless tests cannot pick folders). The live render view was tried headless only.
 - A live render renders at the view's size on screen, not twice it as the queue does. "See in live render" sets the view's camera but not its picture size: the live picture has the view's shape, not the render's Aspect.
 - A render's thumbnail keeps the 3D view's shape until it is rendered in its Aspect.

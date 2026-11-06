@@ -119,8 +119,9 @@ export function applyLook(m: THREE.MeshStandardMaterial, l: Look, around: THREE.
   m.opacity = 1 - 0.8 * l.translucency;
 }
 
-/** The same look for the path tracer: light really passes through and bends, glow lights what is around. */
-export function renderMaterial(l: Look) {
+/** The look for the path tracer (its own for renders if it has one): light really passes through and bends, glow lights what is around. */
+export function renderMaterial(look: Look) {
+  const l = look.render ?? look;
   return new THREE.MeshPhysicalMaterial({
     color: l.color,
     roughness: l.roughness,

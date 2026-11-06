@@ -11,6 +11,8 @@ export interface Look {
   glowStrength: number;
   overlay?: MaterialLook['overlay'];
   image?: string;
+  /** In renders, when not the same as in the 3D view. */
+  render?: Look;
 }
 
 export const DEFAULT_LIGHT: Light = { sunHeight: 53, sunAround: -63, sun: 2, sunColor: '#ffffff', ambient: 2, ambientColor: '#ffffff', followCamera: false, cameraOn: false, cameraLight: 1, standard: false };
@@ -28,7 +30,11 @@ export function lightDirections(l: Light, toCamera: [number, number, number]) {
 }
 
 /** Mirror to matte over the slider's first half, matte to bumpy over the second. */
-export const toLook = (m: MaterialLook): Look => ({
+export function toLook({ render, ...m }: MaterialLook): Look {
+  return { ...drawn(m), ...(render ? { render: drawn({ ...m, ...render }) } : {}) };
+}
+
+const drawn = (m: MaterialLook): Look => ({
   color: m.color,
   roughness: Math.min(1, m.bump * 2),
   bump: Math.max(0, m.bump * 2 - 1),
@@ -122,9 +128,9 @@ function freeName(doc: Doc, name: string) {
 export function newMaterialFor(doc: Doc, ids: string[], id: string, patch: Partial<MaterialLook> = {}): Doc {
   const first = [...doc.bodies, ...doc.groups].find((x) => ids.includes(x.id));
   if (!first) return doc;
-  const { color, bump, reflection, translucency, glow, glowStrength, overlay } = setLook(doc, first) ?? plainLook('color' in first ? first.color : '#d8c3a0');
+  const { color, bump, reflection, translucency, glow, glowStrength, overlay, render } = setLook(doc, first) ?? plainLook('color' in first ? first.color : '#d8c3a0');
   const source = findMaterial(doc, first.material);
-  const material: Material = { color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}), ...patch, id, name: freeName(doc, source ? `${source.name} copy` : first.name) };
+  const material: Material = { color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}), ...(render ? { render } : {}), ...patch, id, name: freeName(doc, source ? `${source.name} copy` : first.name) };
   return assignMaterial({ ...doc, materials: [...doc.materials, material] }, ids, id);
 }
 

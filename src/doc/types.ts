@@ -321,6 +321,8 @@ export interface MaterialLook {
   glowStrength: number;
   overlay?: 'metric' | 'imperial';
   image?: string;
+  /** How it looks in renders, when not the same as in the 3D view (its picture stays the one above). */
+  render?: Omit<MaterialLook, 'render' | 'image'>;
 }
 
 /** A look with a name, saved in the file. */

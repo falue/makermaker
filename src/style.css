@@ -1527,6 +1527,9 @@ button.primary.wide {
   flex: none;
   color: var(--muted);
 }
+.mat-edit .tabs {
+  margin: 2px 0 8px;
+}
 .mat-edit .primary {
   margin-top: 8px;
 }
