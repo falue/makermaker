@@ -2803,6 +2803,13 @@ section > h4 .segmented button {
 .version small {
   color: var(--muted);
 }
+.version-row {
+  display: flex;
+  gap: 2px;
+}
+.version-row .version {
+  flex: 1;
+}
 .clash-row {
   display: flex;
   flex-wrap: wrap;

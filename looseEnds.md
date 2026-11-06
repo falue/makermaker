@@ -57,7 +57,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A render saved from a live view gets its preview as thumbnail; its camera is the live view's at its size on screen.
 
 ## Versions
-- Versions are kept per save, up to 50, autosave one every 5 minutes; a design never saved has none. They have no names and cannot be deleted one by one. A version shown replaces what is on screen, so its tool panels and selection reset.
+- Versions are kept per save, up to 50, autosave one every 5 minutes; a design never saved has none. They have no names; × on a row deletes one (written at once when the file has a handle, else with the next save). A version shown replaces what is on screen, so its tool panels and selection reset.
 
 ## Terminal
 - Picked .py files cannot be renamed from the list.

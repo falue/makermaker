@@ -5979,7 +5979,19 @@ function versionsPanel() {
   const row = (v: Version | null, when: string, what: string, title: string) => {
     const b = Object.assign(document.createElement('button'), { className: 'version', title, onclick: () => show(v, b) });
     b.append(Object.assign(document.createElement('b'), { textContent: when }), Object.assign(document.createElement('small'), { textContent: what }));
-    return b;
+    if (!v) return b;
+    const drop = Object.assign(document.createElement('button'), { className: 'icon', textContent: '×', title: 'Click: Delete this version', onclick: () => remove(v, line) });
+    const line = Object.assign(document.createElement('div'), { className: 'version-row' });
+    line.append(b, drop);
+    return line;
+  };
+  // gone from the file at once when it can be written in place, else with the next save
+  const remove = (v: Version, line: HTMLElement) => {
+    if (shown === v) show(null, now);
+    line.remove();
+    file = { ...file, versions: file.versions.filter((x) => x !== v) };
+    const { versions, handle } = file;
+    if (handle) void run(() => saveFile(pack(withViews(file.saved), versions), file.name, handle));
   };
   const show = (v: Version | null, el: HTMLElement) => {
     if (v === shown) return;
@@ -5993,7 +6005,7 @@ function versionsPanel() {
     }
     shown = v;
     [selected, shapeSel] = [[], []];
-    for (const c of list.children) c.classList.toggle('on', c === el);
+    for (const c of list.querySelectorAll('.version')) c.classList.toggle('on', c === el);
     keep.hidden = !v;
     update();
   };
