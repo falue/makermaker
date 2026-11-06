@@ -84,7 +84,7 @@ Answers assumed where a request left a question open.
 
 - Dialogs and panels close with one icon (`closeButton` in src/ui/icons.ts): Settings, Materials, Renders. × buttons on list rows and cards delete things and stay as they are.
 - "Edit material…" beside the material list uses the materials icon, the same as the top bar's button.
-- Clicking an image's list row again deselects it. Bodies and sketches in the lists still stay selected on a second click.
+- A group's list row clicked again does not deselect it: a plain click there folds and unfolds the group.
 - An image's rotate button turns it right away with the pointer, as Rotate does for bodies; the Turn field stays typed from 0 each time, because images store no turn value of their own.
 - Cross-browser is noted as a goal only; nothing about it is built yet.
 - A tool body listed in another group than its body: moving that whole group moves the tool alone and so reshapes the cut, and moving a group holding only the body leaves the tool behind. Moving the body itself takes the tool along.

@@ -6353,6 +6353,11 @@ function render() {
     groupSelected: selected.length === 1 && doc.groups.some((g) => g.id === selected[0]),
     arrange,
     select,
+    deselectAgain(id, how) {
+      if (how || picks(id) || extruding?.picking() || selected.length !== 1 || selected[0] !== id) return false;
+      select(null);
+      return true;
+    },
     isolated: isolated?.body ?? null,
     isolate,
     previewColor: (id, color) => viewer.previewColor(id, color),

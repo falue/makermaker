@@ -64,6 +64,8 @@ export interface UIContext {
   setValue(path: string[], value: unknown, live?: boolean): void;
   /** `how`: true toggles the object, 'range' selects from the last selected one in its list to it. */
   select(id: string | null, how?: Pick): void;
+  /** A list row plainly clicked again while it alone is selected: deselects it (a waiting tool takes it instead) and says so. */
+  deselectAgain(id: string, how: Pick): boolean;
   /** New sketch objects are drawn as construction lines or not, as the last object switched. */
   setDrawConstruction(on: boolean): void;
   /** Folded groups in the object list, and folded lists (`list:objects`, `list:sketches`, `list:params`). */
@@ -866,14 +868,14 @@ function left(ctx: UIContext): Node[] {
     // a box joint: its button opens its panel
     const finger = p.features.find((f) => f.type === 'fingers');
     const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Box joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];
-    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...joint, ...sketch, ...bools, ...jointMark(id), tool, ...toolEye);
+    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.deselectAgain(id, how) || ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...joint, ...sketch, ...bools, ...jointMark(id), tool, ...toolEye);
     return el;
   });
   // sketches: their own list, each with the body it belongs to
   const sketchRows = doc.sketches.map((sk, i) => {
     const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
     // a plain click draws into it: sketch mode, looking at its plane
-    const item = listItem(sk.id, selectedClass(sk.id), (how) => (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']));
+    const item = listItem(sk.id, selectedClass(sk.id), (how) => ctx.deselectAgain(sk.id, how) || (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']));
     item.title = `${whose(doc, sk.id)} · click to draw into it`;
     item.onmouseenter = () => ctx.lightSketch(sk.id);
     item.onmouseleave = () => ctx.lightSketch(null);
@@ -898,14 +900,14 @@ function left(ctx: UIContext): Node[] {
   const imageList = heading('images', 'Images', 'image');
   const imageRows = doc.images.map((im, i) => {
     // a click on the one selected takes it off again
-    const item = listItem(im.id, selectedClass(im.id), (how) => (!how && ctx.selected.length === 1 && ctx.selected[0] === im.id ? ctx.select(null) : ctx.select(im.id, how)), h('span', { className: 'kind', innerHTML: icon('image') }), nameOf(im.id, im.name, ['images', String(i), 'name']));
+    const item = listItem(im.id, selectedClass(im.id), (how) => ctx.deselectAgain(im.id, how) || ctx.select(im.id, how), h('span', { className: 'kind', innerHTML: icon('image') }), nameOf(im.id, im.name, ['images', String(i), 'name']));
     item.onmouseenter = () => ctx.lightImage(im.id);
     item.onmouseleave = () => ctx.lightImage(null);
     const look = h('button', { className: 'icon', title: im.visible ? 'Hide' : 'Show', innerHTML: icon(im.visible ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, ['images', String(i), 'visible'], !im.visible)) });
     return h('div', { className: 'listed' }, item, look);
   });
   const planeRows = doc.planes.map((w, i) => {
-    const item = listItem(w.id, selectedClass(w.id), (how) => ctx.select(w.id, how), h('span', { className: 'kind plane-swatch' }), nameOf(w.id, w.name, ['planes', String(i), 'name']));
+    const item = listItem(w.id, selectedClass(w.id), (how) => ctx.deselectAgain(w.id, how) || ctx.select(w.id, how), h('span', { className: 'kind plane-swatch' }), nameOf(w.id, w.name, ['planes', String(i), 'name']));
     item.onmouseenter = () => ctx.lightPlane(w.id);
     item.onmouseleave = () => ctx.lightPlane(null);
     const edit = h('button', { className: 'icon', title: 'Edit it in its panel: how it is made, offset, turn, points, size', innerHTML: icon('edit'), onclick: () => ctx.editPlane(w.id) });
