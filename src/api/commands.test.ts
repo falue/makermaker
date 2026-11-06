@@ -23,7 +23,7 @@ describe('commands', () => {
       ['sketch', { plane: 'xy' }],
       ['rectangle', (r) => ({ sketch: r[1], x: 0, y: 0, width: 100, height: 60 })],
       ['extrude', (r) => ({ sketch: r[1], depth: '$ply', name: 'Plate' })],
-      ['box', { width: 20, depth: 20, height: 10, at: [30, 0, 0] }],
+      ['box', { length: 20, width: 20, height: 10, at: [30, 0, 0] }],
       ['boolean', (r) => ({ op: 'subtract', target: r[3], tools: [r[4]] })],
       ['hole', (r) => ({ id: r[3], x: -20, y: 0, diameter: 5 })],
       ['fillet', (r) => ({ id: r[3], size: 3, edges: 'vertical' })],
@@ -41,7 +41,7 @@ describe('commands', () => {
 
   it('says what is wrong with bad input', () => {
     expect(() => runCommand(empty(), 'cube')).toThrow(/no command "cube"/);
-    expect(() => runCommand(empty(), 'box', { width: 10, depth: 10 })).toThrow(/"height" is needed/);
+    expect(() => runCommand(empty(), 'box', { length: 10, width: 10 })).toThrow(/"height" is needed/);
     expect(() => runCommand(empty(), 'sketch', { plane: 'xz2' })).toThrow(/one of xy, xz, yz/);
     expect(() => runCommand(empty(), 'fillet', { id: 'nope', size: 2, edges: 'all' })).toThrow(/no body "nope"/);
   });
@@ -91,7 +91,7 @@ describe('box joint fingers', () => {
 });
 
 describe('coat', () => {
-  const made = runCommand({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, 'box', { width: 10, depth: 10, height: 10 });
+  const made = runCommand({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, 'box', { length: 10, width: 10, height: 10 });
   it('as a new body: its own steps and the skin, the body itself as it was', () => {
     const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true });
     const [a, b] = out.doc.bodies;
@@ -117,8 +117,8 @@ describe('coat', () => {
 
 describe('attach', () => {
   it('attaches objects to one and detaches them; refuses what is not there', () => {
-    let doc = runCommand({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, 'box', { width: 10, depth: 10, height: 10 }).doc;
-    doc = runCommand(doc, 'box', { width: 5, depth: 5, height: 5 }).doc;
+    let doc = runCommand({ schema: 32, units: 'mm', params: {}, bodies: [], sketches: [], groups: [], sections: [], joints: [], planes: [], images: [], materials: [], photos: [], renders: [] }, 'box', { length: 10, width: 10, height: 10 }).doc;
+    doc = runCommand(doc, 'box', { length: 5, width: 5, height: 5 }).doc;
     const [a, b] = doc.bodies.map((x) => x.id);
     const made = runCommand(doc, 'attach', { id: a, ids: [b], at: [0, 0, 10] });
     expect(made.doc.joints).toMatchObject([{ id: made.result, kind: 'attach', parent: a, children: [b], axis: { at: [0, 0, 10] } }]);

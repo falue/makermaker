@@ -118,9 +118,9 @@ export const COMMANDS: Record<string, Command> = {
     }),
   },
   box: {
-    doc: 'A new box body: width (x) × depth (y), pulled up height (z), centred on its origin at the bottom.',
-    params: [{ name: 'width', type: 'number', doc: 'along x, mm' }, { name: 'depth', type: 'number', doc: 'along y, mm' }, { name: 'height', type: 'number', doc: 'up, mm' }, { name: 'radius', type: 'number', doc: 'corner radius seen from above, mm', optional: true }, at3, named],
-    run: (doc, a) => addBody(doc, [pulled(rect(0, 0, a.width, a.depth, a.radius), a.height)], a.at, a.name),
+    doc: 'A new box body: length (x) × width (y), pulled up height (z), centred on its origin at the bottom.',
+    params: [{ name: 'length', type: 'number', doc: 'along x, mm' }, { name: 'width', type: 'number', doc: 'along y, mm' }, { name: 'height', type: 'number', doc: 'up, mm' }, { name: 'radius', type: 'number', doc: 'corner radius seen from above, mm', optional: true }, at3, named],
+    run: (doc, a) => addBody(doc, [pulled(rect(0, 0, a.length, a.width, a.radius), a.height)], a.at, a.name),
   },
   cylinder: {
     doc: 'A new cylinder body standing up from its origin.',

@@ -6,12 +6,12 @@ import math
 cad.parameter('$wall', '4')
 
 # The plate: a formula stays a formula.
-width, depth = 160, 90
-plate = cad.box(width, depth, '$wall', radius=6, name='Plate')
+length, width = 160, 90
+plate = cad.box(length, width, '$wall', radius=6, name='Plate')
 
 # Four posts under it; plain numbers are millimetres.
 for k, (x, y) in enumerate([(-1, -1), (1, -1), (1, 1), (-1, 1)]):
-    cad.cylinder(diameter=10, height=60, at=[x * (width / 2 - 14), y * (depth / 2 - 14), -60], name=f'Post {k + 1}')
+    cad.cylinder(diameter=10, height=60, at=[x * (length / 2 - 14), y * (width / 2 - 14), -60], name=f'Post {k + 1}')
 
 # A ring of pegs on top.
 count = 8
