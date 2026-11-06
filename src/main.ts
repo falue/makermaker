@@ -2666,6 +2666,15 @@ function circleOf(body: string, round: { at: Vector3; dir: Vector3; r: number })
   return null;
 }
 
+/** The top bar's loader until what was just sent to the worker is built (a thread takes a while). */
+function creating() {
+  const label = 'Creating geometry…';
+  if (busy.has(label)) return;
+  busy.add(label);
+  render();
+  void kernel.idle().then(() => (busy.delete(label), render()));
+}
+
 /** A thread on `body`'s round face `round` (world; `point`: where it was picked: the thread starts at the nearer end). */
 function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: number; r: number; shaft: boolean }, point: Vector3) {
   // from the end nearest the click, into the face
@@ -2689,11 +2698,13 @@ function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: numb
   const added = setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]);
   const path = ['bodies', String(i), 'features', String(added.bodies[i].features.length - 1)];
   commit(fitted(added, path, size.d, size.pitch));
+  creating();
   const write = ([d, p, l]: string[]) => {
     const f = getIn(history.current, path) as Feature;
     const next = setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: doc.units }, pitch: { e: p, u: doc.units }, length: { e: l, u: doc.units } });
     history.replace(fitted(next, path, length(d) ?? size.d, length(p) ?? size.pitch));
     update();
+    creating();
   };
   // the size list (of the chosen system) fills Ø and Pitch
   const pick = Object.assign(document.createElement('select'), { title: 'The thread size: fills Ø and Pitch, the hole or shaft fits it' });
