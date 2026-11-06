@@ -108,7 +108,7 @@ export function applyLook(m: THREE.MeshStandardMaterial, l: Look, around: THREE.
   m.roughness = l.roughness;
   m.metalness = l.metalness;
   m.emissive.set(l.glow);
-  m.emissiveIntensity = l.glowStrength * 2;
+  m.emissiveIntensity = l.glowStrength * 10;
   const [normal, map, transparent] = [l.bump > 0 ? bumpMap() : null, l.image ? pictureMap(l.image) : l.overlay ? overlayMap(l.overlay) : null, l.translucency > 0];
   if (m.normalMap !== normal || m.map !== map || m.transparent !== transparent || m.envMap !== around) m.needsUpdate = true;
   m.normalMap = normal;
@@ -126,7 +126,7 @@ export function renderMaterial(l: Look) {
     roughness: l.roughness,
     metalness: l.metalness,
     emissive: l.glow,
-    emissiveIntensity: l.glowStrength * 4,
+    emissiveIntensity: l.glowStrength * 20,
     transmission: l.translucency,
     ior: 1.5,
     map: l.image ? pictureMap(l.image) : l.overlay ? overlayMap(l.overlay) : null,
