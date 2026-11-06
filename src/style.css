@@ -130,17 +130,17 @@ span.error,
   background: color-mix(in srgb, var(--muted) 30%, var(--panel));
   color: var(--text);
 }
-#topbar .link {
+#hint .link {
   margin-left: 12px;
   font-size: 12px;
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
 }
-#topbar .link:hover {
+#hint .link:hover {
   color: var(--accent);
 }
-#topbar .link svg {
+#hint .link svg {
   width: 16px;
   height: 16px;
   vertical-align: -3px;
@@ -549,6 +549,8 @@ section .bake.on {
 
 #hint {
   grid-area: hint;
+  display: flex;
+  align-items: center;
   padding: 0 10px;
   line-height: 23px;
   overflow: hidden;
@@ -557,6 +559,11 @@ section .bake.on {
   background: var(--panel);
   color: var(--muted);
   font-size: 12px;
+}
+#hint-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 #hint kbd {
   font: inherit;
