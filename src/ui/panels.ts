@@ -397,7 +397,7 @@ function exprField(ctx: UIContext, path: string, label: string, raw = false, own
     });
     if (reaching) e.preventDefault();
   });
-  const name = h('span', { innerHTML: axisHtml(label) });
+  const name = h('span', { innerHTML: sizeHtml(label) });
   scrub(name, el, () => shown, u, ctx.minStep, (e, live) => set({ e, u }, live), () => {
     // the field may be rebuilt meanwhile: the one there now
     const field = document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
@@ -1384,12 +1384,12 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   const shape = (...rows: HTMLElement[]) => [h('div', { className: 'shape-fields' }, refGrid(ctx, p.id), h('div', {}, ...rows, ...arcRows))];
   const pos = [tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
   if (p.kind === 'circle') return shape(row(...pos, tf('d', 'Ø', stored('d'))));
-  const link = tool('link', ctx.linkSize(p.id) ? 'Width and height change together: click to unlink' : 'Link width and height: they change together', () => ctx.toggleLinkSize(p.id), ctx.linkSize(p.id));
+  const link = tool('link', ctx.linkSize(p.id) ? 'L and W change together: click to unlink' : 'Link L and W: they change together', () => ctx.toggleLinkSize(p.id), ctx.linkSize(p.id));
   const [w, hh] = p.kind === 'rect' ? [stored('w'), stored('h')] : [mm(m.w), mm(m.h)];
-  if (p.kind === 'line') return shape(row(...pos), row(tf('w', 'W', w), link, tf('h', 'H', hh))); // no corners to round, no turn of its own
+  if (p.kind === 'line') return shape(row(...pos), row(tf('w', 'L', w), link, tf('h', 'W', hh))); // no corners to round, no turn of its own
   const rot = tf('rot', 'Turn °', stored('rot'), true); // degrees: shown as typed, never unit-converted
   if (p.kind === 'ngon') return shape(row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true)));
-  return shape(row(...pos, rot), row(tf('w', 'W', w), link, tf('h', 'H', hh), pf('r', 'R')));
+  return shape(row(...pos, rot), row(tf('w', 'L', w), link, tf('h', 'W', hh), pf('r', 'R')));
 }
 
 /** Illustrator's reference point locator for one shape: which point of its box X / Y give, and which point stays when sizing or turning. */
@@ -1433,7 +1433,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const back = exprField(ctx, `${at}.back`, 'Back', false, { value: feature.back ?? { e: '0', u: ctx.doc.units }, set: (x, live) => ctx.setValue([...at.split('.'), 'back'], x, live), error: ctx.exprErrors.get(`${at}.back`) });
       back.title = 'How far it also reaches behind its sketch plane (Alt while pulling: as far as the depth)';
       const reach = [
-        ...(feature.through ? [] : [f('depth', 'Depth'), back]),
+        ...(feature.through ? [] : [f('depth', 'H'), back]),
         ...(feature.mode === 'cut' ? [h('label', { className: 'check' }, through, 'Through')] : []),
       ];
       const src = feature.source;

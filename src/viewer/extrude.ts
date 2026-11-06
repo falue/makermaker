@@ -5,7 +5,7 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, planeHit, pullName, pullBy, pulled, pullKey, reachInto, sizeLabel, typeInto, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, planeHit, pullBy, pulled, pullKey, reachInto, sizeLabel, typeInto, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -399,7 +399,7 @@ export class ExtrudeTool implements Tool {
       // the depth at the end, how far back behind the plane (when it reaches back or is typed into)
       const { frame, at } = this.ref();
       const n = v3(frame.n);
-      const shown: [string, string | undefined, number, number, boolean][] = [[pullName(frame.n), p.typed, depth, depth, !p.side]];
+      const shown: [string, string | undefined, number, number, boolean][] = [['H', p.typed, depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
         const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed)}`, active, active && !this.reaching);

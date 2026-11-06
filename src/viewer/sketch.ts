@@ -14,7 +14,7 @@ import { comboText, keysOf, MODIFIER_NAMES, pressed, role, roleKey, roleKeyName,
 import { keepInside } from '../ui/inside';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import { inName } from '../doc/expr';
-import { axisHtml } from '../ui/axes';
+import { sizeHtml } from '../ui/axes';
 import { icon } from '../ui/icons';
 
 export type ToolKind = 'rect' | 'circle' | 'ngon' | 'line' | 'sphere';
@@ -177,9 +177,6 @@ export function reachInto(p: Pulling, at: THREE.Vector3, frame: { o: V3; n: V3 }
   const k = p.side ? 'typedBack' : 'typed';
   p[k] = (p[k] ?? '') + host.lengthText(p.side ? -d : d);
 }
-
-/** A pull's size label: the world axis it goes along (X, Y or Z), else Depth (a slanted face). */
-export const pullName = (n: V3) => ['X', 'Y', 'Z'].find((_, k) => Math.abs(n[k]) > 0.999) ?? 'Depth';
 
 /** While aiming To object: the pull shows reaching `at` (only while nothing is typed for the depth). */
 export function aimInto(p: Pulling, at: THREE.Vector3, frame: { o: V3; n: V3 }) {
@@ -1704,8 +1701,8 @@ export class SketchTool implements Tool {
         // at the middles of its bottom and right sides, turned with it
         const t = ((profile.rot ?? 0) * Math.PI) / 180;
         const at = (lx: number, ly: number) => v3(toWorld(f, profile.x + lx * Math.cos(t) - ly * Math.sin(t), profile.y + lx * Math.sin(t) + ly * Math.cos(t)));
-        label('W', ph.typed[0], profile.w, at(0, -profile.h / 2), ph.axis === 0);
-        label('H', ph.typed[1], profile.h, at(profile.w / 2, 0), ph.axis === 1);
+        label('L', ph.typed[0], profile.w, at(0, -profile.h / 2), ph.axis === 0);
+        label('W', ph.typed[1], profile.h, at(profile.w / 2, 0), ph.axis === 1);
       }
       if (ph.kind === 'polygon') this.handlesShown(ph);
       const sliding = ph.kind === 'polygon' && this.sliding(ph);
@@ -1812,7 +1809,7 @@ export class SketchTool implements Tool {
       const { depth, back } = pulled(ph, (t) => this.host.length(t));
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
       if (depth || back) this.solid(ph.shapes, f, depth, back);
-      label(pullName(f.n), ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
+      label('H', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
       if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side, !!ph.side && !this.reaching);
     }
     const els = labels.map(([text, , active, t]) => sizeLabel(text, active, t));
@@ -2028,7 +2025,7 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** The pointer's note while pulling (before typing a depth). */
 /** A size label (`active`: typed into); `t`: it says T reaches to an object for it. */
 export function sizeLabel(text: string, active: boolean, t = false) {
-  const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: axisHtml(caretHtml(text)) });
+  const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: sizeHtml(caretHtml(text), true) });
   if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }

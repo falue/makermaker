@@ -5,8 +5,9 @@
 export const axisHtml = (text: string) =>
   text.replace(/(?<![⌘⇧$\w])([XYZ]{1,3})(?![\w])/g, (letters) => [...letters].map((l) => `<span class="axis-${l.toLowerCase()}">${l}</span>`).join(''));
 
-/** A size name L, W or H (along X, Y, Z) as HTML in that axis' colour; other text as `axisHtml`. */
-export const sizeHtml = (text: string) => {
-  const k = 'LWH'.indexOf(text);
-  return text.length === 1 && k >= 0 ? `<span class="axis-${'xyz'[k]}">${text}</span>` : axisHtml(text);
-};
+/**
+ * Text as `axisHtml`, a size name L, W or H (the length, width and height, as X, Y, Z) in that axis' colour: the whole
+ * text, or (`within`) each one standing alone before a space or ▸ ("L 20   W▸10"). The text must not contain HTML.
+ */
+export const sizeHtml = (text: string, within = false) =>
+  axisHtml(text).replace(within ? /(?<=^|\s)([LWH])(?=[\s▸])/g : /^([LWH])$/, (l) => `<span class="axis-${'xyz'['LWH'.indexOf(l)]}">${l}</span>`);

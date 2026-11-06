@@ -26,7 +26,7 @@ import { applyLook, boxUv, needsUv, pictureLoaded, renderMaterial } from './look
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { drawSky, SKIES, twoColours } from './sky';
-import { axisHtml } from '../ui/axes';
+import { axisHtml, sizeHtml } from '../ui/axes';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import type { Settings } from '../ui/settings';
 import { divideMore, edgeKey, linePoints, outline, planeHit, shape2d, sideKey, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
@@ -4244,9 +4244,10 @@ export class Viewer implements ToolView {
     this.label(text, d.start);
   }
 
-  private label(text: string, at: THREE.Vector3) {
+  /** `sizes`: L / W / H in it are a shape's length, width, height (coloured as X / Y / Z). */
+  private label(text: string, at: THREE.Vector3, sizes = false) {
     const [x, y] = this.toScreen(at);
-    Object.assign(this.moveLabel, { hidden: false, innerHTML: axisHtml(caretHtml(text)) });
+    Object.assign(this.moveLabel, { hidden: false, innerHTML: sizes ? sizeHtml(caretHtml(text), true) : axisHtml(caretHtml(text)) });
     keepInside(this.moveLabel, x + 60, y + 40);
   }
 
@@ -4290,7 +4291,7 @@ export class Viewer implements ToolView {
       ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e && role(e, 'centre'), shift: !!e && role(e, 'constrain'), step: this.step(world, e ?? undefined, false), typed });
       const [w, h] = sizeOf(ed.next);
       const body = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : caret(ed.typed[k]!)}`;
-      this.label(st.kind === 'circle' ? body(ed.axis, 'Ø', w) : `${body(0, 'W', w)}   ${body(1, 'H', h)}`, world);
+      this.label(st.kind === 'circle' ? body(ed.axis, 'Ø', w) : `${body(0, 'L', w)}   ${body(1, 'W', h)}`, world, true);
     }
     this.overrides.set(st.id, ed.next);
     this.renderSketches();
