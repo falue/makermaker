@@ -110,7 +110,7 @@ type SavedView = Views['views'][number];
  * counts restarts (an older run stops), `stale`: something changed while another view rendered; `image`: done;
  * `shot`: the render Save adds to; `background`: its own (a render's), else the view's.
  */
-type LiveRender = { gen: number; timer: number; stale: boolean; running?: boolean; picture: HTMLElement; status: HTMLElement; save: HTMLButtonElement; image?: Blob; shot?: string; background?: Backdrop };
+type LiveRender = { gen: number; timer: number; stale: boolean; key?: string; running?: boolean; picture: HTMLElement; status: HTMLElement; save: HTMLButtonElement; image?: Blob; shot?: string; background?: Backdrop };
 
 export interface PickedFace {
   point: THREE.Vector3;
@@ -3949,7 +3949,21 @@ export class Viewer implements ToolView {
 
   /** Something a render shows changed: the live render view touched last starts again, the others when touched. */
   liveChanged() {
-    for (const v of this.views) if (v.live) v === this.liveView ? this.restartLive(v) : (v.live.stale = true);
+    for (const v of this.views) if (v.live && this.liveKey(v) !== v.live.key) v === this.liveView ? this.restartLive(v) : (v.live.stale = true);
+  }
+
+  /** What a live view's picture is made of besides its camera: it renders again only when this changes. */
+  private liveKey(view: Viewer['views'][number]) {
+    const bodies = [...this.bodies].flatMap(([id, g]) => {
+      const solid = g.children[0] as THREE.Mesh | undefined;
+      return !solid || this.hidden.has(id) || this.cutters.has(id) ? [] : [[id, solid.geometry.uuid, g.matrixWorld.elements, this.looks.get(id)]];
+    });
+    const images = this.imageMark.children.flatMap((o) => {
+      if (!(o instanceof THREE.Mesh)) return [];
+      const { map, opacity } = o.material as THREE.MeshBasicMaterial;
+      return [[map?.uuid, opacity, (o.geometry as THREE.PlaneGeometry).parameters, o.matrix.elements]];
+    });
+    return JSON.stringify([bodies, images, this.liveHost?.light, this.liveHost?.haze, view.live?.background ?? this.backdropColours()]);
   }
 
   /** Whether a live render is under way (the render queue waits for it). */
@@ -3981,7 +3995,7 @@ export class Viewer implements ToolView {
     if (!l) return;
     clearTimeout(l.timer);
     const gen = ++l.gen;
-    Object.assign(l, { image: undefined, stale: false });
+    Object.assign(l, { image: undefined, stale: false, key: this.liveKey(view) });
     l.save.hidden = true;
     l.status.textContent = 'Waiting';
     l.timer = window.setTimeout(async () => {
