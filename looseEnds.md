@@ -51,7 +51,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A material's own render look and its glow Reach are not in MaterialX exports or imports; the Python `look` command cannot set the render look.
 - A glowing body's light comes from its middle: a long glowing strip lights like a ball. In renders a glowing body casts no shadow (so its light gets out).
 - Save to was tried headless with the browser's private folders standing in for the pickers (every choice, ./renderings made again, a folder gone, a folder not holding the document); not yet with the real folder picker and its permission prompts. The live render view was tried headless only.
-- A live render renders at the view's size on screen, not twice it as the queue does. "See in live render" sets the view's camera but not its picture size: the live picture has the view's shape, not the render's Aspect.
+- "See in live render" sets the view's camera but not its picture size: the live picture has the view's shape, not the render's Aspect.
 - Before its first render, a render's thumbnail is the view cut to its Aspect from the middle: a wider Aspect really shows a little more at the sides.
 - The Photo sphere dropdown on each render does not belong there: it should be global, but a photo sphere is a setting of both the 3D view (background) and the renders (background and light). Needs a rethink of where backgrounds and photo spheres live.
 - A render saved from a live view gets its preview as thumbnail; its camera is the live view's at its size on screen.
@@ -92,7 +92,6 @@ Answers assumed where a request left a question open.
 - Deleting a tool body removes its cut too, also when it is listed elsewhere, since the cut is built from it. Keeping the cut would need a Flatten step (see CAD goals).
 - Dragging a tool body right under its owner, or among that owner's other tool bodies, lists it under the owner again; anywhere else lists it there.
 - Tab goes through on line / on edge / a point along it only before anything is drawn; while drawing Tab keeps its other uses (a size's other field, a line's angle), so the nearest wins there.
-- G's guides run along the drawing plane's X and Y only, not the world's.
 - The list's boolean colours reuse the joint's two colours: the body it cuts as "stays", tool bodies as "moves".
 - A tool body's eye: off hides it until selected, on shows its red outlines at all times. Only tool bodies listed elsewhere have it; those under their body keep just the red icon.
 - A joint's sweep shows in see-through orange for the bodies being checked. Interference and clearance are one tool: Clearance 0 is interference. A row's Cut A | Cut B | Ignore control shows on the row the pointer is on, or the part clicked in the view; Ignore lasts while the panel is open.
