@@ -3459,8 +3459,8 @@ function offsetShapes(sketch: string) {
 
 /**
  * Box joint: bodies that overlap or touch (selected, or clicked next; Shift-click more, Enter) cut each other into
- * interlocking fingers across each overlap's longest side, for gluing sheets. Two: its panel (see `fingersPanel`).
- * More (a whole box): every pair that meets gets one, the earlier selected keeping the end fingers; each card edits its own.
+ * interlocking fingers across each overlap's longest side, for gluing sheets; then its panel (see `fingersPanel`).
+ * More (a whole box): every pair that meets gets one, the earlier selected keeping the end fingers; the panel sets them all.
  */
 function boxJoint() {
   const doc = history.current;
@@ -3491,8 +3491,9 @@ function boxJoint() {
     added.set(b, [...(added.get(b) ?? []), step(a, false, count)]);
   }
   commit({ ...doc, bodies: doc.bodies.map((x) => (added.has(x.id) ? { ...x, features: [...x.features, ...added.get(x.id)!] } : x)) });
-  if (made.length === 1) return fingersPanel(made[0][0], added.get(made[0][0])!.at(-1)!.id, true);
-  notify(`Box joint: ${made.length} joints, one for each pair that meets; each body's card edits its own`);
+  // each joint by its first body's new step
+  const steps = made.map(([a, b]) => [a, added.get(a)!.find((f) => f.type === 'fingers' && f.body === b)!.id] as [string, string]);
+  fingersPanel(...steps[0], true, steps.slice(1));
 }
 
 /** Box joint between bodies `a` and `b`: the number of fingers to start with, or why they cannot have one. */
@@ -3518,18 +3519,26 @@ function fingerPair(a: string, b: string): number | string {
  * A box joint's panel, on the step that holds its values for both bodies (the first's; `id` of either leads there):
  * Fingers (1 or more, equal ones) or Finger length (above 0: exactly that long, from the overlap's low end or From a
  * point clicked, both ways; the count then empties); each shows what the other makes. Live; `fresh`: Esc leaves
- * nothing, else Esc puts it back.
+ * nothing, else Esc puts it back. `more`: other joints ([body, step id]) set to the same values (no From point then).
  */
-function fingersPanel(body: string, id: string, fresh = false) {
+function fingersPanel(body: string, id: string, fresh = false, more: [string, string][] = []) {
   const doc0 = history.current;
-  const mine = doc0.bodies.find((b) => b.id === body)?.features.find((f) => f.id === id);
-  if (mine?.type !== 'fingers') return;
-  // the first's step holds the values
-  const [owner, partner] = mine.first ? [body, mine.body] : [mine.body, body];
-  const i = doc0.bodies.findIndex((b) => b.id === owner);
-  const j = doc0.bodies[i]?.features.findIndex((f) => f.type === 'fingers' && f.body === partner && f.first) ?? -1;
-  if (j < 0) return;
-  const path = ['bodies', String(i), 'features', String(j)];
+  // each joint: the first's step holds the values, and its overlap's longest side (mm)
+  const joints = [[body, id] as [string, string], ...more].flatMap(([body, id]) => {
+    const mine = doc0.bodies.find((b) => b.id === body)?.features.find((f) => f.id === id);
+    if (mine?.type !== 'fingers') return [];
+    const [owner, partner] = mine.first ? [body, mine.body] : [mine.body, body];
+    const i = doc0.bodies.findIndex((b) => b.id === owner);
+    const j = doc0.bodies[i]?.features.findIndex((f) => f.type === 'fingers' && f.body === partner && f.first) ?? -1;
+    const span = () => {
+      const [a, b] = [viewer.measure(owner)?.box, viewer.measure(partner)?.box];
+      const o = a && b && a.clone().intersect(b);
+      return o && !o.isEmpty() ? Math.max(...o.getSize(new Vector3()).toArray()) : 0;
+    };
+    return j < 0 ? [] : [{ path: ['bodies', String(i), 'features', String(j)], span }];
+  });
+  if (!joints.length) return;
+  const path = joints[0].path;
   const now = () => getIn(history.current, path) as FingersFeature;
   const u = doc0.units;
   const change = (next: Doc) => {
@@ -3537,31 +3546,33 @@ function fingersPanel(body: string, id: string, fresh = false) {
     else history.push(next);
     update();
   };
-  // the overlap's longest side (mm), from the two bodies' boxes
-  const span = () => {
-    const [a, b] = [viewer.measure(owner)?.box, viewer.measure(partner)?.box];
-    const o = a && b && a.clone().intersect(b);
-    return o && !o.isEmpty() ? Math.max(...o.getSize(new Vector3()).toArray()) : 0;
+  /** `doc` with `key` of every joint set to `value`. */
+  const setAll = (doc: Doc, key: string, value: unknown) => joints.reduce((d, j) => setIn(d, [...j.path, key], value), doc);
+  // what a count makes: shown only when it is the same for all
+  const lengthOf = (n: number) => {
+    const all = [...new Set(joints.map((j) => fmt(j.span() / Math.max(1, n) / UNITS[u])))];
+    return all.length === 1 ? all[0] : '';
   };
-  const lengthOf = (n: number) => fmt(span() / Math.max(1, n) / UNITS[u]);
   const f0 = now();
   const byLength = (length(f0.width.e) ?? 0) > 0;
-  let last = [byLength ? '' : f0.count.e, byLength ? f0.width.e : lengthOf(Number(f0.count.e) || 1), f0.clearance?.e ?? '0'];
+  const counts = new Set(joints.map((j) => (getIn(doc0, j.path) as FingersFeature).count.e));
+  const count = counts.size === 1 ? f0.count.e : '';
+  let last = [byLength ? '' : count, byLength ? f0.width.e : count && lengthOf(Number(count) || 1), f0.clearance?.e ?? '0'];
   const write = () => {
     const [n, w, c] = panel.inputs;
     if ((length(c.value || '0') ?? 0) < 0) c.value = '0';
-    if (c.value !== last[2]) change(setIn(history.current, [...path, 'clearance'], { e: c.value || '0', u }));
+    if (c.value !== last[2]) change(setAll(history.current, 'clearance', { e: c.value || '0', u }));
     // never below 1 finger or a length of 0
     if (n.value !== '' && Number(n.value) < 1) n.value = '1';
     if ((length(w.value || '0') ?? 0) < 0) w.value = '0';
     if (w.value !== last[1] && (length(w.value || '0') ?? 0) > 0) {
       // a length counts: the count empties
       n.value = '';
-      change(setIn(history.current, [...path, 'width'], { e: w.value, u }));
+      change(setAll(history.current, 'width', { e: w.value, u }));
     } else if (n.value !== last[0] && n.value !== '') {
       // a count: the length shows what it makes
       w.value = lengthOf(Number(n.value));
-      change(setIn(setIn(history.current, [...path, 'count'], ex(n.value)), [...path, 'width'], len(0)));
+      change(setAll(setAll(history.current, 'count', ex(n.value)), 'width', len(0)));
     }
     last = [n.value, w.value, c.value];
   };
@@ -3594,8 +3605,8 @@ function fingersPanel(body: string, id: string, fresh = false) {
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
     },
-    'Box joint: how many fingers · or a finger length (exact; the count empties) · the clearance between fingers · From point: the fingers count from there · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
-    [fromButton, clearFrom],
+    `Box joint${more.length ? `, all ${joints.length}` : ''}: how many fingers · or a finger length (exact; the count empties) · the clearance between fingers${more.length ? '' : ' · From point: the fingers count from there'} · [Enter] keeps ${more.length ? 'them' : 'it'} · [Esc] ` + (fresh ? 'leaves nothing' : 'puts it back'),
+    more.length ? [] : [fromButton, clearFrom],
   );
   status();
 }
