@@ -2738,8 +2738,8 @@ function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: numb
     write,
     (ok) => (ok ? render() : undo()),
     `Thread ${round.shaft ? 'on a shaft' : 'in a hole'} Ø ${fmt(2 * round.r)} mm: pick its size · or type Ø and pitch · ${circle ? `the ${round.shaft ? 'shaft' : 'hole'} fits it` : `its circle is not found: the ${round.shaft ? 'shaft' : 'hole'} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
-    [systems],
-    [pick],
+    [],
+    [systems, pick],
   );
 }
 
