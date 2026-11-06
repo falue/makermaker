@@ -2062,7 +2062,7 @@ export class Viewer implements ToolView {
     this.glowLamp(g, look, cutter);
   }
 
-  /** A glowing body lights its neighbours from its middle: `strength` times the sun's light at its own size away, fading slowly (1 / distance). */
+  /** A glowing body lights its neighbours from its middle: `strength` times the sun's light at its own size away, fading slowly (1 / distance), gone at its reach. */
   private glowLamp(g: THREE.Group, look: Look | undefined, cutter: boolean, strength = 6) {
     let lamp = g.children.find((c): c is THREE.PointLight => c instanceof THREE.PointLight);
     if (!look?.glowStrength || cutter) return lamp?.removeFromParent();
@@ -2073,6 +2073,7 @@ export class Viewer implements ToolView {
     lamp.position.copy(center);
     lamp.color.set(look.glow);
     lamp.intensity = strength * look.glowStrength * 2 * radius;
+    lamp.distance = look.glowReach ?? 0;
   }
 
   private dropped = new Set<string>();

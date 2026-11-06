@@ -233,6 +233,14 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       };
       return el;
     };
+    // the glow's reach in the 3D view, 20 mm to 2 m on a log scale; the right end: no limit
+    const reach = () => {
+      const el = make('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(shown!.glowReach ? Math.log(shown!.glowReach / 20) / Math.log(100) : 1), title: 'How far the glow lights the bodies around it in the 3D view, fading out on the way (right end: no limit). Renders light as real light goes.' }) as HTMLInputElement;
+      let live = false;
+      el.oninput = () => (put({ glowReach: +el.value >= 1 ? undefined : Math.round(20 * 100 ** +el.value) }, live), (live = true));
+      el.onchange = () => (live = false);
+      return make('div', { className: 'row light' }, make('span', { textContent: 'Reach' }), make('small', { textContent: 'near' }), el, make('small', { textContent: 'far' }));
+    };
     const overlay = make(
       'select',
       {
@@ -269,6 +277,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
             slider('reflection', 'Reflection', 'How much it mirrors what is around it, like metal'),
             slider('translucency', 'See-through', 'Solid to clear'),
             make('div', { className: 'row light' }, make('span', { textContent: 'Glow' }), (slider('glowStrength', '', 'How strong it glows: it lights what is around').querySelector('input') as HTMLElement), colour('glow', 'Colour of the glow')),
+            ...(own ? [] : [reach()]),
             make('div', { className: 'row light' }, make('span', { textContent: 'Overlay' }), overlay),
           ]),
     );

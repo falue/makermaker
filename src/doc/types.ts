@@ -319,6 +319,8 @@ export interface MaterialLook {
   translucency: number;
   glow: string;
   glowStrength: number;
+  /** How far (mm) its glow lights the bodies around it in the 3D view, fading out on the way; none: no limit. */
+  glowReach?: number;
   overlay?: 'metric' | 'imperial';
   image?: string;
   /** How it looks in renders, when not the same as in the 3D view (its picture stays the one above). */

@@ -9,6 +9,7 @@ export interface Look {
   translucency: number;
   glow: string;
   glowStrength: number;
+  glowReach?: number;
   overlay?: MaterialLook['overlay'];
   image?: string;
   /** In renders, when not the same as in the 3D view. */
@@ -42,6 +43,7 @@ const drawn = (m: MaterialLook): Look => ({
   translucency: m.translucency,
   glow: m.glow,
   glowStrength: m.glowStrength,
+  ...(m.glowReach ? { glowReach: m.glowReach } : {}),
   ...(m.overlay ? { overlay: m.overlay } : {}),
   ...(m.image ? { image: m.image } : {}),
 });
@@ -128,9 +130,9 @@ function freeName(doc: Doc, name: string) {
 export function newMaterialFor(doc: Doc, ids: string[], id: string, patch: Partial<MaterialLook> = {}): Doc {
   const first = [...doc.bodies, ...doc.groups].find((x) => ids.includes(x.id));
   if (!first) return doc;
-  const { color, bump, reflection, translucency, glow, glowStrength, overlay, render } = setLook(doc, first) ?? plainLook('color' in first ? first.color : '#d8c3a0');
+  const { color, bump, reflection, translucency, glow, glowStrength, glowReach, overlay, render } = setLook(doc, first) ?? plainLook('color' in first ? first.color : '#d8c3a0');
   const source = findMaterial(doc, first.material);
-  const material: Material = { color, bump, reflection, translucency, glow, glowStrength, ...(overlay ? { overlay } : {}), ...(render ? { render } : {}), ...patch, id, name: freeName(doc, source ? `${source.name} copy` : first.name) };
+  const material: Material = { color, bump, reflection, translucency, glow, glowStrength, ...(glowReach ? { glowReach } : {}), ...(overlay ? { overlay } : {}), ...(render ? { render } : {}), ...patch, id, name: freeName(doc, source ? `${source.name} copy` : first.name) };
   return assignMaterial({ ...doc, materials: [...doc.materials, material] }, ids, id);
 }
 
