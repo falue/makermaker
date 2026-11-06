@@ -1331,10 +1331,10 @@ export class Viewer implements ToolView {
 
   /**
    * Blue marks on the reference points of the active sketch's selected shapes (and of shapes measured from
-   * elsewhere than their centre), each with an arrow in the direction the shape grows; a centre one only while the
+   * elsewhere than their centre), each with an arrow in the direction the shape grows (at the centre a cross of four); a centre one only while the
    * pointer is over the selected shape's box (`boxHover`), as its handles.
    */
-  private refMarks(arrowPx = 36, headPx = 10) {
+  private refMarks(arrowPx = 36, headPx = 10, crossPx = 22) {
     const s = this.sketches.find((v) => v.id === this.activeSketch);
     if (!s) return [];
     const points: THREE.Vector3[] = [];
@@ -1346,19 +1346,23 @@ export class Viewer implements ToolView {
       const [u, v] = anchorAt(p, ref);
       const at = new THREE.Vector3(...toWorld(s.frame, u, v));
       points.push(at);
-      if (!ref[0] && !ref[1]) continue;
-      const [cu, cv] = anchorAt(p, [0, 0]);
-      const dir = new THREE.Vector3(...toWorld(s.frame, cu, cv)).sub(at).normalize();
-      const side = dir.clone().cross(new THREE.Vector3(...s.frame.n));
       // mm per screen px along a direction in the (tilted) plane
       const mm = (d: THREE.Vector3) => {
         const [[x0, y0], [x1, y1]] = [this.toScreen(at), this.toScreen(at.clone().add(d))];
         return 1 / (Math.hypot(x1 - x0, y1 - y0) || 1);
       };
-      const tip = at.clone().addScaledVector(dir, arrowPx * mm(dir));
-      const back = tip.clone().addScaledVector(dir, -headPx * mm(dir));
-      const wing = (headPx / 2) * mm(side);
-      lines.push(at, tip, tip, back.clone().addScaledVector(side, wing), tip, back.addScaledVector(side, -wing));
+      // off the centre: one arrow towards it; at the centre: a cross of four, along the shape's sides
+      const towards = (r: [number, number]) => new THREE.Vector3(...toWorld(s.frame, ...anchorAt(p, r))).sub(at);
+      const centred = !ref[0] && !ref[1];
+      const dirs = (centred ? ([[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]).map(towards) : [towards([0, 0])]).filter((d) => d.lengthSq() > 1e-12);
+      for (const d of dirs) {
+        const dir = d.normalize();
+        const side = dir.clone().cross(new THREE.Vector3(...s.frame.n));
+        const tip = at.clone().addScaledVector(dir, (centred ? crossPx : arrowPx) * mm(dir));
+        const back = tip.clone().addScaledVector(dir, -headPx * mm(dir));
+        const wing = (headPx / 2) * mm(side);
+        lines.push(at, tip, tip, back.clone().addScaledVector(side, wing), tip, back.addScaledVector(side, -wing));
+      }
     }
     const arrows = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lines), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false }));
     return points.length ? [marks(points, 0x1d4ed8, 16), arrows] : [];
