@@ -47,9 +47,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - After the view cube was dragged over the top or bottom, the camera stays upside down until a cube side, a corner or Home: orbiting the view itself meanwhile feels the other way round sideways, and the view's own orbit still stops at the poles.
 - Dragging a body opens the move fields; dragging sketch shapes or an image still moves them at once on letting go.
 
-## Laser export
-- "Could not make" for box-jointed boards (Joint board A, a copy of B) was seen once and not reproduced: boards jointed at one or both ends, with a slot, a hole and copies all export. The note now says why in brackets after the name.
-
 ## Renders
 - A material's own render look and its glow Reach are not in MaterialX exports or imports; the Python `look` command cannot set the render look.
 - A glowing body's light comes from its middle: a long glowing strip lights like a ball. In renders a glowing body casts no shadow (so its light gets out).
