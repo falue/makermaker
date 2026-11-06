@@ -119,10 +119,29 @@ export function applyLook(m: THREE.MeshStandardMaterial, l: Look, around: THREE.
   m.opacity = 1 - 0.8 * l.translucency;
 }
 
-/** The look for the path tracer (its own for renders if it has one): light really passes through and bends, glow lights what is around. */
+/** A geometry's bounding sphere, worked out when first asked for. */
+export const sphereOf = (g: THREE.BufferGeometry) => g.boundingSphere ?? (g.computeBoundingSphere(), g.boundingSphere!);
+
+/**
+ * The light a glowing look gives off from the middle of a body (`radius`: of its bounding sphere), the same in the 3D
+ * view and in renders: a faint glow up to many times the sun's light at its own size away, fading with distance
+ * (1 / distance), gone at its reach. `k` scales it all.
+ */
+export function glowLight(l: Look, radius: number, light = new THREE.PointLight(), k = 2) {
+  light.color.set(l.glow);
+  light.intensity = k * (100 ** l.glowStrength - 1) * radius;
+  light.distance = l.glowReach ?? 0;
+  light.decay = 1;
+  return light;
+}
+
+/**
+ * The look for the path tracer (its own for renders if it has one): light really passes through and bends. A glowing
+ * one casts no shadow, so its `glowLight` from inside gets out.
+ */
 export function renderMaterial(look: Look) {
   const l = look.render ?? look;
-  return new THREE.MeshPhysicalMaterial({
+  const m = new THREE.MeshPhysicalMaterial({
     color: l.color,
     roughness: l.roughness,
     metalness: l.metalness,
@@ -134,4 +153,5 @@ export function renderMaterial(look: Look) {
     normalMap: l.bump > 0 ? bumpMap() : null,
     normalScale: new THREE.Vector2(strength(l.bump), strength(l.bump)),
   });
+  return Object.assign(m, { castShadow: !(l.glowStrength > 0) }); // read by the path tracer
 }

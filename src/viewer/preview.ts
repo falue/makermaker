@@ -4,7 +4,7 @@ import { findMaterial, lightDirections, toLook, type Look } from '../doc/materia
 import type { Doc } from '../doc/types';
 import type { Light } from '../doc/types';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { applyLook, boxUv, renderMaterial } from './look';
+import { applyLook, boxUv, glowLight, renderMaterial, sphereOf } from './look';
 import { addHaze, depthPicture, hazeColourOf } from './render';
 
 type Tracer = import('three-gpu-pathtracer').WebGLPathTracer;
@@ -31,6 +31,9 @@ export class MaterialPreview {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(32, WIDTH / HEIGHT, 1, 5000);
   private teapot: THREE.Mesh;
+  /** The teapot's glow light (always there, dark without glow: the tracer keeps its lights). */
+  private glow = new THREE.PointLight(0xffffff, 0);
+  private radius: number;
   private sun = new THREE.DirectionalLight();
   private lamp = new THREE.DirectionalLight();
   private sky: THREE.DataTexture | null = null;
@@ -55,6 +58,10 @@ export class MaterialPreview {
     this.teapot = new THREE.Mesh(geometry, renderMaterial(BLANK));
     this.teapot.position.set(-12, 50, 9); // its bottom on the floor, its spout inside the picture
     this.teapot.castShadow = true;
+    const { center, radius } = sphereOf(geometry);
+    this.glow.position.copy(center);
+    this.radius = radius;
+    this.teapot.add(this.glow);
     const standard = (id: string) => toLook(findMaterial({ materials: [] } as unknown as Doc, id)!);
     const [floorLook, gridLook] = [standard('std-pom-black'), standard('std-grid-metric')];
     const [floor, grid] = [renderMaterial(floorLook), renderMaterial(gridLook)];
@@ -117,8 +124,11 @@ export class MaterialPreview {
     const next = renderMaterial(look);
     if (wears.map !== next.map || wears.normalMap !== next.normalMap || wears.transmission > 0 !== next.transmission > 0) wears.needsUpdate = true;
     wears.copy(next);
+    Object.assign(wears, { castShadow: (next as THREE.MeshPhysicalMaterial & { castShadow: boolean }).castShadow }); // copy leaves it out
     next.dispose();
+    glowLight(look.render ?? look, this.radius, this.glow);
     this.tracer?.updateMaterials();
+    this.tracer?.updateLights();
     if (light === this.lit) return;
     this.lit = light;
     // the scene is y up, the light's angles z up
@@ -150,6 +160,7 @@ export class MaterialPreview {
       pmrem.dispose();
     }
     applyLook(inView.teapot, look, look.metalness > 0 ? inView.around : null);
+    glowLight(look, this.radius, this.glow); // the 3D view's glow, back to the render's below
     inView.ambient.color.set(light.ambientColor);
     inView.ambient.groundColor.set(light.ambientColor).multiplyScalar(0.53);
     inView.ambient.intensity = light.ambient;
@@ -168,6 +179,7 @@ export class MaterialPreview {
     inView.ambient.visible = false;
     this.scene.environment = environment;
     this.teapot.material = rendered[0] as THREE.Material;
+    glowLight(look.render ?? look, this.radius, this.glow);
     this.walls.forEach((w, i) => (w.material = rendered[i + 1] as THREE.Material));
   }
 

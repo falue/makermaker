@@ -22,7 +22,7 @@ import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayou
 import { fastRaycast } from './pick';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { DEFAULT_LIGHT, lightDirections, plainLook, toLook, type Look } from '../doc/materials';
-import { applyLook, boxUv, needsUv, pictureLoaded, renderMaterial } from './look';
+import { applyLook, boxUv, glowLight, needsUv, pictureLoaded, renderMaterial, sphereOf } from './look';
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import { backdropCss, drawSky, SKIES, twoColours } from './sky';
@@ -2062,18 +2062,13 @@ export class Viewer implements ToolView {
     this.glowLamp(g, look, cutter);
   }
 
-  /** A glowing body lights its neighbours from its middle: `strength` times the sun's light at its own size away, fading slowly (1 / distance), gone at its reach. */
-  private glowLamp(g: THREE.Group, look: Look | undefined, cutter: boolean, strength = 6) {
+  /** A glowing body lights its neighbours (`glowLight`, from its middle). */
+  private glowLamp(g: THREE.Group, look: Look | undefined, cutter: boolean) {
     let lamp = g.children.find((c): c is THREE.PointLight => c instanceof THREE.PointLight);
     if (!look?.glowStrength || cutter) return lamp?.removeFromParent();
-    if (!lamp) g.add((lamp = Object.assign(new THREE.PointLight(), { decay: 1 })));
-    const geometry = (g.children[0] as THREE.Mesh).geometry;
-    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-    const { center, radius } = geometry.boundingSphere!;
-    lamp.position.copy(center);
-    lamp.color.set(look.glow);
-    lamp.intensity = strength * look.glowStrength * 2 * radius;
-    lamp.distance = look.glowReach ?? 0;
+    if (!lamp) g.add((lamp = new THREE.PointLight()));
+    const { center, radius } = sphereOf((g.children[0] as THREE.Mesh).geometry);
+    glowLight(look, radius, lamp).position.copy(center);
   }
 
   private dropped = new Set<string>();
@@ -2379,7 +2374,16 @@ export class Viewer implements ToolView {
     const meshes: THREE.Mesh[] = [...this.bodies].flatMap(([id, g]) => {
       const solid = g.children[0] as THREE.Mesh | undefined;
       if (!solid || this.hidden.has(id) || this.cutters.has(id)) return [];
-      const m = new THREE.Mesh(solid.geometry, renderMaterial(this.looks.get(id) ?? toLook(plainLook('#d8c3a0'))));
+      const look = this.looks.get(id) ?? toLook(plainLook('#d8c3a0'));
+      const m = new THREE.Mesh(solid.geometry, renderMaterial(look));
+      // a glowing one lights what is around from its middle, as in the 3D view
+      const lit = look.render ?? look;
+      if (lit.glowStrength > 0) {
+        const { center, radius } = sphereOf(solid.geometry);
+        const lamp = glowLight(lit, radius);
+        lamp.position.copy(center);
+        m.add(lamp);
+      }
       m.applyMatrix4(g.matrixWorld);
       return [m];
     });
