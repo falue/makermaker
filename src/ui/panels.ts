@@ -990,6 +990,11 @@ function rendersPanel(ctx: UIContext): Node[] {
     const job = renders.jobs.get(shot.id);
     const picture = job?.canvas ?? h('img', { src: job?.url ?? shot.results[0]?.preview ?? shot.thumbnail, alt: 'Render' });
     picture.style.background = backdropCss(shot.background);
+    // not rendered yet: the thumbnail (the view's shape) cut to its Aspect from the middle
+    if (!job && !shot.results.length && shot.aspect !== 'view') {
+      const [a, b] = (shot.aspect ?? '16:9').split(':').map(Number);
+      Object.assign(picture.style, { aspectRatio: `${a} / ${b}`, objectFit: 'cover', [a / b > 16 / 9 ? 'width' : 'height']: '100%' });
+    }
     // rendered more than once: the older results below, newest first
     const older = shot.results.slice(job?.canvas ? 0 : 1).map((r) => h('img', { src: r.preview, title: `${r.nice ? 'Rendered' : 'Snapshot'} ${new Date(r.at).toLocaleString()}` }));
     const c = shotCamera(shot.camera, shot.aspect);
