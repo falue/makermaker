@@ -99,11 +99,17 @@ body {
   align-items: center;
   gap: 6px;
   margin-right: 10px;
-  letter-spacing: 0.05em;
+}
+/* the name: as tall as the logo's drawing (15 of its 20 px), cut at the x-height (the k's top goes) */
+#topbar .wordmark {
+  font-size: 30px;
+  font-size-adjust: 0.5;
+  text-box: trim-both ex alphabetic;
+  overflow: hidden;
 }
 #topbar .logo svg {
   display: block;
-  color: var(--accent);
+  color: var(--muted);
   width: 20px;
   height: 20px;
 }
