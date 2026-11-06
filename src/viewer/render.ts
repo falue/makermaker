@@ -87,7 +87,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   const hazeColour = hazeColourOf(light.ambientColor);
   // the real fog: a box of it around everything, at 1 about 2/3 of the light gone across the model's size
   const size = box.getSize(new THREE.Vector3()).length();
-  const fogMaterial = fog > 0 ? new FogVolumeMaterial({ color: hazeColour, density: fog / size }) : null;
+  const fogMaterial = fog > 0 ? new FogVolumeMaterial({ color: 'white', density: fog / size }) : null; // white: see `fogBounces`
   const fogBox = fogMaterial && new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), fogMaterial);
   if (fogBox) {
     fogBox.scale.setScalar(size * 2);
@@ -106,7 +106,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   view.applyMatrix4(turn);
   view.updateMatrixWorld();
   const tracer = new WebGLPathTracer(renderer);
-  Object.assign(tracer, { renderDelay: 0, fadeDuration: 0, minSamples: 0 });
+  Object.assign(tracer, { renderDelay: 0, fadeDuration: 0, minSamples: 0, bounces: fogBounces(fog, tracer.bounces) });
   tracer.setScene(scene, view);
   watch.show(renderer.domElement);
   try {
@@ -201,6 +201,13 @@ export function addHaze(g: CanvasRenderingContext2D, depth: Uint8ClampedArray, c
   }
   g.putImageData(picture, 0, 0);
 }
+
+/**
+ * The tracer's bounces with real fog: each scatter in it is one, and a path out of the bounces turns black, so thick fog
+ * needs many. Its colour is white for the same reason: it is what each scatter keeps, so it loses no light (its tint
+ * comes from the light).
+ */
+export const fogBounces = (fog: number, plain: number) => (fog > 0 ? 32 : plain);
 
 /** The haze colour of a light. */
 export const hazeColourOf = (ambient: string) => new THREE.Color(ambient).lerp(new THREE.Color(0xc9ced6), 0.5);

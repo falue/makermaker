@@ -5,7 +5,7 @@ import type { Doc } from '../doc/types';
 import type { Light } from '../doc/types';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { applyLook, boxUv, glowLight, renderMaterial, sphereOf } from './look';
-import { addHaze, depthPicture, hazeColourOf } from './render';
+import { addHaze, depthPicture, fogBounces, hazeColourOf } from './render';
 
 type Tracer = import('three-gpu-pathtracer').WebGLPathTracer;
 
@@ -189,6 +189,8 @@ export class MaterialPreview {
     if (this.air.haze > 0 && this.depth) addHaze(g, this.depth, hazeColourOf(this.haze), this.air.haze);
   }
   private haze = '#ffffff';
+  /** The tracer's bounces without fog. */
+  private bounces = 5;
 
   /** Fog and haze as asked: a box of real fog (a new scene for the tracer when it comes or goes), the depth for the haze. */
   private async setAir(air: { haze: number; fog: number }, light: Light) {
@@ -196,7 +198,7 @@ export class MaterialPreview {
     this.haze = light.ambientColor;
     const { FogVolumeMaterial } = air.fog > 0 && !this.fog ? await import('three-gpu-pathtracer') : { FogVolumeMaterial: null };
     if (FogVolumeMaterial) {
-      this.fog = new THREE.Mesh(new THREE.BoxGeometry(1600, 800, 1600), new FogVolumeMaterial({ color: 0xc9ced6, density: 0 }));
+      this.fog = new THREE.Mesh(new THREE.BoxGeometry(1600, 800, 1600), new FogVolumeMaterial({ color: 'white', density: 0 }));
       this.fog.position.y = 400;
       this.scene.add(this.fog);
       this.tracer?.setScene(this.scene, this.camera);
@@ -204,8 +206,8 @@ export class MaterialPreview {
     if (this.fog) {
       const m = this.fog.material as THREE.MeshStandardMaterial & { density: number };
       m.density = air.fog / 1500;
-      m.color.copy(hazeColourOf(light.ambientColor));
       this.fog.visible = air.fog > 0;
+      if (this.tracer) this.tracer.bounces = fogBounces(air.fog, this.bounces);
       this.tracer?.updateMaterials();
     }
     if (air.haze <= 0) return;
@@ -219,7 +221,7 @@ export class MaterialPreview {
   private async trace(samples: number, scale: number, each?: () => void) {
     if (!this.tracer) {
       const { WebGLPathTracer } = await import('three-gpu-pathtracer');
-      this.tracer = Object.assign(new WebGLPathTracer(this.renderer), { renderDelay: 0, fadeDuration: 0, minSamples: 0, bounces: 5 });
+      this.tracer = Object.assign(new WebGLPathTracer(this.renderer), { renderDelay: 0, fadeDuration: 0, minSamples: 0, bounces: fogBounces(this.air.fog, this.bounces) });
       if (this.closed) return false;
       this.tracer.tiles.set(1, 1); // a whole picture per frame
       this.tracer.setScene(this.scene, this.camera);
