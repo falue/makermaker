@@ -39,9 +39,9 @@ function extrudeFace(s: Resolved<ExtrudeIn>, f: Frame, p: V3, out: V3, eps: numb
   if (Math.abs(along) > 0.999) {
     if (s.through || !s.profiles.some((q) => inside(q, u, v))) return null;
     if (Math.abs(h - s.depth) < eps) return { kind: 'cap', feature: s.id, rate: along };
-    // the face behind the plane (when it reaches back): moving it out makes `back` longer
+    // the face behind the plane (on it, when it does not reach back): moving it out makes `back` longer
     const behind = -(Math.sign(s.depth) || 1);
-    return s.back && Math.abs(h - behind * s.back) < eps ? { kind: 'cap', feature: s.id, rate: behind * along, back: true } : null;
+    return Math.abs(h - behind * (s.back ?? 0)) < eps ? { kind: 'cap', feature: s.id, rate: behind * along, back: true } : null;
   }
   if (Math.abs(along) > 0.02) return null;
   if (!s.through && (h < from - eps || h > to + eps)) return null;

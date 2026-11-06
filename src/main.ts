@@ -299,7 +299,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     const im = history.current.images[i];
     commit(setIn(history.current, ['images', String(i)], { ...im, width: width ?? im.width, frame: { ...im.frame, o } }));
   },
-  move: place,
+  dragMove: () => moveAlong(0, true) ?? (() => {}),
   pickShape(sketch, shape, how) {
     pickShape(sketch, shape, how);
     if (selected.includes(sketch)) revealInList(sketch);
@@ -1436,6 +1436,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   if (all) [2, 1, 0].forEach(open); // all three, then the cursor goes to `first`
   open(first);
   show();
+  return close;
 }
 
 /** Where the selection reaches along `axis` (world mm, without the move preview): bodies' boxes, or the moved shapes' outlines. */
@@ -5603,6 +5604,15 @@ function facePullOnly(doc: Doc, face: FaceItem, features: BuildFeature[] | undef
   const lookup = paramLookup(doc.params);
   const featurePath = ['bodies', String(bi), 'features', String(fi)];
   if (hit.kind === 'cap') {
+    const src = feature.source;
+    if (hit.back && !feature.back) {
+      // its own shapes on a base plane: the plane moves out, H grows as much (no Back); from a sketch: as before
+      if (src.kind === 'sketch' || src.plane.kind !== 'base') return push();
+      const off = src.plane.offset;
+      const [d0, o0] = [feature.depth, off].map((x) => resolve(x, lookup, '', new Map()) as number);
+      const s = Math.sign(d0) || 1;
+      return (d, mm) => setIn(setIn(d, [...featurePath, 'depth'], plus(feature.depth, d0, s * mm * hit.rate)), [...featurePath, 'source', 'plane', 'offset'], plus(off, o0, -s * mm * hit.rate));
+    }
     // the end face changes the depth, the face behind the plane how far it reaches back
     const key = hit.back ? 'back' : 'depth';
     const value = feature[key] ?? len(0);
@@ -6472,7 +6482,7 @@ async function exportPanel(kind: 'laser' | 'print') {
   const checks = new Map<string, PrintCheck>();
   const rows = () =>
     bodies.map((b) => {
-      const tick = Object.assign(document.createElement('input'), { type: 'checkbox', checked: on.has(b.id), onchange: () => (tick.checked ? on.add(b.id) : on.delete(b.id)) });
+      const tick = Object.assign(document.createElement('input'), { type: 'checkbox', checked: on.has(b.id), onchange: () => (tick.checked ? on.add(b.id) : on.delete(b.id), draw()) });
       const row = Object.assign(document.createElement('label'), { className: 'export-row', onmouseenter: () => viewer.lightBodies([b.id]), onmouseleave: () => viewer.lightBodies([]) });
       row.append(tick, Object.assign(document.createElement('span'), { className: 'name', textContent: b.name }));
       if (kind === 'laser') {
@@ -6511,7 +6521,12 @@ async function exportPanel(kind: 'laser' | 'print') {
         ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf), segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice.laser, (v) => (exportChoice.laser = v))]
         : [segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v))];
     box.replaceChildren(Object.assign(document.createElement('div'), { className: 'export-rows' }), ...options, panelButton('Export', 'Export the ticked ones (Enter)', go));
-    box.firstElementChild!.append(...rows());
+    // on top: all ticked or none (some: shown half)
+    const every = on.size === bodies.length;
+    const all = Object.assign(document.createElement('input'), { type: 'checkbox', checked: every, indeterminate: !!on.size && !every, onchange: () => (bodies.forEach((b) => (every ? on.delete(b.id) : on.add(b.id))), draw()) });
+    const head = Object.assign(document.createElement('label'), { className: 'export-row' });
+    head.append(all, Object.assign(document.createElement('span'), { className: 'name', textContent: every ? 'Unselect all' : 'Select all' }));
+    box.firstElementChild!.append(...(bodies.length > 1 ? [head] : []), ...rows());
     atTop(box);
   };
   toolHint = kind === 'laser' ? 'Laser: untick what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels' : '3D print: untick what stays out · each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';

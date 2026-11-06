@@ -10,7 +10,8 @@ const hole: BuildFeature = { id: 'h', type: 'extrude', plane: ground, profiles: 
 describe('faceAt', () => {
   it('finds end faces and sides', () => {
     expect(faceAt([plate], [0, 0, 4], [0, 0, 1])).toEqual({ kind: 'cap', feature: 'p', rate: 1 });
-    expect(faceAt([plate], [0, 0, 0], [0, 0, -1])).toBeNull();
+    // the face on the plane: pulling it makes it reach back
+    expect(faceAt([plate], [0, 0, 0], [0, 0, -1])).toEqual({ kind: 'cap', feature: 'p', rate: 1, back: true });
     expect(faceAt([plate], [20, 3, 2], [1, 0, 0])).toEqual({ kind: 'side', feature: 'p', shape: 'r', edge: 1, rate: 1 });
     expect(faceAt([plate], [-5, -10, 2], [0, -1, 0])).toMatchObject({ edge: 0, rate: 1 });
   });

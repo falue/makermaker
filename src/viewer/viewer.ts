@@ -42,8 +42,8 @@ type Span = [number, number];
 export interface ViewerHost {
   /** `add`: Shift- or ⌘ / Ctrl-click, adds the body to the selection or removes it. */
   select(id: string | null, add: boolean): void;
-  /** Bodies were dragged to new positions (mm). */
-  move(moves: { id: string; position: Vec3 }[]): void;
+  /** A drag of the selected bodies began: the move fields open (all three at 0); returns their close. */
+  dragMove(): () => void;
   /** An image was dragged to a new middle (world, mm) or corner-dragged to a new width too. */
   placeImage(id: string, o: Vec3, width?: number): void;
   /** A sketch shape was clicked; `add`: Shift or ⌘ / Ctrl, toggles it in the selection. */
@@ -265,9 +265,9 @@ interface ShapeEdit {
 }
 
 /**
- * Z-up viewport. Dragging a body moves it along one axis, picked by the drag direction like a weapon wheel (shown at
- * the press point; leaving its dead zone picks the axis, going back through it frees it; typing sets the distance;
- * the step follows the zoom: Shift coarse, Ctrl precise). Clicking a cut face picks its body. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
+ * Z-up viewport. Dragging a body opens the move fields and moves it along one axis, picked by the drag direction like a
+ * weapon wheel (shown at the press point; leaving its dead zone picks the axis, going back through it frees it; typing
+ * sets the distance; the step follows the zoom: Shift coarse, Ctrl precise). Clicking a cut face picks its body. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
  * to orthographic until the next rotation. Top left: Ortho / Persp and Fit. A sketch tool takes the pointer while active.
  */
 export class Viewer implements ToolView {
@@ -759,7 +759,8 @@ export class Viewer implements ToolView {
           this.renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { clientX, clientY, bubbles: true }));
           return e.preventDefault(), e.stopPropagation();
         }
-        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
+        // a running drag takes keys also from the move field it fills
+        if (!this.drag?.moved && (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement)) return;
         // the Esc that freed a locked pointer was already handled
         if (pressed(e, 'cancel') && performance.now() - this.escFreed < 300) return e.preventDefault(), e.stopPropagation();
         const used = this.drag?.moved
@@ -2810,11 +2811,10 @@ export class Viewer implements ToolView {
     return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < this.wheelPx;
   }
 
-  /** A press on the gizmo: the move a body grab starts, from its middle; the move sets the axes' values (released unmoved: as before). */
+  /** A press on the gizmo: the move a body grab starts, from its middle; the move sets the axes' values. */
   private dragGizmo(e: PointerEvent) {
     const g = this.gizmo!;
     const from = [0, 1, 2].map((k) => g.value(k));
-    const set = (by: THREE.Vector3) => from.forEach((v, k) => g.set(k, v + by.getComponent(k)));
     this.downAt = { x: e.clientX, y: e.clientY };
     this.downOnPart = true; // no click on empty space
     this.startDrag(e, this.ray(e), g.at.clone(), {
@@ -2822,10 +2822,8 @@ export class Viewer implements ToolView {
       lead: new THREE.Vector3(), // the distance lands on the step
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(unit(this.facingAxis()), g.at),
       only: null,
-      apply: set,
-      end: (by) => {
-        if (!by) set(new THREE.Vector3());
-      },
+      apply: (by) => from.forEach((v, k) => g.set(k, v + by.getComponent(k))),
+      end: () => {},
     });
   }
 
@@ -4124,27 +4122,21 @@ export class Viewer implements ToolView {
     }
     this.host.pickFinish(f && { body: id, ...f });
     const start = hit.point.clone();
-    const group = this.withOwned(this.selection).map((g) => ({ id: g, from: this.group(g).position.clone() }));
     this.startDrag(e, ray.ray, start, {
       axes: [0, 1, 2],
-      lead: group[0].from,
+      lead: this.group(this.withOwned(this.selection)[0]).position.clone(),
       // the base plane facing the camera most (top view: XY, front: XZ, side: YZ)
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(unit(this.facingAxis()), start),
       only: member && this.selection.length > 1 ? id : null,
+      // the first step opens the move fields; the drag then writes them (they show it moved), Enter or ✓ there moves
       apply: (by) => {
-        if (!this.moving) this.previewMove(new THREE.Vector3()); // a ghost stays where they were
-        for (const g of group) this.group(g.id).position.copy(g.from).add(by);
-        this.applySection(false);
+        const close = this.host.dragMove();
+        const d = this.drag!;
+        d.apply = (b) => [0, 1, 2].forEach((k) => this.gizmo?.set(k, b.getComponent(k)));
+        d.end = (b) => void (!b?.lengthSq() && close()); // let go where it started: no move
+        d.apply(by);
       },
-      end: (by) => {
-        const to = group.map((g) => ({ id: g.id, position: this.group(g.id).position.toArray() }));
-        this.previewMove(null); // the ghosts go (and all back where it was)
-        if (by) {
-          for (const t of to) this.group(t.id).position.fromArray(t.position);
-          return this.host.move(to);
-        }
-        this.applySection();
-      },
+      end: () => {},
     });
   }
 
@@ -4373,11 +4365,12 @@ export class Viewer implements ToolView {
     this.renderSketches();
   }
 
-  /** Keys during a move: typing sets the distance, Enter keeps the move, Esc undoes it. */
+  /** Keys during a move: typing sets the distance, Enter keeps the move, Esc undoes it; with the move fields open Esc keeps it there and Enter goes on to them (moves). */
   private dragKey(e: KeyboardEvent): boolean {
     const d = this.drag!;
-    if (pressed(e, 'confirm') || pressed(e, 'cancel')) this.endDrag(pressed(e, 'confirm'));
-    else if (e.key === 'Tab' && restOf(d.typed ?? '')) d.typed += restOf(d.typed!); // a name showing: written out
+    const fields = !!this.gizmo;
+    if (pressed(e, 'confirm') || pressed(e, 'cancel')) return this.endDrag(fields || pressed(e, 'confirm')), !(fields && pressed(e, 'confirm'));
+    if (e.key === 'Tab' && restOf(d.typed ?? '')) d.typed += restOf(d.typed!); // a name showing: written out
     else if (pressed(e, 'erase')) d.typed = d.typed?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) d.typed = (d.typed ?? '') + e.key;
     else return false;

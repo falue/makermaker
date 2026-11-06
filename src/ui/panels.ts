@@ -1361,9 +1361,10 @@ function alignRow(ctx: UIContext) {
 
 /**
  * Fields of one shape at `path`, as in Illustrator's transform panel: X / Y of the reference point, size and turn
- * (degrees) around it, corner radius. Stored values show their expressions; measured ones show numbers.
+ * (degrees) around it, corner radius. Stored values show their expressions; measured ones show numbers. `place`
+ * false: no X / Y / Turn and reference diamond (a body's only shape, at its origin: Position and Rotation place it).
  */
-function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
+function shapeFields(ctx: UIContext, path: string, p: Profile, place = true): HTMLElement[] {
   const keys = path.split('.');
   const m = ctx.measure(keys);
   const u = ctx.doc.units;
@@ -1385,15 +1386,15 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
     return [...(size?.l ? [set('l', `L ${side + 1}`, size.l)] : []), ...(size?.deg ? [set('deg', `∠ ${side + 1}`, size.deg, true)] : [])];
   }) : [];
   const arcRows = Array.from({ length: Math.ceil(sideRows.length / 3) }, (_, k) => row(...sideRows.slice(k * 3, k * 3 + 3)));
-  const shape = (...rows: HTMLElement[]) => [h('div', { className: 'shape-fields' }, refGrid(ctx, p.id), h('div', {}, ...rows, ...arcRows))];
-  const pos = [tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))];
+  const shape = (...rows: HTMLElement[]) => [h('div', { className: 'shape-fields' }, ...(place ? [refGrid(ctx, p.id)] : []), h('div', {}, ...rows.filter((r) => r.childElementCount), ...arcRows))];
+  const pos = place ? [tf('x', 'X', m.centred ? stored('x') : mm(m.x)), tf('y', 'Y', m.centred ? stored('y') : mm(m.y))] : [];
   if (p.kind === 'circle') return shape(row(...pos, tf('d', 'Ø', stored('d'))));
   const link = tool('link', ctx.linkSize(p.id) ? 'L and W change together: click to unlink' : 'Link L and W: they change together', () => ctx.toggleLinkSize(p.id), ctx.linkSize(p.id));
   const [w, hh] = p.kind === 'rect' ? [stored('w'), stored('h')] : [mm(m.w), mm(m.h)];
   if (p.kind === 'line') return shape(row(...pos), row(tf('w', 'L', w), link, tf('h', 'W', hh))); // no corners to round, no turn of its own
-  const rot = tf('rot', 'Turn °', stored('rot'), true); // degrees: shown as typed, never unit-converted
-  if (p.kind === 'ngon') return shape(row(...pos, rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true)));
-  return shape(row(...pos, rot), row(tf('w', 'L', w), link, tf('h', 'W', hh), pf('r', 'R')));
+  const rot = place ? [tf('rot', 'Turn °', stored('rot'), true)] : []; // degrees: shown as typed, never unit-converted
+  if (p.kind === 'ngon') return shape(row(...pos, ...rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true)));
+  return shape(row(...pos, ...rot), row(tf('w', 'L', w), link, tf('h', 'W', hh), pf('r', 'R')));
 }
 
 /** Illustrator's reference point locator for one shape: which point of its box X / Y give, and which point stays when sizing or turning. */
@@ -1426,6 +1427,20 @@ function segmented<T extends string>(value: T, options: Record<T, string>, onCha
   return h('span', { className: 'segmented' }, ...(Object.entries(options) as [T, string][]).map(([v, label]) => h('button', { className: v === value ? 'on' : '', onclick: () => v !== value && onChange(v) }, label)));
 }
 
+/**
+ * An extrusion of its own shapes on a base plane with its Back folded in (plain numbers in one unit): H the whole
+ * height, the plane moved back as far; else as it is.
+ */
+function backInto(f: Extract<Feature, { type: 'extrude' }>): Extract<Feature, { type: 'extrude' }> {
+  const { back, depth, source } = f;
+  if (!back || source.kind !== 'own' || source.plane.kind !== 'base') return f;
+  const off = source.plane.offset;
+  if (![back, depth, off].every((x) => isPlain(x.e) && x.u === depth.u)) return f;
+  const s = Math.sign(Number(depth.e)) || 1;
+  const sum = (a: Expr, by: number): Expr => ({ e: fmt(Number(a.e) + by), u: a.u });
+  return { ...f, back: undefined, depth: sum(depth, s * Number(back.e)), source: { ...source, plane: { ...source.plane, offset: sum(off, -s * Number(back.e)) } } };
+}
+
 function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, setBody: (p: Body) => void) {
   const setFeature = (next: Feature) => setBody({ ...body, features: body.features.map((s) => (s === feature ? next : s)) });
   const remove = button('×', () => setBody({ ...body, features: body.features.filter((s) => s !== feature) }), 'Remove');
@@ -1441,8 +1456,10 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       // how far it reaches behind its sketch plane (left out: 0)
       const back = exprField(ctx, `${at}.back`, 'Back', false, { value: feature.back ?? { e: '0', u: ctx.doc.units }, set: (x, live) => ctx.setValue([...at.split('.'), 'back'], x, live), error: ctx.exprErrors.get(`${at}.back`) });
       back.title = 'How far it also reaches behind its sketch plane (Alt while pulling: as far as the depth)';
+      // a body's own shapes: Back only while it is not 0 (unlinking folds it into H and the plane's offset)
+      const backShown = feature.source.kind === 'sketch' || !isPlain(feature.back?.e ?? '0') || Number(feature.back?.e ?? 0) !== 0;
       const reach = [
-        ...(feature.through ? [] : [sizeHover(ctx, f('depth', 'H'), at, 'depth'), back]),
+        ...(feature.through ? [] : [sizeHover(ctx, f('depth', 'H'), at, 'depth'), ...(backShown ? [back] : [])]),
         ...(feature.mode === 'cut' ? [h('label', { className: 'check' }, through, 'Through')] : []),
       ];
       const src = feature.source;
@@ -1453,7 +1470,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         // (only planes a feature can hold: a base plane or this body's own end face)
         const p = sketch?.plane;
         const plane = p?.kind === 'base' ? p : p?.kind === 'cap' && p.body === body.id ? ({ kind: 'cap', feature: p.feature } as const) : null;
-        const unlink = () => plane && setFeature({ ...feature, source: { kind: 'own', plane, profiles: structuredClone(shapes), areas: src.areas } });
+        const unlink = () => plane && setFeature(backInto({ ...feature, source: { kind: 'own', plane, profiles: structuredClone(shapes), areas: src.areas } }));
         const link = sketch
           ? [
               h('button', { className: 'item', onclick: () => ctx.select(sketch.id), title: 'Select the sketch' }, `${sketch.name}: ${src.areas ? `${src.areas.length} areas` : `${shapes.length} of ${sketch.shapes.length} shapes`}`),
@@ -1473,7 +1490,9 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       );
       const profiles = src.profiles.map((p, k) => {
         const drop = button('×', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }), 'Remove this shape');
-        return h('div', { className: 'profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p), ...(src.profiles.length > 1 ? [drop] : []));
+        // the only shape, at the origin unturned: Position and Rotation place it
+        const alone = src.profiles.length === 1 && 'x' in p && [p.x, p.y, 'rot' in p ? p.rot : ex(0)].every((v) => isPlain(v.e) && Number(v.e) === 0);
+        return h('div', { className: 'profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p, !alone), ...(src.profiles.length > 1 ? [drop] : []));
       });
       return h(
         'section',
