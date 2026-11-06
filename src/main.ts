@@ -10,7 +10,7 @@ import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, 
 import { pieces } from './doc/arrangement';
 import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, icon } from './ui/icons';
-import { axisHtml } from './ui/axes';
+import { axisHtml, sizeHtml } from './ui/axes';
 import { jointed, jointsWithout } from './doc/joints';
 import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
@@ -2470,7 +2470,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
       ? [{ label: 'Count', value: '6', raw: true, int: true }, { label: 'Angle °', value: '360', raw: true }]
       : [
           ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} pcs`, value: k ? '1' : '3', raw: true, int: true, title: `${a} pcs: how many along ${a} (negative: the other way)` })),
-          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} dist`, value: fmt(5 / u), reach: reach(k), title: `${a} gap: between the copies` })),
+          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} gap`, value: fmt(5 / u), reach: reach(k), title: `${a} gap: between the copies` })),
           { label: 'Turn each °', value: '0', raw: true, title: 'Turn each °: every copy turned this much more than the one before, around its middle' },
         ];
   const link = checkbox('Linked', 'The copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => ((linkedCopies = on), apply()));
@@ -2497,7 +2497,9 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
           overall = on;
           panel.inputs.slice(3, 6).forEach((input, k) => {
             const label = input.previousElementSibling as HTMLElement;
-            label.title = input.title = `${'XYZ'[k]} ${on ? "overall: from the first copy's start to the last one's end" : 'gap: between the copies'}`;
+            // overall: the whole size, L / W / H; else the gap along X / Y / Z
+            label.innerHTML = sizeHtml(on ? 'LWH'[k] : `${'XYZ'[k]} gap`);
+            label.title = input.title = on ? `${'LWH'[k]}: from the first copy's start to the last one's end` : `${'XYZ'[k]} gap: between the copies`;
             // the same spacing, written the other way: overall = pcs × size + (pcs − 1) × gap
             const [n, s, v] = [pcs(k), size.getComponent(k), length(input.value || '0') ?? 0];
             input.value = fmt((on ? n * s + (n - 1) * v : n > 1 ? (v - n * s) / (n - 1) : 0) / u);

@@ -9,7 +9,7 @@ import { backdropCss, twoColours } from '../viewer/sky';
 import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, Unit } from '../doc/types';
 import { arcOf, type Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
-import { axisHtml } from './axes';
+import { axisHtml, sizeHtml } from './axes';
 import { BUILT_IN_PHOTOS } from './photospheres';
 import { closeButton, icon, tool, type IconName } from './icons';
 import { MAC, mod, pressed, role, toggles } from './keys';
@@ -953,7 +953,7 @@ function right(ctx: UIContext): Node[] {
     : [];
   // a row with a measure shows it in the view while hovered
   const infoRow = ([k, v, what]: [string, string, Measure?]) => {
-    const cells = [h('dt', {}, k), h('dd', {}, v)];
+    const cells = [h('dt', { innerHTML: sizeHtml(k) }), h('dd', {}, v)];
     if (what !== undefined) for (const c of cells) Object.assign(c, { className: 'measures', onmouseenter: () => ctx.showMeasure(what), onmouseleave: () => ctx.showMeasure(null) });
     return cells;
   };
