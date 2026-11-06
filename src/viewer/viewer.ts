@@ -609,6 +609,7 @@ export class Viewer implements ToolView {
       this.tool?.refresh(); // labels and markers follow the camera
     });
     new ResizeObserver(() => this.resize()).observe(el);
+    queueMicrotask(() => this.placeViews()); // the main view alone, until a document brings its views
     // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
     this.home(0);
 
