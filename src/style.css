@@ -96,10 +96,10 @@ body {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-/* the logo and name take the list's and toolbar's width: the buttons after them start where the view does */
+/* the logo and name take the list's width: New after them stands above the toolbar's buttons (34 px, centred) */
 #topbar strong {
   flex: none;
-  width: calc(var(--list) + var(--tools) - 10px - 6px); /* less the bar's padding and gap */
+  width: calc(var(--list) + (var(--tools) - 34px) / 2 - 10px - 6px); /* less the bar's padding and gap */
   display: flex;
   align-items: center;
   gap: 6px;
