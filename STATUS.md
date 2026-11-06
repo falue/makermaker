@@ -171,6 +171,7 @@ Chromium-based browsers only.
 Known and decided against; not loose ends.
 
 - SketchUp material names are not read: an imported texture's material is named after the file.
+- Spotlights (a cone with a direction): not planned; a glow shines all around.
 
 ## CAD goals
 
@@ -193,6 +194,7 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Move along any direction**: move objects not only along X / Y / Z but parallel to any edge, line or work plane (picked as the direction).
 - **Undo history list**: ⌘Z twice shows the latest steps; drag a line through the log to move in history.
 - **Render quality target**: renders stop at a chosen quality (say 80 %) and save the picture; raising it to 100 % continues the render (or renders again, whichever the path tracer allows).
+- **Real light units** (stretch goal): for now glow strength and the sun are made-up numbers. Real ones: a glow's light in lumens (candela = lm / 4π, 1 / distance², not tied to the body's size, × 10⁶ as the scene is in mm), the sun and sky in lux, and an exposure like a camera's, the same in the 3D view and renders.
 - **Nicer renders**: materials and lighting choices for the path traced render, Mitsuba 3 through a local helper (deferred); screenshot turntable and dolly clips.
 - **Laser export, nesting**: several parts laid out on one sheet (face choice, DXF and kerf are built).
 - **Imports**: meshes in booleans and exports; DXF blocks (INSERT) and SVG text. Maybe use [cadmpeg](https://github.com/cadmpeg/cadmpeg)
