@@ -12,13 +12,14 @@ const open = () =>
     request.onerror = () => fail(request.error);
   });
 
-async function remember(key: string, value: unknown) {
+/** A value kept in this browser (folder handles and such) under `key`. */
+export async function remember(key: string, value: unknown) {
   const db = await open();
   db.transaction('folder', 'readwrite').objectStore('folder').put(value, key);
   db.close();
 }
 
-async function recall<T>(key: string) {
+export async function recall<T>(key: string) {
   const db = await open();
   return new Promise<T | undefined>((done, fail) => {
     const request = db.transaction('folder').objectStore('folder').get(key);

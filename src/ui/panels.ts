@@ -208,6 +208,10 @@ export interface UIContext {
     cancel(id: string): void;
     download(id: string): void;
     useView(id: string): void;
+    /** The document's render folder (`name` null: Downloads), whether writing there failed, whether this browser can pick folders. */
+    folder: { name: string | null; lost: boolean; can: boolean };
+    /** Pick a render folder (`downloads`: back to Downloads). */
+    pickFolder(downloads?: boolean): void;
   };
   /** Reference point of a shape's fields (-1, 0, 1 per own axis): X / Y measure it, sizes and turns keep it. */
   shapeRef(shape: string): [number, number];
@@ -1047,9 +1051,20 @@ function rendersPanel(ctx: UIContext): Node[] {
   return [
     h('div', { className: 'head' }, h('h3', {}, 'Renders'), closeButton('Close the renders', renders.toggle)),
     h('button', { className: 'primary wide', onclick: renders.shoot, title: 'Render the view as it is now; renders queue up' }, 'Render this view'),
-    h('p', { className: 'hint' }, 'Each render keeps its camera and background (new ones take the background of the settings), its light comes from Settings, Light, Rendering: Render again renders the same view with the model as it is now and saves itself. Snapshots land here too. Full pictures stay until the page reloads; small copies are saved in the file.'),
+    ...renderFolderRow(renders),
+    h('p', { className: 'hint' }, 'Each render keeps its camera and background (new ones take the background of the settings), its light comes from Settings, Light, Rendering: Render again renders the same view with the model as it is now and saves itself (Save to: Downloads, or a folder keeping every version). Snapshots land here too. Full pictures stay until the page reloads; small copies are saved in the file.'),
     ...shots,
   ];
+}
+
+/** Where finished renders go: Downloads, or a folder of the document's that keeps every version. */
+function renderFolderRow(renders: UIContext['renders']) {
+  if (!renders.folder.can) return [];
+  const { name, lost } = renders.folder;
+  const list = select<string>(name ? 'folder' : 'downloads', { downloads: 'Downloads', ...(name ? { folder: lost ? `${name}: missing, pick again` : name } : {}), pick: 'Pick a folder…' }, (v) => (v === 'pick' ? renders.pickFolder() : v === 'downloads' ? renders.pickFolder(true) : undefined));
+  list.title = 'Where finished renders are saved: Downloads (Render again and snapshots), or a folder that keeps every version of every render';
+  if (lost) list.classList.add('invalid');
+  return [h('div', { className: 'row' }, h('span', { className: 'hint' }, 'Save to'), list)];
 }
 
 /** How far a render's photo sphere is turned, degrees. */

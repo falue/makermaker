@@ -387,6 +387,8 @@ export interface RenderShot {
   background: Backdrop;
   /** PNG data URL, about 320 px wide. */
   thumbnail: string;
+  /** Its number in the file's names (`<file>_render_<n>_<when>.png`), counting up from 1. */
+  n?: number;
   /** Small data URLs of its pictures, newest first (rendered again: the older ones stay below); `nice`: path traced, else a snapshot. */
   results: { at: string; preview: string; nice: boolean }[];
 }
@@ -472,6 +474,8 @@ export interface Doc {
   renders: RenderShot[];
   /** The light its renders take (none: the default one). */
   renderLight?: RenderLight;
+  /** The folder its renders are saved to, by name (this browser remembers which one); none: Downloads. */
+  renderFolder?: string;
   /** How it was looked at when saved (written only into the file, see main's `save`). */
   views?: Views;
 }

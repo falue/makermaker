@@ -8,7 +8,7 @@ interface FilePickerOptions {
 interface Window {
   showOpenFilePicker?(options?: FilePickerOptions): Promise<FileSystemFileHandle[]>;
   showSaveFilePicker?(options?: FilePickerOptions): Promise<FileSystemFileHandle>;
-  showDirectoryPicker?(options?: { id?: string; mode?: 'read' | 'readwrite' }): Promise<FileSystemDirectoryHandle>;
+  showDirectoryPicker?(options?: { id?: string; mode?: 'read' | 'readwrite'; startIn?: FileSystemHandle | 'documents' | 'downloads' | 'pictures' }): Promise<FileSystemDirectoryHandle>;
 }
 
 interface FileSystemHandle {

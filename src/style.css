@@ -350,7 +350,8 @@ input:focus {
 input[type='checkbox']:focus {
   outline: none;
 }
-input.invalid {
+input.invalid,
+select.invalid {
   border-color: var(--error);
   background: var(--field-invalid);
 }

@@ -35,6 +35,7 @@ import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
 import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature } from './kernel/build';
 import { Kernel } from './kernel/client';
+import { canUseFolders, recall, remember } from './io/scriptFolder';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
 import { COPY_TIP, measureButton, renderUI, scrub, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
@@ -6385,6 +6386,7 @@ function render() {
       },
       shoot: () => run(shoot),
       again(id) {
+        void allowRenderFolder();
         jobs.set(id, { state: 'waiting', done: 0, again: true });
         render();
         run(renderQueue);
@@ -6396,6 +6398,8 @@ function render() {
         render();
       },
       download: downloadRender,
+      folder: { name: history.current.renderFolder ?? null, lost: renderFolderLost, can: canUseFolders() },
+      pickFolder: (downloads) => run(() => pickRenderFolder(downloads)),
       useView(id) {
         const shot = history.current.renders.find((r) => r.id === id);
         if (shot) viewer.setCameraState(shot.camera);
@@ -6572,7 +6576,7 @@ const dataUrl = (blob: Blob) =>
  * rendered again with newer model data), and a small picture taken at once. Returns its id.
  */
 async function newShot(results: RenderShot['results'] = []) {
-  const shot: RenderShot = { id: newId(), at: new Date().toISOString(), camera: viewer.cameraState(), background: viewer.backdropColours(), thumbnail: await dataUrl(await viewer.thumbnail()), results };
+  const shot: RenderShot = { id: newId(), n: Math.max(0, ...history.current.renders.map(shotNumber)) + 1, at: new Date().toISOString(), camera: viewer.cameraState(), background: viewer.backdropColours(), thumbnail: await dataUrl(await viewer.thumbnail()), results };
   const doc = history.current;
   // a photo sphere of this browser goes with the render into the file
   const from = library.find((p) => p.id === shot.background.photo?.id);
@@ -6582,6 +6586,7 @@ async function newShot(results: RenderShot['results'] = []) {
 
 /** Render nice: a new render of the view, queued. */
 async function shoot() {
+  await allowRenderFolder();
   jobs.set(await newShot(), { state: 'waiting', done: 0 });
   render();
   await renderQueue();
@@ -6594,8 +6599,8 @@ async function snapshot() {
   await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))); // the bar shows before the work blocks
   try {
     const image = await viewer.snapshot(2);
-    download(image, `${project()}_snapshot.png`);
-    await newShot([{ at: new Date().toISOString(), preview: await previewOf(image, 320, 'image/png'), nice: false }]);
+    const id = await newShot([{ at: new Date().toISOString(), preview: await previewOf(image, 320, 'image/png'), nice: false }]);
+    await keepRender(id, image, true);
   } finally {
     busy.delete('Snapshot');
     render();
@@ -6630,7 +6635,7 @@ async function renderQueue() {
         const doc = history.current;
         const i = doc.renders.findIndex((r) => r.id === shot.id);
         if (i >= 0) history.replace(setIn(doc, ['renders', String(i), 'results'], [{ at: new Date().toISOString(), preview, nice: true }, ...doc.renders[i].results].slice(0, 8)));
-        if (job.again) downloadRender(shot.id);
+        await keepRender(shot.id, image, !!job.again);
       } catch (err) {
         Object.assign(job, { state: 'failed', error: (err as Error).message });
       }
@@ -6642,11 +6647,66 @@ async function renderQueue() {
   }
 }
 
-/** Saves a finished render of this session as `<file>_render_<n>.png` (n counts from the oldest render). */
+/** A render's number in file names: its own, else counted from the oldest. */
+const shotNumber = (shot: RenderShot) => shot.n ?? history.current.renders.length - history.current.renders.indexOf(shot);
+
+/** A picture's file name: `<file>_render_<n>_<date>_<time>.png` (local time), every version its own. */
+function renderName(id: string, at = new Date()) {
+  const shot = history.current.renders.find((r) => r.id === id);
+  const p = (k: number) => String(k).padStart(2, '0');
+  const when = `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}_${p(at.getHours())}-${p(at.getMinutes())}-${p(at.getSeconds())}`;
+  return `${project()}_render_${shot ? shotNumber(shot) : 0}_${when}.png`;
+}
+
+/** Saves a finished render of this session to Downloads. */
 function downloadRender(id: string) {
   const image = jobs.get(id)?.image;
-  const n = history.current.renders.length - history.current.renders.findIndex((r) => r.id === id);
-  if (image) download(image, `${project()}_render_${n}.png`);
+  if (image) download(image, renderName(id));
+}
+
+/** Writing to the render folder failed (gone, renamed, no permission): its row says so until it is picked again. */
+let renderFolderLost = false;
+/** Where this browser keeps the document's render folder: by its file's name. */
+const renderKey = () => `renders ${file.name}`;
+
+/**
+ * A finished picture of render `id` kept: in the document's render folder, every version (Downloads instead, with a
+ * note, when that fails); without a folder downloaded when `fallback` (asked for), else only shown.
+ */
+async function keepRender(id: string, image: Blob, fallback: boolean) {
+  const name = history.current.renderFolder;
+  if (!name) return fallback && download(image, renderName(id));
+  const dir = await recall<FileSystemDirectoryHandle>(renderKey());
+  try {
+    if (!dir) throw new Error(`this browser does not know the folder "${name}" yet`);
+    if ((await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') throw new Error(`the folder "${name}" needs your permission again`);
+    const writable = await (await dir.getFileHandle(renderName(id), { create: true })).createWritable();
+    await writable.write(image);
+    await writable.close();
+    renderFolderLost = false;
+  } catch (err) {
+    renderFolderLost = true;
+    download(image, renderName(id));
+    notify(`Render saved to Downloads: ${(err as Error).name === 'NotFoundError' ? `the folder "${name}" is gone` : (err as Error).message}. Pick it again in the renders panel`, true);
+  }
+  render();
+}
+
+/** Picks the folder renders are saved to (starting in the last one, else beside the document); null: Downloads. */
+async function pickRenderFolder(downloads = false) {
+  if (downloads) return commit({ ...history.current, renderFolder: undefined });
+  const last = await recall<FileSystemDirectoryHandle>(renderKey());
+  const dir = await window.showDirectoryPicker!({ id: 'makermaker-renders', mode: 'readwrite', startIn: last ?? file.handle ?? 'pictures' }).catch(() => null); // cancelled: stays as it is
+  if (!dir) return render();
+  await remember(renderKey(), dir);
+  renderFolderLost = false;
+  commit({ ...history.current, renderFolder: dir.name });
+}
+
+/** Asked for at a click, so the render can be written later: permission for the render folder, if one is set. */
+async function allowRenderFolder() {
+  const dir = history.current.renderFolder && (await recall<FileSystemDirectoryHandle>(renderKey()));
+  if (dir && (await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') await dir.requestPermission({ mode: 'readwrite' });
 }
 
 /** A small data URL of a picture, `width` px wide (JPEG; PNG keeps transparency). */
@@ -7127,6 +7187,9 @@ async function save() {
   const versions = addVersion(file.versions, doc);
   const saved = await saveFile(pack(withViews(doc), versions), file.name, file.handle);
   if (!saved) return;
+  // saved under another name: its render folder goes along
+  const dir = saved.name !== file.name && (await recall<FileSystemDirectoryHandle>(renderKey()));
+  if (dir) await remember(`renders ${saved.name}`, dir);
   file = { ...saved, versions, saved: doc };
   notify(`Saved ${new Date().toLocaleTimeString()}`);
 }
