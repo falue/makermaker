@@ -3210,7 +3210,7 @@ function clashTool() {
   const distance = (mm: number) => `${fmt(+(mm / UNITS[u()]).toFixed(4))} ${u()}`;
   const said = (h: ClashHit) => {
     const j = jointName(h.joint);
-    const where = j ? ` · ${j.name}${h.value === undefined ? ' on its way' : ` from ${fmt(+h.value.toFixed(1))}${j.kind === 'hinge' ? '°' : ' mm'}`}` : '';
+    const where = j ? ` · ${j.name}${h.value === undefined ? ' on its way' : ` from ${j.kind === 'hinge' ? `${fmt(+h.value.toFixed(1))}°` : distance(h.value)}`}` : '';
     const how = j && h.closest === undefined ? 'in the way' : h.closest === undefined ? `overlap ${size(h.volume)}` : h.closest > 1e-4 ? `only ${distance(h.closest)} apart` : 'touching or overlapping';
     return { pair: `${name(h.a)} ↔ ${name(h.b)}`, how: `${how}${where}` };
   };
