@@ -78,7 +78,8 @@ export const inFace = (f: Face, p: UV) => inPolygon(f.outer, p) && !f.holes.some
  * The faces that open lines and closed outlines enclose together: every segment is split where it meets another,
  * ends sticking out are dropped, and each enclosed face gets the unconnected outlines inside it as holes.
  */
-export function faces(paths: { pts: UV[]; closed: boolean; along?: Along[] }[], snap = 1e-6): Face[] {
+export function faces(given: { pts: UV[]; closed: boolean; along?: Along[] }[], snap = 1e-6): Face[] {
+  const paths = withEnds(given);
   const segs = paths.flatMap(({ pts, closed }) => (closed ? pts : pts.slice(0, -1)).map((a, i): [UV, UV] => [a, pts[(i + 1) % pts.length]]));
   const alongs = paths.flatMap(({ pts, closed, along }) => (closed ? pts : pts.slice(0, -1)).map((_, i) => along?.[i] ?? null));
   // where each segment is cut (along it, 0..1), by every other segment it meets
@@ -169,6 +170,49 @@ export function faces(paths: { pts: UV[]; closed: boolean; along?: Along[] }[], 
     if (host) host.face.holes.push(rim.pts), host.face.loops.push(rim.loop);
   }
   return result.map((r) => r.face);
+}
+
+type Path = { pts: UV[]; closed: boolean; along?: Along[] };
+
+/**
+ * Open lines' ends added as corners to the other paths they lie on, within reach: a curve piece's 1 % of its length (a
+ * point on the true curve, a tangent's say, lies off its flattened pieces by up to about 0.5 %), else `exact` mm. So a
+ * line drawn onto a circle meets its outline where it was drawn.
+ */
+function withEnds(paths: Path[], exact = 1e-3): Path[] {
+  const added = paths.map((p) => p.pts.map(() => [] as [number, UV][])); // per path and side: (along it, point)
+  paths.forEach((line, own) => {
+    if (line.closed) return;
+    for (const p of [line.pts[0], line.pts[line.pts.length - 1]]) {
+      let best: { d: number; i: number; k: number; t: number } | null = null;
+      paths.forEach(({ pts, closed, along }, i) => {
+        if (i === own) return;
+        (closed ? pts : pts.slice(0, -1)).forEach((a, k) => {
+          const r = sub(pts[(k + 1) % pts.length], a);
+          const t = Math.min(1, Math.max(0, (sub(p, a)[0] * r[0] + sub(p, a)[1] * r[1]) / (r[0] ** 2 + r[1] ** 2 || 1)));
+          const d = Math.hypot(p[0] - a[0] - t * r[0], p[1] - a[1] - t * r[1]);
+          if (d <= (along?.[k] ? 0.01 * Math.hypot(...r) : exact) && (!best || d < best.d)) best = { d, i, k, t };
+        });
+      });
+      const b = best as { d: number; i: number; k: number; t: number } | null;
+      if (b && b.t > 0 && b.t < 1) added[b.i][b.k].push([b.t, p]); // at a corner already: nothing to add
+    }
+  });
+  return paths.map((path, i) => {
+    if (!added[i].some((x) => x.length)) return path;
+    const pts: UV[] = [];
+    const along: Along[] = [];
+    path.pts.forEach((a, k) => {
+      pts.push(a);
+      if (!path.closed && k === path.pts.length - 1) return;
+      const on = path.along?.[k] ?? null;
+      const cut = [...added[i][k]].sort((x, y) => x[0] - y[0]);
+      const ts = [0, ...cut.map((c) => c[0]), 1];
+      cut.forEach((c) => pts.push(c[1]));
+      ts.slice(1).forEach((t, n) => along.push(on && { source: on.source, t0: on.t0 + (on.t1 - on.t0) * ts[n], t1: on.t0 + (on.t1 - on.t0) * t }));
+    });
+    return { ...path, pts, along };
+  });
 }
 
 /** Points along a closed shape's outline (circles in `steps` pieces), or a line's points. */

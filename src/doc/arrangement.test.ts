@@ -38,6 +38,15 @@ describe('lineFaces', () => {
     expect(found).toHaveLength(2);
     expect(found.every((f) => f.in.includes('r') && inFace(f, f.at))).toBe(true);
   });
+
+  it('a line drawn tangent from a circle meets its outline (a point on the true circle lies off its flattened sides)', () => {
+    // lamp2.mmk: a tangent off a circle (Ø 24), back to it as a bezier; the tangent point stored to 4 decimals
+    const circle = { id: 'c', kind: 'circle' as const, x: -20, y: 20, d: 24 };
+    const tangent = { id: 't', kind: 'line' as const, pts: [[-15.5612, 31.1489], [25, 15]] as UV[] };
+    const back = { id: 'b', kind: 'line' as const, pts: [[25, 15], [-20, 8]] as UV[], curves: [{ c1: [10, 12.6667] as UV, c2: [-5, 10.3333] as UV }] };
+    const { faces: found } = lineFaces([circle, tangent, back]);
+    expect(found.some((f) => !f.in.length && inFace(f, [5, 16]))).toBe(true); // the drop beside the circle
+  });
 });
 
 describe('pieces', () => {
