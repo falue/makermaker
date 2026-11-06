@@ -23,13 +23,14 @@
         gap: 6px;
         background: #f7f7f5;
         color: #222;
-        font: bold 30px system-ui, sans-serif; /* as the top bar's strong */
+        font: 600 23.33px system-ui, sans-serif;
       }
-      /* as in the top bar: the name as tall as the logo's drawing, cut at the x-height */
+      /* as the top bar's .wordmark: its x-height as tall as the logo's square, cut there */
       #loading span {
         font-size-adjust: 0.5;
         text-box: trim-both ex alphabetic;
-        overflow: hidden;
+        overflow: clip;
+        overflow-clip-margin: 0.03em;
       }
       #loading svg {
         color: #777;

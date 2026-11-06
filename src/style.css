@@ -100,12 +100,15 @@ body {
   gap: 6px;
   margin-right: 10px;
 }
-/* the name: as tall as the logo's drawing (15 of its 20 px), cut at the x-height (the k's top goes) */
+/* the name: its x-height as tall as the logo's square (14 of 24 on its 20 px), cut there: the k's top goes, the
+   round letters' overshoot stays (the clip's margin) */
 #topbar .wordmark {
-  font-size: 30px;
+  font-size: 23.33px;
   font-size-adjust: 0.5;
+  font-weight: 600;
   text-box: trim-both ex alphabetic;
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: 0.03em;
 }
 #topbar .logo svg {
   display: block;
