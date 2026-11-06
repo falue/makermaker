@@ -38,6 +38,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Attach: a group as one of its objects moving by itself does not take the others along (a body does). The anchor only shows where it is: Rotate still asks for its point. Joint swap (⇅ in a joint's panel) keeps the motion between the two, so the whole assembly can shift when the joint is not at 0.
 
 ## Curves
+- Sketch areas closed by lines are found on flattened outlines (a circle as 180 sides) and drawn again from them (arcs through three points). A line's end on a curve now becomes a corner of it, and picked areas are joined as solids, not flat (their shared arcs never quite match). Better would be faces found on the true curves throughout.
 - Moving a point holds tangents through arcs (`tangentsHeld`), with exceptions: an arc turned almost straight or doubling back loses it there, a chain ending back at the moved point cannot close smoothly, a bezier's handle turns and stops there, and dragging a bezier's handles does not reach an arc beyond. Tried through tests, not yet by hand.
 - Offset of a bezier side is close, not exact. A side that an offset would turn inside out is not removed.
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.

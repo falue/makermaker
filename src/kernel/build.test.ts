@@ -392,6 +392,19 @@ describe('buildBody', () => {
     body.done();
   });
 
+  it('extrudes areas sharing a curved side together (lamp2.mmk: a drop beside a circle, closed by a tangent)', () => {
+    const shapes = [
+      { id: 'c', kind: 'circle' as const, x: -20, y: 20, d: 24 },
+      { id: 't', kind: 'line' as const, pts: [[-15.5612, 31.1489], [25, 15]] as [number, number][] },
+      { id: 'b', kind: 'line' as const, pts: [[25, 15], [-20, 8]] as [number, number][], curves: [{ c1: [10, 12.6667] as [number, number], c2: [-5, 10.3333] as [number, number] }] },
+    ];
+    const areas = areasOf(shapes).map((a) => ({ in: a.in, out: a.out, at: a.at }));
+    const shape = buildBody([{ id: 'x', type: 'extrude', plane: ground, profiles: shapes, areas, depth: 10, mode: 'add', through: false } as BuildFeature]);
+    const volume = measureVolume(shape);
+    shape.delete();
+    expect(volume).toBeCloseTo(7857.7, 0); // the circle (π · 12² · 10), the drop and a sliver where the bezier dips in
+  });
+
   it('splits overlapping shapes into areas and extrudes only the picked ones', async () => {
     const { areasOf } = await import('./build');
     const rect = { id: 'r', kind: 'rect' as const, x: 0, y: 0, w: 20, h: 10, r: 0, rot: 0 };

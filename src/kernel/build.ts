@@ -263,17 +263,32 @@ function faceDrawing(f: Face): Drawing {
   return holes.reduce((d, h) => d.cut(h), outer);
 }
 
-/** The picked areas together. */
-function areaDrawing(ps: Resolved<Profile>[], areas: Area[]): Drawing {
+/**
+ * The picked areas, each a drawing of its own: they are joined as solids (`madeOf`), since areas sharing a curved side
+ * do not join flat (the two drawings' arcs never quite match).
+ */
+function areaDrawings(ps: Resolved<Profile>[], areas: Area[]): Drawing[] {
   const byId = new Map(ps.map((p) => [p.id, p]));
   const lined = (at: [number, number]) => {
     const f = lineFaceAt(ps, at);
     if (!f) throw new Error('a picked area is no longer closed by its lines');
     return faceDrawing(f);
   };
-  const d = areas.map((a) => (a.at ? lined(a.at) : area(byId, a))).reduce((x, y) => x.fuse(y));
-  if (!filled(d)) throw new Error('the picked areas are empty');
-  return d;
+  const ds = areas.map((a) => (a.at ? lined(a.at) : area(byId, a))).filter(filled);
+  if (!ds.length) throw new Error('the picked areas are empty');
+  return ds;
+}
+
+/** `make` of each drawing (the picked areas, or all the shapes as one), joined. */
+function madeOf(ds: Drawing[], make: (d: Drawing) => Shape3D): Shape3D {
+  return ds.map(make).reduce((x, y) => {
+    try {
+      return x.fuse(y);
+    } finally {
+      x.delete();
+      y.delete();
+    }
+  });
 }
 
 /** A drawing's areas, as triangles in its plane (x, y per corner); `uses`: the shapes and lines a line-closed area needs. */
@@ -467,12 +482,12 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
   if (!s.profiles.length) throw new Error('no profile to extrude');
   if (!s.through && s.depth === 0 && !s.back) throw new Error('depth must not be 0');
-  const outline = s.areas ? areaDrawing(s.profiles, s.areas) : combine(s.profiles);
+  const outlines = s.areas ? areaDrawings(s.profiles, s.areas) : [combine(s.profiles)];
   // span along the normal; through: beyond the body on both sides
   const bounds = shape?.boundingBox;
   const far = bounds ? Math.hypot(bounds.width, bounds.height, bounds.depth) + Math.hypot(...f.o) + 1 : 0;
   const [from, to] = s.through ? [-far, far] : extent(s.depth, s.back);
-  const tool = outline.sketchOnPlane(new Plane(add(f.o, scale(f.n, from)), f.x, f.n)).extrude(to - from) as Shape3D;
+  const tool = madeOf(outlines, (d) => d.sketchOnPlane(new Plane(add(f.o, scale(f.n, from)), f.x, f.n)).extrude(to - from) as Shape3D);
   for (const p of s.profiles) addCircles(p, f, circles);
   return joined(shape, tool, s.mode);
 }
@@ -483,9 +498,9 @@ function revolve(shape: Shape3D | null, s: Of<'revolve'>, f: Frame | undefined):
   if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
   if (!s.profiles.length) throw new Error('no profile to revolve');
   if (!s.angle) throw new Error('the angle must not be 0');
-  const outline = s.areas ? areaDrawing(s.profiles, s.areas) : combine(s.profiles);
+  const outlines = s.areas ? areaDrawings(s.profiles, s.areas) : [combine(s.profiles)];
   const dir = add(scale(f.x, s.axis.dir[0]), scale(f.y, s.axis.dir[1]));
-  const tool = outline.sketchOnPlane(new Plane(f.o, f.x, f.n)).revolve(dir, { origin: toWorld(f, ...s.axis.at), angle: Math.max(-360, Math.min(360, s.angle)) }) as Shape3D;
+  const tool = madeOf(outlines, (d) => d.sketchOnPlane(new Plane(f.o, f.x, f.n)).revolve(dir, { origin: toWorld(f, ...s.axis.at), angle: Math.max(-360, Math.min(360, s.angle)) }) as Shape3D);
   return joined(shape, tool, s.mode);
 }
 
