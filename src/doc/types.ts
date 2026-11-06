@@ -309,7 +309,7 @@ export interface Group {
 
 /**
  * What a surface looks like. `bump`: mirror (0) over matte (0.5) to bumpy (1); `reflection`: how much it mirrors what
- * is around it, in its colour, like metal; `translucency` and `glowStrength` run 0 to 1. `overlay`: a measuring grid on it.
+ * is around it, in its colour, like metal; `translucency` runs 0 to 1, `glowStrength` 0 to about 1.26 (4 times the light of 1). `overlay`: a measuring grid on it.
  * `image`: a picture on it (a data URL; an imported texture), tinted by `color`, where a mesh's UVs put it, else every 12 mm.
  */
 export interface MaterialLook {
@@ -499,5 +499,5 @@ export interface Views {
   views: { kind: string; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number; live?: boolean }[];
 }
 
-/** The light of renders (`same`: the 3D view's instead), and their haze: fast by depth (0 to 1), and real fog in the path tracer (0 to 40). */
+/** The light of renders (`same`: the 3D view's instead), and their haze: fast by depth (0 to 1), and real fog in the path tracer (0 to 10). */
 export type RenderLight = Light & { same: boolean; haze: number; fog: number };

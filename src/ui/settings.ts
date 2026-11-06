@@ -227,11 +227,11 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
             ? []
             : [
                 make('div', { className: 'row' }, standard(r, put)),
-                ...(r.standard ? [] : lightRows(r, (light, _, layout) => put(light, !!layout))),
+                ...(r.standard ? [] : lightRows(r, (light, _, layout) => put(light, !!layout), 32)),
               ]),
           make('h3', {}, 'Haze'),
           haze('haze', 'Haze', 'Far things fade into haze. Fast, no grain'),
-          haze('fog', 'Real fog', 'A fog in the path tracer: light scatters in it, the sun can make beams. For people with time: slower, and grainier', 40, 0.1),
+          haze('fog', 'Real fog', 'A fog in the path tracer: light scatters in it, the sun can make beams. For people with time: slower, and grainier', 10, 0.05),
         ];
       },
     ],

@@ -213,8 +213,8 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
       },
     }) as HTMLInputElement;
     const tabButton = (name: typeof tab, label: string) => make('button', { className: tab === name ? 'on' : '', textContent: label, onclick: () => ((tab = name), drawSide()) });
-    const slider = (key: 'bump' | 'reflection' | 'translucency' | 'glowStrength', label: string, title: string, left = '', right = '') => {
-      const el = make('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(shown![key]), title }) as HTMLInputElement;
+    const slider = (key: 'bump' | 'reflection' | 'translucency' | 'glowStrength', label: string, title: string, left = '', right = '', max = 1) => {
+      const el = make('input', { type: 'range', min: '0', max: String(max), step: '0.01', value: String(shown![key]), title }) as HTMLInputElement;
       let live = false;
       el.oninput = () => (put({ [key]: +el.value }, live), (live = true));
       el.onchange = () => {
@@ -237,7 +237,8 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
     const glow = () => {
       const label = make('span');
       const says = (v: number) => (label.textContent = `Glow ${Math.round(v * 100)} %`);
-      const el = slider('glowStrength', '', 'How strong it glows: it lights what is around').querySelector('input')!;
+      // its end lights 4 times as much as 100 % (`glowLight`: 200 ** strength - 1)
+      const el = slider('glowStrength', '', 'How strong it glows: it lights what is around', '', '', Math.log(4 * 199 + 1) / Math.log(200)).querySelector('input')!;
       el.addEventListener('input', () => says(+el.value));
       says(shown!.glowStrength);
       return make('div', { className: 'row light' }, label, el, colour('glow', 'Colour of the glow'));

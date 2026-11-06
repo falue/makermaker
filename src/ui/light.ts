@@ -3,8 +3,9 @@ import type { Light } from '../doc/types';
 /**
  * A light as rows of sliders, colour fields and checks; each change goes to `change` (`live`: not the first of a drag;
  * `layout`: other rows change too, so the caller draws them anew). Not rebuilt by itself: that would drop a slider in mid-drag.
+ * `strongest`: the strength sliders' end (renders go further).
  */
-export function lightRows(light: Light, change: (next: Light, live: boolean, layout?: boolean) => void): HTMLElement[] {
+export function lightRows(light: Light, change: (next: Light, live: boolean, layout?: boolean) => void, strongest = 8): HTMLElement[] {
   let now = light;
   const set = (patch: Partial<Light>, live: boolean, layout = false) => change((now = { ...now, ...patch }), live, layout);
   const row = (label: string, ...children: HTMLElement[]) => {
@@ -33,10 +34,10 @@ export function lightRows(light: Light, change: (next: Light, live: boolean, lay
     return label;
   };
   return [
-    row('Sun', slider('sun', 0, 8, 0.05, 'How strong the sun is'), colour('sunColor', 'Colour of the sun')),
+    row('Sun', slider('sun', 0, strongest, 0.05, 'How strong the sun is'), colour('sunColor', 'Colour of the sun')),
     row('Height', slider('sunHeight', -90, 90, 1, 'The sun above the horizon, degrees')),
     row('Around', slider('sunAround', -180, 180, 1, 'The sun around Z, degrees', light.followCamera), check('followCamera', 'Follows camera', 'The sun stays behind the camera, 45° to its side, wherever you look from')),
-    row('Ambient', slider('ambient', 0, 8, 0.05, 'How strong the light from all around is'), colour('ambientColor', 'Colour of the light from all around')),
-    row('Camera', check('cameraOn', 'Camera emits light', 'A light from where you look: for models hard to see'), slider('cameraLight', 0, 8, 0.05, 'How strong the light from the camera is', !light.cameraOn)),
+    row('Ambient', slider('ambient', 0, strongest, 0.05, 'How strong the light from all around is'), colour('ambientColor', 'Colour of the light from all around')),
+    row('Camera', check('cameraOn', 'Camera emits light', 'A light from where you look: for models hard to see'), slider('cameraLight', 0, strongest, 0.05, 'How strong the light from the camera is', !light.cameraOn)),
   ];
 }
