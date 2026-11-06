@@ -2064,10 +2064,10 @@ export class Viewer implements ToolView {
     this.glowLamp(g, look, cutter);
   }
 
-  /** A glowing body lights its neighbours (`glowLight`, from its middle). */
+  /** A glowing body lights its neighbours (`glowLight`, from its middle); under the standard light none do. */
   private glowLamp(g: THREE.Group, look: Look | undefined, cutter: boolean) {
     let lamp = g.children.find((c): c is THREE.PointLight => c instanceof THREE.PointLight);
-    if (!look?.glowStrength || cutter) return lamp?.removeFromParent();
+    if (!look?.glowStrength || cutter || !this.glowsLight) return lamp?.removeFromParent();
     if (!lamp) g.add((lamp = new THREE.PointLight()));
     const { center, radius } = sphereOf((g.children[0] as THREE.Mesh).geometry);
     glowLight(look, radius, lamp).position.copy(center);
@@ -2471,10 +2471,15 @@ export class Viewer implements ToolView {
   }
   private lightNow = DEFAULT_LIGHT;
   private lamp = new THREE.DirectionalLight();
+  private glowsLight = true;
 
-  /** The sun, the light from all around and the camera's light in the view. */
-  setLight(l: Light) {
+  /** The sun, the light from all around and the camera's light in the view; `glows`: glowing bodies light others. */
+  setLight(l: Light, glows = true) {
     this.lightNow = l;
+    if (glows !== this.glowsLight) {
+      this.glowsLight = glows;
+      for (const id of this.bodies.keys()) this.dress(id);
+    }
     this.aimLights();
     this.lamp.intensity = l.cameraOn ? l.cameraLight : 0;
     this.sun.color.set(l.sunColor);

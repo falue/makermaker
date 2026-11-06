@@ -406,7 +406,7 @@ function applySettings() {
   viewer.setAO(settings.ao);
   viewer.setSurroundings(settings.surroundings);
   viewer.setBackdrop(settings.background);
-  viewer.setLight(effectiveLight(settings.light));
+  viewer.setLight(effectiveLight(settings.light), !settings.light.standard);
   viewer.liveChanged();
 }
 applySettings();
