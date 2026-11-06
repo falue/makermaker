@@ -129,7 +129,7 @@ export const sphereOf = (g: THREE.BufferGeometry) => g.boundingSphere ?? (g.comp
  */
 export function glowLight(l: Look, radius: number, light = new THREE.PointLight(), k = 2) {
   light.color.set(l.glow);
-  light.intensity = k * (100 ** l.glowStrength - 1) * radius;
+  light.intensity = k * (200 ** l.glowStrength - 1) * radius;
   light.distance = l.glowReach ?? 0;
   light.decay = 1;
   return light;
