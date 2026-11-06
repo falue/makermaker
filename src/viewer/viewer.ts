@@ -1298,7 +1298,6 @@ export class Viewer implements ToolView {
         const faint = this.focus ? s.id !== this.focus.sketch || !inGroup(s, p, this.focus.group) : !!this.kept && !this.kept.has(s.id); // outside the open (sub-)group, or the selection's group
         if (this.moving && (q !== p || by)) this.sketchView.add(outline(p, s.frame, 0x8a8f98, lift)); // where it was
         this.sketchView.add(outline(q, frame, color, lift, 1.5, 2, faint ? 0.25 : 1));
-        if (q.kind === 'circle') this.sketchView.add(marks([new THREE.Vector3(...toWorld(frame, q.x, q.y))], color, 6)); // its centre, clickable
       }
     }
     const refs = this.tool ? [] : this.refMarks();
