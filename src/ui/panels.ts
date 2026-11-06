@@ -506,8 +506,6 @@ const GITHUB =
 function topbar(ctx: UIContext): Node[] {
   return [
     h('strong', {}, 'MAKERMAKER'),
-    tool('settings', 'Settings: units, ambient occlusion, background, light', ctx.openSettings),
-    tool('theme', 'Light / dark', ctx.toggleTheme),
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
@@ -528,6 +526,8 @@ function topbar(ctx: UIContext): Node[] {
     tool('material', 'Materials: pick, change and save looks; import and export', () => ctx.openMaterials()),
     h('a', { className: 'link', href: 'https://github.com/falue/makermaker', target: '_blank', rel: 'noopener', title: 'Source code on GitHub', innerHTML: GITHUB }),
     h('a', { className: 'link', href: 'https://buymeacoffee.com/falue', target: '_blank', rel: 'noopener', title: 'Support MAKERMAKER' }, '☕ Buy me a coffee'),
+    tool('theme', 'Light / dark', ctx.toggleTheme),
+    tool('settings', 'Settings: units, ambient occlusion, background, light', ctx.openSettings),
   ];
 }
 
