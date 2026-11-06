@@ -384,6 +384,9 @@ export interface Backdrop {
 }
 
 /** A nice render: when, from where, on which background, and a small picture taken when it was asked for. */
+/** Where renders are saved: see `Doc.renderTo`. */
+export type RenderTo = 'beside' | 'renderings' | 'picked';
+
 export interface RenderShot {
   id: string;
   at: string;
@@ -480,8 +483,11 @@ export interface Doc {
   renders: RenderShot[];
   /** The light its renders take (none: the default one). */
   renderLight?: RenderLight;
-  /** The folder its renders are saved to, by name (this browser remembers which one); none: Downloads. */
-  renderFolder?: string;
+  /**
+   * Where its renders are saved (this browser remembers the folder): next to the document, in "renderings" next to it,
+   * or a picked folder; `name` as shown. None: Downloads.
+   */
+  renderTo?: { kind: RenderTo; name: string };
   /** How it was looked at when saved (written only into the file, see main's `save`). */
   views?: Views;
 }

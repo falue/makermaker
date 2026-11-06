@@ -26,7 +26,7 @@ import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, listedAfter, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { CoatFeature } from './doc/types';
-import type { Area, Backdrop, Body, BulgeFeature, CameraState, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Backdrop, Body, BulgeFeature, CameraState, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, RenderTo, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, versionDate, type Version } from './io/design';
 import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
@@ -6408,8 +6408,8 @@ function render() {
         const shot = history.current.renders.find((r) => r.id === id);
         if (shot) viewer.showLive(shot.camera, shot.background, id);
       },
-      folder: { name: history.current.renderFolder ?? null, lost: renderFolderLost, can: canUseFolders() },
-      pickFolder: (downloads) => run(() => pickRenderFolder(downloads)),
+      folder: { to: history.current.renderTo, lost: renderFolderLost, can: canUseFolders(), saved: !!file.handle },
+      pickFolder: (to, pick) => run(() => pickRenderFolder(to, pick)),
       useView(id) {
         const shot = history.current.renders.find((r) => r.id === id);
         if (shot) viewer.setCameraState(shot.camera);
@@ -6708,18 +6708,28 @@ function downloadRender(id: string) {
 
 /** Writing to the render folder failed (gone, renamed, no permission): its row says so until it is picked again. */
 let renderFolderLost = false;
-/** Where this browser keeps the document's render folder: by its file's name. */
-const renderKey = () => `renders ${file.name}`;
+/** Where this browser keeps the document's picked render folder, and the folder it is in: by its file's name. */
+const renderKey = (name = file.name) => `renders ${name}`;
+const docFolderKey = (name = file.name) => `folder ${name}`;
+
+/** The folder renders go to (`create`: ./renderings made if missing); none: Downloads, or this browser does not know it. */
+async function renderDir(create: boolean) {
+  const to = history.current.renderTo;
+  if (!to) return null;
+  if (to.kind === 'picked') return recall<FileSystemDirectoryHandle>(renderKey());
+  const folder = await recall<FileSystemDirectoryHandle>(docFolderKey());
+  return to.kind === 'beside' || !folder ? folder : folder.getDirectoryHandle('renderings', { create });
+}
 
 /**
  * A finished picture of render `id` kept: in the document's render folder, every version (Downloads instead, with a
  * note, when that fails); without a folder downloaded when `fallback` (asked for), else only shown.
  */
 async function keepRender(id: string, image: Blob, fallback: boolean) {
-  const name = history.current.renderFolder;
+  const name = history.current.renderTo?.name;
   if (!name) return fallback && download(image, renderName(id));
-  const dir = await recall<FileSystemDirectoryHandle>(renderKey());
   try {
+    const dir = await renderDir(true);
     if (!dir) throw new Error(`this browser does not know the folder "${name}" yet`);
     if ((await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') throw new Error(`the folder "${name}" needs your permission again`);
     const writable = await (await dir.getFileHandle(renderName(id), { create: true })).createWritable();
@@ -6746,7 +6756,7 @@ async function showVersions(id: string) {
   let versions: Picture[] = shot.results.map((r) => ({ at: new Date(r.at), nice: r.nice, url: async () => r.preview }));
   const image = jobs.get(id)?.image;
   if (image) versions[0] = { ...versions[0], url: async () => url(image) };
-  const dir = history.current.renderFolder && (await recall<FileSystemDirectoryHandle>(renderKey()));
+  const dir = await renderDir(false).catch(() => null); // ./renderings not made yet: none there
   if (dir && (await dir.requestPermission({ mode: 'readwrite' }).catch(() => 'denied')) === 'granted') {
     // its files: `<file>_render_<n>_<date>_<time>.png`
     const name = project().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -6765,20 +6775,38 @@ async function showVersions(id: string) {
   openVersions(`Render ${shotNumber(shot)}: versions`, versions, async (v) => download(await (await fetch(await v.url())).blob(), renderName(id, v.at)), () => urls.forEach((u) => URL.revokeObjectURL(u)));
 }
 
-/** Picks the folder renders are saved to (starting in the last one, else beside the document); null: Downloads. */
-async function pickRenderFolder(downloads = false) {
-  if (downloads) return commit({ ...history.current, renderFolder: undefined });
-  const last = await recall<FileSystemDirectoryHandle>(renderKey());
-  const dir = await window.showDirectoryPicker!({ id: 'makermaker-renders', mode: 'readwrite', startIn: last ?? file.handle ?? 'pictures' }).catch(() => null); // cancelled: stays as it is
-  if (!dir) return render();
-  await remember(renderKey(), dir);
-  renderFolderLost = false;
-  commit({ ...history.current, renderFolder: dir.name });
+/**
+ * Where renders are saved from now on (none: Downloads). A picked folder: the last one again, or picked (`pick`, or
+ * none known yet). Next to the document and ./renderings: its folder, which a page cannot see; picked once (the
+ * picker starts there), checked to hold the document, then remembered.
+ */
+async function pickRenderFolder(to?: RenderTo, pick = false) {
+  const set = (name: string) => ((renderFolderLost = false), commit({ ...history.current, renderTo: to && { kind: to, name } }));
+  if (!to) return set('');
+  if (to === 'picked') {
+    const last = await recall<FileSystemDirectoryHandle>(renderKey());
+    const dir = last && !pick ? last : await window.showDirectoryPicker!({ id: 'makermaker-renders', mode: 'readwrite', startIn: last ?? file.handle ?? 'pictures' }).catch(() => null);
+    if (!dir) return render(); // cancelled: stays as it is
+    await remember(renderKey(), dir);
+    return set(dir.name);
+  }
+  const doc = file.handle;
+  if (!doc) return render();
+  let folder = await recall<FileSystemDirectoryHandle>(docFolderKey());
+  const holds = async (dir: FileSystemDirectoryHandle) => (await dir.resolve(doc).catch(() => null))?.length === 1;
+  if (!folder || (await folder.requestPermission({ mode: 'readwrite' })) !== 'granted' || !(await holds(folder))) {
+    folder = await window.showDirectoryPicker!({ id: 'makermaker-document', mode: 'readwrite', startIn: doc }).catch(() => undefined);
+    if (!folder) return render();
+    if (!(await holds(folder))) return notify(`"${folder.name}" does not hold ${file.name}: pick the folder the document is in`, true), render();
+    await remember(docFolderKey(), folder);
+  }
+  if (to === 'renderings') await folder.getDirectoryHandle('renderings', { create: true });
+  set(to === 'beside' ? folder.name : `${folder.name}/renderings`);
 }
 
 /** Asked for at a click, so the render can be written later: permission for the render folder, if one is set. */
 async function allowRenderFolder() {
-  const dir = history.current.renderFolder && (await recall<FileSystemDirectoryHandle>(renderKey()));
+  const dir = await renderDir(false).catch(() => null);
   if (dir && (await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') await dir.requestPermission({ mode: 'readwrite' });
 }
 
@@ -7260,9 +7288,12 @@ async function save() {
   const versions = addVersion(file.versions, doc);
   const saved = await saveFile(pack(withViews(doc), versions), file.name, file.handle);
   if (!saved) return;
-  // saved under another name: its render folder goes along
-  const dir = saved.name !== file.name && (await recall<FileSystemDirectoryHandle>(renderKey()));
-  if (dir) await remember(`renders ${saved.name}`, dir);
+  // saved under another name: its picked render folder goes along, its folder if it is still the one it is in
+  if (saved.name !== file.name) {
+    const [picked, folder] = await Promise.all([recall<FileSystemDirectoryHandle>(renderKey()), recall<FileSystemDirectoryHandle>(docFolderKey())]);
+    if (picked) await remember(renderKey(saved.name), picked);
+    if (folder && saved.handle && (await folder.resolve(saved.handle).catch(() => null))?.length === 1) await remember(docFolderKey(saved.name), folder);
+  }
   file = { ...saved, versions, saved: doc };
   notify(`Saved ${new Date().toLocaleTimeString()}`);
 }

@@ -7,7 +7,7 @@ import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
 import { ASPECTS, shotCamera } from '../viewer/render';
-import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, Unit } from '../doc/types';
+import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, RenderTo, Unit } from '../doc/types';
 import { arcOf, type Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml, sizeHtml } from './axes';
@@ -213,10 +213,10 @@ export interface UIContext {
     versions(id: string): void;
     /** Shown in a live render view (its camera and background; Save adds to it). */
     live(id: string): void;
-    /** The document's render folder (`name` null: Downloads), whether writing there failed, whether this browser can pick folders. */
-    folder: { name: string | null; lost: boolean; can: boolean };
-    /** Pick a render folder (`downloads`: back to Downloads). */
-    pickFolder(downloads?: boolean): void;
+    /** Where renders are saved (none: Downloads), whether writing there failed, whether this browser can pick folders, whether the document has a file next to which to save. */
+    folder: { to: Doc['renderTo']; lost: boolean; can: boolean; saved: boolean };
+    /** Save renders there from now on (none: Downloads); `pick`: pick another folder. */
+    pickFolder(to?: RenderTo, pick?: boolean): void;
   };
   /** Reference point of a shape's fields (-1, 0, 1 per own axis): X / Y measure it, sizes and turns keep it. */
   shapeRef(shape: string): [number, number];
@@ -1076,12 +1076,16 @@ export function showRenderProgress(id: string, done: number) {
   for (const el of document.querySelectorAll<HTMLElement>(`[data-progress="${id}"]`)) setProgress(el, done);
 }
 
-/** Where finished renders go: Downloads, or a folder of the document's that keeps every version. */
+/** Where finished renders go: Downloads, or a folder that keeps every version (next to the document, its ./renderings, or picked). */
 function renderFolderRow(renders: UIContext['renders']) {
   if (!renders.folder.can) return [];
-  const { name, lost } = renders.folder;
-  const list = select<string>(name ? 'folder' : 'downloads', { downloads: 'Downloads', ...(name ? { folder: lost ? `${name}: missing, pick again` : name } : {}), pick: 'Pick a folder…' }, (v) => (v === 'pick' ? renders.pickFolder() : v === 'downloads' ? renders.pickFolder(true) : undefined));
-  list.title = 'Where finished renders are saved: Downloads (Render again and snapshots), or a folder that keeps every version of every render';
+  const { to, lost, saved } = renders.folder;
+  const unsaved = saved ? '' : ' (save the document first)';
+  // lost: shown as such on top, so picking the same place again is a change
+  const options = { ...(to && lost ? { lost: `${to.name}: missing, pick again` } : {}), downloads: 'Downloads', beside: `Next to the document${unsaved}`, renderings: `./renderings${unsaved}`, ...(to?.kind === 'picked' ? { picked: to.name } : {}), pick: 'Pick a folder…' };
+  const list = select<string>(to && lost ? 'lost' : (to?.kind ?? 'downloads'), options, (v) => (v === 'pick' ? renders.pickFolder('picked', true) : renders.pickFolder(v === 'downloads' ? undefined : (v as RenderTo))));
+  for (const o of list.options) o.disabled = !saved && (o.value === 'beside' || o.value === 'renderings');
+  list.title = `Where finished renders are saved: Downloads (Render again and snapshots), or a folder that keeps every version of every render${to ? ` (now ${to.name})` : ''}. Next to the document and ./renderings ask once for the document's folder`;
   if (lost) list.classList.add('invalid');
   return [h('div', { className: 'row' }, h('span', { className: 'hint' }, 'Save to'), list)];
 }
