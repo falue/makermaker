@@ -470,4 +470,18 @@ export interface Doc {
   photos: PhotoSphere[];
   /** Renders (snapshots and nice ones), newest first. */
   renders: RenderShot[];
+  /** The light its renders take (none: the default one). */
+  renderLight?: RenderLight;
+  /** How it was looked at when saved (written only into the file, see main's `save`). */
+  views?: Views;
 }
+
+/** The main camera, the extra views beside it (each: from where, its camera) and where their borders lie. */
+export interface Views {
+  camera: CameraState;
+  layout: { x: number; rows: Record<number, number[]> };
+  views: { kind: string; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number }[];
+}
+
+/** The light of renders (`same`: the 3D view's instead), and their haze, 0 to 1: fast by depth, and real fog in the path tracer. */
+export type RenderLight = Light & { same: boolean; haze: number; fog: number };

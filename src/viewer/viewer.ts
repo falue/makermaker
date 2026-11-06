@@ -7,7 +7,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import type { Backdrop, BasePlane, CameraState, Light } from '../doc/types';
+import type { Backdrop, BasePlane, CameraState, Light, Views } from '../doc/types';
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
@@ -102,9 +102,8 @@ export type TurnAxis = { at: THREE.Vector3; dir: THREE.Vector3; what: string; le
 /** Where an extra view looks from. */
 export type ViewKind = '3d' | 'top' | 'front' | 'right' | 'back' | 'left' | 'bottom' | 'face';
 
-/** An extra view as saved between sessions. */
-type SavedView = { kind: ViewKind; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number };
-const VIEWS_KEY = 'makermaker.views';
+/** An extra view as a file keeps it. */
+type SavedView = Views['views'][number];
 
 export interface PickedFace {
   point: THREE.Vector3;
@@ -603,7 +602,6 @@ export class Viewer implements ToolView {
       this.tool?.refresh(); // labels and markers follow the camera
     });
     new ResizeObserver(() => this.resize()).observe(el);
-    queueMicrotask(() => this.restoreViews());
     // frame the default box now: a first frame looking straight down shows the cube's Front edge-on, and Chrome keeps it unpainted
     this.home(0);
 
@@ -3833,7 +3831,7 @@ export class Viewer implements ToolView {
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
     const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on) };
     view.controls.zoomToCursor = true;
-    view.controls.addEventListener('change', () => (this.renderView(view), this.saveViews()));
+    view.controls.addEventListener('change', () => this.renderView(view));
     const sides: [ViewKind, string][] = [['3d', '3D'], ['top', 'Top'], ['front', 'Front'], ['right', 'Right'], ['back', 'Back'], ['left', 'Left'], ['bottom', 'Bottom'], ...(look ? [['face', 'Face'] as [ViewKind, string]] : [])];
     const side = Object.assign(document.createElement('select'), { title: 'Where it looks from' });
     side.append(...sides.map(([k, name]) => Object.assign(document.createElement('option'), { value: k, textContent: name, selected: k === kind })));
@@ -3851,7 +3849,6 @@ export class Viewer implements ToolView {
       view.camera = view.controls.object = to;
       projection.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 0) === on));
       this.renderView(view);
-      this.saveViews();
     };
     projection.append(button('Ortho', 'Orthographic', () => pick(true)), button('Persp', 'Perspective', () => pick(false)));
     projection.firstElementChild!.classList.add('on');
@@ -3870,7 +3867,6 @@ export class Viewer implements ToolView {
         renderer.dispose();
         el.remove();
         this.placeViews();
-        this.saveViews();
       }),
     );
     bar.append(projection, middle, right);
@@ -3886,7 +3882,6 @@ export class Viewer implements ToolView {
       ortho.zoom = saved.zoom;
       view.controls.update();
     } else this.aimView(view, kind, look);
-    this.saveViews();
   }
 
   /** The borders between the views, by where they lie. */
@@ -3938,27 +3933,30 @@ export class Viewer implements ToolView {
     el.onpointerup = () => {
       el.onpointermove = el.onpointerup = null;
       el.classList.remove('dragged');
-      this.saveViews();
     };
   }
 
-  /** The views and their borders, for the next session in this browser. */
-  private saveViews() {
-    localStorage.setItem(VIEWS_KEY, JSON.stringify({
+  /** How the document is looked at now: the main camera, the extra views and their borders (for its file). */
+  viewsState(): Views {
+    return {
+      camera: this.cameraState(1),
       layout: this.viewLayout,
       views: this.views.map((v): SavedView => {
         const cam = v.camera as THREE.OrthographicCamera | THREE.PerspectiveCamera;
         return { kind: v.kind, look: v.look && { n: v.look.n.toArray(), at: v.look.at.toArray() }, ortho: cam === v.ortho, position: cam.position.toArray(), target: v.controls.target.toArray(), height: v.height, zoom: v.ortho.zoom };
       }),
-    }));
+    };
   }
 
-  /** The views of the last session in this browser. */
-  private restoreViews() {
-    const saved = JSON.parse(localStorage.getItem(VIEWS_KEY) ?? 'null') as { layout: ViewLayout; views: SavedView[] } | null;
-    if (saved) this.viewLayout = saved.layout;
-    for (const v of saved?.views ?? []) this.addView(v.kind, v.look && { n: new THREE.Vector3(...v.look.n), at: new THREE.Vector3(...v.look.at) }, v);
+  /** The views of an opened document (none: the main one alone); false: it had none saved, so the view is free to fit. */
+  setViews(state?: Views) {
+    for (const v of this.views) (v.controls.dispose(), v.renderer.dispose(), v.el.remove());
+    this.views = [];
+    this.viewLayout = state?.layout ?? newViewLayout();
+    for (const v of state?.views ?? []) this.addView(v.kind as ViewKind, v.look && { n: new THREE.Vector3(...v.look.n), at: new THREE.Vector3(...v.look.at) }, v);
     this.placeViews();
+    if (state) this.setCameraState(state.camera);
+    return !!state;
   }
 
   /** A view looking from `kind`'s side (see `addView`) at everything shown, fitted. */
@@ -3992,7 +3990,6 @@ export class Viewer implements ToolView {
     view.ortho.zoom = 1;
     view.controls.update();
     this.renderView(view);
-    this.saveViews();
   }
 
   /** Draws an extra view at its size now. */

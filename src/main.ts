@@ -16,7 +16,7 @@ import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { readStep, stepObjects } from './io/step';
-import { changeLook, dropMaterial, effectiveLight, lookOf, newMaterialFor, plainLook, setLook } from './doc/materials';
+import { changeLook, DEFAULT_RENDER_LIGHT, dropMaterial, effectiveLight, lookOf, newMaterialFor, plainLook, setLook } from './doc/materials';
 import { dropPhoto, keepPhoto, loadPhotos } from './ui/photolibrary';
 import { fromMtlx, toMtlx } from './io/materials';
 import { openMaterials } from './ui/materials';
@@ -5888,6 +5888,15 @@ function settingsDialog(start?: 'light-render') {
     {
       units: () => history.current.units,
       setUnits: (units) => commit({ ...history.current, units }),
+      renderLight: docRenderLight,
+      setRenderLight(light) {
+        // one undo step while the dialog keeps changing it
+        const next = { ...history.current, renderLight: light };
+        if (history.current === lightStep) history.replace(next);
+        else history.push(next);
+        lightStep = history.current;
+        update();
+      },
       photos: allPhotos,
       addPhoto,
       removePhoto(id) {
@@ -5900,8 +5909,11 @@ function settingsDialog(start?: 'light-render') {
   );
 }
 
-/** The light renders take. */
-const renderLight = () => effectiveLight(settings.renderLight.same ? settings.light : settings.renderLight);
+/** The document's render light, and the light renders take. */
+const docRenderLight = () => history.current.renderLight ?? DEFAULT_RENDER_LIGHT;
+const renderLight = () => effectiveLight(docRenderLight().same ? settings.light : docRenderLight());
+/** The document the render light last changed: changing it again then stays in that undo step. */
+let lightStep: Doc | null = null;
 
 /** Keeps a photo sphere in the document, its long side at most 4096 px (it travels with every saved version). */
 async function addPhoto(file: File) {
@@ -5928,7 +5940,7 @@ function scheduleAutosave(delay = 1500, every = 5 * 60_000) {
         const doc = history.current;
         const last = file.versions.at(-1);
         const versions = !last || Date.now() - versionDate(last).getTime() > every ? addVersion(file.versions, doc) : file.versions;
-        await saveFile(pack(doc, versions), file.name, file.handle);
+        await saveFile(pack(withViews(doc), versions), file.name, file.handle);
         file = { ...file, saved: doc, versions };
         notify(`Autosaved ${new Date().toLocaleTimeString()}`);
       }),
@@ -6603,7 +6615,7 @@ async function renderQueue() {
       render();
       let shown = -1;
       try {
-        const image = await viewer.renderNice(shot.camera, shot.background, renderLight(), settings.renderLight, 256, {
+        const image = await viewer.renderNice(shot.camera, shot.background, renderLight(), docRenderLight(), 256, {
           show: (canvas) => ((job.canvas = canvas), render()),
           progress(done) {
             job.done = done;
@@ -7069,7 +7081,7 @@ function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   isolated = null;
   stopTool();
   viewer.setSketchGrid(null);
-  viewer.fitNext();
+  if (!viewer.setViews(doc.views)) viewer.fitNext();
   update();
 }
 
@@ -7107,10 +7119,13 @@ function undo(redo = false) {
   if (redo ? history.redo() : history.undo()) update();
 }
 
+/** The document as its file keeps it: with how it is looked at now (no undo step: looking around changes nothing). */
+const withViews = (doc: Doc): Doc => ({ ...doc, views: viewer.viewsState() });
+
 async function save() {
   const doc = history.current;
   const versions = addVersion(file.versions, doc);
-  const saved = await saveFile(pack(doc, versions), file.name, file.handle);
+  const saved = await saveFile(pack(withViews(doc), versions), file.name, file.handle);
   if (!saved) return;
   file = { ...saved, versions, saved: doc };
   notify(`Saved ${new Date().toLocaleTimeString()}`);

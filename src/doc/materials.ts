@@ -1,4 +1,4 @@
-import type { Body, Doc, Group, Light, Material, MaterialLook } from './types';
+import type { Body, Doc, Group, Light, Material, MaterialLook, RenderLight } from './types';
 
 /** How a body is drawn. `bump`: strength of its bumps, 0 to 1 (`MaterialLook.bump` is the whole slider). */
 export interface Look {
@@ -14,6 +14,9 @@ export interface Look {
 }
 
 export const DEFAULT_LIGHT: Light = { sunHeight: 53, sunAround: -63, sun: 2, sunColor: '#ffffff', ambient: 2, ambientColor: '#ffffff', followCamera: false, cameraOn: false, cameraLight: 1, standard: false };
+
+/** A document's render light until it sets its own: the 3D view's, no haze. */
+export const DEFAULT_RENDER_LIGHT: RenderLight = { ...DEFAULT_LIGHT, same: true, haze: 0, fog: 0 };
 
 /** A light as it works: the standard one if it is set to that. */
 export const effectiveLight = (l: Light): Light => (l.standard ? DEFAULT_LIGHT : l);
