@@ -999,6 +999,76 @@ canvas.drawing,
   color: color-mix(in srgb, var(--muted) 70%, transparent);
   font-variant-numeric: tabular-nums;
 }
+/* in space: stars pass behind the icon, the nearer ones faster */
+#toolbar .rocket .space {
+  position: relative;
+}
+#toolbar .rocket .space svg {
+  position: relative;
+}
+#toolbar .rocket .space::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.6;
+  background-image:
+    radial-gradient(circle at 20% 15%, currentColor 0.5px, transparent 1px),
+    radial-gradient(circle at 70% 50%, currentColor 0.5px, transparent 1px),
+    radial-gradient(circle at 40% 85%, currentColor 0.5px, transparent 1px),
+    radial-gradient(circle at 85% 20%, currentColor 0.8px, transparent 1.4px),
+    radial-gradient(circle at 10% 60%, currentColor 0.8px, transparent 1.4px);
+  background-size: 34px 34px;
+  animation: stars 12s linear infinite;
+}
+@keyframes stars {
+  to {
+    background-position: 0 34px, 0 34px, 0 34px, 0 68px, 0 68px;
+  }
+}
+#toolbar .rocket .flying svg {
+  visibility: hidden;
+}
+/* liftoff's flying rocket and its puffs, mission complete's fireworks */
+.rocket-flight,
+.rocket-puff,
+.fireworks {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3000;
+  pointer-events: none;
+}
+.rocket-flight {
+  color: var(--text);
+}
+.rocket-flight svg {
+  display: block;
+  width: 40px;
+  height: 40px;
+}
+.rocket-flight .faint {
+  stroke: color-mix(in srgb, currentColor 50%, transparent);
+}
+.rocket-puff {
+  left: -5px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.5;
+  animation: puff 0.7s ease-out forwards;
+}
+@keyframes puff {
+  to {
+    opacity: 0;
+    scale: 2.5;
+  }
+}
+.fireworks {
+  width: 100vw;
+  height: 100vh;
+}
 #toolbar .rocket .counter.plop {
   animation: plop 0.3s ease-out;
 }
