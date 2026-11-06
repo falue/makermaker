@@ -60,7 +60,8 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
   };
   const preview = new MaterialPreview();
   const cache = thumbnails();
-  let editing = startEditing ?? null;
+  // nothing selected: the file's first material, so the right side shows something
+  let editing = startEditing ?? (host.target() ? null : (host.saved()[0]?.id ?? null));
   const search = make('input', { className: 'mat-search', placeholder: 'Search materials', title: 'Shows the materials with this in their name', oninput: () => drawList() }) as HTMLInputElement;
   const folded = new Set<string>(JSON.parse(localStorage.getItem(OPEN_SECTIONS) ?? '[]'));
   const list = make('div', { className: 'mat-list' });
@@ -99,11 +100,11 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
         'div',
         {
           className: `mat-row${now?.material === m.id ? ' on' : ''}${editing === m.id ? ' editing' : ''}`,
-          title: host.target() ? `Give ${m.name} to ${host.target()}` : m.name,
+          title: host.target() ? `Give ${m.name} to ${host.target()}` : host.saved().includes(m) ? `Edit ${m.name}` : m.name,
           onclick: () => {
-            if (!host.target()) return;
-            editing = null;
-            host.assign(m.id);
+            if (host.target()) (editing = null), host.assign(m.id);
+            else if (host.saved().includes(m)) editing = m.id; // nothing selected: a material of the file gets edited
+            else return;
             drawAll();
           },
         },
