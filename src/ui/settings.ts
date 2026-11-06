@@ -188,13 +188,10 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
       'Light',
       () => {
         const tab = (name: 'view' | 'render', label: string) => make('button', { className: lightTab === name ? 'on' : '', textContent: label, onclick: () => ((lightTab = name), draw()) });
-        const standard = (l: Light, put: (next: Partial<Light>) => void) =>
-          make('button', {
-            className: l.standard ? 'on' : '',
-            textContent: l.standard ? 'Standard light: on' : 'Use the standard light',
-            title: 'All the settings below left aside for the standard light (they are kept)',
-            onclick: () => put({ standard: !l.standard }),
-          });
+        const standard = (l: Light, put: (next: Partial<Light>) => void) => {
+          const box = input({ type: 'checkbox', checked: l.standard, onchange: () => put({ standard: box.checked }) });
+          return make('label', { className: 'check', title: 'The settings below left aside while it is on (they are kept)' }, box, 'Use standard light');
+        };
         const head = make('div', { className: 'tabs' }, tab('view', '3D view'), tab('render', 'Rendering'));
         if (lightTab === 'view') {
           const put = (patch: Partial<Light>) => set({ ...s, light: { ...s.light, ...patch } });
