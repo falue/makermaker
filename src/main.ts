@@ -2679,6 +2679,45 @@ function creating() {
   void kernel.idle().then(() => (busy.delete(label), render()));
 }
 
+/**
+ * Hovering a size field: that size drawn on its shape or body, as the Info panel's; `keys`: the shape's path
+ * (a sketch's or an extrude's own) or the extrude's (its H); `what`: L (w), W (h), Ø (d) or H (depth). Null: none.
+ */
+function showSize(keys: string[] | null, what?: 'w' | 'h' | 'd' | 'depth') {
+  viewer.showSize(null);
+  if (!keys || !what) return;
+  const doc = history.current;
+  let frame: Frame | undefined;
+  let shapes: DrawnProfile[];
+  let reach = [0, 0];
+  if (keys[0] === 'sketches') {
+    frame = viewer.sketches.find((v) => v.id === doc.sketches[+keys[1]]?.id)?.frame;
+    shapes = [resolve(getIn(doc, keys.slice(0, 4)) as Profile, paramLookup(doc.params), '', new Map()) as DrawnProfile];
+  } else {
+    const body = doc.bodies[+keys[1]];
+    const steps = built.get(body?.id) ?? [];
+    const step = steps.find((f) => f.id === body?.features[+keys[3]]?.id);
+    if (step?.type !== 'extrude') return;
+    const own = frames(steps as Parameters<typeof frames>[0]).get(step.id);
+    frame = own && placeFrame(bodyPlace(body.id), own);
+    const id = what === 'depth' ? null : (getIn(doc, keys.slice(0, 8)) as Profile).id;
+    shapes = step.profiles.filter((q) => !id || q.id === id) as DrawnProfile[];
+    reach = step.through ? [0, 0] : extent(step.depth, step.back ?? 0);
+  }
+  const p = shapes[0];
+  if (!frame || !p) return;
+  const at = (u: number, v: number, n = 0) => new Vector3(...toWorld(frame, u, v)).addScaledVector(new Vector3(...frame.n), n);
+  if (what === 'd' && 'd' in p) return viewer.showSize(at(p.x - p.d / 2, p.y), at(p.x + p.d / 2, p.y));
+  // a rectangle's turned corners, else its box in the plane: low left, low right, high right
+  const pts = flattened(p);
+  const [lo, hi] = [0, 1].map((k) => (pts.length ? Math.min(...pts.map((q) => q[k])) : 0));
+  const [ux, uy] = [0, 1].map((k) => (pts.length ? Math.max(...pts.map((q) => q[k])) : 0));
+  const [a, b, c] = p.kind === 'rect' ? pts : [[lo, hi], [ux, hi], [ux, uy]];
+  if (what === 'w') viewer.showSize(at(a[0], a[1]), at(b[0], b[1]));
+  else if (what === 'h') viewer.showSize(at(b[0], b[1]), at(c[0], c[1]));
+  else viewer.showSize(at(a[0], a[1], reach[0]), at(a[0], a[1], reach[1]));
+}
+
 /** A thread on `body`'s round face `round` (world; `point`: where it was picked: the thread starts at the nearer end). */
 function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: number; r: number; shaft: boolean }, point: Vector3) {
   // from the end nearest the click, into the face
@@ -6135,6 +6174,7 @@ function render() {
     statusError,
     info,
     minStep: settings.minStep,
+    showSize,
     showMeasure: (what) => (what === 'at' ? viewer.showPoint(info?.at ? new Vector3(...info.at) : null) : viewer.showMeasure(what === null ? null : (info?.box ?? null), what ?? 0)),
     solid,
     grouped: groupOf(history.current),

@@ -50,6 +50,8 @@ export interface UIContext {
   info: { title: string; rows: [string, string, Measure?][] } | null;
   /** Shows a measure of the selection in the view: one box side (axis 0 / 1 / 2) or its position ('at'); null: none. */
   showMeasure(what: Measure | null): void;
+  /** Hovering a size field: that size drawn on its shape or body (see main's showSize); null: none. */
+  showSize(keys: string[] | null, what?: 'w' | 'h' | 'd' | 'depth'): void;
   /** In sketch mode or while a group's objects are selected: bodies shown fully (their eye switched them back); the others are see-through. */
   solid: Set<string>;
   /** A group's objects selected: that group's contents (the rest fades); else null. */
@@ -1367,8 +1369,10 @@ function shapeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   const u = ctx.doc.units;
   const stored = (k: string) => (p as unknown as Record<string, Expr>)[k];
   const mm = (v: number): Expr => ({ e: fmt(v / UNITS[u]), u });
-  const tf = (field: ShapeField, label: string, value: Expr, raw = false) =>
-    exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
+  const tf = (field: ShapeField, label: string, value: Expr, raw = false) => {
+    const el = exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
+    return field === 'w' || field === 'h' || field === 'd' ? sizeHover(ctx, el, path, field) : el;
+  };
   const pf = (key: string, label: string, raw = false) => exprField(ctx, `${path}.${key}`, label, raw);
   const row = (...cells: HTMLElement[]) => h('div', { className: 'trio' }, ...cells);
   // its arcs' diameters, and the lengths and angles sides were given: formulas stay, the points follow
@@ -1397,6 +1401,11 @@ function refGrid(ctx: UIContext, shape: string) {
   const [rx, ry] = ctx.shapeRef(shape);
   const cells = [1, 0, -1].flatMap((sy) => [-1, 0, 1].map((sx) => h('button', { className: `cell${rx === sx && ry === sy ? ' on' : ''}`, onclick: () => ctx.setShapeRef(shape, [sx, sy]) })));
   return h('div', { className: 'ref-grid', title: 'Reference diamond: X / Y measure this point of the shape; changing size or turn keeps it in place' }, ...cells);
+}
+
+/** `el`, a size field: hovering it draws its size (see `showSize`) on what `path` leads to. */
+function sizeHover<T extends HTMLElement>(ctx: UIContext, el: T, path: string, what: 'w' | 'h' | 'd' | 'depth') {
+  return Object.assign(el, { onmouseenter: () => ctx.showSize(path.split('.'), what), onmouseleave: () => ctx.showSize(null) });
 }
 
 /** Position and Rotation under `at`: one block, three aligned columns. */
@@ -1433,7 +1442,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const back = exprField(ctx, `${at}.back`, 'Back', false, { value: feature.back ?? { e: '0', u: ctx.doc.units }, set: (x, live) => ctx.setValue([...at.split('.'), 'back'], x, live), error: ctx.exprErrors.get(`${at}.back`) });
       back.title = 'How far it also reaches behind its sketch plane (Alt while pulling: as far as the depth)';
       const reach = [
-        ...(feature.through ? [] : [f('depth', 'H'), back]),
+        ...(feature.through ? [] : [sizeHover(ctx, f('depth', 'H'), at, 'depth'), back]),
         ...(feature.mode === 'cut' ? [h('label', { className: 'check' }, through, 'Through')] : []),
       ];
       const src = feature.source;

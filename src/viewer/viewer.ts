@@ -3076,13 +3076,19 @@ export class Viewer implements ToolView {
 
   /** One measure of a box (world) drawn along its edge in `axis` (0 x, 1 y, 2 z), a thin line with its ends marked; null: clears it. */
   showMeasure(box: THREE.Box3 | null, axis: number) {
+    if (!box) return this.showSize(null);
+    const [a, b] = [box.min.clone(), box.min.clone()];
+    // the front edge: x along the front bottom, y and z up the right front corner
+    if (axis) [a.x, b.x] = [box.max.x, box.max.x];
+    b.setComponent(axis, box.max.getComponent(axis));
+    this.showSize(a, b);
+  }
+
+  /** A size from `a` to `b` (world) over everything, a thin line with its ends marked; null: clears it. */
+  showSize(a: THREE.Vector3 | null, b?: THREE.Vector3) {
     for (const o of this.measureMark.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
     this.measureMark.clear();
-    if (box) {
-      const [a, b] = [box.min.clone(), box.min.clone()];
-      // the front edge: x along the front bottom, y and z up the right front corner
-      if (axis) [a.x, b.x] = [box.max.x, box.max.x];
-      b.setComponent(axis, box.max.getComponent(axis));
+    if (a && b) {
       // as the Distance measure draws one: a thin line, its two ends marked
       const material = new LineMaterial({ color: 0xff8c1a, depthTest: false, depthWrite: false, transparent: true });
       material.resolution.set(this.el.clientWidth, this.el.clientHeight);
