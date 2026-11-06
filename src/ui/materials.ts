@@ -270,7 +270,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
                 })
               : make('h3', { className: 'mat-title', textContent: `Custom material for object: ${target}` }),
             ...(saved ? [make('p', { className: 'hint', textContent: 'Changes everything that uses this material.' })] : []),
-            make('label', { className: 'check', title: 'Off: renders get a look of their own, edited in its tab' }, same, 'Renders look the same as the 3D view'),
+            make('label', { className: 'check', title: 'Off: renders get a look of their own, edited in its tab' }, same, 'Renders use the same settings as the 3D view'),
             ...(look.render ? [make('div', { className: 'tabs' }, tabButton('view', '3D view'), tabButton('render', 'Rendering'))] : []),
             make('div', { className: 'row light' }, make('span', { textContent: 'Colour' }), colour('color', 'Its colour')),
             slider('bump', 'Surface', 'From a mirror over matte to bumpy', 'mirror', 'bumpy'),
