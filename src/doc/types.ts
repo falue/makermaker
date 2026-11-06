@@ -387,6 +387,8 @@ export interface RenderShot {
   background: Backdrop;
   /** PNG data URL, about 320 px wide. */
   thumbnail: string;
+  /** Its picture's shape (see `ASPECTS`); none: 16:9. */
+  aspect?: string;
   /** Its number in the file's names (`<file>_render_<n>_<when>.png`), counting up from 1. */
   n?: number;
   /** Small data URLs of its pictures, newest first (rendered again: the older ones stay below); `nice`: path traced, else a snapshot. */

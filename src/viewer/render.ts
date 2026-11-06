@@ -17,6 +17,17 @@ export function cameraFrom(state: CameraState): THREE.Camera {
   return cam;
 }
 
+/** A render's picture shapes, width:height; `view`: the 3D view's when it was taken. */
+export const ASPECTS = { '16:9': '16:9', view: 'Use 3D viewer size', '2.39:1': 'Cinemascope 2.39:1', '21:9': '21:9', '3:2': '3:2', '4:3': '4:3', '5:4': '5:4', '1:1': '1:1', '4:5': '4:5', '3:4': '3:4', '2:3': '2:3', '9:16': '9:16' };
+
+/** The camera a render is taken with: its picture in `aspect`, as many pixels as the view had. */
+export function shotCamera(camera: CameraState, aspect = '16:9'): CameraState {
+  if (aspect === 'view') return camera;
+  const [a, b] = aspect.split(':').map(Number);
+  const px = camera.size[0] * camera.size[1];
+  return { ...camera, size: [Math.round(Math.sqrt((px * a) / b)), Math.round(Math.sqrt((px * b) / a))] };
+}
+
 /** What a render reports to and asks of whoever watches it. */
 export interface RenderWatch {
   /** The canvas the picture grows on, to preview. */

@@ -20,6 +20,7 @@ import { changeLook, DEFAULT_RENDER_LIGHT, dropMaterial, effectiveLight, lookOf,
 import { dropPhoto, keepPhoto, loadPhotos } from './ui/photolibrary';
 import { fromMtlx, toMtlx } from './io/materials';
 import { openMaterials } from './ui/materials';
+import { shotCamera } from './viewer/render';
 import { emptyDoc, ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, listedAfter, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
@@ -6661,7 +6662,7 @@ async function renderQueue() {
       render();
       let shown = -1;
       try {
-        const image = await viewer.renderNice(shot.camera, shot.background, renderLight(), docRenderLight(), 256, {
+        const image = await viewer.renderNice(shotCamera(shot.camera, shot.aspect), shot.background, renderLight(), docRenderLight(), 256, {
           show: (canvas) => ((job.canvas = canvas), render()),
           progress(done) {
             job.done = done;

@@ -6,6 +6,7 @@ import { ex, newFinish } from '../doc/sample';
 import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
+import { ASPECTS, shotCamera } from '../viewer/render';
 import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, Unit } from '../doc/types';
 import { arcOf, type Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
@@ -991,8 +992,10 @@ function rendersPanel(ctx: UIContext): Node[] {
     picture.style.background = backdropCss(shot.background);
     // rendered more than once: the older results below, newest first
     const older = shot.results.slice(job?.canvas ? 0 : 1).map((r) => h('img', { src: r.preview, title: `${r.nice ? 'Rendered' : 'Snapshot'} ${new Date(r.at).toLocaleString()}` }));
-    const c = shot.camera;
+    const c = shotCamera(shot.camera, shot.aspect);
     const how = `${c.ortho ? 'Ortho' : `Persp ${Math.round(c.fov)}°`} · ${c.size[0]} × ${c.size[1]} px`;
+    const aspect = select<string>(shot.aspect ?? '16:9', ASPECTS, (v) => ctx.commit(setIn(doc, ['renders', String(i), 'aspect'], v)));
+    aspect.title = 'The shape of its picture (its next render)';
     const last = shot.results[0];
     const state = !job
       ? last
@@ -1039,7 +1042,7 @@ function rendersPanel(ctx: UIContext): Node[] {
     return h(
       'section',
       { className: 'render' },
-      h('div', { className: 'picture' }, picture),
+      h('div', { className: 'picture', title: 'Click: Versions', onclick: () => renders.versions(shot.id) }, picture),
       ...bar,
       ...(older.length ? [h('div', { className: 'older' }, ...older)] : []),
       h('div', { className: 'listed' }, h('span', { className: 'hint' }, `${new Date(shot.at).toLocaleString()} · ${how}`)),
@@ -1049,6 +1052,7 @@ function rendersPanel(ctx: UIContext): Node[] {
         h('strong', {}, state),
         h('span', { className: 'backdrop-pick', title: 'Background of the next render of this view: above and below the horizon (the same twice: solid)' }, colour('top', 'Above the horizon'), colour('bottom', 'Below')),
       ),
+      h('div', { className: 'row' }, h('span', {}, 'Aspect'), aspect),
       ...photos,
       h('div', { className: 'row actions' }, button('Light setting', ctx.openRenderLight, 'The light every render takes: Settings, Light, Rendering')),
       h('div', { className: 'row actions' }, ...actions),

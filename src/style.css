@@ -1292,13 +1292,22 @@ h3 .kind svg {
 }
 
 /* nice renders: pictures in the right column */
+section.render .picture {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  background: var(--line);
+  cursor: pointer;
+}
 section.render .picture img,
 section.render .picture canvas {
   display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 6px;
-  background: var(--line);
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 section.render .older {
   display: grid;
