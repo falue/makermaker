@@ -7252,6 +7252,7 @@ async function run(task: () => Promise<unknown>) {
 function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   history.reset(doc);
   file = { ...f, saved: doc };
+  if (f.handle) void remember('lastDesign', f.handle); // opened again on the next start (`reopenLast`)
   autosave = !!f.handle && localStorage.getItem('makermaker.autosave') === 'on';
   offered = false;
   selected = [];
@@ -7314,6 +7315,7 @@ async function save() {
     if (folder && saved.handle && (await folder.resolve(saved.handle).catch(() => null))?.length === 1) await remember(docFolderKey(saved.name), folder);
   }
   file = { ...saved, versions, saved: doc };
+  if (saved.handle) void remember('lastDesign', saved.handle);
   notify(`Saved ${new Date().toLocaleTimeString()}`);
 }
 
@@ -7527,5 +7529,20 @@ addEventListener(
 );
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+
+/** The design opened or saved last, opened again; when the browser wants to ask first, a click on the note does. */
+async function reopenLast() {
+  const h = canUseFolders() ? await recall<FileSystemFileHandle>('lastDesign').catch(() => undefined) : undefined;
+  if (!h) return;
+  const open = () =>
+    run(async () => {
+      if ((await h.requestPermission({ mode: 'readwrite' })) !== 'granted') return;
+      const f = await readHandle(h);
+      await loading(f.name, () => loadFile(f));
+    });
+  if ((await h.queryPermission({ mode: 'readwrite' })) !== 'granted') return notify(`Click: Open ${h.name} again`, false, () => ((status = ''), (statusAction = null), void open()));
+  if (history.current === file.saved) await open(); // nothing changed meanwhile
+}
+void reopenLast();
 
 update();
