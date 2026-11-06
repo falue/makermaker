@@ -14,6 +14,8 @@ interface Window {
 interface FileSystemHandle {
   queryPermission(options?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
   requestPermission(options?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
+  /** Renames it in place (newer Chromium only). */
+  move?(name: string): Promise<void>;
 }
 
 interface FileSystemDirectoryHandle {

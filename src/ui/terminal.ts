@@ -503,10 +503,13 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
       if (done) return;
       done = true;
       const name = freeName(cleanName(field.value), s);
-      if (save && name && name !== s.name && (dir || s.example)) {
+      if (save && name && name !== s.name && (dir || s.example || s.file)) {
         await flush();
         try {
-          if (!s.example) {
+          if (s.file) {
+            if (!s.file.move) throw new Error('this browser cannot rename a picked file');
+            await s.file.move(`${name}.py`);
+          } else if (!s.example) {
             await writeScript(dir!, { name, text: s.text });
             await removeScript(dir!, s.name);
           }
@@ -574,16 +577,16 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
         const label = Object.assign(document.createElement('span'), { className: 'script-name', textContent: s.name });
         const row = Object.assign(document.createElement('div'), {
           className: 'script-row',
-          title: s.locked ? 'Click: Allow this file again' : s.file ? `Click: Edit ${s.file.name}` : 'Click: Edit · double-click: Rename',
+          title: s.locked ? 'Click: Allow this file again' : `Click: Edit${s.file ? ` ${s.file.name}` : ''} · double-click: Rename`,
           onclick: () => void (s.locked ? unlock(s, open) : open(s)),
-          ondblclick: () => !s.file && renameIn(s, label),
+          ondblclick: () => !s.locked && renameIn(s, label),
         });
         row.dataset.name = s.name;
         const stop = (act: () => void) => (e: MouseEvent) => (e.stopPropagation(), act());
         row.append(
           label,
           ...(s.locked ? [] : [button('play', 'Run: one undo step', stop(() => void play(s)))]),
-          ...(s.file ? [] : [button('edit', 'Rename', stop(() => renameIn(s, label)))]),
+          ...(s.locked ? [] : [button('edit', 'Rename', stop(() => renameIn(s, label)))]),
           ...(s.locked ? [] : [button('save', 'Download a copy of this .py file', stop(() => {
             const url = URL.createObjectURL(new Blob([s.text], { type: 'text/x-python' }));
             Object.assign(document.createElement('a'), { href: url, download: `${s.name}.py` }).click();

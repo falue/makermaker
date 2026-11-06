@@ -59,7 +59,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Versions are kept per save, up to 50, autosave one every 5 minutes; a design never saved has none. They have no names; × on a row deletes one (written at once when the file has a handle, else with the next save). A version shown replaces what is on screen, so its tool panels and selection reset.
 
 ## Terminal
-- Picked .py files cannot be renamed from the list.
+- Renaming a picked .py file uses the file handle's `move`, only in newer Chromium; not tried by hand.
 - A script's result arriving while a tool is in the middle of a drag or a drawing is not held back. Not tested what that does to the drag.
 
 - `cad.measure` knows bodies as built when the run began: a shape changed in the same run is measured as it was. Its boxes ignore a group's turn when something moved in the run. It only gets its numbers if the run's text contains the word measure, so a helper function loaded from elsewhere would not.
