@@ -100,6 +100,17 @@ function attachTest(): { bodies: Body[]; joint: Joint } {
   return { bodies: [post, cap], joint: { id: newId(), name: 'Attach 1', kind: 'attach', parent: post.id, children: [cap.id], axis: { at: [0, 0, 20], dir: [0, 0, 1] }, min: z, max: z, value: z, speed: ex(1) } };
 }
 
+/**
+ * A body of three steps, for its cards: a block, a pocket cut into its top (on top of Extrude 1) and a tab added on
+ * the front plane, 20 out (Offset) where the block's front face is.
+ */
+function stepsTest(): Body {
+  const block = solid('Three steps', '#c8c0a8', [230, 0, 0], [rect(50, 40)], 20);
+  const pocket = { id: newId(), type: 'extrude' as const, source: { kind: 'own' as const, plane: { kind: 'cap' as const, feature: block.features[0].id }, profiles: [circle(0, 0, 20)] }, depth: ex(-8), mode: 'cut' as const, through: false };
+  const tab = { id: newId(), type: 'extrude' as const, source: { kind: 'own' as const, plane: { kind: 'base' as const, axis: 'xz' as const, offset: ex(20) }, profiles: [{ ...rect(20, 10), y: ex(10) }] }, depth: ex(10), mode: 'add' as const, through: false };
+  return { ...block, features: [...block.features, pocket, tab] };
+}
+
 /** A test piece for the cut tool: a block with a zig-zag line across it on the ground (cut along it, or by a plane). */
 function splitTest(): { body: Body; sketch: Sketch } {
   const line: Profile = { id: newId(), kind: 'line', pts: [[-165, -10], [-145, 8], [-130, -8], [-112, 10], [-95, -2]] };
@@ -251,7 +262,7 @@ export function sampleDoc(): Doc {
     schema: 32,
     units: 'mm',
     params: { $ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies],
+    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies, stepsTest()],
     sketches: [
       outline,
       {
