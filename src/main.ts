@@ -78,7 +78,8 @@ const lostEdges = new Map<string, Record<string, number>>();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 // the test models only while developing
-const history = new History<Doc>(import.meta.env.DEV ? sampleDoc() : emptyDoc(), 200, followSizes);
+// the built app starts with a 50 mm cube, development with the test pieces
+const history = new History<Doc>(import.meta.env.DEV ? sampleDoc() : runCommand(emptyDoc(), 'box', { width: 50, depth: 50, height: 50, name: 'Cube' }).doc, 200, followSizes);
 /** Selected objects (bodies and sketches) and, inside a single selected sketch, its selected shapes. */
 let selected: string[] = history.current.bodies.slice(0, 1).map((p) => p.id);
 let shapeSel: string[] = [];
