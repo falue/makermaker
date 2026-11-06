@@ -103,6 +103,7 @@ body {
 }
 #topbar .logo svg {
   display: block;
+  color: var(--accent);
   width: 20px;
   height: 20px;
 }
