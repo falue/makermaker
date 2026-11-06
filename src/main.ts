@@ -25,7 +25,7 @@ import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, listedAfter, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { CoatFeature } from './doc/types';
-import type { Area, Body, BulgeFeature, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Backdrop, Body, BulgeFeature, CameraState, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, versionDate, type Version } from './io/design';
 import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
@@ -405,6 +405,7 @@ function applySettings() {
   viewer.setSurroundings(settings.surroundings);
   viewer.setBackdrop(settings.background);
   viewer.setLight(effectiveLight(settings.light));
+  viewer.liveChanged();
 }
 applySettings();
 
@@ -426,6 +427,7 @@ const kernel = new Kernel((results, done) => {
     }
   }
   if (done) viewer.holdFit(false);
+  if (done) viewer.liveChanged();
   cutting?.refresh();
   render();
 });
@@ -699,6 +701,7 @@ function update() {
   }
   viewer.listOrder = tree(doc, new Set()).flatMap((r) => (r.kind === 'body' ? [r.id] : []));
   kernel.build(builds);
+  viewer.liveChanged();
   scheduleAutosave();
   offerAutosave();
   render();
@@ -6400,6 +6403,10 @@ function render() {
       },
       download: downloadRender,
       versions: (id) => run(() => showVersions(id)),
+      live(id) {
+        const shot = history.current.renders.find((r) => r.id === id);
+        if (shot) viewer.showLive(shot.camera, shot.background, id);
+      },
       folder: { name: history.current.renderFolder ?? null, lost: renderFolderLost, can: canUseFolders() },
       pickFolder: (downloads) => run(() => pickRenderFolder(downloads)),
       useView(id) {
@@ -6586,6 +6593,34 @@ async function newShot(results: RenderShot['results'] = []) {
   return shot.id;
 }
 
+/**
+ * A live render view's picture kept: a new version of render `shot` (none, or gone: a new render of that camera and
+ * background), saved like every finished render. Returns the render's id.
+ */
+function saveLive(camera: CameraState, background: Backdrop, image: Blob, shot?: string) {
+  const id = shot && history.current.renders.some((r) => r.id === shot) ? shot : newId();
+  void run(async () => {
+    const result = { at: new Date().toISOString(), preview: await previewOf(image), nice: true };
+    const doc = history.current;
+    const i = doc.renders.findIndex((r) => r.id === id);
+    if (i >= 0) commit(setIn(doc, ['renders', String(i), 'results'], [result, ...doc.renders[i].results].slice(0, 8)));
+    else commit({ ...doc, renders: [{ id, n: Math.max(0, ...doc.renders.map(shotNumber)) + 1, at: result.at, camera, background, thumbnail: result.preview, results: [result] }, ...doc.renders] });
+    jobs.set(id, { state: 'done', done: 1, image, url: URL.createObjectURL(image) });
+    await keepRender(id, image, true);
+  });
+  return id;
+}
+viewer.liveHost = {
+  get light() {
+    return renderLight();
+  },
+  get haze() {
+    return docRenderLight();
+  },
+  queueBusy: () => [...jobs.values()].some((j) => j.state === 'rendering'),
+  save: saveLive,
+};
+
 /** Render nice: a new render of the view, queued. */
 async function shoot() {
   await allowRenderFolder();
@@ -6609,7 +6644,7 @@ async function snapshot() {
   }
 }
 
-/** Renders the waiting shots one after another, oldest first; slower while the renders panel is closed. */
+/** Renders the waiting shots one after another, oldest first; slower while the renders panel is closed; a live render first. */
 async function renderQueue() {
   if (queueRunning) return;
   queueRunning = true;
@@ -6617,6 +6652,10 @@ async function renderQueue() {
     for (;;) {
       const shot = [...history.current.renders].reverse().find((r) => jobs.get(r.id)?.state === 'waiting');
       if (!shot) break;
+      if (viewer.liveRendering()) {
+        await new Promise((next) => setTimeout(next, 500));
+        continue;
+      }
       const job = jobs.get(shot.id)!;
       job.state = 'rendering';
       render();

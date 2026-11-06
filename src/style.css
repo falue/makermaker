@@ -260,6 +260,9 @@ span.error,
 #stage .view-bar .segmented {
   justify-self: start;
 }
+#stage .view-bar button {
+  white-space: nowrap;
+}
 #stage .view-bar .middle {
   display: flex;
   align-items: center;
@@ -2792,4 +2795,19 @@ section > h4 .segmented button {
 .versions .large .row {
   align-items: center;
   margin-top: 8px;
+}
+
+/* a live render view: the path traced picture over the plain view (which shows while turning it); presses go through to orbit */
+#stage .view .live {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+#stage .view .live > * {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }

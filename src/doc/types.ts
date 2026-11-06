@@ -484,7 +484,7 @@ export interface Doc {
 export interface Views {
   camera: CameraState;
   layout: { x: number; rows: Record<number, number[]> };
-  views: { kind: string; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number }[];
+  views: { kind: string; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number; live?: boolean }[];
 }
 
 /** The light of renders (`same`: the 3D view's instead), and their haze, 0 to 1: fast by depth, and real fog in the path tracer. */

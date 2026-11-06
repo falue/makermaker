@@ -25,7 +25,7 @@ import { DEFAULT_LIGHT, lightDirections, plainLook, toLook, type Look } from '..
 import { applyLook, boxUv, needsUv, pictureLoaded, renderMaterial } from './look';
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
-import { drawSky, SKIES, twoColours } from './sky';
+import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import type { Settings } from '../ui/settings';
@@ -104,6 +104,13 @@ export type ViewKind = '3d' | 'top' | 'front' | 'right' | 'back' | 'left' | 'bot
 
 /** An extra view as a file keeps it. */
 type SavedView = Views['views'][number];
+
+/**
+ * An extra view rendering live (path traced): the picture's place over the view and its bar's status and Save; `gen`
+ * counts restarts (an older run stops), `stale`: something changed while another view rendered; `image`: done;
+ * `shot`: the render Save adds to; `background`: its own (a render's), else the view's.
+ */
+type LiveRender = { gen: number; timer: number; stale: boolean; running?: boolean; picture: HTMLElement; status: HTMLElement; save: HTMLButtonElement; image?: Blob; shot?: string; background?: Backdrop };
 
 export interface PickedFace {
   point: THREE.Vector3;
@@ -3814,7 +3821,12 @@ export class Viewer implements ToolView {
   }
 
   /** Extra views beside this one (in #stage): each its own camera and controls on the same scene; editing stays here. */
-  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; setOrtho(on: boolean): void }[] = [];
+  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; setOrtho(on: boolean): void; live: LiveRender | null; setLive(on: boolean): void }[] = [];
+
+  /** The light live renders take, and what they need from the app: whether the render queue is busy, keeping a picture. */
+  liveHost: { light: Light; haze: { haze: number; fog: number }; queueBusy(): boolean; save(camera: CameraState, background: Backdrop, image: Blob, shot?: string): string } | null = null;
+  /** The live render view touched last: the only one that renders (the others keep their picture). */
+  private liveView: Viewer['views'][number] | null = null;
 
   /**
    * A new view: `kind` looks from that side (3D: from the front right, above), 'face': along `look.n` at `look.at`;
@@ -3829,9 +3841,12 @@ export class Viewer implements ToolView {
     const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
     const persp = new THREE.PerspectiveCamera(35, 1, 1, 50000);
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
-    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on) };
+    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on) };
     view.controls.zoomToCursor = true;
-    view.controls.addEventListener('change', () => this.renderView(view));
+    view.controls.addEventListener('change', () => (this.renderView(view), view.live && this.restartLive(view)));
+    // while it is turned, the plain view shows through
+    view.controls.addEventListener('start', () => view.live && (view.live.picture.hidden = true));
+    el.addEventListener('pointerdown', () => view.live && this.liveView !== view && ((this.liveView = view), view.live.stale && this.restartLive(view)));
     const sides: [ViewKind, string][] = [['3d', '3D'], ['top', 'Top'], ['front', 'Front'], ['right', 'Right'], ['back', 'Back'], ['left', 'Left'], ['bottom', 'Bottom'], ...(look ? [['face', 'Face'] as [ViewKind, string]] : [])];
     const side = Object.assign(document.createElement('select'), { title: 'Where it looks from' });
     side.append(...sides.map(([k, name]) => Object.assign(document.createElement('option'), { value: k, textContent: name, selected: k === kind })));
@@ -3852,16 +3867,46 @@ export class Viewer implements ToolView {
     };
     projection.append(button('Ortho', 'Orthographic', () => pick(true)), button('Persp', 'Perspective', () => pick(false)));
     projection.firstElementChild!.classList.add('on');
+    // 3D view | Live render: path traced, starting again whenever something changes
+    const mode = Object.assign(document.createElement('span'), { className: 'segmented' });
+    const status = Object.assign(document.createElement('span'), { className: 'read-only' });
+    const save = button('Save', 'Keep this picture: into the renders (once; again: a new version of it) and saved (Downloads or the render folder)', () => {
+      const l = view.live;
+      if (l?.image && this.liveHost) l.shot = this.liveHost.save(this.viewCamera(view), l.background ?? this.backdropColours(), l.image, l.shot);
+    });
+    save.className = 'primary';
+    const live = (on: boolean) => {
+      mode.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 1) === on));
+      if (!on) {
+        view.live?.picture.remove();
+        view.live = null;
+        if (this.liveView === view) this.liveView = null;
+        status.textContent = 'read only';
+        save.hidden = true;
+        return;
+      }
+      if (view.live) return;
+      view.live = { gen: 0, timer: 0, stale: false, picture: Object.assign(document.createElement('div'), { className: 'live' }), status, save };
+      el.append(view.live.picture);
+      this.liveView = view;
+      this.restartLive(view);
+    };
+    mode.append(button('3D view', 'The model as you edit it', () => live(false)), button('Live render', 'Path traced, starting again whenever the model, the camera or the light changes; Save keeps the picture', () => live(true)));
+    mode.firstElementChild!.classList.add('on');
+    save.hidden = true;
     const bar = Object.assign(document.createElement('div'), { className: 'view-bar' });
     const middle = Object.assign(document.createElement('span'), { className: 'middle' });
     middle.append(
+      mode,
       side,
       button('⇄', 'Edit here: this view and the main one swap cameras', () => this.swapView(view)),
     );
     const right = Object.assign(document.createElement('span'), { className: 'right' });
     right.append(
-      Object.assign(document.createElement('span'), { className: 'read-only', textContent: 'read only', title: 'Editing happens in the main view: ⇄ brings this view there' }),
+      Object.assign(status, { textContent: 'read only', title: 'Editing happens in the main view: ⇄ brings this view there' }),
+      save,
       closeButton('Close this view', () => {
+        live(false);
         this.views = this.views.filter((v) => v !== view);
         view.controls.dispose();
         renderer.dispose();
@@ -3881,7 +3926,91 @@ export class Viewer implements ToolView {
       view.height = saved.height;
       ortho.zoom = saved.zoom;
       view.controls.update();
+      if (saved.live) live(true);
     } else this.aimView(view, kind, look);
+    return view;
+  }
+
+  /** An extra view's camera as a render takes it, at the size it shows. */
+  private viewCamera(view: Viewer['views'][number]): CameraState {
+    const bar = (view.el.querySelector('.view-bar') as HTMLElement).offsetHeight;
+    const cam = view.camera as THREE.OrthographicCamera | THREE.PerspectiveCamera;
+    return {
+      ortho: cam === view.ortho,
+      position: cam.position.toArray(),
+      target: view.controls.target.toArray(),
+      up: cam.up.toArray(),
+      fov: view.persp.fov,
+      height: (view.ortho.top - view.ortho.bottom) / view.ortho.zoom,
+      size: [view.el.clientWidth, view.el.clientHeight - bar],
+    };
+  }
+
+  /** Something a render shows changed: the live render view touched last starts again, the others when touched. */
+  liveChanged() {
+    for (const v of this.views) if (v.live) v === this.liveView ? this.restartLive(v) : (v.live.stale = true);
+  }
+
+  /** Whether a live render is under way (the render queue waits for it). */
+  liveRendering() {
+    return this.views.some((v) => v.live?.running);
+  }
+
+  /**
+   * "See in live render": a live render view with `camera` and `background` (the one there, else a new view), Save
+   * adding to render `shot`.
+   */
+  showLive(camera: CameraState, background: Backdrop, shot: string) {
+    const view = this.views.find((v) => v.live) ?? this.addView('3d');
+    view.setOrtho(camera.ortho);
+    for (const c of [view.ortho, view.persp]) c.position.set(...camera.position);
+    view.controls.target.set(...camera.target);
+    view.height = camera.ortho ? camera.height : view.height;
+    view.ortho.zoom = 1;
+    view.controls.update();
+    view.setLive(true);
+    Object.assign(view.live!, { background, shot });
+    this.liveView = view;
+    this.restartLive(view);
+  }
+
+  /** Starts live render view `view` again, a moment after the last change (`ms`), the picture so far shown meanwhile. */
+  private restartLive(view: Viewer['views'][number], ms = 400, samples = 256) {
+    const l = view.live;
+    if (!l) return;
+    clearTimeout(l.timer);
+    const gen = ++l.gen;
+    Object.assign(l, { image: undefined, stale: false });
+    l.save.hidden = true;
+    l.status.textContent = 'Waiting';
+    l.timer = window.setTimeout(async () => {
+      if (view.live !== l || l.gen !== gen) return;
+      if (this.liveHost?.queueBusy()) return ((l.status.textContent = 'Waiting for the render queue'), this.restartLive(view, 1000));
+      const host = this.liveHost;
+      if (!host) return;
+      l.running = true;
+      l.picture.hidden = false;
+      l.picture.style.top = `${(view.el.querySelector('.view-bar') as HTMLElement).offsetHeight}px`;
+      l.picture.style.background = backdropCss(l.background ?? this.backdropColours());
+      try {
+        const image = await this.renderNice(this.viewCamera(view), l.background ?? this.backdropColours(), host.light, host.haze, samples, {
+          show: (canvas) => l.picture.replaceChildren(canvas),
+          progress: (done) => (l.status.textContent = `${Math.round(done * samples)} / ${samples}`),
+          cancelled: () => view.live !== l || l.gen !== gen,
+          slow: () => false,
+        });
+        l.image = image;
+        l.status.textContent = 'Done';
+        l.save.hidden = false;
+        const img = Object.assign(document.createElement('img'), { src: URL.createObjectURL(image), alt: 'Live render' });
+        img.onload = () => URL.revokeObjectURL(img.src);
+        l.picture.replaceChildren(img);
+      } catch (err) {
+        if (view.live === l && l.gen === gen) l.status.textContent = (err as Error).message;
+      } finally {
+        l.running = false;
+      }
+    }, ms);
   }
 
   /** The borders between the views, by where they lie. */
@@ -3943,7 +4072,7 @@ export class Viewer implements ToolView {
       layout: this.viewLayout,
       views: this.views.map((v): SavedView => {
         const cam = v.camera as THREE.OrthographicCamera | THREE.PerspectiveCamera;
-        return { kind: v.kind, look: v.look && { n: v.look.n.toArray(), at: v.look.at.toArray() }, ortho: cam === v.ortho, position: cam.position.toArray(), target: v.controls.target.toArray(), height: v.height, zoom: v.ortho.zoom };
+        return { kind: v.kind, look: v.look && { n: v.look.n.toArray(), at: v.look.at.toArray() }, ortho: cam === v.ortho, position: cam.position.toArray(), target: v.controls.target.toArray(), height: v.height, zoom: v.ortho.zoom, ...(v.live ? { live: true } : {}) };
       }),
     };
   }

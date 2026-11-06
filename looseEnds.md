@@ -45,6 +45,12 @@ Smaller things left open by finished work. Kept up to date with each change; big
 
 ## View
 - After the view cube was dragged over the top or bottom, the camera stays upside down until a cube side, a corner or Home: orbiting the view itself meanwhile feels the other way round sideways, and the view's own orbit still stops at the poles.
+- Dragging a body opens the move fields; dragging sketch shapes or an image still moves them at once on letting go.
+
+## Renders
+- Not tried in a real browser yet: writing into a picked render folder, reading its files in Versions, a folder gone or without permission (headless tests cannot pick folders). The live render view was tried headless only.
+- A live render starts again after every change, also ones it does not show (a sketch edited, say). It renders at the view's size on screen, not twice it as the queue does. "See in live render" sets the view's camera but not its picture size: the live picture has the view's shape, not the render's.
+- A render saved from a live view gets its preview as thumbnail; its camera is the live view's at its size on screen.
 
 ## Versions
 - Versions are kept per save, up to 50, autosave one every 5 minutes; a design never saved has none. They have no names and cannot be deleted one by one. A version shown replaces what is on screen, so its tool panels and selection reset.
