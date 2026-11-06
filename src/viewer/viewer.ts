@@ -2059,6 +2059,20 @@ export class Viewer implements ToolView {
     }
     if (depth) depth.visible = hides;
     lines.renderOrder = cutter ? 1e5 : 0;
+    this.glowLamp(g, look, cutter);
+  }
+
+  /** A glowing body lights its neighbours from its middle: `strength` times the sun's light at its own size away, fading slowly (1 / distance). */
+  private glowLamp(g: THREE.Group, look: Look | undefined, cutter: boolean, strength = 6) {
+    let lamp = g.children.find((c): c is THREE.PointLight => c instanceof THREE.PointLight);
+    if (!look?.glowStrength || cutter) return lamp?.removeFromParent();
+    if (!lamp) g.add((lamp = Object.assign(new THREE.PointLight(), { decay: 1 })));
+    const geometry = (g.children[0] as THREE.Mesh).geometry;
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    const { center, radius } = geometry.boundingSphere!;
+    lamp.position.copy(center);
+    lamp.color.set(look.glow);
+    lamp.intensity = strength * look.glowStrength * 2 * radius;
   }
 
   private dropped = new Set<string>();
@@ -3549,7 +3563,7 @@ export class Viewer implements ToolView {
     at.set(id, this.group(id).position.clone());
     const copy = this.group(id).clone(); // shares the geometry
     copy.traverse((o) => {
-      if (o instanceof LineSegments2 || o instanceof THREE.Points) o.visible = false;
+      if (o instanceof LineSegments2 || o instanceof THREE.Points || o instanceof THREE.Light) o.visible = false;
       else if (o instanceof THREE.LineSegments || o instanceof THREE.Mesh) [o.userData.own, o.material] = [o.material, m.looks[o instanceof THREE.Mesh ? 0 : 1]];
     });
     m.ghosts.add(copy);
@@ -3753,7 +3767,7 @@ export class Viewer implements ToolView {
   }
 
   private disposeChildren(group: THREE.Group) {
-    for (const c of group.children) (c as THREE.Mesh).geometry.dispose();
+    for (const c of group.children) (c as THREE.Mesh).geometry?.dispose(); // a glow lamp has none
     group.clear();
   }
 
