@@ -185,6 +185,7 @@ What a basic, fully working CAD tool still needs, most important first (revolve,
 6. **Any body as a cutter** in the Cut tool (now: planes, sketch lines and shapes, balls, cylinders).
 
 ## Planned, not built yet
+- **Pinned, most important: one model for combining shapes** (open, to be decided). Today the GUI only makes booleans (tool bodies under their owner), yet an extrude card shows step fields only code uses (Plane, Offset, Add / Cut; sample "Three steps"). The idea: negative / join tool bodies replace a body's extra extrude steps, so the card becomes the shape (X Y Z · L W H R · X° Y° Z°) plus its finishes; a SketchUp / Fusion style pull decides the operation by direction (into a body: Cut, out: Join or a new body, one click to switch), stored as tool bodies. To check first: filleting a boolean pocket's rim (and keeping it when the cutter moves); many holes (50 cutters in the list, or Pattern with linked copies).
 - **Custom origin picker**, for later if needed: a 3D picker (corner, plane or point, moved and turned like an object) for groups and objects, turned with the group, moved by joints. To check first: whether drawing on moved joint parts or rotated groups already gets what it would give.
 - **Cross browser**: usable in Firefox and Safari too, with the drawbacks being file handling (no saving in place, no script folder: downloads and uploads instead).
 - **Drawings**: sheets with live views at several scales, title block, multipage, vector PDF and SVG. The plan: DRAWINGS.md.
