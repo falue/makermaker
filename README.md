@@ -6,6 +6,8 @@
 
 CAD in the browser for people who build things: props, fitted parts, boxes and brackets, cut on a laser or printed in 3D. Draw a shape, pull it up, round its edges, cut holes into it, and send it to the machine.
 
+Try it: [fluescher.ch/makermaker](https://fluescher.ch/makermaker)
+
 It runs on your computer, also offline, and keeps your designs in ordinary files you save wherever you like. No account, no cloud.
 
 ## What it can do
