@@ -76,10 +76,11 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   scene.environmentIntensity = light.ambient / Math.PI; // three's ambient light of that strength
   const toCamera = camera.getWorldDirection(new THREE.Vector3()).negate().toArray();
   const aim = lightDirections(light, toCamera);
+  // a light at 0 stays out: the tracer picks one light per sample, one giving nothing only adds grain
   const sun = new THREE.DirectionalLight(light.sunColor, light.sun);
   sun.position.set(...aim.sun);
-  model.add(sun);
-  if (light.cameraOn) {
+  if (light.sun > 0) model.add(sun);
+  if (light.cameraOn && light.cameraLight > 0) {
     const lamp = new THREE.DirectionalLight(0xffffff, light.cameraLight);
     lamp.position.set(...aim.camera);
     model.add(lamp);
