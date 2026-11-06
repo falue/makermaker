@@ -4685,6 +4685,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
   const segmented = Object.assign(document.createElement('span'), { className: 'segmented' });
   segmented.append(...choices);
   const finish = (ok: boolean) => {
+    if (previewing()) playing.delete(id);
     viewer.aiming = null;
     viewer.cancelFacePick();
     box.remove();
@@ -4703,6 +4704,14 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     finish(pressed(e, 'confirm'));
   };
   const button = panelButton;
+  // a toggle: plays from its min, back and forth, until clicked again (where it is now stays)
+  const previewing = () => playing.get(id)?.keep === false;
+  const play = button('▶ Play', 'Play it back and forth from its min to see it (where it is now stays)', () => {
+    if (previewing()) playing.delete(id);
+    else start(id, false);
+    play.textContent = previewing() ? '■ Stop' : '▶ Play';
+    play.classList.toggle('on', previewing());
+  });
   box.append(
     segmented,
     cell(minLabel, minInput),
@@ -4710,7 +4719,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     cell(speedLabel, speedInput),
     button('⇄ Invert', 'Turn or move the other way round', () => write({ axis: { ...now().axis, dir: now().axis.dir.map((v) => -v) as [number, number, number] } })),
     button('⇅ Swap', 'Swap: the first moving object stays, the one that stayed moves (the same motion between them)', swap),
-    button('▶ Play', 'Play it once from its min to its max to see it (where it is now stays)', () => start(id, false)),
+    play,
     button('✓', 'Keep the changes (Enter); Esc drops them', () => finish(true)),
   );
   choose(now().kind);
@@ -4937,9 +4946,9 @@ function animate(now: number) {
     }
     p.phase += (now - p.last) / 1000 / Math.max(0.1, settings.jointSeconds / speed);
     p.last = now;
-    if ((once.has(id) || !p.keep) && p.phase >= p.end) {
-      if (p.keep) pause(id, jointRange(j, lookup)[p.end === 1 ? 1 : 0]);
-      else playing.delete(id); // a preview: back to where it is
+    // a preview (the joint panel's Play) repeats until stopped
+    if (p.keep && once.has(id) && p.phase >= p.end) {
+      pause(id, jointRange(j, lookup)[p.end === 1 ? 1 : 0]);
       continue;
     }
     p.phase %= 2; // back and forth: smooth at both ends

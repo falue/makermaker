@@ -1131,7 +1131,8 @@ input.rename {
   left: 14px;
 }
 
-.sections > button.on {
+.sections > button.on,
+.axis-move > button.on {
   color: var(--accent-text);
   background: var(--accent);
   border-color: var(--accent);
