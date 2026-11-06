@@ -1178,7 +1178,7 @@ input.rename {
 
 .viewcube .below-cube {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
