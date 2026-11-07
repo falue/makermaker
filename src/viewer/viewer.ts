@@ -3433,7 +3433,7 @@ export class Viewer implements ToolView {
     const faces = [...((solid?.userData.finishFaces ?? []) as Int32Array)].flatMap((k, f) =>
       k >= 0 && finishes[k].feature === sel!.feature && (!sel!.mid || same(finishes[k].mid, sel!.mid)) ? [f] : [],
     );
-    this.finishMark = this.replaceMark(this.finishMark, solid ?? undefined, faces, 0xff8c1a);
+    this.finishMark = this.replaceMark(this.finishMark, solid ?? undefined, faces, PICKED); // selected: blue
   }
 
   /**
@@ -3455,7 +3455,7 @@ export class Viewer implements ToolView {
         if (sel.of(a.add(b).add(c).divideScalar(3), n)) faces.push(f);
       }
     }
-    this.stepMark = this.replaceMark(this.stepMark, solid ?? undefined, faces, 0xff8c1a);
+    this.stepMark = this.replaceMark(this.stepMark, solid ?? undefined, faces, PICKED);
     this.render();
   }
   private stepSel: { body: string; of: (at: THREE.Vector3, n: THREE.Vector3) => boolean } | null = null;
