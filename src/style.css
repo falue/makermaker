@@ -1313,6 +1313,9 @@ input.color::-webkit-color-swatch {
   gap: 3px;
   padding: 3px;
 }
+.shape-fields > .ref-grid {
+  align-self: start;
+}
 .ref-grid .cell {
   width: 8px;
   height: 8px;
