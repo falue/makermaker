@@ -3138,20 +3138,16 @@ export class Viewer implements ToolView {
     this.render();
   };
 
-  /** Grid, origin axes and view cube follow `m` (a group's origin, world; null: the world's own); `axes`: the origin axes alone elsewhere. */
-  setFrame(m: THREE.Matrix4 | null, axes: THREE.Matrix4 | null = m) {
-    // the origin axes alone (a group selected from outside: where its origin is)
-    Object.assign(this.axes, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(axes ?? new THREE.Matrix4());
+  /** Grid, origin axes and view cube follow `m` (a group's origin, world; null: the world's own). */
+  setFrame(m: THREE.Matrix4 | null) {
     const f = m ?? new THREE.Matrix4();
-    if (f.equals(this.groupFrame)) return this.render();
+    if (f.equals(this.groupFrame)) return;
     this.groupFrame.copy(f);
     f.decompose(new THREE.Vector3(), this.frameTurn, new THREE.Vector3());
-    Object.assign(this.grid, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(f);
+    for (const o of [this.grid, this.axes]) Object.assign(o, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(f);
     this.gridLook.key = '';
-    // the view stands upright to it (its Z up on screen), orbiting around its Z
-    this.upright();
-    this.controls.update();
-    this.render();
+    // the view stands upright to it (its Z up on screen), orbiting around its Z: turning there smoothly
+    this.tiltUp();
   }
 
   /** The ground grid's colours (the step's lines, every 5th, those through 0), and what it was drawn for (step and middle). */
@@ -5423,12 +5419,33 @@ export class Viewer implements ToolView {
    * dragged over a pole. The orbit controls keep the up they were made with, so theirs is set too.
    */
   private upright(on = true) {
-    const up = new THREE.Vector3(0, 0, on ? 1 : -1).applyQuaternion(this.frameTurn);
+    this.setUp(new THREE.Vector3(0, 0, on ? 1 : -1).applyQuaternion(this.frameTurn));
+  }
+
+  private setUp(up: THREE.Vector3) {
     for (const c of [this.perspective, this.orthographic]) c.up.copy(up);
     const own = this.controls as unknown as { _quat: THREE.Quaternion; _quatInverse: THREE.Quaternion };
     own._quat.setFromUnitVectors(up, new THREE.Vector3(0, 1, 0));
     own._quatInverse.copy(own._quat).invert();
   }
+
+  /** The cameras' up glides to the frame's Z (`ms` long, eased), the view rolling along with it. */
+  private tiltUp(ms = 500) {
+    const from = this.camera.up.clone().normalize();
+    const turn = new THREE.Quaternion().setFromUnitVectors(from, new THREE.Vector3(0, 0, 1).applyQuaternion(this.frameTurn));
+    const t0 = performance.now();
+    const run = ++this.tilting;
+    const step = (now: number) => {
+      if (run !== this.tilting) return; // a newer one took over
+      const t = Math.min(1, (now - t0) / ms);
+      this.setUp(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, t * t * (3 - 2 * t))));
+      this.controls.update();
+      this.render();
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  private tilting = 0;
 
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
   private viewFrom(dir: THREE.Vector3, side = true, ms = 600, at?: THREE.Vector3) {

@@ -1144,9 +1144,9 @@ function selectedGroup(doc: Doc) {
 function selectInView(doc: Doc) {
   viewer.select(contents(doc, selected), groupKept(doc));
   const g = selectedGroup(doc);
-  // a group itself selected: its origin axes show where its origin is (grid and view cube stay the world's)
+  // a group itself selected too: grid, origin axes and view cube follow its origin
   const own = !g && selected.length === 1 && doc.groups.some((x) => x.id === selected[0]) ? selected[0] : null;
-  viewer.setFrame(g ? groupPlace(g) : null, g ? groupPlace(g) : own ? groupPlace(own) : null);
+  viewer.setFrame(g || own ? groupPlace(g ?? own!) : null);
 }
 
 /** What stays solid while a group's objects are selected: its contents and the bodies whose eye showed them fully (they reset when it ends). */
