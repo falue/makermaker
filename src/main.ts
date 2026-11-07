@@ -1238,6 +1238,15 @@ function clampFinish(body: string, feature: string, max: number) {
   notify(`${f.mode === 'fillet' ? 'Fillet' : 'Chamfer'} set to ${fmt(size / UNITS[doc.units])} ${doc.units}: the largest that fits`);
 }
 
+/** A value set at `path` (`live`: replacing the step before, while dragging); a finish's size goes through `finishSize`. */
+function setValue(path: string[], value: unknown, live = false) {
+  const doc = setIn(history.current, path, value);
+  const next = follow(history.current, value && typeof value === 'object' && 'e' in value ? finishSize(doc, path, value as Expr) : doc);
+  if (live) history.replace(next);
+  else history.push(next);
+  update();
+}
+
 /**
  * A fillet / chamfer size set (`path`, `value`): below 0 the finish turns into the other kind, the size positive; beyond
  * the largest size known to fit it is cut to that.
@@ -6333,12 +6342,14 @@ function render() {
       }
     },
     commit,
-    setValue(path, value, live = false) {
-      const doc = setIn(history.current, path, value);
-      const next = follow(history.current, value && typeof value === 'object' && 'e' in value ? finishSize(doc, path, value as Expr) : doc);
-      if (live) history.replace(next);
-      else history.push(next);
-      update();
+    setValue,
+    setFinishSize(path, value, from, live) {
+      // a drag past 0 has turned it into the other kind already: the value still counts from the kind it began as
+      const f = history.current.bodies[+path[1]]?.features[+path[3]];
+      const flip = f?.type === 'finish' && f.mode !== from;
+      const e = value.e.trim();
+      const negated = e.startsWith('-') ? e.slice(1).trim() : /^(\d+\.?\d*|\.\d+)\s*[a-z]*$/i.test(e) ? (parseFloat(e) ? `-${e}` : e) : `-(${e})`;
+      setValue(path, flip ? { ...value, e: negated } : value, live);
     },
     shapeRef: refOf,
     linkSize: (id) => linkedSizes.has(id),

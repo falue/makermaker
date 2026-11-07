@@ -2942,8 +2942,8 @@ section > h4 .segmented button {
 /* a body's fillets and chamfers: their title with +, a row each */
 .finish-head span {
   flex: 1;
+  font-size: 11px;
   color: var(--muted);
-  font-weight: 600;
 }
 
 /* a body's steps in order (History), folded first */

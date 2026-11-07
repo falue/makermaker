@@ -62,6 +62,8 @@ export interface UIContext {
   commit(doc: Doc): void;
   /** `live`: replaces the current undo step (scrubbing). */
   setValue(path: string[], value: unknown, live?: boolean): void;
+  /** A finish's size, below 0 the other kind; `from`: the kind the field showed (a drag past 0 goes on into the other kind). */
+  setFinishSize(path: string[], value: Expr, from: 'fillet' | 'chamfer', live: boolean): void;
   /** `how`: true toggles the object, 'range' selects from the last selected one in its list to it. */
   select(id: string | null, how?: Pick): void;
   /** A list row plainly clicked again while it alone is selected: deselects it (a waiting tool takes it instead) and says so. */
@@ -1282,7 +1284,7 @@ function dimensions(ctx: UIContext, steps: Body, k: number): HTMLElement | null 
 function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) => void): Node[] {
   const list = steps.features.flatMap((f, j) => (f.type === 'finish' ? [{ f, j }] : []));
   const kinds = new Set(list.map(({ f }) => f.mode));
-  const title = kinds.size === 2 ? 'Fillet | Chamfer' : kinds.has('chamfer') ? 'Chamfer' : 'Fillet';
+  const title = !kinds.size ? 'Fillets or Chamfers' : kinds.size === 2 ? 'Fillet | Chamfer' : kinds.has('chamfer') ? 'Chamfer' : 'Fillet';
   const add = button('+', () => setSteps({ ...steps, features: [...steps.features, newFinish(ctx.doc.units)] }), 'Click: Add a fillet (a size below 0 makes it a chamfer)');
   return [
     h('div', { className: 'row finish-head' }, h('span', {}, title), add),
@@ -1593,7 +1595,7 @@ function finishParts(ctx: UIContext, body: Body, feature: Extract<Feature, { typ
   );
   const on = feature.enabled ? [] : [h('input', { type: 'checkbox', checked: false, title: 'Click: Switch it on again', onchange: () => setFeature({ ...feature, enabled: true }) })];
   return [
-    h('div', { className: 'row finish' }, ...on, exprField(ctx, `${at}.size`, feature.mode === 'fillet' ? 'Radius' : 'Chamfer'), edges, bake, remove),
+    h('div', { className: 'row finish' }, ...on, exprField(ctx, `${at}.size`, feature.mode === 'fillet' ? 'Radius' : 'Chamfer', false, { value: feature.size, set: (x, live) => ctx.setFinishSize(`${at}.size`.split('.'), x, feature.mode, live), error: ctx.exprErrors.get(`${at}.size`) }), edges, bake, remove),
     ...(feature.skip.length ? [h('div', { className: 'listed' }, h('span', { className: 'hint' }, `${feature.skip.length} edge${feature.skip.length > 1 ? 's' : ''} left out`), button('Restore', () => setFeature({ ...feature, skip: [] }), 'Click: Finish the left-out edges again'))] : []),
     ...(lost ? [h('p', { className: 'error', title: COPY_TIP }, `${lost} of ${picked} picked edges ${lost > 1 ? 'are' : 'is'} gone: an edit changed ${lost > 1 ? 'them' : 'it'} too much. Pick ${lost > 1 ? 'them' : 'it'} again.`)] : []),
   ];
