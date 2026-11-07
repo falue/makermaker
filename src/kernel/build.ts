@@ -1286,37 +1286,60 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
     return out;
   } catch {
     // too big for some edges: each as big as it takes on its own (as a sketch's corners), the others as asked
-    if (count <= CAPPED_MOST) {
+    // the largest size all take together (the old clamp): nothing ends up smaller than that
+    const common = largest((v) => tried(() => sized(v)), s.size);
+    if (count <= CAPPED_MOST && common > 0) {
       const mids = picked.map((e) => at(e, 0.5));
       const own = (k: number) => (e: Edge) => Math.hypot(...at(e, 0.5).map((v, i) => v - mids[k][i])) < 1e-6;
-      const alone = picked.map((_, k) => largest((v) => tried(() => each((e) => (own(k)(e) ? v : null))), s.size));
-      const scaled = (f: number) => (e: Edge) => {
+      // each alone (one that takes nothing alone, as a seam, only works with its neighbours: the common size)
+      const alone = picked.map((_, k) => largest((v) => tried(() => each((e) => (own(k)(e) ? v : null))), s.size) || common);
+      const sizing = (size: (k: number) => number) => (e: Edge) => {
         const k = picked.findIndex((_, i) => own(i)(e));
-        return k < 0 ? null : alone[k] < s.size ? alone[k] * f : s.size;
+        return k < 0 ? null : size(k);
       };
-      // held ones beside each other can still clash at their own largest: together made smaller until they fit
-      const fit = alone.every((v) => v > 0) ? largest((f) => tried(() => each(scaled(f))), 1) : 0;
-      const sizes = alone.map((v) => (v < s.size ? v * fit : s.size));
-      if (fit > 0) {
-        try {
-          const out = each(scaled(fit));
-          if (!sound(out)) throw (out.delete(), new Error('broken'));
-          finished(sizes);
-          const capped = picked.flatMap((e, k) => (sizes[k] < s.size - 1e-9 ? [{ pts: line(e), normals: normalsAt(shape, e), max: sizes[k] }] : []));
-          if (capped.length && lostIn) lostIn.capped = { ...lostIn.capped, [s.id]: capped };
-          return out;
-        } catch {
-          // together they still clash: as before
+      // all grow together from the common size (as water rises): each round the highest level the growing ones reach
+      // together; one at its own largest, or that cannot grow a step beside the others, stays (a 1 % step)
+      const sizes = picked.map(() => common);
+      const top = alone.map((v) => Math.min(v, s.size));
+      const works = (size: (i: number) => number) => tried(() => each(sizing(size)));
+      let growing = [...picked.keys()].filter((i) => top[i] > common + 1e-9);
+      for (let round = 0; growing.length && round < 12; round++) {
+        const raised = (t: number) => (i: number) => (growing.includes(i) ? Math.min(top[i], Math.max(sizes[i], t)) : sizes[i]);
+        const from = Math.min(...growing.map((i) => sizes[i]));
+        const to = Math.max(...growing.map((i) => top[i]));
+        let level = to;
+        if (!works(raised(to))) {
+          let [lo, hi] = [from, to];
+          for (let n = 0; n < 8; n++) {
+            const mid = (lo + hi) / 2;
+            if (works(raised(mid))) lo = mid;
+            else hi = mid;
+          }
+          level = lo;
         }
+        const now = picked.map((_, i) => raised(level)(i));
+        now.forEach((v, i) => (sizes[i] = v));
+        const step = s.size / 100;
+        const before = growing.length;
+        growing = growing.filter((i) => sizes[i] < top[i] - 1e-9 && works((j) => (j === i ? Math.min(top[i], sizes[i] + step) : sizes[j])));
+        if (level <= from + 1e-9 && growing.length === before) break; // no way up together: as they are
       }
+      const out = each(sizing((k) => sizes[k]));
+      if (sound(out)) {
+        finished(sizes);
+        const capped = picked.flatMap((e, k) => (sizes[k] < s.size - 1e-9 ? [{ pts: line(e), normals: normalsAt(shape, e), max: sizes[k] }] : []));
+        if (capped.length && lostIn) lostIn.capped = { ...lostIn.capped, [s.id]: capped };
+        return out;
+      }
+      out.delete();
     }
     finished(picked.map(() => s.size));
-    throw new FeatureError(s.id, `${s.mode} on ${count} edges failed (size too large?${s.baked ? '' : ' Bake it to leave edges of later cuts sharp'})`, largest((v) => tried(() => sized(v)), s.size) || undefined);
+    throw new FeatureError(s.id, `${s.mode} on ${count} edges failed (size too large?${s.baked ? '' : ' Bake it to leave edges of later cuts sharp'})`, common || undefined);
   }
 }
 
 /** How many edges a finish too big for some is still sized edge by edge (each one tried alone first). */
-const CAPPED_MOST = 24;
+const CAPPED_MOST = 64;
 
 /** The normals of the faces meeting at edge `e` of `shape`, at its middle. */
 function normalsAt(shape: Shape3D, e: Edge): V3[] {
