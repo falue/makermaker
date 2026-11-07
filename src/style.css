@@ -96,29 +96,19 @@ body {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-/* the logo and name take the list's width: New after them stands above the toolbar's buttons (34 px, centred) */
-#topbar strong {
+/* the logo and name (one SVG) take the list's width: New after them stands above the toolbar's buttons (34 px, centred) */
+#topbar .logo {
   flex: none;
   width: calc(var(--list) + (var(--tools) - 34px) / 2 - 10px - 6px); /* less the bar's padding and gap */
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-/* the name: its x-height as tall as the logo's square (14 of 24 on its 20 px), cut there: the k's top goes, the
-   round letters' overshoot stays (the clip's margin) */
-#topbar .wordmark {
-  font-size: 23.33px;
-  font-size-adjust: 0.5;
-  font-weight: 600;
-  text-box: trim-both ex alphabetic;
-  overflow: clip;
-  overflow-clip-margin: 0.03em;
 }
 #topbar .logo svg {
   display: block;
-  color: var(--muted);
-  width: 20px;
   height: 20px;
+  width: auto;
+  stroke: var(--muted);
+}
+#topbar .logo .word {
+  stroke: var(--text);
 }
 #topbar select {
   width: auto;
