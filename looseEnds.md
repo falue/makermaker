@@ -31,7 +31,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - "From 30°" comes from steps (hinges 3°, sliders 1 mm, at most 60), so the start can be up to a step late. The sweep: flat faces sliding are exact; curved bodies and hinges also stand at each step (3°, 1 mm, at most 60), so a wall thinner than a step could slip past a curved part only if that part is thinner than a step too, and a cut along a joint has ridges of hundredths of a mm. A long slider (over 60 mm) has bigger steps. Big curved files: not timed.
 - Deleting a body that makes a linked cut removes the cut. A and B cutting each other is refused with the usual build error.
 - Large documents on Everything can take a while, and the worker builds nothing meanwhile (Stop ends it between two tests; one long boolean or a slow grow still has to finish first). Not measured on big files.
-- Coat: while faces are picked, the card says thickness 0.
 - Assumed for the sphere's ways: three points give the smallest ball (three alone do not fix one), four the exact one. "Three planes and a centre or diameter": after the third plane, the pointer sets where its centre lies (snaps count) or a typed Ø sets the size. A sphere is plain numbers afterwards: it does not follow the points or planes. No Python command of its own yet: `cad.sphere` takes a centre and diameter. T and M do not reach into its Ø field yet.
 - `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
@@ -87,7 +86,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Only joint animation on the lamp has been measured against the 50-60 fps goal. Dragging bodies, editing sketches and big STEP files have not.
 
 ## Tests
-- The `monster` and `threaded` boolean tests hit the 300 s limit, so they say nothing about those two bodies. They need a longer limit or fewer combinations.
+- `booleans.test.ts`: "cuts monster with every other body" runs past its 300 s limit, and "cuts threaded …" fails (threaded − ball: geometry operation failed); both already so before 2026-11-07's work (checked at 90ec31d). They need a longer limit or fewer combinations, and the threaded − ball cut a look.
 - `setPointerCapture` threw InvalidStateError in Playwright pulls, cause unknown; not seen by hand.
 - The manual checklist's "Check these first" group in CHECKLIST.md has not been run.
 
@@ -96,7 +95,6 @@ Answers assumed where a request left a question open.
 
 - Dialogs and panels close with one icon (`closeButton` in src/ui/icons.ts): Settings, Materials, Renders. × buttons on list rows and cards delete things and stay as they are.
 - "Edit material…" beside the material list uses the materials icon, the same as the top bar's button.
-- A group's list row clicked again does not deselect it: a plain click there folds and unfolds the group.
 - An image's rotate button turns it right away with the pointer, as Rotate does for bodies; the Turn field stays typed from 0 each time, because images store no turn value of their own.
 - Cross-browser is noted as a goal only; nothing about it is built yet.
 - A tool body listed in another group than its body: moving that whole group moves the tool alone and so reshapes the cut, and moving a group holding only the body leaves the tool behind. Moving the body itself takes the tool along.
@@ -108,52 +106,7 @@ Answers assumed where a request left a question open.
 - A tool body's eye: off hides it until selected, on shows its red outlines at all times. Only tool bodies listed elsewhere have it; those under their body keep just the red icon.
 - A joint's sweep shows in see-through orange for the bodies being checked. Interference and clearance are one tool: Clearance 0 is interference. A row's Cut A | Cut B | Ignore control shows on the row the pointer is on, or the part clicked in the view; Ignore lasts while the panel is open.
 
-
-## loose ends noted by chatGpt
-# MakerMaker — Loose Ends
-
-## Bug 1 — In-progress polygon does not snap to its own segments
-
-**Status:** Reported during manual QA; not independently reproduced.
-
-**Steps to reproduce:**
-1. Activate the Line tool and start drawing a polygon point by point.
-2. Before finishing the polygon, move the cursor over a segment already drawn in that same polygon, away from its endpoints or other special snap points.
-
-**Observed:** Snapping works on other edges and on points associated with the in-progress polygon, but not at arbitrary positions along the polygon's own already-drawn line segments.
-
-**Expected:** Previously drawn segments of the still-active polygon should be eligible for on-line/segment snapping, just like other edges.
-
-**Reporter note:** “The freshly created polygon doesn't have line snapping … it snaps to edges … but it doesn't snap to its own lines … it snaps to points … but nowhere to the thing.”
-
-## Bug 2 — Closing a polygon unexpectedly exits sketch mode
-**Status:** Reported during manual QA; not independently reproduced.
-
-**Steps to reproduce:**
-1. Enter sketch mode.
-2. Activate the Line tool in polygon mode.
-3. Draw at least three corners and click the starting point to close the polygon.
-
-**Observed:** Closing the polygon exits sketch mode unexpectedly.
-
-**Expected:** The polygon stays flat, sketch mode remains active, and the drawing tool can continue to draw another shape.
-
-**Related checklist item:** “Closed inside sketch mode: stays flat, the tool goes on” — **failed; leave unchecked**.
-
-## Bug 3 — Two-point polygon retraces its own segment instead of refusing closure
-
-**Status:** Reported during manual QA; not independently reproduced.
-
-**Steps to reproduce:**
-1. Activate the Line tool in polygon mode.
-2. Click a first point, then a second point.
-3. Click the first point again, attempting to close a polygon with only two distinct points.
-
-**Observed:** The pointer hint says “point of this line,” and the tool draws a second line directly on top of the first rather than rejecting the invalid closure.
-
-**Expected:** The operation is refused with an explanatory hint, and polygon drawing remains active so another point can be added.
-
-**Related checklist item:** “Out and straight back with two points: refused with a hint, drawing goes on” — **failed; leave unchecked**.
+## Pull on a body
 - Pull on a body: Cut is offered when the pulled solid shares volume with the body (mesh test, shrunk a hair along the pull). A solid that only touches the body sideways (its wall on the body's wall, drawn beside the face) still counts as overlapping.
 
 ## Tool hints
@@ -165,9 +118,6 @@ Answers assumed where a request left a question open.
 ## Group origins
 - Drag steps, Shift's axis steps and the move axes still follow the world, not the group's turned origin.
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
-
-## Tests
-- `booleans.test.ts`: "cuts threaded with every other body" fails (threaded − ball: geometry operation failed) and "cuts monster …" runs past its 5 minutes; both already so before 2026-11-07's work (checked at 90ec31d).
 
 ## Select first, then the tool (waiting for the go-ahead; audit 2026-11-07)
 - Sweep: uses no selection at all, always asks to click the path, then the profile (two selected sketches or shapes are ignored).
