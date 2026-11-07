@@ -4428,10 +4428,17 @@ function sweepTool() {
 
 /**
  * Loft: closed sketch shapes clicked in order (one per sketch, by their outline); from the second on the new body shows
- * through them. Enter keeps it, Esc leaves nothing.
+ * through them. Enter keeps it, Esc leaves nothing. Sketches selected first are its first outlines (two or more: made at once).
  */
 function loftTool() {
-  const picked: { sketch: string; shape: string }[] = [];
+  // sketches selected first are its outlines, in that order: each its selected shape, else its first closed one
+  const doc0 = history.current;
+  const closed = (q: Profile) => !q.construction && q.kind !== 'line';
+  const picked: { sketch: string; shape: string }[] = selected.flatMap((id) => {
+    const sk = doc0.sketches.find((x) => x.id === id);
+    const q = sk && (sk.shapes.find((x) => shapeSel.includes(x.id) && closed(x)) ?? sk.shapes.find(closed));
+    return sk && q ? [{ sketch: sk.id, shape: q.id }] : [];
+  });
   let body: string | null = null;
   let ended = false;
   const show = () => {
@@ -4467,6 +4474,7 @@ function loftTool() {
   };
   const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), finish(picked.length > 1));
   addEventListener('keydown', keys, { capture: true });
+  if (picked.length > 1) return show(), finish(true); // all selected first: done at once
   next();
 }
 
