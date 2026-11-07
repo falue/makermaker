@@ -1823,16 +1823,18 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       // a listed size fills Ø and pitch; Metric / Imperial switches the list
       const system = THREADS.find((t) => t.name === feature.size)?.system ?? 'metric';
       const sizes = THREADS.filter((t) => t.system === system);
-      const size = select(feature.size, Object.fromEntries([...(sizes.some((t) => t.name === feature.size) ? [] : [[feature.size, feature.size]]), ...sizes.map((t) => [t.name, t.name])]), (name) => {
-        const t = THREADS.find((x) => x.name === name)!;
-        setFeature({ ...feature, size: name, d: { e: fmt(t.d / UNITS[ctx.doc.units]), u: ctx.doc.units }, pitch: { e: fmt(t.pitch / UNITS[ctx.doc.units]), u: ctx.doc.units } });
+      // Custom: its own Ø and pitch, their fields shown only then
+      const custom = !THREADS.some((t) => t.name === feature.size);
+      const size = select(custom ? 'Custom' : feature.size, Object.fromEntries([...sizes.map((t) => [t.name, t.name]), ['Custom', 'Custom']]), (name) => {
+        const t = THREADS.find((x) => x.name === name);
+        setFeature(t ? { ...feature, size: name, d: { e: fmt(t.d / UNITS[ctx.doc.units]), u: ctx.doc.units }, pitch: { e: fmt(t.pitch / UNITS[ctx.doc.units]), u: ctx.doc.units } } : { ...feature, size: 'Custom' });
       });
       const units = select(system, { metric: 'Metric', imperial: 'Imperial' }, (v) => {
         const t = fitting(feature.r * 2, feature.inside, v);
         setFeature({ ...feature, size: t.name, d: { e: fmt(t.d / UNITS[ctx.doc.units]), u: ctx.doc.units }, pitch: { e: fmt(t.pitch / UNITS[ctx.doc.units]), u: ctx.doc.units } });
       });
       const modeled = select(feature.modeled ? 'modeled' : 'drawn', { modeled: 'Modelled', drawn: feature.inside ? 'Pilot' : 'Plain' }, (v) => setFeature({ ...feature, modeled: v === 'modeled' }));
-      return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, modeled, units, size), h('div', { className: 'row' }, f('d', 'Ø'), f('pitch', 'Pitch'), f('length', 'Length')), h('p', { className: 'hint' }, `On a round face Ø ${fmt(feature.r * 2)} mm · Modelled: cut into the solid; ${feature.inside ? 'Pilot: the tap-drill hole, the thread only drawn' : 'Plain: the shaft, the thread only drawn'}`));
+      return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, modeled, units, size), h('div', { className: 'row' }, ...(custom ? [f('d', 'Ø'), f('pitch', 'Pitch')] : []), f('length', 'Length')), h('p', { className: 'hint' }, `On a round face Ø ${fmt(feature.r * 2)} mm · Modelled: cut into the solid; ${feature.inside ? 'Pilot: the tap-drill hole, the thread only drawn' : 'Plain: the shaft, the thread only drawn'}`));
     }
     case 'bulge': {
       const where = feature.on.kind === 'sketch' ? 'sketch shapes' : feature.on.kind === 'round' ? (feature.on.shaft ? 'a round shaft' : 'a round hole') : 'a flat face';

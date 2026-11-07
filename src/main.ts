@@ -2408,7 +2408,12 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
   atTop(box);
   toolHint = hint;
   render();
-  setTimeout(() => (inputs[0].focus(), inputs[0].select()));
+  // the first field shown (a caller may hide some right after)
+  setTimeout(() => {
+    const first = inputs.find((i) => i.offsetParent) ?? inputs[0];
+    first.focus();
+    first.select();
+  });
   addEventListener('keydown', keys, { capture: true });
   return { end, inputs };
 }
@@ -2873,7 +2878,9 @@ function threadPanel(body: string, id: string, fresh = false) {
   const pl = bodyPlace(body);
   const start = new Vector3(...inWorld(pl, feature.at));
   const dir = new Vector3(...inWorld(pl, feature.dir, true)).normalize();
-  let size = THREADS.find((t) => t.name === feature.size) ?? fitting(now.d, false, 'metric');
+  // a listed size, or Custom: its own Ø and pitch (their fields show only then)
+  let custom = !THREADS.some((t) => t.name === feature.size);
+  let size = THREADS.find((t) => t.name === feature.size) ?? fitting(now.d, false, ['in', 'ft'].includes(doc0.units) ? 'imperial' : 'metric');
   let system = size.system;
   let modeled = fresh ? threadModeled : feature.modeled;
   const circle = circleOf(body, { at: start, dir, r: feature.r });
@@ -2886,7 +2893,7 @@ function threadPanel(body: string, id: string, fresh = false) {
   const write = ([d, p, l]: string[]) => {
     const f = getIn(history.current, path) as ThreadFeature;
     const units = doc0.units;
-    const next = fitted(setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: units }, pitch: { e: p, u: units }, length: { e: l, u: units }, modeled }), length(d) ?? size.d, length(p) ?? size.pitch);
+    const next = fitted(setIn(history.current, path, { ...f, size: custom ? CUSTOM : size.name, d: { e: d, u: units }, pitch: { e: p, u: units }, length: { e: l, u: units }, modeled }), length(d) ?? size.d, length(p) ?? size.pitch);
     if (fresh || history.current !== doc0) history.replace(next);
     else history.push(next);
     update();
@@ -2899,8 +2906,21 @@ function threadPanel(body: string, id: string, fresh = false) {
     panel.inputs[1].value = fmt(size.pitch / u);
     panel.inputs[0].dispatchEvent(new Event('input'));
   };
-  const options = () => pick.replaceChildren(...THREADS.filter((t) => t.system === system).map((t) => Object.assign(document.createElement('option'), { value: t.name, textContent: t.name, selected: t.name === size.name })));
-  pick.onchange = () => ((size = THREADS.find((t) => t.name === pick.value)!), fill());
+  const options = () =>
+    pick.replaceChildren(
+      ...THREADS.filter((t) => t.system === system).map((t) => Object.assign(document.createElement('option'), { value: t.name, textContent: t.name, selected: !custom && t.name === size.name })),
+      Object.assign(document.createElement('option'), { value: CUSTOM, textContent: 'Custom', selected: custom }),
+    );
+  const showCustom = () => [0, 1].forEach((k) => (panel.inputs[k].parentElement!.hidden = !custom));
+  pick.onchange = () => {
+    custom = pick.value === CUSTOM;
+    if (!custom) size = THREADS.find((t) => t.name === pick.value)!;
+    showCustom();
+    if (!custom) return fill();
+    panel.inputs[0].dispatchEvent(new Event('input')); // kept as Custom
+    panel.inputs[0].focus();
+    panel.inputs[0].select();
+  };
   const systems = Object.assign(document.createElement('span'), { className: 'segmented' });
   for (const k of ['metric', 'imperial'] as const) {
     const b = Object.assign(document.createElement('button'), { textContent: k === 'metric' ? 'Metric' : 'Imperial', className: k === system ? 'on' : '', title: `Click: List ${k} sizes` });
@@ -2908,7 +2928,9 @@ function threadPanel(body: string, id: string, fresh = false) {
       system = k;
       [...systems.children].forEach((x) => x.classList.toggle('on', x === b));
       size = fitting(now.d, false, system);
+      custom = false;
       options();
+      showCustom();
       fill();
     };
     systems.append(b);
@@ -2934,12 +2956,16 @@ function threadPanel(body: string, id: string, fresh = false) {
     ],
     write,
     (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
-    `Thread ${feature.inside ? 'in a hole: Modelled or Pilot (tap-drill hole)' : 'on a shaft: Modelled or Plain'} · pick its size · or type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] ${fresh ? 'leaves nothing' : 'puts it back'}`,
+    `Thread ${feature.inside ? 'in a hole: Modelled or Pilot (tap-drill hole)' : 'on a shaft: Modelled or Plain'} · pick its size · Custom: type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] ${fresh ? 'leaves nothing' : 'puts it back'}`,
     [],
     [kinds, systems, pick],
   );
+  showCustom();
   if (fresh) panel.inputs[0].dispatchEvent(new Event('input')); // fits the hole or shaft at once
 }
+
+/** A thread's size when its Ø and pitch are typed, not listed. */
+const CUSTOM = 'Custom';
 
 /** Whether a new thread is cut into the solid or only drawn (the panel's last choice, this session). */
 let threadModeled = true;
