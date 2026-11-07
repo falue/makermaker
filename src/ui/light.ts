@@ -8,10 +8,11 @@ import type { Light } from '../doc/types';
 export function lightRows(light: Light, change: (next: Light, live: boolean, layout?: boolean) => void, strongest = 8): HTMLElement[] {
   let now = light;
   const set = (patch: Partial<Light>, live: boolean, layout = false) => change((now = { ...now, ...patch }), live, layout);
-  const row = (label: string, ...children: HTMLElement[]) => {
+  // label, slider, and one column for what goes with it (a colour, a switch; empty): the sliders line up
+  const row = (label: string, slide: HTMLElement, extra: HTMLElement = document.createElement('span')) => {
     const el = document.createElement('div');
-    el.className = 'row light';
-    el.append(Object.assign(document.createElement('span'), { textContent: label }), ...children);
+    el.className = 'row light lined';
+    el.append(Object.assign(document.createElement('span'), { textContent: label }), slide, extra);
     return el;
   };
   const slider = (key: 'sunHeight' | 'sunAround' | 'sun' | 'ambient' | 'cameraLight', min: number, max: number, step: number, title: string, disabled = false) => {
@@ -38,6 +39,6 @@ export function lightRows(light: Light, change: (next: Light, live: boolean, lay
     row('Height', slider('sunHeight', -90, 90, 1, 'The sun above the horizon, degrees')),
     row('Around', slider('sunAround', -180, 180, 1, 'The sun around Z, degrees', light.followCamera), check('followCamera', 'Follows camera', 'The sun stays behind the camera, 45° to its side, wherever you look from')),
     row('Ambient', slider('ambient', 0, strongest, 0.05, 'How strong the light from all around is'), colour('ambientColor', 'Colour of the light from all around')),
-    row('Camera', check('cameraOn', 'Camera emits light', 'A light from where you look: for models hard to see'), slider('cameraLight', 0, strongest, 0.05, 'How strong the light from the camera is', !light.cameraOn)),
+    row('Camera', slider('cameraLight', 0, strongest, 0.05, 'How strong the light from the camera is', !light.cameraOn), check('cameraOn', 'Emits light', 'A light from where you look: for models hard to see')),
   ];
 }

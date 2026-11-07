@@ -84,7 +84,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     const ticks = make('datalist', { id: 'speed-one' }, make('option', { value: '0' }));
     const row = (key: keyof Settings['speeds'], label: string, title: string) => {
       const value = make('span', {}, `×${s.speeds[key].toFixed(2)}`);
-      const slider = input({ type: 'range', min: String(lo), max: String(hi), step: '0.005', value: String(Math.log10(s.speeds[key])), title });
+      const slider = input({ type: 'range', min: String(lo), max: String(hi), step: 'any', value: String(Math.log10(s.speeds[key])), title }); // any: its ends exactly 0.1 and 8
       slider.setAttribute('list', 'speed-one');
       const put = (f: number) => {
         value.textContent = `×${f.toFixed(2)}`;
@@ -141,9 +141,20 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   let lightTab: 'view' | 'render' = start ? 'render' : 'view';
   let lightPreview: MaterialPreview | null = null;
   /** The light of renders on the teapot in steel. */
+  /** The open tab's light on the teapot: the 3D view's, or that of renders (with their haze). */
   const showLight = () => {
     const r = doc.renderLight();
-    lightPreview?.show(toLook(STANDARD_MATERIALS.find((m) => m.id === 'std-light-grey')!), effectiveLight(r.same ? s.light : r), undefined, r);
+    const look = toLook(STANDARD_MATERIALS.find((m) => m.id === 'std-light-grey')!);
+    if (lightTab === 'view') lightPreview?.show(look, effectiveLight(s.light));
+    else lightPreview?.show(look, effectiveLight(r.same ? s.light : r), undefined, r);
+  };
+  /** The light preview, made once. */
+  const preview = () => {
+    lightPreview ??= new MaterialPreview();
+    lightPreview.canvas.className = 'light-preview';
+    lightPreview.canvas.title = 'These settings on the teapot of the material pictures, in Plastic, light grey';
+    showLight();
+    return lightPreview.canvas;
   };
   /** Chapters: the left column lists them, the right shows the open one. */
   const chapters: [string, () => Node[]][] = [
@@ -231,6 +242,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
           const put = (patch: Partial<Light>) => set({ ...s, light: { ...s.light, ...patch } });
           return [
             head,
+            preview(),
             make('div', { className: 'row' }, standard(s.light, put)),
             ...(s.light.standard ? [] : lightRows(s.light, (light, _, layout) => set({ ...s, light }, !!layout))),
           ];
@@ -242,10 +254,6 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
           showLight();
           if (redraw) draw();
         };
-        lightPreview ??= new MaterialPreview();
-        lightPreview.canvas.className = 'light-preview';
-        lightPreview.canvas.title = 'These settings on the teapot of the material pictures, in Plastic, light grey';
-        showLight();
         const same = input({ type: 'checkbox', checked: r.same, onchange: () => put({ same: same.checked }) });
         const haze = (key: 'haze' | 'fog', label: string, title: string, max = 1, step = 0.01) => {
           const el = input({ type: 'range', min: '0', max: String(max), step: String(step), value: String(r[key]), title });
@@ -254,7 +262,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         };
         return [
           head,
-          lightPreview.canvas,
+          preview(),
           make('p', { className: 'hint' }, 'Of this document (saved in its file): every render takes these when it runs. In renders a photo sphere lights the model too, instead of the ambient colour.'),
           make('label', { className: 'check' }, same, 'Same as 3D viewer'),
           ...(r.same

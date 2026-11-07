@@ -1728,6 +1728,9 @@ button.primary.wide {
   color: var(--accent);
   font-weight: 600;
 }
+.settings .body h3 {
+  color: var(--text); /* the settings' titles stand out (white in dark mode) */
+}
 .settings .body h3:first-child {
   margin-top: 0;
 }
@@ -1789,6 +1792,17 @@ button.primary.wide {
 .row.light input[type='range'] {
   flex: 1;
   min-width: 0;
+}
+.row.light.lined {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 140px;
+}
+.row.light.lined > span {
+  width: auto;
+}
+/* tabs inside a settings chapter: room before what they hold */
+.settings .body .tabs {
+  margin-bottom: 10px;
 }
 /* the material list and its button, centred on each other */
 .row.material {
