@@ -78,6 +78,8 @@ export interface SketchResult {
 /** What the tool needs from the viewport. */
 export interface ToolView {
   el: HTMLElement;
+  /** A group's origin (world) new sketches on a base plane count from (its base planes, turned with it); null: the world's. */
+  drawFrame: THREE.Matrix4 | null;
   /** The shown work planes (world frames, `half`: half their size in mm): drawing tools draw on them. */
   workPlanes: { id: string; name: string; frame: Frame; rect: [number, number, number, number] }[];
   overlay: THREE.Group;
@@ -1026,10 +1028,16 @@ export class SketchTool implements Tool {
       const existing = this.view.sketches.find(same);
       return existing ? this.sketchTarget(existing) : { sketch: null, ...placed };
     }
-    const axis = Math.abs(ray.direction.clone().normalize().z) > Math.sin((groundDeg * Math.PI) / 180) ? 'xy' : this.view.facing();
+    // in a group's own origin (`drawFrame`): its base planes, chosen by the view turned into it
+    const m = this.view.drawFrame;
+    const dir = ray.direction.clone().normalize().transformDirection(m ? m.clone().invert() : new THREE.Matrix4());
+    const facing = (['yz', 'xz', 'xy'] as const)[[dir.x, dir.y, dir.z].map(Math.abs).reduce((best, c, k, all) => (c > all[best] ? k : best), 0)];
+    const axis = Math.abs(dir.z) > Math.sin((groundDeg * Math.PI) / 180) ? 'xy' : m ? facing : this.view.facing();
     const active = this.view.sketches.find((s) => s.id === this.view.activeSketch);
-    const base = active ?? this.view.sketches.find((s) => s.placement.kind === 'base' && s.placement.axis === axis && s.placement.offset === 0);
-    return base ? this.sketchTarget(base) : { sketch: null, placement: { kind: 'base', axis, offset: 0 }, frame: BASE[axis], body: null, name: AXIS_NAME[axis] };
+    const base = active ?? (m ? undefined : this.view.sketches.find((s) => s.placement.kind === 'base' && s.placement.axis === axis && s.placement.offset === 0));
+    const f = BASE[axis];
+    const frame: Frame = m ? { o: v3(f.o).applyMatrix4(m).toArray(), x: v3(f.x).transformDirection(m).toArray(), y: v3(f.y).transformDirection(m).toArray(), n: v3(f.n).transformDirection(m).toArray() } : f;
+    return base ? this.sketchTarget(base) : { sketch: null, placement: { kind: 'base', axis, offset: 0 }, frame, body: null, name: AXIS_NAME[axis] };
   }
 
   private sketchTarget(s: ViewSketch): Target {

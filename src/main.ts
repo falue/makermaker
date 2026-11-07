@@ -81,6 +81,8 @@ installCompletion(
 let settings = loadSettings();
 /** By body and finish: how many picked edges its last build could not find. */
 const lostEdges = new Map<string, Record<string, number>>();
+/** New sketch: the group it goes in (on that group's base planes; see `startNewSketch`). */
+let sketchGroup: string | null = null;
 /** A coat whose faces to exclude are being picked: its real thickness (0 meanwhile, to show the body without it). */
 let coatHeld: { feature: string; thickness: Expr } | null = null;
 /** By body: per finish its edges held at the largest size they take (from the last build). */
@@ -1142,7 +1144,9 @@ function selectedGroup(doc: Doc) {
 function selectInView(doc: Doc) {
   viewer.select(contents(doc, selected), groupKept(doc));
   const g = selectedGroup(doc);
-  viewer.setFrame(g ? groupPlace(g) : null);
+  // a group itself selected: its origin axes show where its origin is (grid and view cube stay the world's)
+  const own = !g && selected.length === 1 && doc.groups.some((x) => x.id === selected[0]) ? selected[0] : null;
+  viewer.setFrame(g ? groupPlace(g) : null, g ? groupPlace(g) : own ? groupPlace(own) : null);
 }
 
 /** What stays solid while a group's objects are selected: its contents and the bodies whose eye showed them fully (they reset when it ends). */
@@ -5854,6 +5858,7 @@ function shapeOf({ profile: p, typed: t, sides }: Drawn): Profile {
 }
 
 function stopTool() {
+  [sketchGroup, viewer.drawFrame] = [null, null]; // a new sketch's group, if it was not made
   viewer.stopTool();
   extruding = null;
   extrudeRun++;
@@ -5884,8 +5889,9 @@ const toolHost: ToolHost = {
       return;
     }
     if (was === 'plane') {
+      const group = sketchGroup; // stopping the tool forgets it
       stopTool();
-      return newSketch(result.target);
+      return newSketch(result.target, group);
     }
     const id = sketched(result);
     if (was === 'draw') return;
@@ -6277,17 +6283,22 @@ function exitSketch() {
 /** New sketch: on the face clicked before (on a selected body), else pick a face or empty space (the base plane facing the camera). */
 function startNewSketch() {
   if (sketching) exitSketch();
+  // a group selected (or what is selected alone in one): the sketch goes in it, on its base planes (its own origin)
+  const doc = history.current;
+  const g = selected.length === 1 && doc.groups.some((x) => x.id === selected[0]) ? selected[0] : selectedGroup(doc);
+  [sketchGroup, viewer.drawFrame] = [g, g ? groupPlace(g) : null];
   const placed = viewer.lastTarget();
-  if (placed) return newSketch({ sketch: null, ...placed });
+  if (placed) return newSketch({ sketch: null, ...placed }, g);
   viewer.startTool(null, toolHost, { kind: 'plane' });
   toolMode = 'plane';
   render();
 }
 
 /** An empty sketch where the plane was picked, in sketch mode, the camera looking at it. */
-function newSketch(t: Target) {
+function newSketch(t: Target, group: string | null = null) {
   const doc = history.current;
-  const sketch = sketchAt(t, doc.sketches.length);
+  const sketch = { ...sketchAt(t, doc.sketches.length), group: t.placement.kind === 'base' ? group : null };
+  [sketchGroup, viewer.drawFrame] = [null, null];
   commit({ ...doc, sketches: [...doc.sketches, sketch] });
   enterSketch(sketch.id, 'rect', true);
 }

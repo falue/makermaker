@@ -515,6 +515,9 @@ export class Viewer implements ToolView {
   private groupFrame = new THREE.Matrix4();
   private frameTurn = new THREE.Quaternion();
 
+  /** A group's origin new base-plane sketches count from (see `ToolView.drawFrame`). */
+  drawFrame: THREE.Matrix4 | null = null;
+
   /** Move axis `k` (world): X, Y or Z, inside a turned group its own. */
   private axisDir(k: number) {
     return unit(k).applyQuaternion(this.frameTurn);
@@ -3135,13 +3138,15 @@ export class Viewer implements ToolView {
     this.render();
   };
 
-  /** Grid, origin axes and view cube follow `m` (a group's origin, world; null: the world's own). */
-  setFrame(m: THREE.Matrix4 | null) {
+  /** Grid, origin axes and view cube follow `m` (a group's origin, world; null: the world's own); `axes`: the origin axes alone elsewhere. */
+  setFrame(m: THREE.Matrix4 | null, axes: THREE.Matrix4 | null = m) {
+    // the origin axes alone (a group selected from outside: where its origin is)
+    Object.assign(this.axes, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(axes ?? new THREE.Matrix4());
     const f = m ?? new THREE.Matrix4();
-    if (f.equals(this.groupFrame)) return;
+    if (f.equals(this.groupFrame)) return this.render();
     this.groupFrame.copy(f);
     f.decompose(new THREE.Vector3(), this.frameTurn, new THREE.Vector3());
-    for (const o of [this.grid, this.axes]) Object.assign(o, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(f);
+    Object.assign(this.grid, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(f);
     this.gridLook.key = '';
     // the view stands upright to it (its Z up on screen), orbiting around its Z
     this.upright();
