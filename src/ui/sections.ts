@@ -57,10 +57,10 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
       invert.classList.remove('active');
       update();
     };
-    const invert = button('⇄', 'Invert: show only what is outside the handles', () => {
+    const invert = Object.assign(button('', 'Invert: show only what is outside the handles', () => {
       invert.classList.toggle('active');
       update();
-    });
+    }), { innerHTML: icon('swap') });
     invert.disabled = true;
     from.oninput = () => update(from);
     to.oninput = () => update(to);
