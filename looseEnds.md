@@ -3,13 +3,15 @@
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
 ## Real geometry
-- All approximations found on 2026-11-07, and the plan: STATUS.md, "PARAMOUNT, solve ASAP" at its top. Three plain bugs found there, to fix first: face normals turned twice on turned bodies (`faceItem` and others), the round bulge's panel middle (`unplaced` for `inWorld`), faces found again in the kernel at 1e-6 mm from a Float32 hit.
+- The survey and what is done: STATUS.md, "PARAMOUNT, solve ASAP" at its top (steps 1–6 built 2026-11-07). Left open there: sketching on a section face lands 1e-3 mm inside (the clipping planes' `eps`); a body turned off the axes takes the mesh's box; a tangent from a point to a bezier is still searched (96 brackets); a moved curved split line's preview is flattened (the cut keeps its arcs); laser DXF writes beziers and ellipse / spline edges in 0.5 mm pieces; rational DXF splines are sampled; the orthographic camera keeps ±50 m.
+- Kept on purpose, with reasons in STATUS: the thread stays faceted (an exact helix cut fails in this OpenCascade build); bulges are free-form (a moved peak is not reported yet); a cut moving along a joint is stamped in steps.
+- Corners rounded beside a curved side are cut where `cornerCuts` puts them (along the tangents) in `segments`, area and snapping; the kernel's fillet touches the curve slightly elsewhere.
 
 ## Lines and polygons
 - What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.
 - A typed sweep angle of an arc is used once (its diameter stays). `cad.line` and `cad.polygon` take plain points, no side formulas.
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
-- A tangent line starts on a sketch circle, arc or bezier side, or a body's round edge: not on a rounded rectangle's corner (its outline has no arc to snap to) or a body's elliptic or spline edge. No line ending tangent from a free start, none tangent to two curves. It holds while drawing, no lasting link to the curve. In the one-line and polygon modes, not bezier or arc. A typed angle no tangent of a short arc runs at is ignored.
+- A tangent line starts on a sketch circle, arc or bezier side, or a body's round edge: not on a rounded rectangle's corner or a body's elliptic or spline edge. No line ending tangent from a free start, none tangent to two curves. It holds while drawing, no lasting link to the curve. In the one-line and polygon modes, not bezier or arc. A typed angle no tangent of a short arc runs at is ignored.
 
 ## Box joint
 - The starting number of fingers comes from the bodies' boxes in the world, so it is off for plates at a slant.
@@ -24,7 +26,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Measuring
 - A drawing tool's snap onto a free-form body edge (a spline, say) is very close but not exact: it uses the circle through the mesh points next to it. Round edges come out exact to the view's number precision.
 - While a long build runs, a picked point waits up to 1.5 s for the solid, then takes the mesh's point (the Distance measure shows it with ~).
-- The middle of a bezier or other free-form edge is where the mesh has it, placed on the true curve: on it, but not exactly half its length.
 - A circle is two half edges in the solid, so one click on a rim gives half its length; Shift Alt-click adds the other half.
 
 ## Interference and clearance
@@ -41,7 +42,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Attach: a group as one of its objects moving by itself does not take the others along (a body does). The anchor only shows where it is: Rotate still asks for its point. Joint swap (⇅ in a joint's panel) keeps the motion between the two, so the whole assembly can shift when the joint is not at 0.
 
 ## Curves
-- Sketch areas closed by lines are found on flattened outlines (a circle as 180 sides) and drawn again from them (arcs through three points). A line's end on a curve now becomes a corner of it, and picked areas are joined as solids, not flat (their shared arcs never quite match). Better would be faces found on the true curves throughout.
+- Sketch areas closed by lines come from OpenCascade's splitter on the true curves, fuzzy within 1e-3 mm: a line ending up to 1e-3 mm short of a curve still closes its area. Picked areas are joined as solids, not flat.
 - Moving a point holds tangents through arcs (`tangentsHeld`), with exceptions: an arc turned almost straight or doubling back loses it there, a chain ending back at the moved point cannot close smoothly, a bezier's handle turns and stops there, and dragging a bezier's handles does not reach an arc beyond. Tried through tests, not yet by hand.
 - Offset of a bezier side is close, not exact. A side that an offset would turn inside out is not removed.
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
