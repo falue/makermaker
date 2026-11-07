@@ -2677,6 +2677,7 @@ export class Viewer implements ToolView {
       this.drawCrossings();
       this.drawGrips();
       this.drawRefs();
+      this.drawGrid();
       this.pointTo(this.arrowAt());
       for (const v of this.views) this.renderView(v);
       if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
@@ -2928,14 +2929,44 @@ export class Viewer implements ToolView {
       this.dropPhoto();
       this.scene.background = new THREE.Color(backdrop.stops[0].color);
     }
-    const grid = new THREE.GridHelper(1000, 100, dark ? 0x45474d : 0xbbbbbb, dark ? 0x2c2e32 : 0xd6d6d4);
-    grid.rotation.x = Math.PI / 2;
-    grid.material.depthWrite = false;
-    grid.renderOrder = -2;
-    this.grid.children.forEach((c) => (c as THREE.GridHelper).dispose());
-    this.grid.clear().add(grid);
+    this.gridLook = { major: dark ? 0x45474d : 0xbbbbbb, minor: dark ? 0x2c2e32 : 0xd6d6d4, key: '' };
     this.render();
   };
+
+  /** The ground grid's colours, and what it was drawn for (step and middle). */
+  private gridLook = { major: 0xbbbbbb, minor: 0xd6d6d4, key: '' };
+
+  /**
+   * The ground grid: a faint line every drag step there (1-2-5, by the zoom: finer zooming in, coarser out), every 5th
+   * stronger (on a 5 step every 10th: 10, 50, 100 …), `cells` steps each way from the point looked at; drawn anew when
+   * the step changes or the view moves far.
+   */
+  private drawGrid(cells = 250) {
+    const t = this.controls.target;
+    const step = this.step(t);
+    const every = Math.round(step / 10 ** Math.floor(Math.log10(step))) === 5 ? 10 : 5;
+    const far = step * every * 10;
+    const [cx, cy] = [Math.round(t.x / far) * far, Math.round(t.y / far) * far];
+    const key = `${step} ${cx} ${cy} ${this.gridLook.major} ${this.gridLook.minor}`;
+    if (key === this.gridLook.key) return;
+    this.gridLook.key = key;
+    const lines: [number[], number[]] = [[], []]; // minor, major
+    const reach = cells * step;
+    for (let i = -cells; i <= cells; i++) {
+      const [x, y] = [cx + i * step, cy + i * step];
+      const major = Math.round(x / step) % every === 0;
+      lines[+major].push(x, cy - reach, 0, x, cy + reach, 0);
+      lines[+(Math.round(y / step) % every === 0)].push(cx - reach, y, 0, cx + reach, y, 0);
+    }
+    for (const o of this.grid.children as THREE.LineSegments[]) (o.geometry.dispose(), (o.material as THREE.Material).dispose());
+    this.grid.clear();
+    lines.forEach((pts, k) => {
+      const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: k ? this.gridLook.major : this.gridLook.minor, depthWrite: false, transparent: !k, opacity: k ? 1 : 0.5 })); // the step's lines faint
+      line.renderOrder = -2;
+      this.grid.add(line);
+    });
+  }
 
   /** The axis wheel: while a move runs at its press point (spokes it may take), else at the move fields' gizmo; spokes `wheelPx` long on screen, the dead zone ring facing the camera. */
   private placeWheel() {
