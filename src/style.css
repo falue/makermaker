@@ -2122,9 +2122,6 @@ button.icon.tool-op {
   outline: 2px solid #ff8c1a;
   outline-offset: 1px;
 }
-#right .info .measures {
-  cursor: help;
-}
 #right .info dd {
   margin: 0;
   font-variant-numeric: tabular-nums;
