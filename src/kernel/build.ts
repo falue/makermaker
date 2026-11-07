@@ -108,7 +108,6 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
       if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
       if (s.type === 'coat') apply(s.id, (cur) => coat(cur, s));
-      if (s.type === 'thread' && s.modeled) apply(s.id, (cur) => thread(cur, s)); // cosmetic: drawn only (`cosmeticOf`)
       if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
       if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
       if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
@@ -119,6 +118,8 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
     if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
     if (finishing && !finishing.base) finishing.base = (shape as Shape3D).clone();
     for (const s of features) if (s.type === 'finish' && s.enabled && !s.baked && !early.has(s.id)) apply(s.id, (cur) => finish(cur, s, circles, finishing));
+    // threads after the finishes: an edge rule (vertical, top …) would take the groove's hundreds of edges; cosmetic ones are drawn only (`cosmeticOf`)
+    for (const s of features) if (s.type === 'thread' && s.modeled) apply(s.id, (cur) => thread(cur, s));
     // mirrors last: finishes keep working on the edges they were picked on
     for (const s of features)
       if (s.type === 'mirror') {

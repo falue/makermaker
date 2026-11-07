@@ -106,6 +106,17 @@ describe('buildBody', () => {
     nut.done();
   }, 60000);
 
+  it('a thread in a block whose upright edges are rounded (unbaked): the fillet takes the block\'s four, not the groove\'s', () => {
+    const block = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 30, h: 20, r: 0, rot: 0 }, { id: 'c', kind: 'circle', x: 0, y: 0, d: 6.6468 }], depth: 10, mode: 'add', through: false } as BuildFeature;
+    const fillet = { id: 'f', type: 'finish', mode: 'fillet', size: 3, edges: 'vertical', enabled: true, baked: false, skip: [] } as BuildFeature;
+    const thread = { id: 't', type: 'thread', at: [0, 0, 10], dir: [0, 0, -1], r: 3.3234, inside: true, size: 'M8', d: 8, pitch: 1.25, length: 10, modeled: true } as BuildFeature;
+    const finishing: Finishing = { base: null, edges: [] };
+    const shape = buildBody([block, fillet, thread], finishing);
+    expect(finishing.edges).toHaveLength(4);
+    shape.delete();
+    finishing.base?.delete();
+  }, 60000);
+
   it('a cosmetic thread leaves the solid as it is and is drawn at its other Ø; a hole for one takes the tap drill', async () => {
     const { cosmeticOf } = await import('./build');
     const { boreFor } = await import('../doc/threads');
