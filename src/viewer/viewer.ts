@@ -42,6 +42,8 @@ type Span = [number, number];
 export interface ViewerHost {
   /** `add`: Shift- or ⌘ / Ctrl-click, adds the body to the selection or removes it. */
   select(id: string | null, add: boolean): void;
+  /** A right-click on body `id` at screen (x, y): its menu, if it has one. */
+  bodyMenu(id: string, x: number, y: number): void;
   /** A drag of the selected bodies began: the move fields open (all three at 0); returns their close. */
   dragMove(): () => void;
   /** An image was corner-dragged to a new middle (world, mm) and width. */
@@ -731,7 +733,12 @@ export class Viewer implements ToolView {
       const f = hit && this.finishAt(hit);
       if (f) this.host.pickFinish({ body: hit.object.userData.bodyId, feature: f.feature, mid: null });
     });
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault()); // Ctrl+click on macOS would open it
+    // right-click on a body: its menu (Ctrl+click on macOS is a right-click too: no menu then, the browser's never)
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const id = !e.ctrlKey && this.frontHit(e)?.object.userData.bodyId;
+      if (id) this.host.bodyMenu(id, e.clientX, e.clientY);
+    });
     // scrolling sideways (trackpad) pans sideways, Shift + wheel up and down; plain up and down stays the orbit controls' zoom
     canvas.addEventListener(
       'wheel',

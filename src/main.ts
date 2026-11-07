@@ -10,6 +10,7 @@ import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, cornerLi
 import { pieces } from './doc/arrangement';
 import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, icon } from './ui/icons';
+import { contextMenu, type MenuItem } from './ui/menu';
 import { axisHtml, sizeHtml } from './ui/axes';
 import { jointed, jointsWithout } from './doc/joints';
 import { workFrame } from './doc/workplane';
@@ -305,6 +306,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     commit(setIn(history.current, ['images', String(i)], { ...im, width: width ?? im.width, frame: { ...im.frame, o } }));
   },
   imageDragged: (by) => moveImages(by),
+  bodyMenu: (id, x, y) => void bodyMenu(id, x, y),
   dragMove: () => moveAlong(0, true) ?? (() => {}),
   pickShape(sketch, shape, how) {
     pickShape(sketch, shape, how);
@@ -5201,8 +5203,38 @@ function whyNotFold(doc: Doc, id: string): string | null {
   if (doc.joints.some((j) => j.parent === id || j.children.includes(id))) return 'it is in a joint';
   if (op.along) return 'it cuts along a joint';
   if (doc.bodies.some((b) => b.link === id)) return 'linked copies follow its steps';
-  if (op.free || tool.group !== doc.bodies.find((b) => b.id === owner)!.group) return 'it is listed in another group';
   return null;
+}
+
+/** Folds all tool bodies of `owner` that can fold (one step); a note names those that stay listed and why. */
+function foldAll(owner: string) {
+  let doc = history.current;
+  const tools = [...ownersOf(doc)].flatMap(([t, o]) => (o === owner && !doc.bodies.find((b) => b.id === t)?.folded ? [t] : []));
+  const kept: string[] = [];
+  for (const t of tools) {
+    const why = whyNotFold(doc, t);
+    if (why) kept.push(`${doc.bodies.find((b) => b.id === t)!.name} (${why})`);
+    else doc = { ...doc, bodies: doc.bodies.map((b) => (b.id === t ? { ...b, folded: true } : b)) };
+  }
+  selected = selected.filter((x) => !doc.bodies.find((b) => b.id === x)?.folded);
+  if (doc !== history.current) commit(doc);
+  if (kept.length) fail(`Not folded: ${kept.join(', ')}`);
+}
+
+/** The right-click menu of body `id` (in the list or the view): Fold for a tool body, Unfold and Fold all for its body; none: nothing to offer. */
+function bodyMenu(id: string, x: number, y: number): boolean {
+  const doc = history.current;
+  const owners = ownersOf(doc);
+  const owner = owners.get(id);
+  const tools = [...owners].flatMap(([t, o]) => (o === id ? [doc.bodies.find((b) => b.id === t)!] : []));
+  const items: MenuItem[] = [
+    ...(owner ? [{ label: `Fold into ${doc.bodies.find((b) => b.id === owner)?.name}`, title: 'It leaves the list, nothing is lost (Unfold brings it back)', run: () => foldTool(id, true) }] : []),
+    ...tools.filter((t) => t.folded).map((t) => ({ label: `Unfold ${t.name}`, title: 'List it again, as an object of its own', run: () => foldTool(t.id, false) })),
+    ...(tools.some((t) => !t.folded) ? [{ label: 'Fold all tool bodies', title: 'Fold every tool body of this one into its step', run: () => foldAll(id) }] : []),
+  ];
+  if (!items.length) return false;
+  contextMenu(x, y, items);
+  return true;
 }
 
 /** Folds tool body `id` into its body's boolean step (it leaves the list, nothing is lost), or unfolds it again. */
@@ -6505,6 +6537,8 @@ function render() {
     selectedStep: stepSel?.feature ?? null,
     selectStep: (body, feature) => (selectStep(feature ? { body, feature } : null), render()),
     foldTool,
+    foldAll,
+    bodyMenu,
     removeStep: (body, feature) => removeStep({ body, feature }),
     deselectAgain(id, how) {
       if (how || picks(id) || extruding?.picking() || selected.length !== 1 || selected[0] !== id) return false;

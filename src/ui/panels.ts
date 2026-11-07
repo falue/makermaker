@@ -78,6 +78,10 @@ export interface UIContext {
   selectStep(body: string, feature: string | null): void;
   /** Folds tool body `id` into its body's boolean step, or (false) lists it again; refused with a note when it cannot. */
   foldTool(id: string, fold: boolean): void;
+  /** Folds every tool body of body `owner` that can fold. */
+  foldAll(owner: string): void;
+  /** Body `id`'s right-click menu at (x, y) (Fold, Unfold, Fold all); false: nothing to offer. */
+  bodyMenu(id: string, x: number, y: number): boolean;
   /** Deletes step `feature` of `body` (a boolean's: a folded tool body goes with it, a listed one becomes free). */
   removeStep(body: string, feature: string): void;
   /** New sketch objects are drawn as construction lines or not, as the last object switched. */
@@ -304,7 +308,8 @@ function listItem(id: string, className: string, pick: (how: Pick) => void, ...c
   const el = h('button', {
     className,
     onclick: (e) => pick(role(e, 'add') ? 'range' : role(e, 'addOne')),
-    oncontextmenu: (e) => (e.preventDefault(), pick(true)),
+    // right-click: a body's menu if it has one; Ctrl-click (macOS sends it as a right-click) toggles as ⌘-click does
+    oncontextmenu: (e) => (e.preventDefault(), (!e.ctrlKey && menuOf?.(id, e.clientX, e.clientY)) || pick(true)),
   }, ...children);
   el.dataset.id = id; // the view lights it (see `onHover` in main)
   return el;
@@ -340,9 +345,13 @@ addEventListener('pointerup', release, { capture: true });
 addEventListener('pointercancel', release, { capture: true });
 
 /** Rebuilds all panels, keeping focus and unsaved typing in the active field. */
+/** The right-click menu list rows open (a body's; set with each render). */
+let menuOf: UIContext['bodyMenu'] | null = null;
+
 export function renderUI(ctx: UIContext) {
   if (holding) return void (waiting = ctx);
   waiting = null;
+  menuOf = (id, x, y) => ctx.doc.bodies.some((b) => b.id === id) && ctx.bodyMenu(id, x, y);
   const active = document.activeElement as HTMLInputElement | null;
   const path = active?.dataset?.path ?? (renaming ? `list.${renaming}` : undefined); // a name just clicked gets the focus
   const typing = active?.dataset.dirty ? { value: active.value, from: active.selectionStart, to: active.selectionEnd } : null;
@@ -1241,6 +1250,7 @@ function selectionPanel(ctx: UIContext): Node[] {
     placing(ctx, at),
     ...(failure ? [h('p', { className: 'error', title: COPY_TIP }, `${stepName(steps, steps.features.find((f) => f.id === failure.featureId) ?? steps.features[0])}: ${failure.error}`)] : []),
     ...finishRows(ctx, steps, si, setSteps),
+    ...toolsRow(ctx, body),
     ...materialRows(ctx, [body.id], inheritedLabel(ctx, body), colour, false),
     history(ctx, steps, setSteps, card, body.id),
     // a linked copy's own steps after its source's (a mirror)
@@ -1263,6 +1273,13 @@ function sizeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   if (p.kind === 'rect') return [tf('w', 'L', p.w), tf('h', 'W', p.h)];
   const m = ctx.measure(keys);
   return [tf('w', 'L', mm(m.w)), tf('h', 'W', mm(m.h))];
+}
+
+/** A body with tool bodies still listed: how many, and Fold all. */
+function toolsRow(ctx: UIContext, body: Body): Node[] {
+  const tools = [...ownersOf(ctx.doc)].filter(([t, o]) => o === body.id && !ctx.doc.bodies.find((b) => b.id === t)?.folded);
+  if (!tools.length) return [];
+  return [h('div', { className: 'row toggle' }, h('span', {}, `Tool bodies (${tools.length} listed)`), button('Fold all', () => ctx.foldAll(body.id), 'Click: Fold its tool bodies into their steps: they leave the list, nothing is lost (Object history or right-click unfolds them)'))];
 }
 
 /** A body's one shape its first step extrudes (its own, or its sketch's) and where it is; null: none such. */

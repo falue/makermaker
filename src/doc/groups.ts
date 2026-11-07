@@ -84,7 +84,7 @@ export function tree(doc: Doc, folded: Set<string>): Row[] {
   // per level its groups and bodies in their places (see `rank`)
   const walk = (parent: string | null, depth: number) => {
     const groups = doc.groups.filter((g) => parentOf(doc, g.parent) === parent).map((g) => ({ id: g.id, group: true }));
-    const bodies = doc.bodies.filter((b) => parentOf(doc, b.group) === parent && !owner.has(b.id) && !under(b)).map((b) => ({ id: b.id, group: false }));
+    const bodies = doc.bodies.filter((b) => parentOf(doc, b.group) === parent && !owner.has(b.id) && !under(b) && !b.folded).map((b) => ({ id: b.id, group: false }));
     for (const { id, group } of [...groups, ...bodies].sort((a, b) => rank(doc, a.id) - rank(doc, b.id) || +b.group - +a.group)) {
       if (!group) {
         body(id, depth);

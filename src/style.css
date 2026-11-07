@@ -2992,3 +2992,26 @@ section > h4 .segmented button {
   color: var(--accent);
 }
 
+/* a right-click menu: its entries one under the other */
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+}
+.context-menu button {
+  padding: 5px 8px;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--text);
+}
+.context-menu button:hover {
+  background: var(--selected);
+}
+

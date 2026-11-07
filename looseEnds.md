@@ -48,7 +48,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Not built yet: clicking a face selects only extrusion and boolean steps; Push, revolve and the other steps only from Object history.
 - Not built yet: the laser and SVG / DXF outlines leave fillets out, so a body rounded by fillets cuts with sharp corners (they should take the upright edges' fillets along).
 - Not built yet: a body's own shape from an older file or an unlinked sketch can keep an R the card does not show as its own (it shows under Fillets or Chamfers only when the body has one shape).
-- Decided 2026-11-07, to do: a right-click menu in the object list and the 3D view: a tool body Fold, its body Unfold (each folded one) and Fold all; the buttons stay. A tool body listed in another group folds too (no longer refused).
+- The right-click menu offers only Fold, Unfold and Fold all so far (bodies without tool bodies get none).
 - Decided, to do: a pulled Join or Cut makes a folded tool body and its boolean (not an extrude step), so any of them unfolds into an object; one kind of step.
 - Decided, to do: Join / Cut from a sketch on any face of a body (a sphere's, an imported body's, a free plane): the step's plane in that body's coordinates.
 - Folded tool bodies count as tool bodies wherever those are told apart (`ownersOf`): Interference, Select all, the exports and the view skip them; `cad.measure` gives every body, tool bodies and folded ones too (as before).
