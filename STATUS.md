@@ -74,7 +74,7 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 - SVG / DXF import (src/io/vector.ts): done 2026-11-07: curves arrive as true arcs (SVG arcs kept round by the transform, DXF arcs and bulges) and cubics (SVG cubics, quadratics raised exactly, ellipses and SVG rect rx/ry in eighths, off by 4e-6 of the radius; DXF B-splines up to degree 3 split exactly into their cubics; fit-point splines as smooth cubics through their points); pieces chain within 1e-3 mm. Still sampled every 0.5 mm: rational (weighted) and higher-degree DXF splines, now with their weights.
 - Laser export (src/kernel/laser.ts): done 2026-11-07: arcs stay arcs (SVG `A`, DXF bulges), the kerf offsets the true sides (`offsetPath`), a finished part is cut half way through its plate (rounded corners show, top-edge finishes do not shrink it). Still in 0.5 mm pieces: ellipse and spline edges (and beziers in DXF).
 - Print check: done 2026-11-07: closed and manifold from the solid's own faces and edges (`solidChecks`, src/kernel/exact.ts), no longer the print mesh; mesh bodies left out of export and print say so (clash did already).
-- GLB and SketchUp import weld vertices at 1e-4 in metres, i.e. 0.1 mm (src/io/mesh.ts:58, 206).
+- GLB and SketchUp import welded vertices within 1e-4 m (0.1 mm); now 1 µm (`METRES`), done 2026-11-07.
 - Unavoidable: STL / 3MF are meshes (0.01 mm), imported meshes have no solid, STEP faceted bodies stay faceted. STEP import and export are exact otherwise, but export carries D.
 
 **F. Display only**

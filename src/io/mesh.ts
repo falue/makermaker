@@ -51,11 +51,11 @@ function addTriangles(o: THREE.Mesh, all: number[], uvs?: number[], flipV = fals
     }
 }
 
-/** Triangle corners as a mesh, corners shared (not where their texture coordinates differ). */
-function shared(all: number[], uvs?: number[]) {
+/** Triangle corners as a mesh, corners within `weld` (file units) shared (not where their texture coordinates differ). */
+function shared(all: number[], uvs?: number[], weld = 1e-4) {
   const g = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(all), 3));
   if (uvs) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
-  return mergeVertices(g);
+  return mergeVertices(g, weld);
 }
 
 /**
@@ -100,10 +100,10 @@ function colorOf(o: THREE.Mesh) {
 }
 
 /**
- * The meshes under `root` as parts, in its world. All white: no colours in the file. Very many: one per colour, as a
- * body each would be too heavy to work with (`most`).
+ * The meshes under `root` as parts, in its world, corners within `weld` (file units) shared. All white: no colours
+ * in the file. Very many: one per colour, as a body each would be too heavy to work with (`most`).
  */
-function partsOf(root: THREE.Object3D, kind: string, most = 200): (Omit<MeshPart, 'vertices' | 'triangles'> & { g: THREE.BufferGeometry })[] {
+function partsOf(root: THREE.Object3D, kind: string, weld = 1e-4, most = 200): (Omit<MeshPart, 'vertices' | 'triangles'> & { g: THREE.BufferGeometry })[] {
   root.updateMatrixWorld(true);
   const found: { name: string; color: string | null; all: number[]; in: { id: string; name: string }[]; uvs?: number[]; picture: { url: string; name: string } | null }[] = [];
   root.traverse((o) => {
@@ -132,7 +132,7 @@ function partsOf(root: THREE.Object3D, kind: string, most = 200): (Omit<MeshPart
     }
     parts = [...byLook.values()];
   }
-  return parts.map(({ all, uvs, ...f }) => ({ ...f, g: shared(all, uvs) }));
+  return parts.map(({ all, uvs, ...f }) => ({ ...f, g: shared(all, uvs, weld) }));
 }
 
 const meshOf = (g: THREE.BufferGeometry) => ({ vertices: g.attributes.position.array as Float32Array, triangles: new Uint32Array(g.index!.array), ...(g.attributes.uv ? { uvs: g.attributes.uv.array as Float32Array } : {}) });
@@ -144,10 +144,13 @@ export function parseObj(text: string, zUp = false): { vertices: Float32Array; t
   return meshOf(g);
 }
 
+/** How near corners of a file in metres are shared: 1 µm (Float32 keeps about that on a 10 m model). */
+const METRES = 1e-6;
+
 /** A GLB's parts, corners shared. glTF is y up, in metres (the unit to show them in). */
 export async function parseGlb(data: ArrayBuffer): Promise<MeshPart[]> {
   const { scene } = await new GLTFLoader().parseAsync(data, '');
-  return partsOf(scene, 'GLB').map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
+  return partsOf(scene, 'GLB', METRES).map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
 }
 
 /**
@@ -185,7 +188,7 @@ export async function parseSkp(data: ArrayBuffer): Promise<MeshPart[]> {
     if (texture) Object.assign(mesh.userData, { picture: { url: `data:${texture.mimeType};base64,${toBase64(texture.data)}`, name: look?.name ?? '' } });
     (nodes[at]?.group ?? root).add(mesh);
   }
-  return partsOf(root, 'SketchUp').map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
+  return partsOf(root, 'SketchUp', METRES).map(({ g, ...p }) => ({ ...p, ...meshOf(g.rotateX(Math.PI / 2)) }));
 }
 
 const UNITS_3MF: Record<string, Unit> = { millimeter: 'mm', centimeter: 'cm', meter: 'm', inch: 'in', foot: 'ft' };
