@@ -498,6 +498,9 @@ export class Viewer implements ToolView {
   private custom: THREE.Plane[] = [];
   /** The origin: three thick lines (AxesHelper's colours), drawn over everything. */
   private axes = originLines();
+  /** Inside a group of its own origin: that origin (world), which grid, origin axes and view cube follow; else none. */
+  private groupFrame = new THREE.Matrix4();
+  private frameTurn = new THREE.Quaternion();
   /** Points to snap to besides body corners (sphere centres, with their body); selected ones get a mark. */
   private balls: { center: THREE.Vector3; r: number; body: string }[] = [];
   private centres = new THREE.Group();
@@ -2717,7 +2720,7 @@ export class Viewer implements ToolView {
       for (const mark of [this.pickedEdgeMark, this.edgeMark, this.measureMark]) if (mark.children.length) this.renderer.render(mark, this.camera); // the measure last
       this.renderer.autoClear = autoClear;
       // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
-      const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.camera.quaternion)).invert().elements;
+      const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.frameTurn.clone().invert()).multiply(this.camera.quaternion)).invert().elements; // inside a turned group: as turned from it
       this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
     });
   };
@@ -3063,6 +3066,17 @@ export class Viewer implements ToolView {
     this.render();
   };
 
+  /** Grid, origin axes and view cube follow `m` (a group's origin, world; null: the world's own). */
+  setFrame(m: THREE.Matrix4 | null) {
+    const f = m ?? new THREE.Matrix4();
+    if (f.equals(this.groupFrame)) return;
+    this.groupFrame.copy(f);
+    f.decompose(new THREE.Vector3(), this.frameTurn, new THREE.Vector3());
+    for (const o of [this.grid, this.axes]) Object.assign(o, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(f);
+    this.gridLook.key = '';
+    this.render();
+  }
+
   /** The ground grid's colours, and what it was drawn for (step and middle). */
   private gridLook = { major: 0xbbbbbb, minor: 0xd6d6d4, key: '' };
 
@@ -3072,8 +3086,8 @@ export class Viewer implements ToolView {
    * the step changes or the view moves far.
    */
   private drawGrid(cells = 250) {
-    const t = this.controls.target;
-    const step = this.step(t);
+    const step = this.step(this.controls.target);
+    const t = this.controls.target.clone().applyMatrix4(this.groupFrame.clone().invert()); // in the grid's own coordinates
     const every = Math.round(step / 10 ** Math.floor(Math.log10(step))) === 5 ? 10 : 5;
     const far = step * every * 10;
     const [cx, cy] = [Math.round(t.x / far) * far, Math.round(t.y / far) * far];
@@ -5120,7 +5134,7 @@ export class Viewer implements ToolView {
         const face = Object.assign(document.createElement('div'), {
           className: 'face',
           textContent: label,
-          onclick: () => this.viewFrom(fromCube(dir)),
+          onclick: () => this.viewFrom(fromCube(dir).applyQuaternion(this.frameTurn)),
           style: `transform: ${transform}; filter: brightness(${light})`,
         });
         // corner spots look from that cube corner, 45° between the sides; hovering lights the spots of that corner on all three faces
@@ -5143,7 +5157,7 @@ export class Viewer implements ToolView {
               className: `corner ${at}`,
               onclick: (e: MouseEvent) => {
                 e.stopPropagation();
-                this.viewFrom(fromCube(corner), false);
+                this.viewFrom(fromCube(corner).applyQuaternion(this.frameTurn), false);
               },
               onpointerenter: () => lit(true),
               onpointerleave: () => lit(false),
@@ -5246,7 +5260,8 @@ export class Viewer implements ToolView {
     else {
       this.flat = true;
       // the cube's turn arrows only for one of its 6 sides
-      this.cubeWrap.classList.toggle('aligned', Math.max(...dir.toArray().map(Math.abs)) / dir.length() > 0.999);
+      const own = dir.clone().applyQuaternion(this.frameTurn.clone().invert()); // a side of the cube, turned as the frame
+      this.cubeWrap.classList.toggle('aligned', Math.max(...own.toArray().map(Math.abs)) / own.length() > 0.999);
     }
     if (side && !this.isOrthographic) {
       this.setOrthographic(true);

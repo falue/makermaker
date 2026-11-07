@@ -702,7 +702,7 @@ function update() {
     for (const [from, to] of j.kind === 'attach' ? [[[...p, ...c], [...p, ...c]]] : [[p, c]]) for (const id of from) viewer.carried.set(id, [...(viewer.carried.get(id) ?? []), ...to.filter((x) => x !== id)]);
   }
   viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: owner.has(b.id), outlined: !b.folded && b.visible && !hideAll.objects && shownIn(b.group) && doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id && f.free)) })));
-  viewer.select(contents(doc, selected), groupKept(doc));
+  selectInView(doc);
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
   if (sketching && !drawn) exitSketch();
@@ -1105,16 +1105,29 @@ const showImages = () => viewer.setImages(history.current.images.filter((im) => 
 function showSelection() {
   clashAgain?.();
   showImages();
-  viewer.select(contents(history.current, selected), groupKept(history.current));
+  selectInView(history.current);
   viewer.setSketches(viewer.sketches, activeSketch(), shapeSel);
   render();
 }
 
 /** Objects of one group selected (not in sketch mode): that group's contents stay, the rest fades; else null. */
 function groupOf(doc: Doc) {
+  const g = selectedGroup(doc);
+  return g ? new Set(contents(doc, [g])) : null;
+}
+
+/** The group whose objects alone are selected (X-ray view; not in sketch mode), else null. */
+function selectedGroup(doc: Doc) {
   const objects = [...doc.bodies, ...doc.sketches].filter((o) => selected.includes(o.id));
   const g = objects[0]?.group;
-  return g && !sketching && objects.length === selected.length && objects.every((o) => o.group === g) ? new Set(contents(doc, [g])) : null;
+  return g && !sketching && objects.length === selected.length && objects.every((o) => o.group === g) ? g : null;
+}
+
+/** The selection to the view: inside a group its grid, origin and view cube follow that group's origin. */
+function selectInView(doc: Doc) {
+  viewer.select(contents(doc, selected), groupKept(doc));
+  const g = selectedGroup(doc);
+  viewer.setFrame(g ? groupPlace(g) : null);
 }
 
 /** What stays solid while a group's objects are selected: its contents and the bodies whose eye showed them fully (they reset when it ends). */

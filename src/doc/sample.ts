@@ -34,6 +34,12 @@ const solid = (name: string, color: string, at: [number, number, number], profil
   features: [{ id: newId(), type: 'extrude', source: { kind: 'own', plane: ground, profiles }, depth: ex(depth), mode: 'add', through: false }],
 });
 
+/** A test piece for a group's own origin: turned around all three axes, a box and a pin inside (selecting one: grid, origin and view cube follow it). */
+function turnedGroup(): { group: Group; bodies: Body[] } {
+  const group: Group = { id: newId(), name: 'Turned group', parent: null, visible: true, origin: { kind: 'custom', position: [ex(0), ex(-210), ex(40)], rotation: { rx: ex(20), ry: ex(30), rz: ex(40) } } };
+  return { group, bodies: [solid('Turned box', '#a9c4d8', [0, 0, 0], [rect(40, 30)], 20, group.id), solid('Turned pin', '#e3d48f', [12, 0, 20], [circle(0, 0, 10)], 25, group.id)] };
+}
+
 /** Test pieces for single-edge finishes: a block with one vertical edge chamfered, one with one top edge rounded. */
 function edgeTests(): Body[] {
   const one = (mode: 'fillet' | 'chamfer', size: number, pts: [number, number, number][]) => ({ id: newId(), type: 'finish' as const, mode, size: ex(size), edges: { pts: [pts] }, enabled: true, baked: false, skip: [] });
@@ -260,12 +266,13 @@ export function sampleDoc(): Doc {
     features: [{ id: newId(), type: 'sphere', x: ex(0), y: ex(0), z: ex(0), d: ex(36) }],
   };
   const attached = attachTest();
+  const turned = turnedGroup();
   const nut = solid('Hex nut', '#e3d48f', [110, 0, 4], [{ id: newId(), kind: 'ngon', x: ex(0), y: ex(0), d: ex(30), sides: ex(6), rot: ex(0) }, circle(0, 0, 14)], 10);
   return {
     schema: 32,
     units: 'mm',
     params: { $ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies, stepsTest()],
+    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies, stepsTest(), ...turned.bodies],
     sketches: [
       outline,
       {
@@ -280,7 +287,7 @@ export function sampleDoc(): Doc {
       split.sketch,
       ...shapeTests(),
     ],
-    groups: [corner, ...hinged.groups],
+    groups: [corner, ...hinged.groups, turned.group],
     sections: [],
     joints: [...hinged.joints, clash.joint, attached.joint],
     planes: [slantedPlane()],
