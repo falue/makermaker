@@ -298,10 +298,10 @@ let renaming: string | null = null;
 
 /** The left column's tabs: Objects (bodies, groups, a body's own sketches under it), Aids (free sketches, work planes, images), Parameters. */
 export type LeftTab = 'objects' | 'aids' | 'params';
-const LEFT_TABS: [LeftTab, string][] = [
-  ['objects', 'Objects'],
-  ['aids', 'Aids'],
-  ['params', 'Parameters'],
+const LEFT_TABS: [LeftTab, string, IconName][] = [
+  ['objects', 'Objects', 'body'],
+  ['aids', 'Aids', 'sketch'],
+  ['params', 'Parameters', 'param'],
 ];
 /** The open one (remembered in this browser) and each one's filter text. */
 let leftTab: LeftTab = LEFT_TABS.find(([t]) => t === localStorage.getItem('makermaker.leftTab'))?.[0] ?? 'objects';
@@ -1004,8 +1004,9 @@ function left(ctx: UIContext): Node[] {
   const tabs = h(
     'div',
     { className: 'tabs' },
-    ...LEFT_TABS.map(([t, label]) => {
-      const b = h('button', { className: t === leftTab ? 'on' : '', title: `Click: Show ${label.toLowerCase()}`, onclick: () => t !== leftTab && (showTab(t), renderUI(ctx)) }, h('span', {}, label), h('small', {}, String(counts[t])));
+    // a handle: its icon and count (the name on hover), room for more tabs
+    ...LEFT_TABS.map(([t, label, kind]) => {
+      const b = h('button', { className: t === leftTab ? 'on' : '', title: `${label} (${counts[t]}) · click: show them`, onclick: () => t !== leftTab && (showTab(t), renderUI(ctx)) }, h('span', { className: 'kind', innerHTML: icon(kind) }), h('small', {}, String(counts[t])));
       b.dataset.tab = t;
       return b;
     }),

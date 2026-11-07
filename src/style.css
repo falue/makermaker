@@ -219,8 +219,11 @@ span.error,
   white-space: nowrap;
 }
 #left > .tabs small {
-  font-size: 10px;
-  color: var(--muted);
+  font-size: 11px;
+}
+#left > .tabs .kind svg {
+  width: 14px;
+  height: 14px;
 }
 #left > .list-section {
   flex: 1;
