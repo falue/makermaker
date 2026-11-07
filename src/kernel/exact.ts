@@ -2,8 +2,12 @@ import { cast, getOC, measureArea, measureLength, measureVolume, type Edge, type
 
 type V3 = [number, number, number];
 
-/** A face's surface, exact (body coordinates): a plane (a point on it, its outward normal), a cylinder (a point on its axis, the axis, radius; `shaft`: material inside), a sphere, else free. */
-export type ExactFace = { kind: 'plane'; at: V3; n: V3 } | { kind: 'cylinder'; at: V3; dir: V3; r: number; shaft: boolean } | { kind: 'sphere'; c: V3; r: number } | { kind: 'free' };
+/**
+ * A face's surface, exact (body coordinates): a plane (a point on it, its outward normal), a cylinder (a point on its
+ * axis, the axis, radius; `shaft`: material inside), a sphere, else free; on a body of not too many faces also its
+ * area and centre of mass (`mid`).
+ */
+export type ExactFace = ({ kind: 'plane'; at: V3; n: V3 } | { kind: 'cylinder'; at: V3; dir: V3; r: number; shaft: boolean } | { kind: 'sphere'; c: V3; r: number } | { kind: 'free' }) & { area?: number; mid?: V3 };
 
 /** An edge's curve, exact (body coordinates), from end `a` to end `b`: a line, a circle or arc (centre, axis, radius), an ellipse, else a curve; and its length. */
 export type ExactEdge = ({ kind: 'line' } | { kind: 'circle'; c: V3; n: V3; r: number } | { kind: 'ellipse'; c: V3; n: V3; x: V3; major: number; minor: number } | { kind: 'curve' }) & { a: V3; b: V3; length: number };
@@ -62,13 +66,25 @@ export function exactOf(shape: Shape3D, faceIds: number[], edgeIds: number[], mo
     corners = [read(box.CornerMin()), read(box.CornerMax())];
     box.delete();
   }
+  const measured = faceIds.length <= boxed;
   return {
-    faces: faceIds.map((id) => faceOf(faces.get(id))),
+    faces: faceIds.map((id) => ({ ...faceOf(faces.get(id)), ...(measured ? measuredFace(faces.get(id)) : {}) })),
     edges: edgeIds.map((id) => edgeOf(edges.get(id))),
     volume: measureVolume(shape),
     area: measureArea(shape),
     box: corners,
   };
+}
+
+/** A face's area and centre of mass, in one go (empty for none). */
+function measuredFace(f: Face | undefined): { area?: number; mid?: V3 } {
+  if (!f) return {};
+  const oc = getOC();
+  const props = new oc.GProp_GProps();
+  oc.BRepGProp.SurfaceProperties(f.wrapped, props, 1e-7, true);
+  const out = { area: props.Mass(), mid: read(props.CentreOfMass()) };
+  props.delete();
+  return out;
 }
 
 function faceOf(f: Face | undefined): ExactFace {

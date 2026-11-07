@@ -1136,6 +1136,8 @@ export class Viewer implements ToolView {
 
   /** The middle of a face (world): its triangles' centres weighed by their areas. */
   faceCentre(f: FaceItem) {
+    const mid = (f.mesh.userData.exact as Exact | null | undefined)?.faces[f.index]?.mid;
+    if (mid) return new THREE.Vector3(...mid).applyMatrix4(f.mesh.matrixWorld); // the kernel's centre of mass
     const groups = f.mesh.userData.faces as Uint32Array;
     const index = f.mesh.geometry.index!.array;
     const pos = f.mesh.geometry.attributes.position;
@@ -1878,12 +1880,16 @@ export class Viewer implements ToolView {
       area += c.length() / 2;
       if (c.lengthSq() > 1e-12) normals.push(c.normalize());
     }
-    const n = normals[0];
-    if (!n || normals.some((m) => m.dot(n) < 0.9999)) return { area };
+    // a kernel face: its area, and flat by its surface with its exact normal; else by the triangles'
+    const exact = (f.mesh.userData.exact as Exact | null | undefined)?.faces[f.index];
+    if (exact?.area !== undefined) area = exact.area;
+    if (exact && exact.kind !== 'plane') return { area };
+    const n = exact?.kind === 'plane' ? new THREE.Vector3(...exact.n).transformDirection(f.mesh.matrixWorld) : normals[0];
+    if (!n || (!exact && normals.some((m) => m.dot(n) < 0.9999))) return { area };
     let best: { u: THREE.Vector3; v: THREE.Vector3; lo: [number, number]; hi: [number, number] } | null = null;
     const size = (b: NonNullable<typeof best>) => (b.hi[0] - b.lo[0]) * (b.hi[1] - b.lo[1]);
     for (let i = 0; i + 1 < pts.length && i < 600; i++) {
-      const u = pts[i + 1].clone().sub(pts[i]);
+      const u = pts[i + 1].clone().sub(pts[i]).projectOnPlane(n); // in the plane (a triangle's side is off it by its float)
       if (u.lengthSq() < 1e-9) continue;
       u.normalize();
       const v = n.clone().cross(u);
@@ -1893,7 +1899,7 @@ export class Viewer implements ToolView {
     }
     if (!best) return { area };
     const { u, v, lo, hi } = best;
-    const depth = pts[0].dot(n);
+    const depth = exact?.kind === 'plane' ? new THREE.Vector3(...exact.at).applyMatrix4(f.mesh.matrixWorld).dot(n) : pts[0].dot(n);
     const corners = [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]].map(([a, b]) => u.clone().multiplyScalar(a).addScaledVector(v, b).addScaledVector(n, depth));
     const long = hi[0] - lo[0] >= hi[1] - lo[1];
     return { area, sides: [Math.max(hi[0] - lo[0], hi[1] - lo[1]), Math.min(hi[0] - lo[0], hi[1] - lo[1])] as [number, number], corners, x: long ? u : v, n };
