@@ -179,8 +179,15 @@ const OP_ICONS: Record<PullOp, string> = { join: 'union', cut: 'subtract', new: 
 /** Whether a pull from `t` can join or cut a body: drawn on one of its faces. */
 export const onBody = (t: Target) => !!t.body;
 
-/** A pull's operation: on a body as chosen, else by the direction (into it: Cut, out of it: Join); elsewhere a new body. */
-export const pullOp = (p: Pulling, onBody: boolean, depth: number): PullOp => (!onBody ? 'new' : (p.op ?? (depth < 0 ? 'cut' : 'join')));
+/** Whether a pull reaches behind its plane, into the body: only then can it cut. */
+const reachesIn = ({ depth, back }: { depth: number; back: number }) => depth < 0 || back > 0;
+
+/** A pull's operation: on a body as chosen, else by the direction (into it: Cut, out of it: Join); Cut only reaching into it; elsewhere a new body. */
+export function pullOp(p: Pulling, onBody: boolean, reach: { depth: number; back: number }): PullOp {
+  if (!onBody) return 'new';
+  const op = p.op ?? (reach.depth < 0 ? 'cut' : 'join');
+  return op === 'cut' && !reachesIn(reach) ? 'join' : op;
+}
 
 /**
  * To object in a pull: the distance from the plane to `at` along its normal (for Back: behind it) goes into what is
@@ -211,13 +218,15 @@ export function pulled(p: Pulling, length: (text: string) => number | null) {
 }
 
 /**
- * Typing while pulling: into the depth or (Tab) the back; Backspace erases; on a body P takes the next operation after
- * `now` (in the middle of a name it is typed). Returns whether the key was used.
+ * Typing while pulling: into the depth or (Tab) the back; Backspace erases; on a body (`reach`: the pull, see `pulled`)
+ * P takes the next operation (Cut only reaching into it; in the middle of a name P is typed). Returns whether the key was used.
  */
-export function pullKey(e: KeyboardEvent, p: Pulling, now?: PullOp) {
+export function pullKey(e: KeyboardEvent, p: Pulling, reach?: { depth: number; back: number }) {
   const k = p.side ? 'typedBack' : 'typed';
-  const ops = Object.keys(PULL_OPS) as PullOp[];
-  if (now && pressed(e, 'operation') && !inName(p[k] ?? '')) p.op = ops[(ops.indexOf(now) + 1) % ops.length];
+  if (reach && pressed(e, 'operation') && !inName(p[k] ?? '')) {
+    const ops = (Object.keys(PULL_OPS) as PullOp[]).filter((o) => o !== 'cut' || reachesIn(reach));
+    p.op = ops[(ops.indexOf(pullOp(p, true, reach)) + 1) % ops.length];
+  }
   else if (pressed(e, 'otherSide') && restOf(p[k] ?? '')) p[k] += restOf(p[k]!); // a name showing: written out
   else if (pressed(e, 'otherSide')) p.side = p.side ? 0 : 1;
   else if (pressed(e, 'erase')) p[k] = p[k]?.slice(0, -1) || undefined;
@@ -920,7 +929,7 @@ export class SketchTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       } else if (pressed(e, 'confirm')) this.commit();
-      else if (!pullKey(e, ph, onBody(ph.target) ? pullOp(ph, true, pulled(ph, (t) => this.host.length(t)).depth) : undefined)) return false;
+      else if (!pullKey(e, ph, onBody(ph.target) ? pulled(ph, (t) => this.host.length(t)) : undefined)) return false;
     } else return false;
     this.update();
     return true;
@@ -1675,7 +1684,7 @@ export class SketchTool implements Tool {
       depthTyped: flat || this.typed(ph.typed) === undefined ? undefined : ph.typed,
       back,
       backTyped: flat || this.typed(ph.typedBack) === undefined ? undefined : ph.typedBack,
-      op: pullOp(ph, onBody(ph.target), depth),
+      op: pullOp(ph, onBody(ph.target), { depth, back }),
     });
   }
 
@@ -1829,7 +1838,7 @@ export class SketchTool implements Tool {
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
       if (depth || back) this.solid(ph.shapes, f, depth, back);
       label('H', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
-      if (onBody(ph.target)) labels[labels.length - 1][4] = pullOp(ph, true, depth); // what it does to the body
+      if (onBody(ph.target)) labels[labels.length - 1][4] = pullOp(ph, true, { depth, back }); // what it does to the body
       if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side, !!ph.side && !this.reaching);
     }
     const els = labels.map(([text, , active, t, op]) => sizeLabel(text, active, t, op));

@@ -213,7 +213,7 @@ export class ExtrudeTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       }
-      if (!pullKey(e, p, this.onBody() ? this.op() : undefined)) return false;
+      if (!pullKey(e, p, this.onBody() ? this.depths() : undefined)) return false;
       this.host.hint(this.pullHint());
       this.changed();
       return true;
@@ -327,7 +327,7 @@ export class ExtrudeTool implements Tool {
 
   /** What the pull does to the body its sketch lies on (see `pullOp`). */
   private op() {
-    return pullOp(this.pull!, this.onBody(), this.depths().depth);
+    return pullOp(this.pull!, this.onBody(), this.depths());
   }
 
   private pullHint() {
