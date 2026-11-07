@@ -2469,8 +2469,8 @@ input + .set-axis {
   align-items: center;
   margin-top: 14px;
 }
-/* Position and Rotation right under Dimensions */
-.placing.dimensions + .placing {
+/* labelled rows one under the other (Dimensions, Position, Rotation): close together */
+.placing + .placing {
   margin-top: 6px;
 }
 .placing > span {

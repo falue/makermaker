@@ -1264,15 +1264,39 @@ function selectionPanel(ctx: UIContext): Node[] {
  * measured, a circle's or regular polygon's Ø.
  */
 function sizeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
-  const keys = path.split('.');
   const u = ctx.doc.units;
   const mm = (v: number): Expr => ({ e: fmt(v / UNITS[u]), u });
-  const tf = (field: 'w' | 'h' | 'd', label: string, value: Expr) =>
-    sizeHover(ctx, exprField(ctx, `${path}.@${field}`, label, false, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) }), path, field);
-  if (p.kind === 'circle' || p.kind === 'ngon') return [tf('d', 'Ø', p.d)];
-  if (p.kind === 'rect') return [tf('w', 'L', p.w), tf('h', 'W', p.h)];
-  const m = ctx.measure(keys);
-  return [tf('w', 'L', mm(m.w)), tf('h', 'W', mm(m.h))];
+  if (p.kind === 'circle' || p.kind === 'ngon') return [shapeField(ctx, path, 'd', 'Ø', p.d)];
+  if (p.kind === 'rect') return [shapeField(ctx, path, 'w', 'L', p.w), shapeField(ctx, path, 'h', 'W', p.h)];
+  const m = ctx.measure(path.split('.'));
+  return [shapeField(ctx, path, 'w', 'L', mm(m.w)), shapeField(ctx, path, 'h', 'W', mm(m.h))];
+}
+
+/** One field of shape `p` at `path` (size, place or turn), set as its transform says (the reference point stays); a size hovered draws it. */
+function shapeField(ctx: UIContext, path: string, field: ShapeField, label: string, value: Expr, raw = false) {
+  const el = exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(path.split('.'), field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
+  return field === 'w' || field === 'h' || field === 'd' ? sizeHover(ctx, el, path, field) : el;
+}
+
+/** A labelled row as the body's Dimensions, Position and Rotation: its name, then up to three fields. */
+const labelled = (label: string, ...fields: HTMLElement[]) => h('div', { className: 'placing' }, h('span', {}, label), ...fields);
+
+/**
+ * A step's shape as the body's own fields: Dimensions (L W or Ø, a regular polygon's sides, then `more`: its H),
+ * and with `place` Position (X Y in its plane) and Rotation (its turn).
+ */
+function shapeRows(ctx: UIContext, path: string, p: Profile, place: boolean, more: HTMLElement[] = []): HTMLElement[] {
+  const m = ctx.measure(path.split('.'));
+  const u = ctx.doc.units;
+  const mm = (v: number): Expr => ({ e: fmt(v / UNITS[u]), u });
+  const stored = (k: string) => (p as unknown as Record<string, Expr>)[k];
+  const sizes = p.kind === 'ngon' ? [...sizeFields(ctx, path, p), exprField(ctx, `${path}.sides`, 'Sides', true)] : sizeFields(ctx, path, p);
+  return [
+    labelled('Dimensions', ...sizes, ...more),
+    ...(place ? [labelled('Position', shapeField(ctx, path, 'x', 'X', m.centred ? stored('x') : mm(m.x)), shapeField(ctx, path, 'y', 'Y', m.centred ? stored('y') : mm(m.y)))] : []),
+    // degrees: shown as typed, never unit-converted
+    ...(place && 'rot' in p ? [labelled('Rotation', shapeField(ctx, path, 'rot', 'Turn °', stored('rot'), true))] : []),
+  ];
 }
 
 /** A body with tool bodies still listed: how many, and Fold all. */
@@ -1536,10 +1560,7 @@ function shapeFields(ctx: UIContext, path: string, p: Profile, place = true, rou
   const u = ctx.doc.units;
   const stored = (k: string) => (p as unknown as Record<string, Expr>)[k];
   const mm = (v: number): Expr => ({ e: fmt(v / UNITS[u]), u });
-  const tf = (field: ShapeField, label: string, value: Expr, raw = false) => {
-    const el = exprField(ctx, `${path}.@${field}`, label, raw, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) });
-    return field === 'w' || field === 'h' || field === 'd' ? sizeHover(ctx, el, path, field) : el;
-  };
+  const tf = (field: ShapeField, label: string, value: Expr, raw = false) => shapeField(ctx, path, field, label, value, raw);
   const pf = (key: string, label: string, raw = false) => exprField(ctx, `${path}.${key}`, label, raw);
   const row = (...cells: HTMLElement[]) => h('div', { className: 'trio' }, ...cells);
   // its arcs' diameters, and the lengths and angles sides were given: formulas stay, the points follow
@@ -1714,26 +1735,27 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       }
       // its plane and offset are kept, not shown: where it stands comes from the body's place and the face it was drawn on
       const setSource = (next: Partial<typeof src>) => setFeature({ ...feature, source: { ...src, ...next } });
+      // as the body's own fields: one shape takes H into its Dimensions, several each their rows, H after them
+      const one = src.profiles.length === 1 && !feature.through;
       const profiles = src.profiles.map((p, k) => {
         const drop = button('×', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }), 'Remove this shape');
-        // the only shape, at the origin unturned: Position and Rotation place it
+        // the only shape, at the origin unturned: the body's Position and Rotation place it
         const alone = src.profiles.length === 1 && 'x' in p && [p.x, p.y, 'rot' in p ? p.rot : ex(0)].every((v) => isPlain(v.e) && Number(v.e) === 0);
-        return h('div', { className: 'profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p, !alone, false), ...(src.profiles.length > 1 ? [drop] : []));
+        return h('div', { className: 'profile' }, ...shapeRows(ctx, `${at}.source.profiles.${k}`, p, !alone, one ? [reach[0]] : []), ...(src.profiles.length > 1 ? [drop] : []));
       });
-      return h(
-        'section',
-        {},
-        h('h4', {}, name(feature), remove),
-        ...profiles,
-        h('div', { className: 'row reach' }, ...reach),
-      );
+      const rest = one ? reach.slice(1) : reach;
+      return h('section', {}, h('h4', {}, name(feature), remove), ...profiles, ...(rest.length ? [h('div', { className: 'row reach' }, ...rest)] : []));
     }
     case 'boolean': {
       const other = ctx.doc.bodies.find((b) => b.id === feature.body);
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
       const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error', title: COPY_TIP }, 'its tool body was deleted');
       const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), 'Remove: the tool body becomes a body of its own');
-      return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, feature.along ? `along ${ctx.doc.joints.find((j) => j.id === feature.along)?.name ?? 'a deleted joint'}, with` : 'with'), tool, drop), ...(feature.grow ? [h('div', { className: 'row' }, f('grow', 'Clearance'))] : []));
+      const grow = feature.grow ? [h('div', { className: 'row' }, f('grow', 'Clearance'))] : [];
+      // folded: its tool body's own fields here (it is not listed to select)
+      const ti = other?.folded ? ctx.doc.bodies.indexOf(other) : -1;
+      if (ti >= 0) return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, 'folded'), button('Unfold', () => ctx.foldTool(other!.id, false), 'Click: List its tool body again, as an object of its own')), ...[dimensions(ctx, other!, ti)].filter((x): x is HTMLElement => !!x), placing(ctx, `bodies.${ti}`), ...grow);
+      return h('section', {}, h('div', { className: 'listed boolean' }, op, h('span', { className: 'hint' }, feature.along ? `along ${ctx.doc.joints.find((j) => j.id === feature.along)?.name ?? 'a deleted joint'}, with` : 'with'), tool, drop), ...grow);
     }
     case 'mesh': {
       const triangles = Math.floor((feature.triangles.length * 3) / 4 / 12); // base64 → bytes → 3 uint32 per triangle

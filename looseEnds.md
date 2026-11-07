@@ -52,7 +52,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Not built yet: the laser and SVG / DXF outlines leave fillets out, so a body rounded by fillets cuts with sharp corners (they should take the upright edges' fillets along).
 - Not built yet: a body's own shape from an older file or an unlinked sketch can keep an R the card does not show as its own (it shows under Fillets or Chamfers only when the body has one shape).
 - The right-click menu offers only Fold, Unfold and Fold all so far (bodies without tool bodies get none).
-- Join / Cut from a pull: not on a linked copy (a new body there: a copy's booleans sit by its source); a sketch left on a fixed plane (drawn on a sphere's or imported body's face) and pulled later with Extrude no longer knows its body, so it makes a new body.
 - Folded tool bodies count as tool bodies wherever those are told apart (`ownersOf`): Interference, Select all, the exports and the view skip them; `cad.measure` gives every body, tool bodies and folded ones too (as before).
 - Beside a curved side a corner's rounding is drawn along the curve's tangent at the corner, a little off the kernel's true one for strongly bent curves; a rounded curved polygon loses its curve keys (A / Shift A split its curved sides no more).
 - Not tried by hand yet: the whole Join / Cut / Object history / Fold flow.
