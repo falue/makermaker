@@ -2793,9 +2793,16 @@ export class Viewer implements ToolView {
     });
   };
 
+  /** The origin axes `px` long on screen at any zoom, at the origin (a group's own inside it). */
+  private sizeAxes(px = 60) {
+    const k = px / this.pixelsPerMm(new THREE.Vector3().setFromMatrixPosition(this.groupFrame)) / 30; // drawn 30 long
+    Object.assign(this.axes, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(this.groupFrame).scale(new THREE.Vector3(k, k, k));
+  }
+
   /** One frame of the view: everything that follows the camera, then the picture. */
   private paint() {
     this.placeWheel();
+    this.sizeAxes();
     this.drawSky();
     if (this.lightNow.followCamera || this.lightNow.cameraOn) this.aimLights();
     this.scaleDashes();
@@ -3184,7 +3191,7 @@ export class Viewer implements ToolView {
     if (f.equals(this.groupFrame)) return;
     this.groupFrame.copy(f);
     f.decompose(new THREE.Vector3(), this.frameTurn, new THREE.Vector3());
-    for (const o of [this.grid, this.axes]) Object.assign(o, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(f);
+    Object.assign(this.grid, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(f); // the axes: `sizeAxes`
     this.gridLook.key = '';
     // the view stands upright to it (its Z up on screen), orbiting around its Z: turning there smoothly
     this.tiltUp();
