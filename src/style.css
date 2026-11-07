@@ -1813,6 +1813,14 @@ button.primary.wide {
 .listed .fold.open svg {
   transform: rotate(90deg);
 }
+/* a fillet's or chamfer's edges held at the most they take: orange, as on the body */
+.listed.capped .hint {
+  color: #e07b12;
+}
+.listed.capped button {
+  flex: none;
+  white-space: nowrap;
+}
 /* a body with booleans: the boolean icon in red like its tool bodies' icons (it does not turn) */
 .listed .fold.bool {
   color: var(--error);

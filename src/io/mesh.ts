@@ -232,6 +232,7 @@ export function meshBody(vertices: string, triangles: string, scale: number, uvs
     finishFaces: new Int32Array(1).fill(-1),
     finishes: [],
     lostEdges: {},
+    capped: {},
     ...(uvs ? { uvs: g.attributes.uv.array as Float32Array } : {}),
   };
 }

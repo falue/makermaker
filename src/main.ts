@@ -37,7 +37,7 @@ import type { Exact } from './kernel/exact';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
 import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
-import type { AreaMesh, BuildFeature } from './kernel/build';
+import type { AreaMesh, BuildFeature, CappedEdge } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { canUseFolders, recall, remember } from './io/scriptFolder';
 import { openVersions, type Picture } from './ui/versions';
@@ -81,6 +81,8 @@ installCompletion(
 let settings = loadSettings();
 /** By body and finish: how many picked edges its last build could not find. */
 const lostEdges = new Map<string, Record<string, number>>();
+/** By body: per finish its edges held at the largest size they take (from the last build). */
+const cappedEdges = new Map<string, Record<string, CappedEdge[]>>();
 const savedTheme = localStorage.getItem('makermaker.theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 /** A new document: one 50 mm cube. */
@@ -432,6 +434,7 @@ const kernel = new Kernel((results, done) => {
     if ('mesh' in r) {
       kernelErrors.delete(r.id);
       lostEdges.set(r.id, r.mesh.lostEdges);
+      cappedEdges.set(r.id, r.mesh.capped);
       pieceCounts.set(r.id, r.mesh.pieces ?? 1);
       viewer.setBody(r.id, r.mesh);
     } else {
@@ -3156,6 +3159,26 @@ function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
   panel.inputs[0].parentElement!.append(angles.buttons());
   addEventListener('pointerdown', press, { capture: true });
   ticks();
+}
+
+/**
+ * A finish's edges held at the largest size they take (body `body`'s last build) become steps of their own, one per
+ * size (floored to 0.01 mm), right after it, which leaves them out: each changes apart.
+ */
+function splitCapped(body: string, feature: string) {
+  const held = cappedEdges.get(body)?.[feature] ?? [];
+  const doc = history.current;
+  const i = stepsOf(doc, body);
+  const steps = doc.bodies[i]?.features ?? [];
+  const j = steps.findIndex((f) => f.id === feature);
+  const f = steps[j];
+  if (!held.length || f?.type !== 'finish') return;
+  const sizeOf = (c: CappedEdge) => Math.floor(c.max * 100) / 100;
+  const own = [...new Set(held.map(sizeOf))].map((mm): Feature => {
+    const at = held.filter((c) => sizeOf(c) === mm);
+    return { id: newId(), type: 'finish', mode: f.mode, size: len(mm), edges: { pts: at.map((c) => c.pts), normals: at.map((c) => c.normals) }, enabled: true, baked: f.baked, skip: [] };
+  });
+  commit(setIn(doc, ['bodies', String(i), 'features'], [...steps.slice(0, j), { ...f, skip: [...f.skip, ...held.map((c) => c.pts[4])] }, ...own, ...steps.slice(j + 1)]));
 }
 
 /** The bulge that made `face` (a free-form face of a body with bulges: the nearest of them), else null. */
@@ -6664,6 +6687,8 @@ function render() {
     exprErrors,
     kernelErrors: new Map([...kernelErrors, ...linkErrors].filter(([id]) => !cutting || ![...cutting.bodies, ...cutting.chunks].includes(id))),
     lostEdges: (body, feature) => lostEdges.get(body)?.[feature] ?? 0,
+    capped: (body, feature) => cappedEdges.get(body)?.[feature] ?? [],
+    splitCapped,
     title: file.name,
     dirty: doc !== file.saved,
     status,

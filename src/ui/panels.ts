@@ -10,6 +10,7 @@ import { ASPECTS, shotCamera } from '../viewer/render';
 import type { Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, RenderTo, Unit } from '../doc/types';
 import { arcOf, bounds, type Align, type DrawnProfile } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
+import type { CappedEdge } from '../kernel/build';
 import { axisHtml, sizeHtml } from './axes';
 import { BUILT_IN_PHOTOS } from './photospheres';
 import { closeButton, deleteButton, icon, tool, type IconName } from './icons';
@@ -25,6 +26,10 @@ export interface UIContext {
   exprErrors: Map<string, string>;
   kernelErrors: Map<string, { featureId: string; error: string }>;
   lostEdges: (body: string, feature: string) => number;
+  /** A finish's edges held at the largest size they take (last build). */
+  capped: (body: string, feature: string) => CappedEdge[];
+  /** Gives a finish's held edges steps of their own (see main's `splitCapped`). */
+  splitCapped(body: string, feature: string): void;
   terminal: { toggle(): void; open: boolean };
   title: string;
   dirty: boolean;
@@ -1698,6 +1703,8 @@ function finishParts(ctx: UIContext, body: Body, feature: Extract<Feature, { typ
   const rules = { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' };
   const picked = typeof feature.edges === 'object' ? feature.edges.pts.length : 0;
   const lost = ctx.lostEdges(body.id, feature.id);
+  const held = ctx.capped(body.id, feature.id);
+  const heldAt = [...new Set(held.map((c) => fmt(Math.floor(c.max * 100) / 100)))].join(', ');
   // picked edges (dragged on the body) keep their pick; a rule can replace it
   const edges =
     typeof feature.edges === 'object'
@@ -1717,6 +1724,10 @@ function finishParts(ctx: UIContext, body: Body, feature: Extract<Feature, { typ
     h('div', { className: 'row finish' }, ...on, exprField(ctx, `${at}.size`, feature.mode === 'fillet' ? 'Radius' : 'Chamfer', false, { value: feature.size, set: (x, live) => ctx.setFinishSize(`${at}.size`.split('.'), x, feature.mode, live), error: ctx.exprErrors.get(`${at}.size`) }), edges, bake, remove),
     ...(feature.skip.length ? [h('div', { className: 'listed' }, h('span', { className: 'hint' }, `${feature.skip.length} edge${feature.skip.length > 1 ? 's' : ''} left out`), button('Restore', () => setFeature({ ...feature, skip: [] }), 'Click: Finish the left-out edges again'))] : []),
     ...(lost ? [h('p', { className: 'error', title: COPY_TIP }, `${lost} of ${picked} picked edges ${lost > 1 ? 'are' : 'is'} gone: an edit changed ${lost > 1 ? 'them' : 'it'} too much. Pick ${lost > 1 ? 'them' : 'it'} again.`)] : []),
+    // edges that cannot take the size: held at the largest they take (orange on the body)
+    ...(held.length
+      ? [h('div', { className: 'listed capped' }, h('span', { className: 'hint' }, `${held.length} edge${held.length > 1 ? 's' : ''} held at ${heldAt} mm, the most ${held.length > 1 ? 'they take' : 'it takes'}`), button('Split off', () => ctx.splitCapped(body.id, feature.id), `Click: Give ${held.length > 1 ? 'them a step' : 'it a step'} of ${held.length > 1 ? 'their' : 'its'} own at that size, to change apart`))]
+      : []),
   ];
 }
 

@@ -2038,7 +2038,8 @@ export class Viewer implements ToolView {
     if (mesh.uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(mesh.uvs, 2));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     const solid = Object.assign(new THREE.Mesh(geometry), { raycast: fastRaycast });
-    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes, exact: mesh.exact });
+    // `capped`: the middles of finished edges held at the largest size they take (orange while selected)
+    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes, exact: mesh.exact, capped: Object.values(mesh.capped).flat().map((c) => c.pts[4]) });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
     // edges unbaked finishes made are light grey, the rest near black
@@ -2059,6 +2060,7 @@ export class Viewer implements ToolView {
       group.add(thread);
     }
     this.dress(id);
+    this.markCapped();
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
     if (this.stepSel?.body === id) this.setStepMark(this.stepSel);
     this.fitWaiting();
@@ -2112,6 +2114,7 @@ export class Viewer implements ToolView {
     if (bodies.some((b) => !ids.includes(b))) this.dropPicked();
     for (const id of this.bodies.keys()) this.dress(id);
     this.markCentres();
+    this.markCapped();
     this.applySection();
   }
 
@@ -3882,6 +3885,22 @@ export class Viewer implements ToolView {
   /** The selected part of a finish (`mid`: the edge it replaced; null: the whole finish), lit on its body. */
   private finishSel: FinishPick | null = null;
   private finishMark: THREE.Mesh | null = null;
+
+  /** Faces of fillets and chamfers held at the largest size their edge takes, on the selected bodies: orange. */
+  private cappedMarks: THREE.Mesh[] = [];
+
+  private markCapped() {
+    for (const m of this.cappedMarks) this.replaceMark(m, undefined, [], 0);
+    const same = (a: number[], b: number[]) => a.every((v, k) => Math.abs(v - b[k]) < 0.01);
+    this.cappedMarks = this.selection.flatMap((id) => {
+      const solid = this.bodies.get(id)?.children[0] as THREE.Mesh | undefined;
+      const held = (solid?.userData.capped ?? []) as number[][];
+      if (!solid || !held.length) return [];
+      const finishes = solid.userData.finishes as { mid: number[] }[];
+      const faces = [...(solid.userData.finishFaces as Int32Array)].flatMap((k, f) => (k >= 0 && held.some((m) => same(finishes[k].mid, m)) ? [f] : []));
+      return this.replaceMark(null, solid, faces, 0xff8c1a) ?? [];
+    });
+  }
 
   setFinishMark(sel: FinishPick | null) {
     this.finishSel = sel;

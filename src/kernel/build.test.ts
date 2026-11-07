@@ -117,6 +117,27 @@ describe('buildBody', () => {
     finishing.base?.delete();
   }, 60000);
 
+  it('a fillet too big for some edges holds those at the largest they take, the others as asked (as sketch corners)', () => {
+    // a slab whose corner is cut by a 2 mm slanted side: its two upright edges there take far less than 8 mm
+    const slab = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[0, 0], [40, 0], [40, 20], [2, 20], [0, 18]], r: 0, rot: 0 }], depth: 5, mode: 'add', through: false } as BuildFeature;
+    const fillet = { id: 'f', type: 'finish', mode: 'fillet', size: 8, edges: 'vertical', enabled: true, baked: false, skip: [] } as BuildFeature;
+    const finishing: Finishing = { base: null, edges: [] };
+    const shape = buildBody([slab, fillet], finishing);
+    const volume = measureVolume(shape);
+    shape.delete();
+    finishing.base?.delete();
+    const capped = finishing.capped?.f ?? [];
+    expect(capped).toHaveLength(2); // the two beside the short side
+    for (const c of capped) {
+      expect(c.max).toBeGreaterThan(0);
+      expect(c.max).toBeLessThan(8);
+      expect(c.normals).toHaveLength(2); // its two faces, as a picked edge stores them
+    }
+    expect(finishing.edges.filter((e) => e.size === 8)).toHaveLength(3); // the other three corners as asked
+    const full = 40 * 20 - 2; // the outline's area (the cut corner a 2 × 2 half square)
+    expect(volume).toBeLessThan(full * 5 - 3 * 8 * 8 * (1 - Math.PI / 4) * 5 + 1); // three 8 mm roundings at least
+  }, 120000);
+
   it('a cosmetic thread leaves the solid as it is and is drawn at its other Ø; a hole for one takes the tap drill', async () => {
     const { cosmeticOf } = await import('./build');
     const { boreFor } = await import('../doc/threads');

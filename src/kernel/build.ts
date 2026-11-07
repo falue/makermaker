@@ -36,6 +36,8 @@ export interface BodyMesh {
   finishes: { feature: string; mid: V3 }[];
   /** By finish: how many of its picked edges could not be found any more. */
   lostEdges: Record<string, number>;
+  /** By finish: its edges held at the largest size they take (see `Finishing.capped`). */
+  capped: Record<string, CappedEdge[]>;
   /** Cosmetic threads' lines (segment pairs, xyz, body coordinates): drawn, not in the solid. */
   cosmetic?: Float32Array;
   /** An imported mesh's texture coordinates (u, v per vertex). */
@@ -54,7 +56,12 @@ export interface Finishing {
   edges: { feature: string; size: number; mid: V3; pts: V3[] }[];
   /** By finish: how many of its picked edges could not be found any more. */
   lost?: Record<string, number>;
+  /** By finish: its edges that could not take its size, each at the largest it takes (`max`), with its faces' normals (as picked edges store them). */
+  capped?: Record<string, CappedEdge[]>;
 }
+
+/** A finished edge held at the largest size it takes (`max`, mm): its line before the finish and its faces' normals there. */
+export type CappedEdge = { pts: V3[]; normals: V3[]; max: number };
 
 export class FeatureError extends Error {
   /** `max`: the largest size that works (a finish too big), for clamping to. */
@@ -192,6 +199,7 @@ export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05
     finishFaces,
     finishes: finishing?.edges.map(({ feature, mid }) => ({ feature, mid })) ?? [],
     lostEdges: finishing?.lost ?? {},
+    capped: finishing?.capped ?? {},
     pieces: shape.solids.length,
     exact: exactOf(shape, m.faceGroups.map((g) => g.faceId), e.edgeGroups.map((g) => g.edgeId)),
   };
@@ -1234,24 +1242,72 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
   const picked = shape.edges.filter(pick);
   const count = picked.length;
   if (!count) throw new Error(now ? 'the picked edges are gone' : `no edges match "${s.edges}"`);
-  for (const e of picked) finishing?.edges.push({ feature: s.id, size: s.size, mid: at(e, 0.5), pts: Array.from({ length: 9 }, (_, i) => at(e, i / 8)) });
-  const sized = (v: number) => (s.mode === 'fillet' ? shape.fillet((e) => (pick(e) ? v : null)) : shape.chamfer((e) => (pick(e) ? v : null)));
-  try {
-    return sized(s.size);
-  } catch {
-    // too big: the largest size that works (the gap halved 10 times), for clamping to
-    let [lo, hi] = [0, s.size];
+  const line = (e: Edge) => Array.from({ length: 9 }, (_, i) => at(e, i / 8));
+  const finished = (sizes: number[]) => {
+    for (const [k, e] of picked.entries()) finishing?.edges.push({ feature: s.id, size: sizes[k], mid: at(e, 0.5), pts: line(e) });
+  };
+  // `size` of each edge it is given (null: not finished)
+  const each = (size: (e: Edge) => number | null) => (s.mode === 'fillet' ? shape.fillet(size) : shape.chamfer(size));
+  const sized = (v: number) => each((e) => (pick(e) ? v : null));
+  /** The largest size up to `top` that works: the gap halved 10 times (0: none). */
+  const largest = (works: (v: number) => boolean, top: number) => {
+    if (works(top)) return top;
+    let [lo, hi] = [0, top];
     for (let k = 0; k < 10; k++) {
       const mid = (lo + hi) / 2;
-      try {
-        sized(mid).delete();
-        lo = mid;
-      } catch {
-        hi = mid;
+      if (works(mid)) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const tried = (make: () => Shape3D) => {
+    try {
+      make().delete();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  try {
+    const out = sized(s.size);
+    finished(picked.map(() => s.size));
+    return out;
+  } catch {
+    // too big for some edges: each as big as it takes on its own (as a sketch's corners), the others as asked
+    if (count <= CAPPED_MOST) {
+      const mids = picked.map((e) => at(e, 0.5));
+      const own = (k: number) => (e: Edge) => Math.hypot(...at(e, 0.5).map((v, i) => v - mids[k][i])) < 1e-6;
+      const alone = picked.map((_, k) => largest((v) => tried(() => each((e) => (own(k)(e) ? v : null))), s.size));
+      const scaled = (f: number) => (e: Edge) => {
+        const k = picked.findIndex((_, i) => own(i)(e));
+        return k < 0 ? null : alone[k] < s.size ? alone[k] * f : s.size;
+      };
+      // held ones beside each other can still clash at their own largest: together made smaller until they fit
+      const fit = alone.every((v) => v > 0) ? largest((f) => tried(() => each(scaled(f))), 1) : 0;
+      const sizes = alone.map((v) => (v < s.size ? v * fit : s.size));
+      if (fit > 0) {
+        try {
+          const out = each(scaled(fit));
+          finished(sizes);
+          const capped = picked.flatMap((e, k) => (sizes[k] < s.size - 1e-9 ? [{ pts: line(e), normals: normalsAt(shape, e), max: sizes[k] }] : []));
+          if (capped.length && lostIn) lostIn.capped = { ...lostIn.capped, [s.id]: capped };
+          return out;
+        } catch {
+          // together they still clash: as before
+        }
       }
     }
-    throw new FeatureError(s.id, `${s.mode} on ${count} edges failed (size too large?${s.baked ? '' : ' Bake it to leave edges of later cuts sharp'})`, lo || undefined);
+    finished(picked.map(() => s.size));
+    throw new FeatureError(s.id, `${s.mode} on ${count} edges failed (size too large?${s.baked ? '' : ' Bake it to leave edges of later cuts sharp'})`, largest((v) => tried(() => sized(v)), s.size) || undefined);
   }
+}
+
+/** How many edges a finish too big for some is still sized edge by edge (each one tried alone first). */
+const CAPPED_MOST = 24;
+
+/** The normals of the faces meeting at edge `e` of `shape`, at its middle. */
+function normalsAt(shape: Shape3D, e: Edge): V3[] {
+  return shape.faces.filter((f) => f.edges.some((g) => g.isSame(e))).map((f) => f.normalAt(e.pointAt(0.5)).toTuple() as V3);
 }
 
 function edgeRule(rule: EdgeRule, bottom: number, top: number, circles: Circle[], tol = 0.05): (e: Edge) => boolean {
