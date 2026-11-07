@@ -3079,6 +3079,45 @@ section > h4 .segmented button {
   background: var(--selected);
 }
 
+/* the view options under the cog: grid, origin, visual style */
+.overlay .cog {
+  background: var(--panel);
+}
+.view-options {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+}
+.view-options[hidden] {
+  display: none;
+}
+.view-options .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.overlay .view-options .switch {
+  justify-content: flex-start;
+  padding: 2px 0;
+  background: none;
+}
+.view-options .style {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* on / off switches: Grid and Origin (a button with a track), and every checkbox drawn as one; last, so panels' input widths do not reach it */
 .overlay .switch {
   display: inline-flex;

@@ -476,8 +476,8 @@ export class Viewer implements ToolView {
   private tool: Tool | null = null;
   private toolPress = false;
   private projection = document.createElement('span');
-  /** Shaded, Grey, Lines, All lines: how bodies are drawn. */
-  private viewModes = document.createElement('div');
+  /** Shaded, Grey, Lines, All lines: how bodies are drawn (in the view options). */
+  private viewModes = document.createElement('select');
   private wheel = axisWheel();
   private wheelPx = 70; // spoke length on screen
   /**
@@ -2853,7 +2853,7 @@ export class Viewer implements ToolView {
   setViewMode(mode: ViewMode) {
     this.viewMode = mode;
     localStorage.setItem('makermaker.viewMode', mode);
-    this.viewModes.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+    this.viewModes.value = mode;
     for (const id of this.bodies.keys()) this.dress(id);
     this.render();
   }
@@ -4382,14 +4382,18 @@ export class Viewer implements ToolView {
       return b;
     };
     const more = button('+ View', 'Another view beside this one: its own camera (Top, Front, … or 3D), the same model; right-click a face: a view looking at it', () => this.addView('3d'));
-    this.viewModes.className = 'segmented';
-    for (const [mode, text, title] of VIEW_MODES) {
-      const b = button(text, title, () => this.setViewMode(mode));
-      b.dataset.mode = mode;
-      b.classList.toggle('on', mode === this.viewMode);
-      this.viewModes.append(b);
-    }
-    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes), this.viewModes, more);
+    this.viewModes.append(...VIEW_MODES.map(([mode, text, title]) => Object.assign(new Option(text, mode, false, mode === this.viewMode), { title })));
+    this.viewModes.title = 'Visual style: how the bodies are drawn';
+    this.viewModes.onchange = () => this.setViewMode(this.viewModes.value as ViewMode);
+    // the cog's floating panel: grid, origin, visual style
+    const options = Object.assign(document.createElement('div'), { className: 'view-options', hidden: true });
+    const style = Object.assign(document.createElement('label'), { className: 'style' });
+    style.append('Visual style', this.viewModes);
+    const head = Object.assign(document.createElement('div'), { className: 'head' });
+    head.append(Object.assign(document.createElement('strong'), { textContent: 'View' }), closeButton('Close', () => (options.hidden = true)));
+    options.append(head, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes), style);
+    const cog = Object.assign(button('', 'Click: View options: grid, origin, visual style', () => (options.hidden = !options.hidden)), { className: 'icon cog', innerHTML: icon('settings') });
+    bar.append(this.projection, cog, more, options);
     return bar;
   }
 
