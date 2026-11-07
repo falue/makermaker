@@ -38,10 +38,12 @@ function extrudeFace(s: Resolved<ExtrudeIn>, f: Frame, p: V3, out: V3, eps: numb
   const [from, to] = extent(s.depth, s.back);
   if (Math.abs(along) > 0.999) {
     if (s.through || !s.profiles.some((q) => inside(q, u, v))) return null;
-    if (Math.abs(h - s.depth) < eps) return { kind: 'cap', feature: s.id, rate: along };
+    // which way the face looks along the plane's normal (its sign: the normal's dot product is only near ±1)
+    const way = Math.sign(along);
+    if (Math.abs(h - s.depth) < eps) return { kind: 'cap', feature: s.id, rate: way };
     // the face behind the plane (on it, when it does not reach back): moving it out makes `back` longer
     const behind = -(Math.sign(s.depth) || 1);
-    return Math.abs(h - behind * (s.back ?? 0)) < eps ? { kind: 'cap', feature: s.id, rate: behind * along, back: true } : null;
+    return Math.abs(h - behind * (s.back ?? 0)) < eps ? { kind: 'cap', feature: s.id, rate: behind * way, back: true } : null;
   }
   if (Math.abs(along) > 0.02) return null;
   if (!s.through && (h < from - eps || h > to + eps)) return null;

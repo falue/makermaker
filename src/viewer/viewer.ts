@@ -854,16 +854,29 @@ export class Viewer implements ToolView {
   private lastHit: THREE.Intersection | null = null;
 
   /**
-   * A body hit as a face pick: its point and the normal into the face (world). On a kernel plane exact: its normal, the
-   * point moved onto it; else the hit triangle's.
+   * Where a body hit lies on the true surface, and its outward normal there (world): on a kernel plane or cylinder
+   * exact (the point moved onto it), else the hit triangle's.
    */
-  private picked(hit: THREE.Intersection) {
+  private onSurface(hit: THREE.Intersection) {
     const face = (hit.object.userData.exact as Exact | null | undefined)?.faces[faceOf(hit)];
     const m = hit.object.matrixWorld;
-    if (face?.kind !== 'plane') return { point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId as string };
-    const n = new THREE.Vector3(...face.n).transformDirection(m);
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, new THREE.Vector3(...face.at).applyMatrix4(m));
-    return { point: plane.projectPoint(hit.point, new THREE.Vector3()), normal: n.negate(), body: hit.object.userData.bodyId as string };
+    if (face?.kind === 'plane') {
+      const n = new THREE.Vector3(...face.n).transformDirection(m);
+      return { point: new THREE.Plane().setFromNormalAndCoplanarPoint(n, new THREE.Vector3(...face.at).applyMatrix4(m)).projectPoint(hit.point, new THREE.Vector3()), n };
+    }
+    if (face?.kind === 'cylinder') {
+      const [at, dir] = [new THREE.Vector3(...face.at).applyMatrix4(m), new THREE.Vector3(...face.dir).transformDirection(m)];
+      const axis = at.clone().addScaledVector(dir, hit.point.clone().sub(at).dot(dir));
+      const out = hit.point.clone().sub(axis).normalize();
+      return { point: axis.addScaledVector(out, face.r), n: face.shaft ? out : out.negate() };
+    }
+    return { point: hit.point.clone(), n: hit.face!.normal.clone() };
+  }
+
+  /** A body hit as a face pick: its point and the normal into the face (world), on the true surface where the kernel has it. */
+  private picked(hit: THREE.Intersection) {
+    const { point, n } = this.onSurface(hit);
+    return { point, normal: n.negate(), body: hit.object.userData.bodyId as string };
   }
 
   placeOn(hit: THREE.Intersection) {
@@ -1110,10 +1123,15 @@ export class Viewer implements ToolView {
   }
 
   /** The face of a body hit, to pull. */
-  /** A body hit as a face (its normal in the world already: see `intersect`). */
+  /**
+   * A body hit as a face (its normal in the world already: see `intersect`); on a kernel plane or cylinder its point
+   * moved onto the true surface and its normal the true one (what a pull or a step looks up stays within its tolerance
+   * whatever the mesh detail).
+   */
   faceItem(hit: THREE.Intersection): FaceItem {
     const mesh = hit.object as THREE.Mesh;
-    return { body: mesh.userData.bodyId, point: hit.point.clone(), n: hit.face!.normal.clone(), mesh, index: faceOf(hit), finish: this.finishAt(hit)?.feature, round: this.roundOf(hit) };
+    const { point, n } = this.onSurface(hit);
+    return { body: mesh.userData.bodyId, point, n, mesh, index: faceOf(hit), finish: this.finishAt(hit)?.feature, round: this.roundOf(hit) };
   }
 
   /** The middle of a face (world): its triangles' centres weighed by their areas. */
