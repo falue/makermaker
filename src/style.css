@@ -1946,6 +1946,25 @@ button.primary.wide {
 .axis-move .others:empty {
   display: none;
 }
+/* the tool's hint: a quiet last row of the floating panel, one line (all of it on hover), not widening it */
+.axis-move .tool-hint {
+  flex: 1 0 100%;
+  contain: inline-size;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+.axis-move .tool-hint b {
+  font-weight: 600;
+  color: var(--text);
+}
+/* a tool without a panel: the hint alone, as wide as it needs */
+.axis-move.hint-only .tool-hint {
+  contain: none;
+}
 
 /* the rest of a parameter name, after the typed text (Tab writes it out) */
 .completion {
@@ -2351,7 +2370,7 @@ input + .set-axis {
   margin-left: -7px;
 }
 
-/* the tool's note (what to do, what the pointer is on): green, where errors show */
+/* good news: green, where errors show */
 #topbar .status.note {
   display: flex;
   flex-direction: column;

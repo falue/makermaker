@@ -3883,7 +3883,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
         const text = area ? `${fmt(+(mm / UNITS[u] ** 2).toFixed(4))} ${u}²` : `${fmt(+(mm / UNITS[u]).toFixed(4))} ${u}`;
         const shownText = `${about ? '~' : ''}${text}`;
         const shown = axisHtml(`${label} ${shownText}`);
-        // waiting field: the value goes straight in; else copied: the button says so for a moment (the top bar shows the tool's hint)
+        // waiting field: the value goes straight in; else copied: the button says so for a moment (the panel's last row shows the tool's hint)
         const b = use && !area
           ? panelButton('', `Use ${text}: it goes in the field`, () => (close(), use(mm)))
           : panelButton('', 'Click: copy', () => void navigator.clipboard.writeText(text).then(() => ((b.textContent = 'Copied ✓'), setTimeout(() => (b.innerHTML = shown), 1000))));
@@ -3894,6 +3894,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
         return b;
       }),
     );
+    showNote(); // the hint row back
   };
   // at the top of the view, under the panel of what waits for it
   const place = () => {
@@ -6893,6 +6894,7 @@ async function exportPanel(kind: 'laser' | 'print') {
     const head = Object.assign(document.createElement('label'), { className: 'export-row' });
     head.append(all, Object.assign(document.createElement('span'), { className: 'name', textContent: every ? 'Unselect all' : 'Select all' }));
     box.firstElementChild!.append(...(bodies.length > 1 ? [head] : []), ...rows());
+    showNote(); // the hint row back
     atTop(box);
   };
   toolHint = kind === 'laser' ? 'Laser: untick what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels' : '3D print: untick what stays out · each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';
@@ -7536,27 +7538,52 @@ function notify(message: string, error = false, action: (() => void) | null = nu
   if (error) setTimeout(() => status === message && statusError && ((statusError = false), (status = ''), render()), 5000);
 }
 
+const hintRow = Object.assign(document.createElement('div'), { className: 'tool-hint' });
+const hintPanel = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel hint-only' });
+
+const noteHtml = (t: string) => axisHtml(t).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
+
 /**
- * The top bar's note: an error (red), else good news or the tool's hint (green: its first part big, the rest and the
- * pointer's other keys small below), else the last message (grey; a click copies it, as an error's), else nothing.
+ * The top bar's note: an error (red), else good news (green: its first part big, the rest small below), else the last
+ * message (grey; a click copies it, as an error's), else nothing. The tool's hint goes to the floating panel.
  */
 function showNote() {
   const el = document.querySelector<HTMLElement>('#topbar .status');
   if (!el) return;
-  const note = [toolHint, pointerNote].filter(Boolean).join(' · ');
-  const [text, kind] = statusError && status ? [status, 'error'] : statusGood && status ? [status, 'note'] : note ? [note, 'note'] : [status, ''];
-  const html = (t: string) => axisHtml(t).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
+  showHint([toolHint, pointerNote].filter(Boolean).join(' · '));
+  const [text, kind] = statusError && status ? [status, 'error'] : statusGood && status ? [status, 'note'] : [status, ''];
   const [head, ...rest] = kind === 'note' ? text.split(' · ') : [text];
   const action = !kind && statusAction;
   el.className = `status${kind ? ` ${kind}` : action ? ' offer' : text ? ' info' : ''}`;
   el.onclick = action || null;
   el.title = text.replaceAll(' · ', '\n') + (kind === 'error' || (!kind && !action) ? `\n${COPY_TIP}` : ''); // cut short when long: all of it on hover
-  el.innerHTML = rest.length ? `<b>${html(head)}</b><small>${html(rest.join(' · '))}</small>` : html(head);
+  el.innerHTML = rest.length ? `<b>${noteHtml(head)}</b><small>${noteHtml(rest.join(' · '))}</small>` : noteHtml(head);
+}
+
+/**
+ * The tool's hint (what to do, its keys, the pointer's other keys) as the last row of the floating panel open at the
+ * top; a tool without one gets a panel holding only the hint.
+ */
+function showHint(text: string) {
+  const panel = [...document.querySelectorAll<HTMLElement>('.cut-panel:not(.hint-only)')].at(-1);
+  if (!text) return hintRow.remove(), hintPanel.remove();
+  const changed = text !== hintRow.dataset.tip;
+  if (changed) {
+    const [head, ...rest] = text.split(' · ');
+    hintRow.innerHTML = `<b>${noteHtml(head)}</b>${rest.length ? ` · ${noteHtml(rest.join(' · '))}` : ''}`;
+    hintRow.dataset.tip = text; // cut short when long: all of it on hover
+  }
+  const host = panel ?? hintPanel;
+  if (host.lastElementChild !== hintRow) host.append(hintRow);
+  if (panel) return hintPanel.remove();
+  if (hintPanel.isConnected && !changed) return;
+  document.body.append(hintPanel);
+  atTop(hintPanel);
 }
 
 const fail = (message: string) => notify(message, true);
 
-/** Good news in the top bar, green as a tool's note, a while over it. */
+/** Good news in the top bar, green, a while over the last message. */
 function cheer(message: string) {
   notify(message);
   statusGood = true;

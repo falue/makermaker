@@ -155,3 +155,6 @@ Answers assumed where a request left a question open.
 
 **Related checklist item:** “Out and straight back with two points: refused with a hint, drawing goes on” — **failed; leave unchecked**.
 - Pull on a body: Cut is offered when the pulled solid shares volume with the body (mesh test, shrunk a hair along the pull). A solid that only touches the body sideways (its wall on the body's wall, drawn beside the face) still counts as overlapping.
+
+## Tool hints
+- The hint-only panel (tools without a panel of their own) has no close button: Esc is handled by each tool on its own (no shared cancel to call), so Esc it is.
