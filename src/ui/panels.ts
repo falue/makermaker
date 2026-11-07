@@ -1700,7 +1700,7 @@ function backInto(f: Extract<Feature, { type: 'extrude' }>): Extract<Feature, { 
  * edges left out and picked edges lost. Switched off (older files): a box to switch it on again.
  */
 function finishParts(ctx: UIContext, body: Body, feature: Extract<Feature, { type: 'finish' }>, at: string, setFeature: (f: Feature) => void, remove: HTMLElement): HTMLElement[] {
-  const rules = { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' };
+  const rules = { all: 'All', top: 'Top', bottom: 'Bottom', vertical: 'Vertical' }; // edges: the row says so
   const picked = typeof feature.edges === 'object' ? feature.edges.pts.length : 0;
   const lost = ctx.lostEdges(body.id, feature.id);
   const held = ctx.capped(body.id, feature.id);
@@ -1708,8 +1708,9 @@ function finishParts(ctx: UIContext, body: Body, feature: Extract<Feature, { typ
   // picked edges (dragged on the body) keep their pick; a rule can replace it
   const edges =
     typeof feature.edges === 'object'
-      ? select<keyof typeof rules | 'picked'>('picked', { picked: `Picked edges (${picked})`, ...rules }, (r) => r !== 'picked' && setFeature({ ...feature, edges: r }))
+      ? select<keyof typeof rules | 'picked'>('picked', { picked: `Picked (${picked})`, ...rules }, (r) => r !== 'picked' && setFeature({ ...feature, edges: r }))
       : select<keyof typeof rules>(feature.edges, rules, (r) => setFeature({ ...feature, edges: r }));
+  edges.title = 'Which edges: all, the top or bottom ones, the vertical ones, or those picked on the body';
   const bake = h(
     'button',
     {

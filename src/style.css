@@ -2997,6 +2997,23 @@ section > h4 .segmented button {
 /* a body's fillets and chamfers: a card, its add button the full width, a row each */
 .finishes > .wide {
   width: 100%;
+  margin-bottom: 8px;
+}
+/* a fillet's or chamfer's row: its size the most room (label and value whole), its edges, Bake and remove, on one centred line */
+.finishes .row.finish {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+.finishes .row.finish > .field input {
+  min-width: 3em;
+}
+.finishes .row.finish .bake {
+  height: 26px; /* as tall as the fields beside it */
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 /* a body's steps in order (History), folded first */
