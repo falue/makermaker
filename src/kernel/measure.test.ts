@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
-import { drawCircle, drawRoundedRectangle, setOC, type Shape3D } from 'replicad';
+import { draw, drawCircle, drawRoundedRectangle, setOC, type Shape3D } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { answer, Solid, type SolidMeasure } from './measure';
 
@@ -18,6 +18,24 @@ describe('measuring the real solid', () => {
     const rim = s.edges.flatMap((e, edge) => (e.geomType === 'CIRCLE' && Math.abs(e.startPoint.z) < 1e-9 ? [edge] : []));
     const total = rim.reduce((n, edge) => n + (answer(s, { of: 'edge', body: 'b', edge }) as number), 0);
     expect(total).toBeCloseTo(Math.PI * 50, 6);
+    s.delete();
+  });
+  it("a curve's middle lies half its length along it", () => {
+    // a bezier side, its handles uneven: its parameter's middle is not its length's
+    const s = new Solid(draw([0, 0]).cubicBezierCurveTo([40, 0], [2, 30], [40, 30]).lineTo([0, 30]).close().sketchOnPlane().extrude(5) as Shape3D);
+    const edge = s.edges.findIndex((e) => e.geomType === 'BSPLINE_CURVE' || e.geomType === 'BEZIER_CURVE');
+    const mid = answer(s, { of: 'middle', body: 'b', edge, near: [0, 0, 0] }) as [number, number, number];
+    const e = s.edges[edge];
+    const n = 20000;
+    const pts = Array.from({ length: n + 1 }, (_, i) => e.pointAt(i / n).toTuple());
+    let [a, b, k] = [0, 0, 0];
+    for (let i = 1; i <= n; i++) {
+      const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]);
+      const near = Math.hypot(pts[i][0] - mid[0], pts[i][1] - mid[1], pts[i][2] - mid[2]);
+      if (near < Math.hypot(pts[k][0] - mid[0], pts[k][1] - mid[1], pts[k][2] - mid[2])) [k, a] = [i, b + l];
+      b += l;
+    }
+    expect(a / b).toBeCloseTo(0.5, 3);
     s.delete();
   });
   it('volume, surface and box are true', () => {

@@ -63,12 +63,12 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 - Tangents: on circles and arcs exact (from a point and along a direction), on beziers exact along a direction, done 2026-11-07; a tangent from a point to a bezier still searched in 96 brackets (two within one missed). "Smooth" means within ~0.5° (shapes.ts:146, build.ts:385).
 
 **D. Kernel features (src/kernel/build.ts)**
-- Thread: flat triangles, 36 steps per turn (:640): sag ≈ 0.0038·R, thousands of faces, heavy STEP and booleans.
-- Bulge on a flat face (:854): rim as ~2 mm polygon, 60-cell height field, `MakeFilling` least squares; accepted within ±20% of the height (:975); on failure the peak silently moves to the middle (:916).
-- Bulge on a round face: 41 samples fitted by a B-spline (:998), the peak rounded off.
-- Cut moving along a joint, and joint clash (:427): curved faces stamped every 3° / 1 mm, at most 60: ridges (hinge R100 with r 5: ~0.7 mm); clash's first contact snapped to those steps (src/main.ts:3222).
-- Coat with excluded faces: the slab sized from 5 samples per edge (:613): a lip on large arcs.
-- Measure: a curve's middle is the point nearest the mesh guess, not half its length (src/kernel/measure.ts:123).
+- Thread: flat triangles, 36 steps per turn: sag ≈ 0.0038·R (M10: 0.02 mm), thousands of faces, heavy STEP and booleans. Kept: an exact sweep along `makeHelix` (`genericSweep`, Frenet) was tried 2026-11-07 and this OpenCascade build cuts it wrongly: an M10 inside thread cut nothing, an M20 × 30 emptied the body, an M6 × 0.5 came out invalid after 37 s.
+- Bulge on a flat face: rim as ~2 mm polygon (only for the height field), 60-cell height field, `MakeFilling` least squares; accepted within ±20% of the height; on failure the peak silently moves towards the middle. A free-form surface by design (no exact one to meet); open: say when the peak moved (needs a note channel from the worker to the card).
+- Bulge on a round face: 41 samples fitted by a B-spline, the peak rounded off (free-form by design).
+- Cut moving along a joint, and joint clash: curved faces stamped every 3° / 1 mm, at most 60: ridges (hinge R100 with r 5: ~0.7 mm); clash's first contact snapped to those steps. Open: OpenCascade sweeps no solid along a turn; finer steps cost a boolean each.
+- Coat with excluded faces: done 2026-11-07: the slab sized from points at most its margin apart along the edges (was 5 per edge: a lip on large arcs).
+- Measure: done 2026-11-07: a curve's middle lies half its length along it (was the point nearest the mesh guess).
 
 **E. Import and export**
 - SVG / DXF import (src/io/vector.ts): done 2026-11-07: curves arrive as true arcs (SVG arcs kept round by the transform, DXF arcs and bulges) and cubics (SVG cubics, quadratics raised exactly, ellipses and SVG rect rx/ry in eighths, off by 4e-6 of the radius; DXF B-splines up to degree 3 split exactly into their cubics; fit-point splines as smooth cubics through their points); pieces chain within 1e-3 mm. Still sampled every 0.5 mm: rational (weighted) and higher-degree DXF splines, now with their weights.

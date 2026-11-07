@@ -120,8 +120,14 @@ export function answer(solid: Solid, ask: MeasureAsk): MeasureAnswer {
     case 'middle': {
       const edge = solid.edges[ask.edge];
       if (!edge) return null;
-      if (edge.geomType !== 'LINE' && edge.geomType !== 'CIRCLE') return nearest(edge, ask.near);
-      return edge.pointAt(0.5).toTuple() as V3;
+      if (edge.geomType === 'LINE' || edge.geomType === 'CIRCLE') return edge.pointAt(0.5).toTuple() as V3;
+      // half its length along it: its points summed in `steps` pieces, the half way piece split by length
+      const steps = 2048;
+      const pts = Array.from({ length: steps + 1 }, (_, i) => edge.pointAt(i / steps).toTuple() as V3);
+      const lens = pts.slice(1).map((q, i) => Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1], q[2] - pts[i][2]));
+      let left = lens.reduce((a, b) => a + b, 0) / 2;
+      const i = lens.findIndex((l) => (left -= l) <= 0);
+      return edge.pointAt((i + 1 + left / (lens[i] || 1)) / steps).toTuple() as V3;
     }
     case 'solid': {
       const placed = placeShape(solid.shape.clone(), ask.place);
