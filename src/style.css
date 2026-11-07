@@ -2473,8 +2473,8 @@ input + .set-axis {
   align-items: center;
   margin-top: 14px;
 }
-/* right under Position and Rotation */
-.placing.dimensions {
+/* Position and Rotation right under Dimensions */
+.placing.dimensions + .placing {
   margin-top: 6px;
 }
 .placing > span {

@@ -1230,9 +1230,9 @@ function selectionPanel(ctx: UIContext): Node[] {
     h('div', { className: 'head' }, input(`${at}.name`, body.name, (name) => setBody({ ...body, name })), button('Delete', ctx.remove, 'Delete the body (with its cutters)')),
     ...freeing,
     ...linkedNote(ctx, body),
-    placing(ctx, at),
     // its first step as Dimensions (else its card)
     shape ?? card(steps.features[0], 0),
+    placing(ctx, at),
     ...(failure ? [h('p', { className: 'error', title: COPY_TIP }, `${stepName(steps, steps.features.find((f) => f.id === failure.featureId) ?? steps.features[0])}: ${failure.error}`)] : []),
     ...finishRows(ctx, steps, si, setSteps),
     ...materialRows(ctx, [body.id], inheritedLabel(ctx, body), colour, false),
