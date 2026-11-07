@@ -76,7 +76,7 @@ export function tree(doc: Doc, folded: Set<string>): Row[] {
   // a body, then the tool bodies of its booleans and its linked copies under it, like a group's contents; these start
   // folded (`folded` holding the body means it is open)
   const body = (id: string, depth: number) => {
-    const tools = doc.bodies.filter((t) => (owner.get(t.id) === id || (t.link === id && under(t))) && !out.some((r) => r.id === t.id));
+    const tools = doc.bodies.filter((t) => !t.folded && (owner.get(t.id) === id || (t.link === id && under(t))) && !out.some((r) => r.id === t.id));
     const open = tools.length ? folded.has(id) : undefined;
     out.push({ id, kind: 'body', depth, open });
     if (open) for (const t of tools) body(t.id, depth + 1);
@@ -143,3 +143,14 @@ export function contents(doc: Doc, ids: string[]): string[] {
   const inside = [...doc.bodies, ...doc.sketches].filter((o) => o.group && groups.has(o.group)).map((o) => o.id);
   return [...new Set([...ids.filter((id) => !groups.has(id)), ...inside])];
 }
+
+/** A boolean's tool body freed: the booleans using it go, and it is a normal body again (shown, no longer folded). */
+export const freed = (doc: Doc, tool: string): Doc => ({
+  ...doc,
+  bodies: doc.bodies.map((b) => {
+    if (b.id !== tool) return { ...b, features: b.features.filter((f) => f.type !== 'boolean' || f.body !== tool) };
+    const { folded: _, ...free } = b;
+    return { ...free, visible: true };
+  }),
+});
+

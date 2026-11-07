@@ -632,3 +632,12 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Box joint: two plates as a T, also linked copies: slots and tabs; fingers about 3× the thickness; touching only: refused with a note
 - [ ] Floating panels: the main value first, options after (thread: its size first)
 - [ ] Coat: Linked off every time; clicking a checkbox's label shows no outline
+
+## Combining shapes (2026-11-07)
+- [ ] Draw a rectangle on a box's top and pull up: the label says Join, the box grows (one body); pull down: Cut, a pocket; P switches Join / Cut / New body
+- [ ] The same on a box's side face, and with Extrude (E) on a sketch on a face
+- [ ] Click the pocket's wall: it lights orange, the hint names the step, Del removes the pocket
+- [ ] History in the card: folded, opens with a selected step; a row selects its step and shows its fields; drag a row to reorder; × deletes
+- [ ] Boolean a cylinder into a block, Fold it (card or History): it leaves the list, the hole stays; Unfold lists it again; Fold refused for a tool in a joint
+- [ ] A rectangle's R, chain broken: four R fields where the corners lie; one too big rounds that corner as far as it goes, the others as typed
+

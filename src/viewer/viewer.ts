@@ -1942,6 +1942,7 @@ export class Viewer implements ToolView {
     group.add(solid, lines);
     this.dress(id);
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
+    if (this.stepSel?.body === id) this.setStepMark(this.stepSel);
     this.fitWaiting();
     this.applySection();
   }
@@ -3434,6 +3435,31 @@ export class Viewer implements ToolView {
     );
     this.finishMark = this.replaceMark(this.finishMark, solid ?? undefined, faces, 0xff8c1a);
   }
+
+  /**
+   * A step of a body selected (see main's `stepSel`): its faces lit, those `of` says made it (each face asked with a point
+   * on it and its outward normal, world); null: none.
+   */
+  setStepMark(sel: { body: string; of: (at: THREE.Vector3, n: THREE.Vector3) => boolean } | null) {
+    this.stepSel = sel;
+    const solid = sel && (this.bodies.get(sel.body)?.children[0] as THREE.Mesh | undefined);
+    const groups = solid?.userData.faces as Uint32Array | undefined;
+    const faces: number[] = [];
+    if (solid && groups) {
+      const [pos, idx] = [solid.geometry.attributes.position, solid.geometry.index!];
+      const corner = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, idx.getX(i)).applyMatrix4(solid.matrixWorld);
+      for (let f = 0; f * 2 < groups.length; f++) {
+        // its first triangle: its middle lies on the face, its winding gives the outward normal
+        const [a, b, c] = [0, 1, 2].map((k) => corner(groups[f * 2] + k));
+        const n = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+        if (sel.of(a.add(b).add(c).divideScalar(3), n)) faces.push(f);
+      }
+    }
+    this.stepMark = this.replaceMark(this.stepMark, solid ?? undefined, faces, 0xff8c1a);
+    this.render();
+  }
+  private stepSel: { body: string; of: (at: THREE.Vector3, n: THREE.Vector3) => boolean } | null = null;
+  private stepMark: THREE.Mesh | null = null;
 
   /** The finish part under a body hit, if the hit face is one. */
   private finishAt(hit: THREE.Intersection): { feature: string; mid: Vec3 } | null {

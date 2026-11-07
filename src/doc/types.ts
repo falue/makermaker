@@ -267,6 +267,8 @@ export interface Body {
   visible: boolean;
   position: [Expr, Expr, Expr];
   features: Feature[];
+  /** A tool body folded into its body's boolean step: not listed or shown, kept as it is (unfolding lists it again). */
+  folded?: boolean;
   /**
    * A linked copy: the body whose steps it shares (editing them edits all its copies); its own `features` come after
    * them (a mirror, say). Null: its own design.

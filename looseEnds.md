@@ -43,6 +43,12 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Offset of a bezier side is close, not exact. A side that an offset would turn inside out is not removed.
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
+## Combining shapes
+- Join / Cut only for a sketch on an extrusion's end or side face; on another face (a sphere's, an imported body's) or a free plane a pull always makes a new body.
+- The operation shows in the pull's size label and P switches it: no clickable switch, as the pointer is locked while pulling.
+- A step's faces are found by asking one point of each face (`stepAt`): a face made partly by two steps lights for the later one. Not tried by hand yet: the whole Join / Cut / History / Fold flow.
+- Folded tool bodies are still bodies of the document: Interference, measuring and the exports were not checked for them.
+
 ## View
 - After the view cube was dragged over the top or bottom, the camera stays upside down until a cube side, a corner or Home: orbiting the view itself meanwhile feels the other way round sideways, and the view's own orbit still stops at the poles.
 - Dragging a body or sketch shapes opens the move fields at the first step; an image's open only on letting go (its fields have no gizmo for the drag to write).

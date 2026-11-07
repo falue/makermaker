@@ -3,11 +3,11 @@ import { fitting, THREADS } from '../doc/threads';
 import { getIn, setIn } from '../doc/resolve';
 import { lookOf, setLook, STANDARD_SECTIONS } from '../doc/materials';
 import { ex, newFinish } from '../doc/sample';
-import { ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
+import { freed, ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
 import { ASPECTS, shotCamera } from '../viewer/render';
-import type { BasePlane, Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, RenderTo, Unit } from '../doc/types';
+import type { Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, RenderTo, Unit } from '../doc/types';
 import { arcOf, type Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml, sizeHtml } from './axes';
@@ -66,6 +66,14 @@ export interface UIContext {
   select(id: string | null, how?: Pick): void;
   /** A list row plainly clicked again while it alone is selected: deselects it (a waiting tool takes it instead) and says so. */
   deselectAgain(id: string, how: Pick): boolean;
+  /** The step of the selected body selected (its faces lit, its row open in History); null: none. */
+  selectedStep: string | null;
+  /** Selects step `feature` of `body` (null: none). */
+  selectStep(body: string, feature: string | null): void;
+  /** Folds tool body `id` into its body's boolean step, or (false) lists it again; refused with a note when it cannot. */
+  foldTool(id: string, fold: boolean): void;
+  /** Deletes step `feature` of `body` (a boolean's: a folded tool body goes with it, a listed one becomes free). */
+  removeStep(body: string, feature: string): void;
   /** New sketch objects are drawn as construction lines or not, as the last object switched. */
   setDrawConstruction(on: boolean): void;
   /** Folded groups in the object list, and folded lists (`list:objects`, `list:sketches`, `list:params`). */
@@ -261,12 +269,6 @@ export interface RenderJob {
 export type ShapeField = 'x' | 'y' | 'w' | 'h' | 'd' | 'rot';
 
 /** A list click as in file lists: Shift a range, ⌘ / Ctrl toggles. Ctrl-click on macOS (a context menu click) toggles too. */
-/** A boolean's tool body freed: the booleans using it go, and it shows as a normal body again. */
-const freed = (doc: Doc, tool: string): Doc => ({
-  ...doc,
-  bodies: doc.bodies.map((b) => (b.id === tool ? { ...b, visible: true } : { ...b, features: b.features.filter((f) => f.type !== 'boolean' || f.body !== tool) })),
-});
-
 /** The last eye clicked (its list and row) and what it switched to: a Shift-click on another eye applies that to the rows between. */
 let lastEye: { list: 'objects' | 'sketches' | 'solid'; id: string; on: boolean } | null = null;
 
@@ -509,7 +511,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('import', 'Import (or drop the file where it should go): STEP becomes solid bodies with their groups, names, colours and materials, STL, OBJ, 3MF, GLB and SketchUp (SKP) meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate', ctx.importFile),
     tool('export', 'Export STEP: one file with the selected bodies (else all shown ones) as named, coloured parts, as placed in the world (for other CAD tools)', ctx.exportStep),
     tool('versions', 'Versions: go back in time: the saved versions of this file, shown with a click, restored if you like', ctx.versions),
-    tool('terminal', 'Python terminal and scripts (I): model by typing, cad.box(80, 60, 40)', ctx.terminal.toggle, ctx.terminal.open),
+    tool('terminal', 'Python terminal and scripts: model by typing, cad.box(80, 60, 40)', ctx.terminal.toggle, ctx.terminal.open),
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
@@ -1193,7 +1195,15 @@ function selectionPanel(ctx: UIContext): Node[] {
   // a boolean's tool body: whose, and a way out
   const user = ctx.doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === body.id && !f.linked));
   const freeing = user
-    ? [h('div', { className: 'row' }, h('span', { className: 'hint' }, `A tool body of ${user.name}`), button('Free from boolean', () => ctx.commit(freed(ctx.doc, body.id)), 'Remove the booleans that use it: it becomes a normal body again'))]
+    ? [
+        h(
+          'div',
+          { className: 'row' },
+          h('span', { className: 'hint' }, `A tool body of ${user.name}`),
+          button('Fold', () => ctx.foldTool(body.id, true), `Click: Fold it into ${user.name}'s step: it leaves the list, nothing is lost (History unfolds it)`),
+          button('Free from boolean', () => ctx.commit(freed(ctx.doc, body.id)), 'Remove the booleans that use it: it becomes a normal body again'),
+        ),
+      ]
     : [];
 
   return [
@@ -1222,12 +1232,7 @@ function selectionPanel(ctx: UIContext): Node[] {
     ...materialRows(ctx, [body.id], inheritedLabel(ctx, body)),
     placing(ctx, at),
     ...sharedCards(ctx, body),
-    ...body.features.map((feature, j) => {
-      const card = featureCard(ctx, body, feature, `${at}.features.${j}`, setBody);
-      if (failure && (failure.featureId === feature.id || (!failure.featureId && j === 0)))
-        card.append(h('p', { className: 'error', title: COPY_TIP }, failure.error));
-      return card;
-    }),
+    ...stepCards(ctx, body, at, setBody, failure),
     h(
       'div',
       { className: 'row' },
@@ -1239,6 +1244,47 @@ function selectionPanel(ctx: UIContext): Node[] {
     ),
     ...jointCards(ctx, body.id),
   ];
+}
+
+/** Steps that build the shape: past the first, only in History; the others (finishes, coats and the like) show in the card too. */
+const BUILDING: Feature['type'][] = ['extrude', 'sphere', 'step', 'boolean', 'split', 'revolve', 'loft', 'sweep', 'push', 'fingers', 'piece', 'mesh'];
+
+/** A body's shape (its first step) and finishes as cards, then its History. */
+function stepCards(ctx: UIContext, body: Body, at: string, setBody: (b: Body) => void, failure?: { featureId: string; error: string }): Node[] {
+  const card = (feature: Feature, j: number) => {
+    const c = featureCard(ctx, body, feature, `${at}.features.${j}`, setBody);
+    if (failure && (failure.featureId === feature.id || (!failure.featureId && j === 0))) c.append(h('p', { className: 'error', title: COPY_TIP }, failure.error));
+    return c;
+  };
+  return [...body.features.flatMap((f, j) => (j === 0 || !BUILDING.includes(f.type) ? [card(f, j)] : [])), history(ctx, body, setBody, card)];
+}
+
+/**
+ * A body's steps in order, folded first (open while one is selected): a row selects its step (its faces lit, its
+ * card below it); dragged onto another it moves there (the first, the shape, stays first); × deletes it; a boolean's
+ * row folds its tool body into it or unfolds it.
+ */
+function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (f: Feature, j: number) => HTMLElement): HTMLElement {
+  const key = `history:${body.id}`; // in `folded`: open
+  const open = ctx.folded.has(key) || body.features.some((f) => f.id === ctx.selectedStep);
+  const head = h('button', { className: `history-head${open ? ' open' : ''}`, title: open ? 'Click: Fold its steps away' : 'Click: Show its steps in order', onclick: () => ctx.toggleFold(key), innerHTML: icon('chevron') }, `History (${body.features.length} steps)`);
+  if (!open) return h('section', { className: 'history' }, head);
+  let dragged = -1;
+  const move = (from: number, to: number) => {
+    const list = [...body.features];
+    list.splice(to, 0, ...list.splice(from, 1));
+    setBody({ ...body, features: list });
+  };
+  const rows = body.features.map((f, j) => {
+    const on = f.id === ctx.selectedStep;
+    const name = h('button', { className: `item${on ? ' on' : ''}`, title: on ? 'Click: Close it' : 'Click: Select it: its faces lit, its fields below', onclick: () => ctx.selectStep(body.id, on ? null : f.id) }, stepName(body, f));
+    const tool = f.type === 'boolean' ? ctx.doc.bodies.find((b) => b.id === f.body) : undefined;
+    const fold = tool ? [button(tool.folded ? 'Unfold' : 'Fold', () => ctx.foldTool(tool.id, !tool.folded), tool.folded ? 'Click: List its tool body again, as an object of its own' : 'Click: Fold its tool body into this step: it leaves the list, nothing is lost')] : [];
+    const drop = button('×', () => ctx.removeStep(body.id, f.id), 'Click: Delete this step');
+    const row = h('div', { className: 'history-row', draggable: j > 0, ondragstart: () => (dragged = j), ondragover: (e) => j > 0 && e.preventDefault(), ondrop: () => dragged > 0 && j > 0 && dragged !== j && move(dragged, j) }, name, ...fold, drop);
+    return on ? h('div', {}, row, card(f, j)) : row;
+  });
+  return h('section', { className: 'history' }, head, ...rows);
 }
 
 /** A linked copy: whose steps it shares (editing them edits all copies), and Unlink. */
@@ -1482,11 +1528,6 @@ function placing(ctx: UIContext, at: string) {
   );
 }
 
-/** One of a few choices, all in sight: one click. */
-function segmented<T extends string>(value: T, options: Record<T, string>, onChange: (v: T) => void) {
-  return h('span', { className: 'segmented' }, ...(Object.entries(options) as [T, string][]).map(([v, label]) => h('button', { className: v === value ? 'on' : '', onclick: () => v !== value && onChange(v) }, label)));
-}
-
 /**
  * An extrusion of its own shapes on a base plane with its Back folded in (plain numbers in one unit): H the whole
  * height, the plane moved back as far; else as it is.
@@ -1501,6 +1542,15 @@ function backInto(f: Extract<Feature, { type: 'extrude' }>): Extract<Feature, { 
   return { ...f, back: undefined, depth: sum(depth, s * Number(back.e)), source: { ...source, plane: { ...source.plane, offset: sum(off, -s * Number(back.e)) } } };
 }
 
+/** A step's name as History lists it: the first extrusion Extrude, later ones Join or Cut (numbered), the rest by kind. */
+function stepName(body: Body, f: Feature): string {
+  const n = body.features.indexOf(f) + 1;
+  if (f.type === 'extrude') return n === 1 ? 'Extrude' : `${f.mode === 'cut' ? 'Cut' : 'Join'} ${n}`;
+  if (f.type === 'finish') return f.mode === 'fillet' ? 'Fillet' : 'Chamfer';
+  if (f.type === 'boolean') return `${{ union: 'Join', subtract: 'Cut', intersect: 'Intersect' }[f.op]} ${n}`;
+  return f.type[0].toUpperCase() + f.type.slice(1);
+}
+
 function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, setBody: (p: Body) => void) {
   const setFeature = (next: Feature) => setBody({ ...body, features: body.features.map((s) => (s === feature ? next : s)) });
   const remove = button('×', () => setBody({ ...body, features: body.features.filter((s) => s !== feature) }), 'Remove');
@@ -1509,8 +1559,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
   switch (feature.type) {
     case 'extrude': {
       const extrudes = body.features.filter((t) => t.type === 'extrude');
-      const name = (t: (typeof extrudes)[number]) => `Extrude ${extrudes.indexOf(t) + 1}`;
-      const mode = segmented(feature.mode, { add: 'Add', cut: 'Cut' }, (m) => setFeature({ ...feature, mode: m, through: m === 'cut' && feature.through }));
+      const name = (t: (typeof extrudes)[number]) => stepName(body, t);
       const through = h('input', { type: 'checkbox', checked: feature.through });
       through.onchange = () => setFeature({ ...feature, through: through.checked });
       // how far it reaches behind its sketch plane (left out: 0)
@@ -1537,17 +1586,10 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
               ...(plane ? [tool('unlink', 'Unlink: copy the shapes into this feature, so the sketch no longer changes it', unlink)] : []),
             ]
           : [h('span', { className: 'error', title: COPY_TIP }, 'its sketch was deleted')];
-        return h('section', {}, h('h4', {}, name(feature), mode, remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'From'), ...link), h('div', { className: 'row reach' }, ...reach));
+        return h('section', {}, h('h4', {}, name(feature), remove), h('div', { className: 'listed' }, h('span', { className: 'hint' }, 'From'), ...link), h('div', { className: 'row reach' }, ...reach));
       }
-      const planes: Record<string, string> = { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' };
-      for (const t of extrudes.slice(0, extrudes.indexOf(feature))) if (!t.through) planes[`cap:${t.id}`] = `On top of ${name(t)}`;
-      const value = src.plane.kind === 'base' ? src.plane.axis : `cap:${src.plane.feature}`;
-      planes[value] ??= 'Lost face';
-      const offset = src.plane.kind === 'base' ? src.plane.offset : ex(0, ctx.doc.units);
+      // its plane and offset are kept, not shown: where it stands comes from the body's place and the face it was drawn on
       const setSource = (next: Partial<typeof src>) => setFeature({ ...feature, source: { ...src, ...next } });
-      const plane = select(value, planes, (v) =>
-        setSource({ plane: v.startsWith('cap:') ? { kind: 'cap', feature: v.slice(4) } : { kind: 'base', axis: v as BasePlane, offset } }),
-      );
       const profiles = src.profiles.map((p, k) => {
         const drop = button('×', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }), 'Remove this shape');
         // the only shape, at the origin unturned: Position and Rotation place it
@@ -1557,8 +1599,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       return h(
         'section',
         {},
-        h('h4', {}, name(feature), mode, remove),
-        h('div', { className: 'row' }, plane, ...(src.plane.kind === 'base' ? [f('source.plane.offset', 'Offset')] : [])),
+        h('h4', {}, name(feature), remove),
         ...profiles,
         h('div', { className: 'row reach' }, ...reach),
       );

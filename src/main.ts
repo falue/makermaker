@@ -23,7 +23,7 @@ import { openMaterials } from './ui/materials';
 import { shotCamera } from './viewer/render';
 import { emptyDoc, ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { carrierOf, contents, listedAfter, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
+import { carrierOf, contents, freed, listedAfter, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { CoatFeature } from './doc/types';
 import type { Area, Backdrop, Body, BulgeFeature, CameraState, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, RenderTo, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
@@ -228,6 +228,8 @@ const busy = new Set<string>();
 let toolHint: string | null = null;
 /** The selected part of a fillet / chamfer (Del leaves that edge out; the whole finish: deletes it). */
 let finishSel: FinishPick | null = null;
+/** A step of a body selected by clicking a face it made (or its row in History): `feature` in `body`'s steps. */
+let stepSel: { body: string; feature: string } | null = null;
 /** The extrude tool while it runs (picking faces and sketch areas, or pulling them). */
 let extruding: ExtrudeTool | null = null;
 /** Counts tool starts: an extrude tool still loading its areas sees whether another tool started meanwhile. */
@@ -322,6 +324,9 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   pickFinish(sel) {
     finishSel = sel;
     viewer.setFinishMark(sel);
+    // not a finish's face: the step that made it, if not the body's first
+    const face = sel ? null : viewer.lastFaceItem();
+    selectStep(face && stepAt(face));
     render();
   },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
@@ -690,7 +695,7 @@ function update() {
     const [p, c] = [contents(doc, [j.parent]), contents(doc, j.children)];
     for (const [from, to] of j.kind === 'attach' ? [[[...p, ...c], [...p, ...c]]] : [[p, c]]) for (const id of from) viewer.carried.set(id, [...(viewer.carried.get(id) ?? []), ...to.filter((x) => x !== id)]);
   }
-  viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: owner.has(b.id), outlined: b.visible && !hideAll.objects && shownIn(b.group) && doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id && f.free)) })));
+  viewer.setLooks(doc.bodies.map((b) => ({ ...b, look: lookOf(doc, b), visible: b.visible && !hideAll.objects && shownIn(b.group), owner: owner.get(b.id), cutter: owner.has(b.id), outlined: !b.folded && b.visible && !hideAll.objects && shownIn(b.group) && doc.bodies.some((o) => o.features.some((f) => f.type === 'boolean' && f.body === b.id && f.free)) })));
   viewer.select(contents(doc, selected), groupKept(doc));
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
@@ -839,6 +844,7 @@ function select(id: string | null, how: Pick = false) {
   viewer.lightSketch(null); // a list row's hover light: the row may be redrawn before the pointer leaves it
   viewer.dropPicked(); // picked faces and edges start over
   if (finishSel) viewer.setFinishMark((finishSel = null));
+  if (stepSel) selectStep(null);
   if (id && picks(id)) return pending!.pick(id, how);
   // Extrude picking: a sketch chosen in the list adds its shapes (inner ones holes), or drops them
   if (extruding?.picking() && id && history.current.sketches.some((s) => s.id === id)) return void (extruding.pickSketch(id) || fail('Nothing to extrude in that sketch'));
@@ -850,6 +856,35 @@ function select(id: string | null, how: Pick = false) {
   else selected = picked(selected, list, id, how);
   shapeSel = [];
   showSelection();
+}
+
+/**
+ * The step of a body that made `face` (an extrusion's end or side, its tool body's in a boolean: that boolean), as
+ * `stepSel` holds it; null: the body's own first step (the body itself), or none found.
+ */
+function stepAt(face: { body: string; point: Vector3; n: Vector3 }): { body: string; feature: string } | null {
+  const features = built.get(face.body);
+  if (!features) return null;
+  const pl = bodyPlace(face.body);
+  const id = faceAt(features, unplaced(pl, face.point.toArray()), unplaced(pl, face.n.toArray(), true))?.feature;
+  const doc = history.current;
+  const steps = doc.bodies[stepsOf(doc, face.body)];
+  if (!id || !steps) return null;
+  // a tool body's step: its boolean in this body
+  const k = steps.features.findIndex((f) => f.id === id || (f.type === 'boolean' && doc.bodies.find((t) => t.id === f.body)?.features.some((x) => x.id === id)));
+  return k > 0 ? { body: face.body, feature: steps.features[k].id } : null;
+}
+
+/** Selects a step (null: none): its faces lit, its row open in History. */
+function selectStep(sel: { body: string; feature: string } | null) {
+  stepSel = sel;
+  const s = sel;
+  viewer.setStepMark(
+    s && {
+      body: s.body,
+      of: (at, n) => stepAt({ body: s.body, point: at, n })?.feature === s.feature,
+    },
+  );
 }
 
 /** A clicked sketch shape: selects its sketch and the shape (`how`: toggles it, or a range of the sketch's shapes). */
@@ -5068,6 +5103,7 @@ function remove() {
   const parts = finishSel ? [finishSel] : pickedPart?.kind === 'face' ? viewer.pickedFinishes() : null;
   if (pickedPart && !parts) return fail('Only picked faces of fillets and chamfers are deleted (a rounded rectangle\'s corners are its R): Esc lets them go, then Del deletes the body');
   let doc = history.current;
+  if (stepSel && !parts) return removeStep(stepSel);
   if (parts) {
     // each part of a finish: its edge is left out (its last picked edge: the finish goes); the whole finish: it goes
     viewer.setFinishMark((finishSel = null));
@@ -5099,6 +5135,47 @@ function remove() {
   const kept = unlinkedFrom(doc, gone); // linked copies of what goes take over its steps
   const bodies = kept.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => (f.type !== 'boolean' && f.type !== 'fingers') || !gone.has(f.body)) }));
   commit({ ...doc, bodies, joints: jointsWithout(doc.joints, gone), sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) });
+}
+
+/**
+ * Deletes a step of a body (in its steps: a linked copy's source's). A boolean's: a folded tool body goes with it, a
+ * listed one becomes a body of its own (as freeing it does).
+ */
+function removeStep({ body, feature }: { body: string; feature: string }) {
+  const doc = history.current;
+  const k = stepsOf(doc, body);
+  const step = doc.bodies[k]?.features.find((f) => f.id === feature);
+  if (!step) return;
+  selectStep(null);
+  if (step.type !== 'boolean') return commit(setIn(doc, ['bodies', String(k), 'features'], doc.bodies[k].features.filter((f) => f !== step)));
+  const tool = doc.bodies.find((b) => b.id === step.body);
+  const free = freed(doc, step.body);
+  commit(tool?.folded ? { ...free, bodies: free.bodies.filter((b) => b.id !== step.body) } : free);
+}
+
+/** Why tool body `id` cannot fold into its body's step (null: it can): what needs it as an object of its own. */
+function whyNotFold(doc: Doc, id: string): string | null {
+  const owner = ownersOf(doc).get(id);
+  const tool = doc.bodies.find((b) => b.id === id);
+  const op = doc.bodies.find((b) => b.id === owner)?.features.find((f) => f.type === 'boolean' && f.body === id);
+  if (!tool || !owner || op?.type !== 'boolean') return 'only a tool body of a boolean folds into it';
+  if (doc.joints.some((j) => j.parent === id || j.children.includes(id))) return 'it is in a joint';
+  if (op.along) return 'it cuts along a joint';
+  if (doc.bodies.some((b) => b.link === id)) return 'linked copies follow its steps';
+  if (op.free || tool.group !== doc.bodies.find((b) => b.id === owner)!.group) return 'it is listed in another group';
+  return null;
+}
+
+/** Folds tool body `id` into its body's boolean step (it leaves the list, nothing is lost), or unfolds it again. */
+function foldTool(id: string, fold: boolean) {
+  const doc = history.current;
+  const why = fold ? whyNotFold(doc, id) : null;
+  if (why) return fail(`It does not fold: ${why}`);
+  const i = doc.bodies.findIndex((b) => b.id === id);
+  if (i < 0) return;
+  const { folded: _, ...open } = doc.bodies[i];
+  if (fold) selected = selected.filter((x) => x !== id);
+  commit(setIn(doc, ['bodies', String(i)], fold ? { ...open, folded: true } : open));
 }
 
 /** Folded groups in the object list. */
@@ -6224,7 +6301,9 @@ function render() {
     active: pending?.tool ?? (toolMode === 'pull' && !viewer.activeTool ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
     // the tool's own notes show in the top bar (see showNote); the footer has the hints for what is selected
     hint:
-      (finishSel
+      (stepSel
+        ? 'A step of this body (lit) · its sketch edits its outline, its faces push and pull it · [Del] removes it'
+        : finishSel
         ? `${finishSel.mid ? 'A part of a finish' : 'A whole finish'} · drag it to resize (past 0: the other kind) · [Del] ${finishSel.mid ? 'leaves this edge out' : 'deletes it'} · double-click selects the whole finish`
         : pickedPart?.kind === 'edge'
           ? 'Drag a picked edge up: fillet, down: chamfer · [Alt]-click another edge ([Shift]: more), double-click: its tangent chain (a circle, a rounded outline) · [Esc] deselect'
@@ -6376,6 +6455,10 @@ function render() {
     groupSelected: selected.length === 1 && doc.groups.some((g) => g.id === selected[0]),
     arrange,
     select,
+    selectedStep: stepSel?.feature ?? null,
+    selectStep: (body, feature) => (selectStep(feature ? { body, feature } : null), render()),
+    foldTool,
+    removeStep: (body, feature) => removeStep({ body, feature }),
     deselectAgain(id, how) {
       if (how || picks(id) || extruding?.picking() || selected.length !== 1 || selected[0] !== id) return false;
       select(null);

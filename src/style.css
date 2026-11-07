@@ -2934,3 +2934,43 @@ section > h4 .segmented button {
   height: 100%;
   object-fit: contain;
 }
+
+/* a body's steps in order (History), folded first */
+.history-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+.history-head svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  transition: transform 0.12s;
+}
+.history-head.open svg {
+  transform: rotate(90deg);
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.history-row[draggable='true'] {
+  cursor: grab;
+}
+.history-row .item {
+  flex: 1;
+  text-align: left;
+}
+.history-row .item.on {
+  color: var(--accent);
+}
+
