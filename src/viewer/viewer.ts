@@ -2662,6 +2662,7 @@ export class Viewer implements ToolView {
       this.drawRefs();
       this.pointTo(this.arrowAt());
       for (const v of this.views) this.renderView(v);
+      if (this.camera === this.perspective && fitDepth(this.perspective, this.controls.target)) this.dropComposer();
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
       this.drawSilhouette();
@@ -4393,6 +4394,7 @@ export class Viewer implements ToolView {
     Object.assign(view.ortho, { left: (-view.height / 2) * aspect, right: (view.height / 2) * aspect, top: view.height / 2, bottom: -view.height / 2 });
     view.ortho.updateProjectionMatrix();
     view.persp.aspect = aspect;
+    fitDepth(view.persp, view.controls.target);
     view.persp.updateProjectionMatrix();
     // a view has a renderer of its own: the photo's picture is the main view's, and from its camera
     const background = this.scene.background;
@@ -4984,6 +4986,21 @@ export class Viewer implements ToolView {
     };
     requestAnimationFrame(animate);
   }
+}
+
+/**
+ * A perspective camera's near and far for what it looks at (`target`): near a 200th of the way there, far 100 times
+ * the way or 50 m (powers of 2, so they seldom change). Fixed at 1 mm, close zooms were cut off and far ones lost
+ * depth precision. True: they changed.
+ */
+function fitDepth(camera: THREE.PerspectiveCamera, target: THREE.Vector3) {
+  const d = camera.position.distanceTo(target);
+  const near = 2 ** Math.round(Math.log2(Math.max(1e-3, d / 200)));
+  const far = Math.max(50000, 2 ** Math.ceil(Math.log2(d * 100 || 1)));
+  if (near === camera.near && far === camera.far) return false;
+  Object.assign(camera, { near, far });
+  camera.updateProjectionMatrix();
+  return true;
 }
 
 /** Whether a snap is a point along an edge (anywhere on it, or a fraction of it: '1/2' …), not one of its own points (a corner, a centre). */
