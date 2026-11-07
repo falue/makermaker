@@ -4467,9 +4467,18 @@ function planePanel(id: string, fresh = false) {
 /**
  * Sweep: a line or shape outline clicked (the path, any sketch), then the outline of a closed sketch shape (the
  * profile): a new body, the profile's middle on the path's start, square to it. Linked to both; Esc leaves nothing.
+ * Selected first: one open and one closed (shapes or sketches) sweep at once, two closed the first as the path; one
+ * fills its part and the other is asked for.
  */
 function sweepTool() {
-  const pick = (hint: string, done: (at: { sketch: string; shape: string }) => void) => {
+  type Part = { sketch: string; shape: string };
+  const make = (path: Part, profile: Part) => {
+    const doc = history.current;
+    const body = newBody(doc.bodies.length, [{ id: newId(), type: 'sweep', profile, path }], null, 'Sweep');
+    [selected, shapeSel] = [[body.id], []];
+    commit({ ...doc, bodies: [...doc.bodies, body] });
+  };
+  const pick = (hint: string, done: (at: Part) => void) => {
     toolHint = hint;
     render();
     viewer.pickFace((face) => {
@@ -4479,14 +4488,22 @@ function sweepTool() {
       done({ sketch: face.sketch.id, shape: q });
     }, false, true);
   };
-  pick('Sweep: click the path · the line or shape outline it runs along · [Esc] cancels', (path) =>
-    pick('Sweep: click the profile · the outline of a closed shape to sweep along the path · [Esc] cancels', (profile) => {
-      const doc = history.current;
-      const body = newBody(doc.bodies.length, [{ id: newId(), type: 'sweep', profile, path }], null, 'Sweep');
-      [selected, shapeSel] = [[body.id], []];
-      commit({ ...doc, bodies: [...doc.bodies, body] });
-    }),
-  );
+  const askPath = (profile: Part) => pick('Sweep: click the path · the line or shape outline it runs along · [Esc] cancels', (path) => make(path, profile));
+  const askProfile = (path: Part) => pick('Sweep: click the profile · the outline of a closed shape to sweep along the path · [Esc] cancels', (profile) => make(path, profile));
+  // selected first, in that order: picked shapes, else each selected sketch's first shape; a line is open (a path)
+  const doc = history.current;
+  const parts = selected.flatMap((id) => {
+    const sk = doc.sketches.find((x) => x.id === id);
+    const own = sk?.shapes.filter((q) => !q.construction) ?? [];
+    const chosen = own.filter((q) => shapeSel.includes(q.id));
+    return (chosen.length ? chosen : own.slice(0, 1)).map((q) => ({ sketch: sk!.id, shape: q.id, open: q.kind === 'line' }));
+  });
+  const [open, closed] = [parts.filter((x) => x.open), parts.filter((x) => !x.open)];
+  const part = ({ sketch, shape }: Part): Part => ({ sketch, shape });
+  if (open.length === 1 && closed.length === 1) return make(part(open[0]), part(closed[0]));
+  if (!open.length && closed.length === 2) return make(part(closed[0]), part(closed[1])); // the first a closed path
+  if (parts.length === 1) return open.length ? askProfile(part(open[0])) : askPath(part(closed[0]));
+  pick('Sweep: click the path · the line or shape outline it runs along · [Esc] cancels', askProfile);
 }
 
 /**
