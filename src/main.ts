@@ -2715,8 +2715,8 @@ function mirrorTool() {
 
 /**
  * Thread: the round face of a hole or a shaft (Alt-picked, or last clicked on a selected body, else clicked next): a
- * thread (ISO basic profile) from its end nearest the click, all along it. A panel: Modeled (cut into the solid) or
- * Cosmetic (only drawn: for CNC, the last choice kept), the size (the one of the face's Ø first: Ø 8 is M8), which
+ * thread (ISO basic profile) from its end nearest the click, all along it. A panel: Modelled (cut into the solid) or
+ * Pilot (a hole at tap-drill size, the thread only drawn: for CNC; a shaft: Plain; the last choice kept), the size (the one of the face's Ø first: Ø 8 is M8), which
  * fills Ø and Pitch (both editable), the length (T: to a point), Metric / Imperial (as the document's units first). The
  * hole or shaft is resized to fit it (a shaft to its major Ø, a hole to its minor one, a cosmetic one's to its tap
  * drill: Ø less a pitch) by the circle it was pulled from. Live, one undo step; Esc leaves nothing.
@@ -2857,7 +2857,7 @@ function threadAt(body: string, p: Vector3) {
 }
 
 /**
- * A thread's panel (`fresh`: just added, Esc removes it; else Esc puts it back): Modeled or Cosmetic, Metric /
+ * A thread's panel (`fresh`: just added, Esc removes it; else Esc puts it back): Modelled or Pilot (a shaft: Plain), Metric /
  * Imperial, the size, Ø, Pitch, Length (T: to a point). The hole or shaft is resized to fit it (see `boreFor`) by the
  * circle it was pulled from. Live, one undo step.
  */
@@ -2917,7 +2917,7 @@ function threadPanel(body: string, id: string, fresh = false) {
   // modeled: the groove in the solid (3D printing); cosmetic: drawn only, a hole at tap-drill size (CNC, tapping)
   const kinds = Object.assign(document.createElement('span'), { className: 'segmented' });
   for (const on of [true, false]) {
-    const b = Object.assign(document.createElement('button'), { textContent: on ? 'Modeled' : 'Cosmetic', className: on === modeled ? 'on' : '', title: on ? 'Click: Cut the thread into the solid (for 3D printing)' : `Click: Only draw the thread${feature.inside ? ': the hole at tap-drill size' : ''} (for CNC and tapping)` });
+    const b = Object.assign(document.createElement('button'), { textContent: on ? 'Modelled' : feature.inside ? 'Pilot' : 'Plain', className: on === modeled ? 'on' : '', title: on ? 'Click: Cut the thread into the solid (for 3D printing)' : feature.inside ? 'Click: A pilot hole at tap-drill size, the thread only drawn (for CNC and tapping)' : 'Click: The plain shaft, the thread only drawn (for CNC)' });
     b.onclick = () => {
       modeled = threadModeled = on;
       [...kinds.children].forEach((x) => x.classList.toggle('on', x === b));
@@ -2934,7 +2934,7 @@ function threadPanel(body: string, id: string, fresh = false) {
     ],
     write,
     (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
-    `Thread ${feature.inside ? 'in a hole' : 'on a shaft'}: Modeled or Cosmetic · pick its size · or type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] ${fresh ? 'leaves nothing' : 'puts it back'}`,
+    `Thread ${feature.inside ? 'in a hole: Modelled or Pilot (tap-drill hole)' : 'on a shaft: Modelled or Plain'} · pick its size · or type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] ${fresh ? 'leaves nothing' : 'puts it back'}`,
     [],
     [kinds, systems, pick],
   );
