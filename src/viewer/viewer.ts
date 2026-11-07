@@ -1347,9 +1347,29 @@ export class Viewer implements ToolView {
       this.sketchView.add(marks(turn, 0x1d4ed8), marks([pivot], 0x1d4ed8, 9), new THREE.Line(new THREE.BufferGeometry().setFromPoints([pivot, turn[0]]), new THREE.LineBasicMaterial({ color: 0x1d4ed8, depthTest: false })));
     }
     this.sketchView.traverse((o) => (o.renderOrder = o instanceof THREE.Points || o.type === 'Line' || o.type === 'LineSegments' || o.type === 'Line2' ? 1e6 : 0));
-    if (refs.length) this.sketchView.add(...refs); // under the handles: a handle on the reference point gets a blue ring
-    for (const o of refs) o.renderOrder = 1e6 - 1;
+    this.refObjs = refs;
+    this.addRefs();
     this.render();
+  }
+
+  /** The reference marks now in the sketch view: rebuilt each frame, so their arrows keep their size on screen. */
+  private refObjs: THREE.Object3D[] = [];
+
+  private addRefs() {
+    if (this.refObjs.length) this.sketchView.add(...this.refObjs); // under the handles: a handle on the reference point gets a blue ring
+    for (const o of this.refObjs) o.renderOrder = 1e6 - 1;
+  }
+
+  /** The reference marks at the current zoom. */
+  private drawRefs() {
+    if (!this.refObjs.length) return;
+    for (const o of this.refObjs as THREE.LineSegments[]) {
+      this.sketchView.remove(o);
+      o.geometry.dispose();
+      (o.material as THREE.Material).dispose();
+    }
+    this.refObjs = this.refMarks();
+    this.addRefs();
   }
 
   /**
@@ -2607,6 +2627,7 @@ export class Viewer implements ToolView {
       this.scaleDashes();
       this.drawCrossings();
       this.drawGrips();
+      this.drawRefs();
       this.pointTo(this.arrowAt());
       for (const v of this.views) this.renderView(v);
       if (this.ao.on) this.renderAO();
