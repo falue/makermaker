@@ -81,6 +81,8 @@ installCompletion(
 let settings = loadSettings();
 /** By body and finish: how many picked edges its last build could not find. */
 const lostEdges = new Map<string, Record<string, number>>();
+/** A coat whose faces to exclude are being picked: its real thickness (0 meanwhile, to show the body without it). */
+let coatHeld: { feature: string; thickness: Expr } | null = null;
 /** By body: per finish its edges held at the largest size they take (from the last build). */
 const cappedEdges = new Map<string, Record<string, CappedEdge[]>>();
 const savedTheme = localStorage.getItem('makermaker.theme');
@@ -3656,7 +3658,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
   asBody.querySelector('input')!.disabled = !!start.f.skin;
   const link = checkbox('Linked', 'The new body is a linked copy: it shares the steps of this one, editing one edits both', false, relink);
   link.style.display = 'none';
-  // while picking: no coat to see past, the real faces to click, nothing else changes until it ends
+  // while picking: no coat to see past (thickness 0 meanwhile; its card shows the real one), the real faces to click, nothing else changes until it ends
   let picking = false;
   const faceCount = (n: number) => `Select faces to exclude (${n})`;
   const facesButton = panelButton(faceCount(start.f.exclude.length), 'Click: Show the body without its coat, then click flat faces that stay where they are (again: back)', () => (picking ? viewer.cancelFacePick() : void pickFaces()));
@@ -3667,6 +3669,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
     facesButton.textContent = `Done with faces (${c.f.exclude.length})`;
     facesButton.title = 'Click: Show the coat again';
     let chosen = c.f.exclude.flatMap((e) => ({ ...e, item: null as FaceItem | null }));
+    coatHeld = { feature, thickness: c.f.thickness };
     history.replace(setIn(history.current, ['bodies', String(c.i), 'features', String(c.k)], { ...c.f, thickness: len(0) }));
     changed = true;
     update();
@@ -3680,6 +3683,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
       viewer.pickFace((face) => {
         if (!face) {
           picking = false;
+          coatHeld = null;
           viewer.markFaces([]);
           facesButton.textContent = faceCount(chosen.length);
           facesButton.title = 'Click: Show the body without its coat, then click flat faces that stay where they are (again: back)';
@@ -6821,6 +6825,7 @@ function render() {
     coatTool,
     sectionAxis,
     coatEdit: (body, feature) => coatPanel(body, feature),
+    coatHeld: (feature) => (coatHeld?.feature === feature ? coatHeld.thickness : null),
     mirrorTool,
     patternTool: () => patternTool(),
     threadTool,

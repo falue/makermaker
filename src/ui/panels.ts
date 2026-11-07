@@ -119,6 +119,8 @@ export interface UIContext {
   coatTool(): void;
   /** A coat's floating panel. */
   coatEdit(body: string, feature: string): void;
+  /** A coat whose faces are being picked: its real thickness (stored as 0 meanwhile), else null. */
+  coatHeld(feature: string): Expr | null;
   mirrorTool(): void;
   patternTool(): void;
   threadTool(): void;
@@ -1945,7 +1947,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         'section',
         {},
         h('h4', {}, 'Coat', remove),
-        h('div', { className: 'row' }, h('span', { className: 'hint' }, `${feature.thickness.e}, ${feature.corners} corners${feature.exclude.length ? `, ${feature.exclude.length} excluded` : ''}${feature.skin ? ', a skin around it' : ''}`), button('✎', () => ctx.coatEdit(body.id, feature.id), 'Change it')),
+        h('div', { className: 'row' }, h('span', { className: 'hint' }, `${ctx.coatHeld(feature.id)?.e ?? feature.thickness.e}${ctx.coatHeld(feature.id) ? ' (hidden while faces are picked)' : ''}, ${feature.corners} corners${feature.exclude.length ? `, ${feature.exclude.length} excluded` : ''}${feature.skin ? ', a skin around it' : ''}`), button('✎', () => ctx.coatEdit(body.id, feature.id), 'Change it')),
       );
     case 'sweep': {
       const name = (q: { sketch: string }) => ctx.doc.sketches.find((k) => k.id === q.sketch)?.name ?? '?';
