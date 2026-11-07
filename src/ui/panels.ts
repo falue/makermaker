@@ -827,6 +827,8 @@ function left(ctx: UIContext): Node[] {
     };
     return [el];
   };
+  /** A row's marks (sketch, joint, link …); none: a gap as wide as one, so names without marks line up with one-mark rows. */
+  const marked = (marks: HTMLElement[]) => (marks.length ? marks : [h('span', { className: 'fold-space' })]);
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
   const rows = tree(doc, ctx.folded).map((r) => {
     const { id, kind, depth } = r;
@@ -837,7 +839,7 @@ function left(ctx: UIContext): Node[] {
       const chevron = h('span', { className: `fold${r.open ? ' open' : ''}`, innerHTML: icon('chevron'), title: r.open ? 'Fold' : 'Unfold', onclick: (e) => (e.stopPropagation(), ctx.toggleFold(id)) });
       // a plain click also folds or unfolds it (not the click that starts renaming it)
       const pick = (how: Pick) => (!how && renaming !== id && ctx.toggleFold(id), ctx.select(id, how));
-      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), h('span', { className: 'fold-space' }), ...jointMark(id), eye('objects', id, g.visible));
+      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), ...marked(jointMark(id)), eye('objects', id, g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -857,9 +859,7 @@ function left(ctx: UIContext): Node[] {
     // its sketches have their own list: this button draws into the (first) one
     const own = sketchesOf(doc, p.id);
     const bools = fold(r); // an owner of tool bodies: the red boolean button folds them
-    const sketch = own.length
-      ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Based on sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.editSketch(own[0].id) })]
-      : bools.length ? [] : [h('span', { className: 'fold-space' })];
+    const sketch = own.length ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Based on sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.editSketch(own[0].id) })] : [];
     // a boolean's tool body: the op, and whose
     const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id && !f.linked));
     const op = user?.features.find((f) => f.type === 'boolean' && f.body === id && !f.linked);
@@ -881,7 +881,7 @@ function left(ctx: UIContext): Node[] {
     // a box joint: its button opens its panel
     const finger = p.features.find((f) => f.type === 'fingers');
     const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Box joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];
-    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.deselectAgain(id, how) || ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...linked, ...joint, ...sketch, ...bools, ...jointMark(id), tool, ...toolEye);
+    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.deselectAgain(id, how) || ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...marked([...linked, ...joint, ...sketch, ...bools, ...jointMark(id)]), tool, ...toolEye);
     return el;
   });
   // sketches: their own list, each with the body it belongs to

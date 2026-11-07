@@ -1357,7 +1357,7 @@ h3 .fold.open svg {
 }
 .listed .fold-space {
   display: inline-block;
-  width: 22px;
+  width: 26px; /* as wide as a row's icon button */
   flex: none;
 }
 .listed > button.icon {
