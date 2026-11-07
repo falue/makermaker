@@ -1094,9 +1094,10 @@ export class Viewer implements ToolView {
   }
 
   /** The face of a body hit, to pull. */
+  /** A body hit as a face (its normal in the world already: see `intersect`). */
   faceItem(hit: THREE.Intersection): FaceItem {
     const mesh = hit.object as THREE.Mesh;
-    return { body: mesh.userData.bodyId, point: hit.point.clone(), n: hit.face!.normal.clone().transformDirection(mesh.matrixWorld), mesh, index: faceOf(hit), finish: this.finishAt(hit)?.feature, round: this.roundOf(hit) };
+    return { body: mesh.userData.bodyId, point: hit.point.clone(), n: hit.face!.normal.clone(), mesh, index: faceOf(hit), finish: this.finishAt(hit)?.feature, round: this.roundOf(hit) };
   }
 
   /** The middle of a face (world): its triangles' centres weighed by their areas. */
@@ -1159,6 +1160,7 @@ export class Viewer implements ToolView {
       const out = new THREE.Vector3(...n);
       const from = new THREE.Vector3(...at).addScaledVector(out, 0.01).applyMatrix4(mesh.matrixWorld);
       const hit = new THREE.Raycaster(from, out.transformDirection(mesh.matrixWorld).negate()).intersectObject(mesh)[0];
+      hit?.face?.normal.transformDirection(mesh.matrixWorld); // world, as `intersect` gives it
       if (hit) return this.faceItem(hit);
     }
     return null;
@@ -3222,7 +3224,7 @@ export class Viewer implements ToolView {
     if (chain.length > 1) return { body: start.body, edges: chain.map((x) => x.segs) };
     // nothing runs on smoothly: the loop around the face under the pointer
     const hit = this.frontHit(e);
-    const plane = hit && new THREE.Plane().setFromNormalAndCoplanarPoint(hit.face!.normal.clone().transformDirection(hit.object.matrixWorld), hit.point);
+    const plane = hit && new THREE.Plane().setFromNormalAndCoplanarPoint(hit.face!.normal, hit.point);
     const flat = (segs: Segs) => !!plane && segs.every(([a, b]) => Math.abs(plane.distanceToPoint(a)) < 0.05 && Math.abs(plane.distanceToPoint(b)) < 0.05);
     if (!flat(chain[0].segs)) return { body: start.body, edges: [chain[0].segs] };
     const loop = [chain[0]];
@@ -3560,7 +3562,7 @@ export class Viewer implements ToolView {
           snap: real?.at,
           about: real?.about,
         point: hit?.point.clone() ?? new THREE.Vector3(),
-        normal: hit ? hit.face!.normal.clone().transformDirection(hit.object.matrixWorld).negate() : new THREE.Vector3(),
+        normal: hit ? hit.face!.normal.clone().negate() : new THREE.Vector3(),
         what: snap?.what,
         ...(edge ? { edge: { length: edge.segs.reduce((n, [p, q]) => n + p.distanceTo(q), 0), ref: edge.index === undefined ? undefined : { body: edge.body, edge: edge.index } } } : {}),
         ...(straight ? { line: { at: a!.clone(), to: b!.clone() } } : {}),
@@ -3883,7 +3885,7 @@ export class Viewer implements ToolView {
     if (this.tool) return this.tool.rightClick?.(e);
     const hit = this.frontHit(e);
     if (!hit) return;
-    const look = { n: hit.face!.normal.clone().transformDirection(hit.object.matrixWorld), at: hit.point.clone() };
+    const look = { n: hit.face!.normal.clone(), at: hit.point.clone() };
     this.faceMenu = window.setTimeout(() => {
       this.faceMenu = 0;
       const r = this.el.getBoundingClientRect();

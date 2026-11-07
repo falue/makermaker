@@ -617,7 +617,7 @@ export class SketchTool implements Tool {
   /** A flat face under the pointer, or a work plane or empty space (the plane it draws on, facing the camera); its side outward. */
   private planeUnder(e: MouseEvent) {
     const hit = this.view.hit(e);
-    if (hit) return this.view.flatFace(hit) ? { hit, at: hit.point.clone(), n: hit.face!.normal.clone().transformDirection(hit.object.matrixWorld) } : null;
+    if (hit) return this.view.flatFace(hit) ? { hit, at: hit.point.clone(), n: hit.face!.normal.clone() } : null; // world already (the view's hits)
     const target = this.target(e);
     const at = target && planeHit(this.view.ray(e), target.frame);
     if (!target || !at) return null;
