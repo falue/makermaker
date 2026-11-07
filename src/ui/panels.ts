@@ -1242,7 +1242,7 @@ function selectionPanel(ctx: UIContext): Node[] {
     ...(failure ? [h('p', { className: 'error', title: COPY_TIP }, `${stepName(steps, steps.features.find((f) => f.id === failure.featureId) ?? steps.features[0])}: ${failure.error}`)] : []),
     ...finishRows(ctx, steps, si, setSteps),
     ...materialRows(ctx, [body.id], inheritedLabel(ctx, body), colour, false),
-    history(ctx, steps, setSteps, card),
+    history(ctx, steps, setSteps, card, body.id),
     // a linked copy's own steps after its source's (a mirror)
     ...(body.link ? body.features.map((f, j) => featureCard(ctx, body, f, `${at}.features.${j}`, setBody)) : []),
     ...jointCards(ctx, body.id),
@@ -1318,7 +1318,7 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
  * card below it); dragged onto another it moves there (the first, the shape, stays first); × deletes it; a boolean's
  * row folds its tool body into it or unfolds it.
  */
-function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (f: Feature, j: number) => HTMLElement): HTMLElement {
+function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (f: Feature, j: number) => HTMLElement, shown = body.id): HTMLElement {
   const key = `history:${body.id}`; // in `folded`: open
   const open = ctx.folded.has(key) || body.features.some((f) => f.id === ctx.selectedStep);
   const head = h('button', { className: `history-head${open ? ' open' : ''}`, title: open ? 'Click: Fold its steps away' : 'Click: Show its steps in order', onclick: () => ctx.toggleFold(key), innerHTML: icon('chevron') }, `Object history (${body.features.length} steps)`);
@@ -1331,11 +1331,11 @@ function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (
   };
   const rows = body.features.map((f, j) => {
     const on = f.id === ctx.selectedStep;
-    const name = h('button', { className: `item${on ? ' on' : ''}`, title: on ? 'Click: Close it' : 'Click: Select it: its faces lit, its fields below', onclick: () => ctx.selectStep(body.id, on ? null : f.id) }, stepName(body, f));
+    const name = h('button', { className: `item${on ? ' on' : ''}`, title: on ? 'Click: Close it' : 'Click: Select it: its faces lit, its fields below', onclick: () => ctx.selectStep(shown, on ? null : f.id) }, stepName(body, f)); // lit on the body selected (a linked copy: not its source)
     const tool = f.type === 'boolean' ? ctx.doc.bodies.find((b) => b.id === f.body) : undefined;
     const fold = tool ? [button(tool.folded ? 'Unfold' : 'Fold', () => ctx.foldTool(tool.id, !tool.folded), tool.folded ? 'Click: List its tool body again, as an object of its own' : 'Click: Fold its tool body into this step: it leaves the list, nothing is lost')] : [];
     // the first step is the shape itself: it stays, and stays first
-    const drop = j ? [button('×', () => ctx.removeStep(body.id, f.id), 'Click: Delete this step')] : [];
+    const drop = j ? [button('×', () => ctx.removeStep(shown, f.id), 'Click: Delete this step')] : [];
     const row = h('div', { className: 'history-row', draggable: j > 0, ondragstart: () => (dragged = j), ondragover: (e) => j > 0 && e.preventDefault(), ondrop: () => dragged > 0 && j > 0 && dragged !== j && move(dragged, j) }, name, ...fold, ...drop);
     return on ? h('div', {}, row, card(f, j)) : row;
   });
