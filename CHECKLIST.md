@@ -634,7 +634,7 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Coat: Linked off every time; clicking a checkbox's label shows no outline
 
 ## Combining shapes (2026-11-07)
-- [ ] Draw a rectangle on a box's top and pull up: the label says Join, the box grows (one body); pull down: Cut, a pocket; P switches Join / Cut / New body
+- [ ] Draw a rectangle on a box's top and pull up: the label says Join, the box grows (one body); pull down: Cut, a pocket; a tap of Alt switches Join / Cut / New body (Cut only where the pull overlaps the box; the tag in the label green / red / blue); Alt held still pulls both ways
 - [ ] The same on a box's side face, and with Extrude (E) on a sketch on a face
 - [ ] Click the pocket's wall: it lights orange, the hint names the step, Del removes the pocket
 - [ ] History in the card: folded, opens with a selected step; a row selects its step and shows its fields; drag a row to reorder; × deletes

@@ -154,9 +154,10 @@ export interface Tool {
   clicks?(): boolean;
 }
 
-/** A pull's depth before snapping (mm), summed from pointer movement. */
+/** A pull's depth before snapping (mm), summed from pointer movement; `tap`: the centre modifier pressed, not moved since. */
 export interface PullStart {
   raw: number;
+  tap?: boolean;
 }
 
 /**
@@ -230,15 +231,12 @@ export function pulled(p: Pulling, length: (text: string) => number | null) {
 }
 
 /**
- * Typing while pulling: into the depth or (Tab) the back; Backspace erases; on a body (`on`: its depth, whether it can
- * cut) P takes the next operation (in the middle of a name P is typed). Returns whether the key was used.
+ * Typing while pulling: into the depth or (Tab) the back; Backspace erases; on a body the centre modifier (Alt) arms a
+ * tap (see `pullTap`). Returns whether the key was used.
  */
-export function pullKey(e: KeyboardEvent, p: Pulling, on?: { depth: number; cuts: boolean }) {
+export function pullKey(e: KeyboardEvent, p: Pulling, onBody: boolean) {
   const k = p.side ? 'typedBack' : 'typed';
-  if (on && pressed(e, 'operation') && !inName(p[k] ?? '')) {
-    const ops = (Object.keys(PULL_OPS) as PullOp[]).filter((o) => o !== 'cut' || on.cuts);
-    p.op = ops[(ops.indexOf(pullOp(p, true, on.depth, on.cuts)) + 1) % ops.length];
-  }
+  if (onBody && e.key === roleKeyName('centre')) p.tap ||= !e.repeat;
   else if (pressed(e, 'otherSide') && restOf(p[k] ?? '')) p[k] += restOf(p[k]!); // a name showing: written out
   else if (pressed(e, 'otherSide')) p.side = p.side ? 0 : 1;
   else if (pressed(e, 'erase')) p[k] = p[k]?.slice(0, -1) || undefined;
@@ -248,7 +246,19 @@ export function pullKey(e: KeyboardEvent, p: Pulling, on?: { depth: number; cuts
 }
 
 /**
- * Adds the pointer's movement to a pull: along the normal's direction on screen (any way: up, down, sideways), or,
+ * The centre modifier let go while pulling on a body (`on`: its depth, whether it can cut): tapped (not moved while held,
+ * so not both ways from the plane), the pull takes its next operation. Returns whether it switched.
+ */
+export function pullTap(e: KeyboardEvent, p: Pulling, on: { depth: number; cuts: boolean }) {
+  if (e.key !== roleKeyName('centre') || !p.tap) return false;
+  p.tap = false;
+  const ops = (Object.keys(PULL_OPS) as PullOp[]).filter((o) => o !== 'cut' || on.cuts);
+  p.op = ops[(ops.indexOf(pullOp(p, true, on.depth, on.cuts)) + 1) % ops.length];
+  return true;
+}
+
+/**
+ * Adds the pointer's movement to a pull (ending a tap): along the normal's direction on screen (any way: up, down, sideways), or,
  * looking along the normal, moving up pulls towards the viewer. Movement works with the pointer locked, so a pull
  * has no end at the screen edge.
  */
@@ -258,6 +268,7 @@ export function pullBy(view: ToolView, e: PointerEvent, normal: V3, middle: THRE
   const [x1, y1] = view.toScreen(middle.clone().add(n));
   const [dx, dy] = [x1 - x0, y1 - y0]; // screen px per mm along the normal
   const ppm = view.pixelsPerMm(middle);
+  s.tap = false;
   if (Math.hypot(dx, dy) < 0.2 * ppm) s.raw -= (e.movementY / ppm) * (n.dot(view.ray(e).direction) < 0 ? 1 : -1);
   else s.raw += (e.movementX * dx + e.movementY * dy) / (dx * dx + dy * dy);
 }
@@ -392,9 +403,11 @@ export class SketchTool implements Tool {
   private dwell: { seg: Segment | null; point: THREE.Vector3 | null; timer: number } = { seg: null, point: null, timer: 0 };
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
   /** Letting Shift go hides the angle rays without waiting for the pointer to move. */
-  private shiftUp = (e: KeyboardEvent) => {
+  private keyUp = (e: KeyboardEvent) => {
+    const ph = this.phase;
     if (e.key === 'Shift' && this.shiftHeld) (this.shiftHeld = false), this.update();
     if (e.key === roleKeyName('tangent')) this.holdTangent(false);
+    if (ph.kind === 'pull' && onBody(ph.target) && pullTap(e, ph, { depth: pulled(ph, (t) => this.host.length(t)).depth, cuts: this.cuts(ph) })) this.update();
   };
 
   constructor(
@@ -404,7 +417,7 @@ export class SketchTool implements Tool {
     readonly mode?: ToolMode,
   ) {
     view.el.append(this.labels);
-    addEventListener('keyup', this.shiftUp);
+    addEventListener('keyup', this.keyUp);
     this.host.hint(this.hoverHint());
     this.update();
     const m = this.drawMode();
@@ -414,7 +427,7 @@ export class SketchTool implements Tool {
   dispose() {
     this.view.el.querySelector('.mode-note')?.remove();
     clearTimeout(this.dwell.timer);
-    removeEventListener('keyup', this.shiftUp);
+    removeEventListener('keyup', this.keyUp);
     this.view.aimAt(null);
     SketchTool.guides = SketchTool.guides.filter((g) => g.fixed);
     this.view.unlockPointer();
@@ -941,7 +954,7 @@ export class SketchTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       } else if (pressed(e, 'confirm')) this.commit();
-      else if (!pullKey(e, ph, onBody(ph.target) ? { depth: pulled(ph, (t) => this.host.length(t)).depth, cuts: this.cuts(ph) } : undefined)) return false;
+      else if (!pullKey(e, ph, onBody(ph.target))) return false;
     } else return false;
     this.update();
     return true;
@@ -2074,8 +2087,8 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** A size label in the view; `t`: T and D reach for it; `op`: what pulling on a body does, with the key that switches it. */
 export function sizeLabel(text: string, active: boolean, t = false, op?: PullOp) {
   const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: sizeHtml(caretHtml(text), true) });
-  const key = op && comboText(keysOf('operation')[0]);
-  if (op) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon(OP_ICONS[op])}${key}`, title: `${PULL_OPS[op]} · ${key}: join / cut / new body` }));
+  const key = op && MODIFIER_NAMES[roleKey('centre')];
+  if (op) el.append(Object.assign(document.createElement('small'), { className: `op ${op}`, innerHTML: `${icon(OP_ICONS[op])}${key}`, title: `${PULL_OPS[op]} · tap ${key}: join / cut / new body` }));
   if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }
@@ -2085,9 +2098,9 @@ const ARC_PX = 36;
 const straightKey = (k: string) => !k.startsWith('circle:') && !k.startsWith('curve:');
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
 export const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
-const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [D] measure · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done';
+const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [D] measure · [Alt] held: both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done';
 /** On a body: what P does. */
-export const OP_HINT = ' · [P] join / cut / new body';
+export const OP_HINT = ' · [Alt] tapped: join / cut / new body';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */
 /** Lines to snap to (world): outlines of the sketches' shapes (with the shape), and body edges. */

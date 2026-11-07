@@ -2385,6 +2385,16 @@ input + .set-axis {
   font-size: 11px;
   color: var(--muted);
 }
+/* what a pull does to the body: Join green, Cut red, New body blue */
+.size-label .op.join {
+  color: #2fae5a;
+}
+.size-label .op.cut {
+  color: var(--error);
+}
+.size-label .op.new {
+  color: var(--accent);
+}
 
 /* a message that does something when clicked (save with autosave) */
 #topbar .status.offer {

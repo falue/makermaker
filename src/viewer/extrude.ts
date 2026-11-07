@@ -5,13 +5,13 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, onBody, OP_HINT, planeHit, pullBy, pullCuts, pulled, pullKey, pullOp, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, onBody, OP_HINT, planeHit, pullBy, pullCuts, pulled, pullKey, pullOp, pullTap, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click a face or sketch to extrude · [Shift]-click: more (again: drops it) · double-click: everything inside a shape · a sketch in the list: all of it · [Enter] pulls them · [Esc] stops';
-const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [D] measure · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] back to picking';
+const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [D] measure · [Alt] held: both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] back to picking';
 
 /**
  * A face of a body: where it was clicked, its outward normal (world), which face of which mesh, the finish (fillet /
@@ -82,11 +82,18 @@ export class ExtrudeTool implements Tool {
     private focus?: string,
   ) {
     view.el.append(this.labels);
+    addEventListener('keyup', this.keyUp);
     host.hint(PICK_HINT);
     this.update();
   }
 
+  /** Alt tapped while pulling on a body: the next operation. */
+  private keyUp = (e: KeyboardEvent) => {
+    if (this.pull && this.onBody() && pullTap(e, this.pull, { depth: this.depths().depth, cuts: this.cuts() })) this.update();
+  };
+
   dispose() {
+    removeEventListener('keyup', this.keyUp);
     this.view.aimAt(null);
     this.view.markFaces([]);
     this.host.cursorTip(null);
@@ -213,7 +220,7 @@ export class ExtrudeTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       }
-      if (!pullKey(e, p, this.onBody() ? { depth: this.depths().depth, cuts: this.cuts() } : undefined)) return false;
+      if (!pullKey(e, p, this.onBody())) return false;
       this.host.hint(this.pullHint());
       this.changed();
       return true;

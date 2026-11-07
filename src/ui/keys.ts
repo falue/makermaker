@@ -79,7 +79,6 @@ export const KEYS = {
   toObject: { chapter: 'Shape', name: 'To object', order: 78, default: [{ key: 't' }], hint: 'Pulling (before typing a size): click a corner, edge or face, the pull reaches it' },
   measureValue: { chapter: 'Shape', name: 'Distance measure', order: 78.5, default: [{ key: 'd' }], hint: 'Open the Distance measure tool, again: close it. Where T (to object) works: it opens, what you were doing waits; its Use puts the value measured at the cursor, to go on typing, or press T or this again' },
   pullPicked: { chapter: 'Shape', name: 'Pull picked areas', order: 74, default: [{ key: 'e' }], hint: 'Picking areas: pull the picked ones (as Confirm does)' },
-  operation: { chapter: 'Shape', name: 'Join / Cut / New body', order: 74.5, default: [{ key: 'p' }], hint: 'Pulling on a body: what the pull does to it, next of the three (typed as a letter in the middle of a name)' },
 } satisfies Record<string, Binding>;
 
 export type Action = keyof typeof KEYS;
