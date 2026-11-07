@@ -2292,7 +2292,8 @@ input + .to-object,
 }
 
 /* icons in two greys: the shape, its dashed or faint (secondary) parts lighter; `lead`: a dashed part that is the shape */
-.tool svg :is([stroke-dasharray]:not(.lead), .faint) {
+.tool svg :is([stroke-dasharray]:not(.lead), .faint),
+.menu-item svg :is([stroke-dasharray]:not(.lead), .faint) {
   stroke: color-mix(in srgb, currentColor 50%, transparent);
 }
 .tool.on svg :is([stroke-dasharray]:not(.lead), .faint) {
