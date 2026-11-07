@@ -287,6 +287,19 @@ interface ShapeEdit {
  * sets the distance; the step follows the zoom: Shift coarse, Ctrl precise). Clicking a cut face picks its body. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
  * to orthographic until the next rotation. Top left: Ortho / Persp and Fit. A sketch tool takes the pointer while active.
  */
+/** A grey matcap: a sphere lit from the upper left, light grey to dark grey. */
+function greyMatcap(size = 128) {
+  const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size });
+  const g = canvas.getContext('2d')!;
+  const light = g.createRadialGradient(size * 0.35, size * 0.3, size * 0.05, size / 2, size / 2, size * 0.62);
+  light.addColorStop(0, '#d2d2d2');
+  light.addColorStop(0.6, '#8f8f8f');
+  light.addColorStop(1, '#4a4a4a');
+  g.fillStyle = light;
+  g.fillRect(0, 0, size, size);
+  return Object.assign(new THREE.CanvasTexture(canvas), { colorSpace: THREE.SRGBColorSpace });
+}
+
 /** How bodies are drawn: shaded (their materials), grey, lines (each body hides only its own back edges), every line. */
 export type ViewMode = 'shaded' | 'grey' | 'lines' | 'wire';
 const VIEW_MODES: [ViewMode, string, string][] = [
@@ -537,11 +550,15 @@ export class Viewer implements ToolView {
   private edgeMaterial = new THREE.LineBasicMaterial({ vertexColors: true });
   /** How bodies are drawn (remembered per browser): their materials, all grey, lines (each body hides only its own back edges), or every line. */
   viewMode: ViewMode = VIEW_MODES.some(([m]) => m === localStorage.getItem('makermaker.viewMode')) ? (localStorage.getItem('makermaker.viewMode') as ViewMode) : 'shaded';
-  private greyFill = new THREE.MeshStandardMaterial({ color: 0xc8c8c8, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-  /** Lines and every line: no fill (lines: its depth only), the edges in the theme's line colour (every line: through everything). */
+  /** Grey: shaded by a grey matcap (light from the upper left), not by the scene's coloured lights, so it stays grey. */
+  private greyFill = new THREE.MeshMatcapMaterial({ matcap: greyMatcap(), polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  /**
+   * Lines and every line: no fill (lines: its depth only), the edges and contours as wide lines (`fat`, px) in the
+   * theme's line colour (every line: through everything); a plain line is 1 px whatever is asked.
+   */
   private noFill = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
-  private lineEdges = new THREE.LineBasicMaterial({ color: 0x2a2a2a });
-  private allEdges = new THREE.LineBasicMaterial({ color: 0x2a2a2a, depthTest: false });
+  private lineEdges = new LineMaterial({ color: 0x2a2a2a, linewidth: 1.6 });
+  private allEdges = new LineMaterial({ color: 0x2a2a2a, linewidth: 1.6, depthTest: false });
   /** Cutters (tool bodies of cuts): red outlines seen through everything, no fill (still picked by their faces). */
   private cutters = new Set<string>();
   private cutterEdge = new THREE.LineBasicMaterial({ color: 0xe5484d, depthTest: false, transparent: true });
@@ -2176,7 +2193,8 @@ export class Viewer implements ToolView {
     const mode = this.viewMode;
     const fill = mode === 'lines' ? this.depthOnly : mode === 'wire' ? this.noFill : mode === 'grey' ? this.greyFill : this.materialOf(id);
     (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : fill;
-    (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : mode === 'lines' ? this.lineEdges : mode === 'wire' ? this.allEdges : this.edgeMaterial; // selected: a red silhouette
+    (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
+    lines.visible = cutter || faded || (mode !== 'lines' && mode !== 'wire'); // line modes: its wide copy instead (`drawContours`)
     // reduced opacity (and the cut tool): see-through bodies hide each other, their depth drawn before the see-through
     // colours (sections and picking skip it); x-ray shows what lies inside
     const hides = faded && (dropped || missed || around === 'dim');
@@ -2709,8 +2727,9 @@ export class Viewer implements ToolView {
       if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
       this.drawContours();
       // lines: the bodies' own edges and contours drawn after the rest (`ownLines`)
-      const own = this.viewMode === 'lines' ? [...this.bodies.values()].filter((g) => g.visible && (g.children[1] as THREE.LineSegments | undefined)?.material === this.lineEdges) : [];
-      const lines = own.map((g) => g.children.filter((c) => c.userData.edgeGroups || (c.userData.contour && c.visible)));
+      const wide = (c: THREE.Object3D) => (c.userData.wide || c.userData.contour !== undefined) && c.visible;
+      const own = this.viewMode === 'lines' ? [...this.bodies.values()].filter((g) => g.visible && g.children.some(wide)) : [];
+      const lines = own.map((g) => g.children.filter(wide));
       for (const l of lines.flat()) l.visible = false;
       if (this.ao.on && this.viewMode !== 'lines' && this.viewMode !== 'wire') this.renderAO();
       else this.renderer.render(this.scene, this.camera);
@@ -2786,21 +2805,30 @@ export class Viewer implements ToolView {
     const cam = this.camera;
     const persp = cam === this.perspective;
     const view = cam.matrixWorld.elements.join();
+    const material = this.viewMode === 'lines' ? this.lineEdges : this.allEdges;
+    const wideLine = (key: 'wide' | 'contour') => {
+      const l = Object.assign(new LineSegments2(new LineSegmentsGeometry(), material), { raycast: () => {} });
+      l.userData[key] = '';
+      return l;
+    };
     for (const [id, g] of this.bodies) {
-      let line = g.children.find((c) => c.userData.contour) as THREE.LineSegments | undefined;
+      let [edges, line] = [g.children.find((c) => c.userData.wide !== undefined), g.children.find((c) => c.userData.contour !== undefined)] as (LineSegments2 | undefined)[];
       const solid = g.children[0] as THREE.Mesh | undefined;
-      if (!lined || !g.visible || !solid || this.cutters.has(id)) {
-        if (line) line.visible = false;
+      const thin = g.children[1] as THREE.LineSegments | undefined;
+      // drawn wide only where its thin edges are hidden for it (not a tool body, not faded)
+      if (!lined || !g.visible || !solid || !thin || thin.visible || this.cutters.has(id)) {
+        for (const l of [edges, line]) if (l) l.visible = false;
         continue;
       }
-      const key = `${persp} ${view} ${solid.matrixWorld.elements.join()}`;
-      if (!line) {
-        line = Object.assign(new THREE.LineSegments(new THREE.BufferGeometry()), { raycast: () => {} });
-        line.userData.contour = '';
-        g.add(line);
+      if (!edges) g.add((edges = wideLine('wide')));
+      if (edges.userData.wide !== thin.geometry.uuid) {
+        edges.userData.wide = thin.geometry.uuid;
+        edges.geometry.dispose();
+        edges.geometry = new LineSegmentsGeometry().setPositions(thin.geometry.attributes.position.array as Float32Array);
       }
-      line.visible = true;
-      line.material = this.viewMode === 'lines' ? this.lineEdges : this.allEdges;
+      if (!line) g.add((line = wideLine('contour')));
+      for (const l of [edges, line]) Object.assign(l, { visible: true, material });
+      const key = `${persp} ${view} ${solid.matrixWorld.elements.join()}`;
       if (line.userData.contour === key) continue;
       line.userData.contour = key;
       // the camera in body coordinates: where it is (perspective) or which way it looks (orthographic)
@@ -2816,8 +2844,8 @@ export class Viewer implements ToolView {
         const [a, b] = [pairs[k], pairs[k + 1]];
         if (faces(pairs[k + 2], a) !== faces(pairs[k + 3], a)) out.push(pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2], pos[b * 3], pos[b * 3 + 1], pos[b * 3 + 2]);
       }
-      line.geometry.dispose(); // a new one: a replaced attribute would keep its buffer until then
-      line.geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+      line.geometry.dispose(); // a new one: a replaced one would keep its buffers until then
+      line.geometry = new LineSegmentsGeometry().setPositions(out);
     }
   }
 
@@ -2993,6 +3021,7 @@ export class Viewer implements ToolView {
     this.renderer.setSize(w, h);
     this.dropComposer();
     (this.axes.material as LineMaterial).resolution.set(w, h);
+    for (const m of [this.lineEdges, this.allEdges]) m.resolution.set(w, h);
     for (const l of this.measureLegs) l.line.material.resolution.set(w, h);
     this.updateFrustums(w / h);
     this.render();
