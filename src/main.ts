@@ -25,7 +25,7 @@ import { openMaterials } from './ui/materials';
 import { shotCamera } from './viewer/render';
 import { emptyDoc, ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
-import { carrierOf, contents, freed, listedAfter, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
+import { carrierOf, contents, freed, listedAfter, onFaceOf, ownerOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { CoatFeature } from './doc/types';
 import type { Area, Backdrop, Body, BulgeFeature, CameraState, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, RenderTo, Sketch, SketchPlacement, SplitFeature, ThreadFeature, Unit } from './doc/types';
@@ -42,7 +42,7 @@ import { Kernel } from './kernel/client';
 import { canUseFolders, recall, remember } from './io/scriptFolder';
 import { openVersions, type Picture } from './ui/versions';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
-import { COPY_TIP, measureButton, renderUI, scrub, showRenderProgress, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
+import { COPY_TIP, measureButton, renderUI, scrub, showRenderProgress, showTab, tabOf, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { loadSettings, openSettings } from './ui/settings';
 import { pythonTerminal } from './ui/terminal';
@@ -277,9 +277,14 @@ let revealFrame = 0;
  */
 function revealInList(id: string | null) {
   const doc = history.current;
-  const object = id ? (doc.bodies.find((b) => b.id === id) ?? doc.sketches.find((x) => x.id === id)) : undefined;
-  if (!object) return;
-  for (let g = doc.groups.find((x) => x.id === object.group); g; g = doc.groups.find((x) => x.id === g!.parent)) folded.delete(g.id);
+  const tab = id && tabOf(doc, id);
+  if (!tab) return;
+  showTab(tab); // its tab opens
+  // a body's sketch shows under its body; the groups around it unfold
+  const owner = ownerOf(doc, id!);
+  if (owner) folded.add(`sketches:${owner}`);
+  const at = doc.bodies.find((b) => b.id === (owner ?? id))?.group ?? doc.groups.find((g) => g.id === id)?.parent ?? null;
+  for (let g = doc.groups.find((x) => x.id === at); g; g = doc.groups.find((x) => x.id === g!.parent)) folded.delete(g.id);
   render();
   const row = document.querySelector(`#left [data-id="${CSS.escape(id!)}"]`);
   const list = row?.closest<HTMLElement>('.list-body');
@@ -398,8 +403,12 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
 });
 // what lies under the pointer lights its row in the list (orange) for the moment
 viewer.onHover = (id) => {
-  for (const el of document.querySelectorAll('#left .item.hot')) el.classList.remove('hot');
-  if (id) document.querySelector(`#left .item[data-id="${CSS.escape(id)}"]`)?.classList.add('hot');
+  for (const el of document.querySelectorAll('#left .hot')) el.classList.remove('hot');
+  const row = id && document.querySelector(`#left .item[data-id="${CSS.escape(id)}"]`);
+  // its row lights; not in the open tab: that tab gets a dot
+  const tab = id && !row && tabOf(history.current, id);
+  if (row) row.classList.add('hot');
+  else if (tab) document.querySelector(`#left .tabs [data-tab="${tab}"]`)?.classList.add('hot');
   if (pending) viewer.lightBodies(id && picks(id) ? [id] : []); // a waiting tool: what a click takes
 };
 

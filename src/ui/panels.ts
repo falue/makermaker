@@ -296,6 +296,30 @@ let lastEye: { list: 'objects' | 'sketches' | 'solid'; id: string; on: boolean }
 /** The list row whose name is edited in place (its id). */
 let renaming: string | null = null;
 
+/** The left column's tabs: Objects (bodies, groups, a body's own sketches under it), Aids (free sketches, work planes, images), Parameters. */
+export type LeftTab = 'objects' | 'aids' | 'params';
+const LEFT_TABS: [LeftTab, string][] = [
+  ['objects', 'Objects'],
+  ['aids', 'Aids'],
+  ['params', 'Parameters'],
+];
+/** The open one (remembered in this browser) and each one's filter text. */
+let leftTab: LeftTab = LEFT_TABS.find(([t]) => t === localStorage.getItem('makermaker.leftTab'))?.[0] ?? 'objects';
+const filters: Record<LeftTab, string> = { objects: '', aids: '', params: '' };
+
+/** Opens tab `tab` of the left column (shown at the next render). */
+export function showTab(tab: LeftTab) {
+  leftTab = tab;
+  localStorage.setItem('makermaker.leftTab', tab);
+}
+
+/** The tab that lists `id`: a body, group or a body's sketch Objects; a free sketch, work plane or image Aids; else null. */
+export function tabOf(doc: Doc, id: string): LeftTab | null {
+  if (doc.bodies.some((b) => b.id === id) || doc.groups.some((g) => g.id === id)) return 'objects';
+  if (doc.sketches.some((s) => s.id === id)) return ownerOf(doc, id) ? 'objects' : 'aids';
+  return doc.planes.some((w) => w.id === id) || doc.images.some((im) => im.id === id) ? 'aids' : null;
+}
+
 let pairOut = 0;
 let pairLit: ((id: string) => string | null) | null = null;
 /** Paints the lit pair on the list rows (again after a redraw). */
@@ -843,7 +867,30 @@ function left(ctx: UIContext): Node[] {
   let most = 1;
   const marked = (marks: HTMLElement[]) => ((most = Math.max(most, marks.length)), h('span', { className: 'marks' }, ...marks));
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
-  const rows = tree(doc, ctx.folded).map((r) => {
+  // filtering: everything unfolded, only what matches and what holds it (its groups; a body over its sketch)
+  const filter = filters[leftTab].trim().toLowerCase();
+  const matches = (name: string) => !filter || name.toLowerCase().includes(filter);
+  const keep = filter ? new Set<string>() : null;
+  if (keep) {
+    const up = (group: string | null) => {
+      for (let g = doc.groups.find((x) => x.id === group); g; g = doc.groups.find((x) => x.id === g!.parent)) keep.add(g.id);
+    };
+    for (const b of doc.bodies) if (matches(b.name) || sketchesOf(doc, b.id).some((k) => matches(k.name))) (keep.add(b.id), up(b.group));
+    for (const g of doc.groups) if (matches(g.name)) (keep.add(g.id), up(g.parent));
+  }
+  /** A sketch's row (`depth`: indented under its body); a plain click draws into it: sketch mode, looking at its plane. */
+  const sketchRow = (sk: Doc['sketches'][number], depth = 0) => {
+    const i = doc.sketches.indexOf(sk);
+    const item = listItem(sk.id, selectedClass(sk.id), (how) => ctx.deselectAgain(sk.id, how) || (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']));
+    item.title = `${whose(doc, sk.id)} · click to draw into it`;
+    item.onmouseenter = () => ctx.lightSketch(sk.id);
+    item.onmouseleave = () => ctx.lightSketch(null);
+    const el = h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, marked([]), eye('sketches', sk.id, sk.visible));
+    el.dataset.id = sk.id;
+    el.style.paddingLeft = `${depth * 22}px`;
+    return el;
+  };
+  const rows = tree(doc, keep ? new Set() : ctx.folded).filter((r) => !keep || keep.has(r.id)).flatMap((r): HTMLElement[] => {
     const { id, kind, depth } = r;
     if (kind === 'group') {
       const i = doc.groups.findIndex((g) => g.id === id);
@@ -852,7 +899,7 @@ function left(ctx: UIContext): Node[] {
       const chevron = h('span', { className: `fold${r.open ? ' open' : ''}`, innerHTML: icon('chevron'), title: r.open ? 'Fold' : 'Unfold', onclick: (e) => (e.stopPropagation(), ctx.toggleFold(id)) });
       // a plain click on a folded one unfolds it (not the click that starts renaming it); only its arrow folds it
       const pick = (how: Pick) => (!how && renaming !== id && !r.open && ctx.toggleFold(id), ctx.select(id, how));
-      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), marked(jointMark(id)), eye('objects', id, g.visible));
+      return [row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), marked(jointMark(id)), eye('objects', id, g.visible))];
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -869,10 +916,11 @@ function left(ctx: UIContext): Node[] {
       const when = ctx.sketching ? 'the sketch group is open' : 'its group is selected';
       Object.assign(look, { innerHTML: icon(full ? 'eye' : 'eyeFaded'), title: full ? 'Shown fully: click to make it see-through again' : `See-through while ${when}: click to show it fully`, onclick: (e: MouseEvent) => eyeClick('solid', p.id, !full, e, ctx.setSolid) });
     }
-    // its sketches have their own list: this button draws into the (first) one
+    // its sketches fold out under it, as a boolean's tool bodies do: this button folds them
     const own = sketchesOf(doc, p.id);
+    const sketchesOpen = ctx.folded.has(`sketches:${p.id}`) || (!!keep && own.some((k) => matches(k.name)));
     const bools = fold(r); // an owner of tool bodies: the red boolean button folds them
-    const sketch = own.length ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Based on sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.editSketch(own[0].id) })] : [];
+    const sketch = own.length ? [h('button', { className: `icon sketch-fold${sketchesOpen ? ' open' : ''}`, innerHTML: icon('sketch'), title: `${sketchesOpen ? 'Click: Fold its sketches away' : 'Click: Show its sketches under it'}: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.toggleFold(`sketches:${p.id}`) })] : [];
     // a boolean's tool body: the op, and whose
     const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id && !f.linked));
     const op = user?.features.find((f) => f.type === 'boolean' && f.body === id && !f.linked);
@@ -895,53 +943,29 @@ function left(ctx: UIContext): Node[] {
     const finger = p.features.find((f) => f.type === 'fingers');
     const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Box joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];
     const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.deselectAgain(id, how) || ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), marked([...linked, ...joint, ...sketch, ...bools, ...jointMark(id)]), tool, ...toolEye);
-    return el;
+    return [el, ...(sketchesOpen ? own.filter((k) => !keep || matches(k.name) || matches(p.name)).map((k) => sketchRow(k, depth + 1)) : [])];
   });
-  // sketches: their own list, each with the body it belongs to
-  const sketchRows = doc.sketches.map((sk, i) => {
-    const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
-    // a plain click draws into it: sketch mode, looking at its plane
-    const item = listItem(sk.id, selectedClass(sk.id), (how) => ctx.deselectAgain(sk.id, how) || (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']));
-    item.title = `${whose(doc, sk.id)} · click to draw into it`;
-    item.onmouseenter = () => ctx.lightSketch(sk.id);
-    item.onmouseleave = () => ctx.lightSketch(null);
-    // its body, like a body's sketch button: a click selects it
-    const body = marked(owner ? [h('button', { className: 'icon', innerHTML: icon('body'), title: `Object derived: ${owner.name}`, onclick: () => ctx.select(owner.id) })] : []);
-    return h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, body, eye('sketches', sk.id, sk.visible));
-  });
-  /** A list's title: a click folds it; objects and sketches have an eye that hides all of them for now (their eyes stay). */
-  const heading = (key: 'objects' | 'sketches' | 'params' | 'planes' | 'images', label: string, kind?: Parameters<typeof icon>[0]) => {
-    const open = !ctx.folded.has(`list:${key}`);
-    const title = h('h3', { className: 'fold-head', title: open ? 'Fold' : 'Unfold', onclick: () => ctx.toggleFold(`list:${key}`) }, h('span', { className: `fold${open ? ' open' : ''}`, innerHTML: icon('chevron') }), ...(kind ? [h('span', { className: 'kind', innerHTML: icon(kind) })] : []), label);
-    const hidden = (key === 'objects' || key === 'sketches') && ctx.hideAll[key];
-    const all = key !== 'objects' && key !== 'sketches' ? [] : [h('button', { className: 'icon', innerHTML: icon(hidden ? 'eyeOff' : 'eye'), title: hidden ? 'Show them again as they were' : 'Hide all for now (each eye stays as it is)', onclick: () => ctx.toggleHideAll(key) })];
-    return { open, head: h('div', { className: 'tree-head' }, title, ...all) };
-  };
-  const { open: objectsOpen, head } = heading('objects', 'Objects', 'body');
-  const sketchList = heading('sketches', 'Sketches', 'sketch');
-  const paramList = heading('params', 'Parameters', 'param');
-  const planeList = heading('planes', 'Work planes', 'plane');
-  const imageList = heading('images', 'Images', 'image');
-  const imageRows = doc.images.map((im, i) => {
+  // Aids: the sketches no body owns (a body's are under it)
+  const sketchRows = doc.sketches.filter((sk) => !ownerOf(doc, sk.id) && matches(sk.name)).map((sk) => sketchRow(sk));
+  const imageRows = doc.images.flatMap((im, i) => {
+    if (!matches(im.name)) return [];
     // a click on the one selected takes it off again
     const item = listItem(im.id, selectedClass(im.id), (how) => ctx.deselectAgain(im.id, how) || ctx.select(im.id, how), h('span', { className: 'kind', innerHTML: icon('image') }), nameOf(im.id, im.name, ['images', String(i), 'name']));
     item.onmouseenter = () => ctx.lightImage(im.id);
     item.onmouseleave = () => ctx.lightImage(null);
     const look = h('button', { className: 'icon', title: im.visible ? 'Hide' : 'Show', innerHTML: icon(im.visible ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, ['images', String(i), 'visible'], !im.visible)) });
-    return h('div', { className: 'listed' }, item, look);
+    return [h('div', { className: 'listed' }, item, look)];
   });
-  const planeRows = doc.planes.map((w, i) => {
+  const planeRows = doc.planes.flatMap((w, i) => {
+    if (!matches(w.name)) return [];
     const item = listItem(w.id, selectedClass(w.id), (how) => ctx.deselectAgain(w.id, how) || ctx.select(w.id, how), h('span', { className: 'kind plane-swatch' }), nameOf(w.id, w.name, ['planes', String(i), 'name']));
     item.onmouseenter = () => ctx.lightPlane(w.id);
     item.onmouseleave = () => ctx.lightPlane(null);
     const edit = h('button', { className: 'icon', title: 'Edit it in its panel: how it is made, offset, turn, points, size', innerHTML: icon('edit'), onclick: () => ctx.editPlane(w.id) });
     const look = h('button', { className: 'icon', title: w.visible ? 'Hide' : 'Show', innerHTML: icon(w.visible ? 'eye' : 'eyeOff'), onclick: () => ctx.commit(setIn(doc, ['planes', String(i), 'visible'], !w.visible)) });
-    return h('div', { className: 'listed' }, item, edit, look);
+    return [h('div', { className: 'listed' }, item, edit, look)];
   });
-  head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));
-  head.ondragleave = () => head.classList.remove('drop');
-  head.ondrop = (e) => (e.preventDefault(), ctx.moveInto(JSON.parse(e.dataTransfer!.getData('text/plain')), null));
-  const params = Object.keys(doc.params).map((name) =>
+  const params = Object.keys(doc.params).filter(matches).map((name) =>
     h(
       'div',
       { className: 'param' },
@@ -965,20 +989,45 @@ function left(ctx: UIContext): Node[] {
   Object.assign(addParam.dataset, { complete: '', noMeasure: '' }); // a name is typed here: D is a letter
 
   const none = doc.bodies.length ? [] : [h('p', { className: 'hint' }, 'Draw a shape (R, C, L) to start a body.')];
-  // a list: its heading always in reach, its contents scrolling below it
-  const section = (key: string, title: Node, open: boolean, contents: Node[]) => {
-    const body = h('div', { className: 'list-body' }, ...contents);
-    body.dataset.list = key;
-    body.style.setProperty('--marks', String(most));
-    return h('div', { className: 'list-section' }, title, ...(open ? [body] : []));
+  const aidHead = (label: string, list: Node[]) => (list.length ? [h('h4', { className: 'aid-head' }, label), ...list] : []);
+  const contents: Record<LeftTab, Node[]> = {
+    objects: [...rows, ...none],
+    aids: [...aidHead('Sketches', sketchRows), ...aidHead('Work planes', planeRows), ...aidHead('Images', imageRows)],
+    params: [...params, addParam],
   };
-  return [
-    section('objects', head, objectsOpen, [...rows, ...none]),
-    section('sketches', sketchList.head, sketchList.open, sketchRows),
-    ...(doc.planes.length ? [section('planes', planeList.head, planeList.open, planeRows)] : []),
-    ...(doc.images.length ? [section('images', imageList.head, imageList.open, imageRows)] : []),
-    section('params', paramList.head, paramList.open, [...params, addParam]),
-  ];
+  const counts: Record<LeftTab, number> = {
+    objects: doc.bodies.filter((b) => !ownersOf(doc).has(b.id)).length + doc.groups.length,
+    aids: doc.sketches.filter((sk) => !ownerOf(doc, sk.id)).length + doc.planes.length + doc.images.length,
+    params: Object.keys(doc.params).length,
+  };
+  // the tabs on top (the shared tab look): one list at a time, the whole height
+  const tabs = h(
+    'div',
+    { className: 'tabs' },
+    ...LEFT_TABS.map(([t, label]) => {
+      const b = h('button', { className: t === leftTab ? 'on' : '', title: `Click: Show ${label.toLowerCase()}`, onclick: () => t !== leftTab && (showTab(t), renderUI(ctx)) }, h('span', {}, label), h('small', {}, String(counts[t])));
+      b.dataset.tab = t;
+      return b;
+    }),
+  );
+  // over the list: a filter (typing narrows it at once; Esc clears it) and, for objects and sketches, the eye that hides them all
+  const find = h('input', { className: 'filter', value: filters[leftTab], placeholder: `Filter ${LEFT_TABS.find(([t]) => t === leftTab)![1].toLowerCase()}`, spellcheck: false });
+  find.dataset.path = `filter.${leftTab}`;
+  find.oninput = () => ((filters[leftTab] = find.value), (find.dataset.dirty = '1'), renderUI(ctx));
+  find.onkeydown = (e) => pressed(e, 'cancel') && find.value && (e.stopPropagation(), (filters[leftTab] = ''), renderUI(ctx));
+  const hides = leftTab === 'objects' ? 'objects' : leftTab === 'aids' ? 'sketches' : null;
+  const all = hides ? [h('button', { className: 'icon', innerHTML: icon(ctx.hideAll[hides] ? 'eyeOff' : 'eye'), title: ctx.hideAll[hides] ? 'Show them again as they were' : `Hide all ${hides} for now (each eye stays as it is)`, onclick: () => ctx.toggleHideAll(hides) })] : [];
+  const head = h('div', { className: 'tree-head' }, find, ...all);
+  // dropped on the head: objects to the top level
+  if (leftTab === 'objects') {
+    head.ondragover = (e) => (e.preventDefault(), head.classList.add('drop'));
+    head.ondragleave = () => head.classList.remove('drop');
+    head.ondrop = (e) => (e.preventDefault(), head.classList.remove('drop'), ctx.moveInto(JSON.parse(e.dataTransfer!.getData('text/plain')), null));
+  }
+  const body = h('div', { className: 'list-body' }, ...contents[leftTab]);
+  body.dataset.list = leftTab;
+  body.style.setProperty('--marks', String(most));
+  return [tabs, h('div', { className: 'list-section' }, head, body)];
 }
 
 function right(ctx: UIContext): Node[] {

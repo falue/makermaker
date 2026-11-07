@@ -209,6 +209,48 @@ span.error,
   min-height: 0;
   overflow: auto;
 }
+/* the left column: its tabs on top, the open one's list filling the rest */
+#left > .tabs {
+  margin-bottom: 6px;
+}
+#left > .tabs button {
+  flex: auto; /* as wide as its name, on one line */
+  padding: 2px 5px;
+  white-space: nowrap;
+}
+#left > .tabs small {
+  font-size: 10px;
+  color: var(--muted);
+}
+#left > .list-section {
+  flex: 1;
+}
+#left .tree-head {
+  gap: 4px;
+  margin-bottom: 6px;
+}
+#left .tree-head .filter {
+  flex: 1;
+  min-width: 0;
+}
+#left .aid-head {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+#left .aid-head:first-child {
+  margin-top: 0;
+}
+/* hovered in the view but listed in another tab: an orange dot on that tab */
+#left .tabs button.hot::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff8c1a;
+}
 #right {
   grid-area: right;
   border-left: 1px solid var(--line);
