@@ -116,14 +116,5 @@ Answers assumed where a request left a question open.
 ## Group origins
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
 
-## Select first, then the tool (waiting for the go-ahead; audit 2026-11-07)
-- Sweep: uses no selection at all, always asks to click the path, then the profile (two selected sketches or shapes are ignored).
-- Mirror: a selected sketch without picked shapes, selected groups, and an Alt-picked face as the mirror plane are ignored.
-- Offset / Shell: a selected sketch is ignored; Shell ignores Alt-picked faces (as open faces, and to find the body).
-- Cut: a cutter selected first (shape, sketch, face, work plane) is dropped; selected groups are ignored.
-- Revolve: two or more selected sketches are ignored; an Alt-picked edge is not taken as the axis.
-- Pattern: selected groups are ignored; around: an Alt-picked edge is not taken as the axis.
-- Coat: nothing selected but an Alt-picked face: its body is not used; groups are ignored.
-- Measure: edges or faces Alt-picked before it starts are ignored.
-- Rotate: an Alt-picked edge is not taken as the axis (the objects are).
-- Bulge: a selected sketch without picked shapes is ignored.
+## Select first, then the tool
+- Done 2026-11-08 for Mirror, Sweep, Measure, Revolve, Rotate, Pattern, Coat, Offset / Shell and Cut. Left: Revolve with several sketches selected takes the first only (each turns around an axis in its own plane, one panel each); Pattern repeats a group's bodies, not the group as a group (the copies are loose bodies); Bulge ignores a selected sketch (on purpose: user, 2026-11-08).
