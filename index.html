@@ -23,18 +23,38 @@
         gap: 6px;
         background: #f7f7f5;
       }
+      /* the files' grey (#8a8a88) made the top bar's colours: the logo muted (#777), the name the text's (#222) */
+      #loading .logo {
+        filter: brightness(0.862);
+      }
+      #loading .name {
+        filter: brightness(0.246);
+      }
+      /* dark: muted #9a9a98, text #e4e4e2 */
       @media (prefers-color-scheme: dark) {
         :root:not([data-theme='light']) #loading {
           background: #18191b;
+        }
+        :root:not([data-theme='light']) #loading .logo {
+          filter: brightness(1.116);
+        }
+        :root:not([data-theme='light']) #loading .name {
+          filter: brightness(1.652);
         }
       }
       :root[data-theme='dark'] #loading {
         background: #18191b;
       }
+      :root[data-theme='dark'] #loading .logo {
+        filter: brightness(1.116);
+      }
+      :root[data-theme='dark'] #loading .name {
+        filter: brightness(1.652);
+      }
     </style>
   </head>
   <body>
-    <div id="loading"><img src="/src/ui/icons/logo.svg" alt="" width="20" height="20" /><img src="/src/ui/icons/makermaker.svg" alt="makermaker" width="115" height="12" /></div>
+    <div id="loading"><img class="logo" src="/src/ui/icons/logo.svg" alt="" width="20" height="20" /><img class="name" src="/src/ui/icons/makermaker.svg" alt="makermaker" width="115" height="12" /></div>
     <header id="topbar"></header>
     <aside id="left"></aside>
     <nav id="toolbar"></nav>
