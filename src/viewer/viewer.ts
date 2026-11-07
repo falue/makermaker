@@ -1374,8 +1374,8 @@ export class Viewer implements ToolView {
 
   /**
    * Blue marks on the reference points of the active sketch's selected shapes (and of shapes measured from
-   * elsewhere than their centre), each with an arrow in the direction the shape grows (at the centre a cross of four); a centre one only while the
-   * pointer is over the selected shape's box (`boxHover`), as its handles.
+   * elsewhere than their centre), each with an arrow in the direction the shape grows (at the centre a cross of four); the default
+   * centre (none picked) only while the pointer is over the selected shape's box (`boxHover`), as its handles.
    */
   private refMarks(arrowPx = 36, headPx = 10, crossPx = 22) {
     const s = this.sketches.find((v) => v.id === this.activeSketch);
@@ -1383,8 +1383,9 @@ export class Viewer implements ToolView {
     const points: THREE.Vector3[] = [];
     const lines: THREE.Vector3[] = [];
     for (const q of s.shapes) {
-      const ref = this.shapeRefs.get(q.id) ?? [0, 0];
-      if (!this.selectedShapes.includes(q.id) || (!this.boxHover && !ref[0] && !ref[1])) continue;
+      const picked = this.shapeRefs.get(q.id);
+      if (!this.selectedShapes.includes(q.id) || (!this.boxHover && !picked)) continue;
+      const ref = picked ?? [0, 0];
       const p = this.overrides.get(q.id) ?? q;
       const [u, v] = anchorAt(p, ref);
       const at = new THREE.Vector3(...toWorld(s.frame, u, v));
