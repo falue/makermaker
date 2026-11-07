@@ -107,6 +107,8 @@ export interface ToolView {
   truePointAt(e: MouseEvent): Promise<THREE.Vector3 | null>;
   /** The nearest point on the true curve of a curved sketch side or circle (`only`: of that shape) within `reach` mm. */
   onSketchCurve(at: THREE.Vector3, reach?: number, only?: string): THREE.Vector3 | null;
+  /** The point on the kernel's true line or circle of the body edge within `reach` mm of `at` (world); null: none (a mesh body). */
+  onBodyEdge(at: THREE.Vector3, reach?: number): THREE.Vector3 | null;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   toScreen(p: THREE.Vector3): [number, number];
@@ -1172,6 +1174,9 @@ export class SketchTool implements Tool {
     const [a, b] = l.segs[nearest];
     if (l.shape?.p.kind === 'circle' || (l.shape && curved(l.shape.p))) return this.view.onSketchCurve(at, a.distanceTo(b) + 0.1, l.shape.p.id) ?? at;
     if (l.shape || l.guide || l.segs.length === 1) return new THREE.Line3(a, b).closestPointToPoint(at, false, new THREE.Vector3());
+    // a curved body edge: on the kernel's circle; a mesh body's: on the circle through its points beside it
+    const exact = this.view.onBodyEdge(at, a.distanceTo(b) + 0.1);
+    if (exact) return exact;
     const third = l.segs[nearest + 1]?.[1] ?? l.segs[nearest - 1]?.[0];
     if (!third) return at;
     const on = ontoArcThrough(uvOf(t.frame, a), uvOf(t.frame, b), uvOf(t.frame, third), uvOf(t.frame, at));

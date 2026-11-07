@@ -3441,6 +3441,27 @@ export class Viewer implements ToolView {
   }
 
   /** The nearest point on the true curve of a curved sketch side or circle (`only`: of that shape) within `reach` mm of `at` (world); null: none there. */
+  onBodyEdge(at: THREE.Vector3, reach = 0.1) {
+    let best: [number, THREE.Vector3] | null = null;
+    for (const [id, g] of this.bodies) {
+      const exact = g.children.find((c) => c.userData.exact)?.userData.exact as Exact | undefined;
+      if (!exact || this.hidden.has(id)) continue;
+      const p = at.clone().applyMatrix4(g.matrix.clone().invert()); // in the body's coordinates, as its edges
+      for (const e of exact.edges) {
+        let q: THREE.Vector3 | null = null;
+        if (e.kind === 'line') q = new THREE.Line3(new THREE.Vector3(...e.a), new THREE.Vector3(...e.b)).closestPointToPoint(p, true, new THREE.Vector3());
+        if (e.kind === 'circle') {
+          const [c, n] = [new THREE.Vector3(...e.c), new THREE.Vector3(...e.n)];
+          const out = p.clone().sub(c).projectOnPlane(n);
+          if (out.lengthSq() > 1e-18) q = c.addScaledVector(out.normalize(), e.r);
+        }
+        const d = q ? q.distanceTo(p) : Infinity;
+        if (q && d < reach && (!best || d < best[0])) best = [d, q.applyMatrix4(g.matrix)];
+      }
+    }
+    return best?.[1] ?? null;
+  }
+
   onSketchCurve(at: THREE.Vector3, reach = 0.2, only?: string) {
     let best: { d: number; p: THREE.Vector3 } | null = null;
     const found = (frame: ViewSketch['frame'], on: [number, number], q: [number, number]) => {
