@@ -1346,9 +1346,6 @@ function dimensions(ctx: UIContext, steps: Body, k: number): HTMLElement | null 
 /** Its fillets and chamfers: a card with a wide button that adds one, then one row each. */
 function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) => void): Node[] {
   const list = steps.features.flatMap((f, j) => (f.type === 'finish' ? [{ f, j }] : []));
-  // its shape's rounded or chamfered corners (in its sketch, or its own): its upright edges' finish, edited here too
-  const shape = mainShape(ctx, steps, k);
-  const corners = shape && (shape.p.kind === 'rect' || shape.p.kind === 'ngon' || shape.p.kind === 'polygon') ? shape.p : null;
   // a new one takes edges no other has yet (top, vertical, bottom, then all)
   const taken = new Set(list.map(({ f }) => f.edges));
   const edges = (['top', 'vertical', 'bottom', 'all'] as const).find((r) => !taken.has(r)) ?? 'top';
@@ -1358,8 +1355,6 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
       'section',
       { className: 'finishes' },
       add,
-      // always there (at 0 too): dragged through 0 it goes on into a chamfer
-      ...(corners ? cornerFields(ctx, shape!.path, corners) : []),
       ...list.flatMap(({ f, j }) => {
         const setFeature = (next: Feature) => setSteps({ ...steps, features: steps.features.map((x) => (x === f ? next : x)) });
         const remove = deleteButton('Click: Remove it', () => setSteps({ ...steps, features: steps.features.filter((x) => x !== f) }));

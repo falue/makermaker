@@ -52,7 +52,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Not built yet: a face pulled on a body offers no New body (its Push step joins or cuts by the direction).
 - Not built yet: clicking a face selects only extrusion and boolean steps; Push, revolve and the other steps only from Object history.
 - Not built yet: the laser and SVG / DXF outlines leave fillets out, so a body rounded by fillets cuts with sharp corners (they should take the upright edges' fillets along).
-- Not built yet: a body's own shape from an older file or an unlinked sketch can keep an R the card does not show as its own (it shows under Fillets or Chamfers only when the body has one shape).
+- A body's shape with corner R from an unlinked sketch (its own shapes) shows that R only in its Extrude card, not in the body's card.
 - The right-click menu offers only Fold, Unfold and Fold all so far (bodies without tool bodies get none).
 - Folded tool bodies count as tool bodies wherever those are told apart (`ownersOf`): Interference, Select all, the exports and the view skip them; `cad.measure` gives every body, tool bodies and folded ones too (as before).
 - Beside a curved side a corner's rounding is drawn along the curve's tangent at the corner, a little off the kernel's true one for strongly bent curves; a rounded curved polygon loses its curve keys (A / Shift A split its curved sides no more).
