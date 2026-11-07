@@ -102,14 +102,14 @@ const named: Param = { name: 'name', type: 'string', doc: 'its name in the list'
 
 export const COMMANDS: Record<string, Command> = {
   list: {
-    doc: 'What the design holds: bodies (id, name, group, owner: the body a tool body cuts, position, steps), sketches (id, name, shapes), groups, work planes, images, parameters.',
+    doc: 'What the design holds: bodies (id, name, group, owner: the body a tool body cuts, folded: folded into that body, position, steps), sketches (id, name, shapes), groups, work planes, images, parameters.',
     params: [],
     run: (doc, _a, owners = ownersOf(doc)) => ({
       doc,
       result: {
         units: doc.units,
         parameters: Object.fromEntries(Object.entries(doc.params).map(([k, v]) => [k, v.e])),
-        bodies: doc.bodies.map((b) => ({ id: b.id, name: b.name, group: b.group, owner: owners.get(b.id) ?? null, position: b.position.map((p) => p.e), visible: b.visible, steps: b.features.map((f) => f.type) })),
+        bodies: doc.bodies.map((b) => ({ id: b.id, name: b.name, group: b.group, owner: owners.get(b.id) ?? null, ...(b.folded ? { folded: true } : {}), position: b.position.map((p) => p.e), visible: b.visible, steps: b.features.map((f) => f.type) })),
         sketches: doc.sketches.map((s) => ({ id: s.id, name: s.name, plane: s.plane.kind, shapes: s.shapes.map((q) => ({ id: q.id, kind: q.kind })) })),
         groups: doc.groups.map((g) => ({ id: g.id, name: g.name, parent: g.parent })),
         planes: doc.planes.map((w) => ({ id: w.id, name: w.name })),

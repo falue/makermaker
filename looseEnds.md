@@ -51,7 +51,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Decided 2026-11-07, to do: a right-click menu in the object list and the 3D view: a tool body Fold, its body Unfold (each folded one) and Fold all; the buttons stay. A tool body listed in another group folds too (no longer refused).
 - Decided, to do: a pulled Join or Cut makes a folded tool body and its boolean (not an extrude step), so any of them unfolds into an object; one kind of step.
 - Decided, to do: Join / Cut from a sketch on any face of a body (a sphere's, an imported body's, a free plane): the step's plane in that body's coordinates.
-- Decided, to do: folded tool bodies count as hidden tool bodies everywhere (Interference, measuring, STEP / print / laser exports: skipped, their cuts count).
+- Folded tool bodies count as tool bodies wherever those are told apart (`ownersOf`): Interference, Select all, the exports and the view skip them; `cad.measure` gives every body, tool bodies and folded ones too (as before).
 - Decided, to do: a linked copy's step selected lights its faces on that copy, not on its source.
 - Decided, to do: the sketch draws rounding and chamfers beside curved sides too, and snapping follows the rounded outline (arc middles snap).
 - Not tried by hand yet: the whole Join / Cut / Object history / Fold flow.
