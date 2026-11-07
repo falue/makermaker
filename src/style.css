@@ -2939,6 +2939,13 @@ section > h4 .segmented button {
   object-fit: contain;
 }
 
+/* a switch on a row of its own: its name as Dimensions' (left), the box at the right */
+.row.toggle span {
+  flex: 1;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* a body's fillets and chamfers: their title with +, a row each */
 .finish-head span {
   flex: 1;

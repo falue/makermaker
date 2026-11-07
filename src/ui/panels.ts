@@ -1410,14 +1410,14 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
     const j = s.shapes.indexOf(q);
     const name = listItem(q.id, `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
     const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
-    const box = h('input', { type: 'checkbox', checked: !!q.construction });
+    const box = h('input', { type: 'checkbox', checked: !!q.construction, id: `construction-${q.id}` });
     // the next objects are drawn as this one now is
     box.onchange = () => (ctx.setDrawConstruction(box.checked), set({ shapes: s.shapes.map((r) => (r === q ? { ...r, construction: box.checked } : r)) }));
-    const construction = h('label', { className: 'check', title: 'Construction line: dashed, snapped to, never extruded' }, box, 'Construction');
-    const row = h('div', { className: 'listed' }, name, construction, drop);
+    const construction = h('label', { className: 'row toggle', title: 'Construction line: dashed, snapped to, never extruded' }, h('span', {}, 'Construction line'), box);
+    const row = h('div', { className: 'listed' }, name, drop);
     row.style.paddingLeft = `${depth * 22}px`;
-    // fields and reference diamond only for selected shapes
-    return h('div', { className: 'shape' }, row, ...(ctx.shapes.includes(q.id) ? shapeFields(ctx, `${at}.shapes.${j}`, q) : []));
+    // fields, reference diamond and the construction switch only for selected shapes
+    return h('div', { className: 'shape' }, row, ...(ctx.shapes.includes(q.id) ? [...shapeFields(ctx, `${at}.shapes.${j}`, q), construction] : []));
   };
   // sub-groups first, then the shapes, per level; a group row picks all its shapes and folds
   const level = (parent: string | null, depth: number): Node[] => [
