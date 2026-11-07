@@ -8,7 +8,7 @@ import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm,
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, movedLine, outlineLength, segments, segPoints, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
-import { boreFor, fitting, THREADS, type ThreadSize } from './doc/threads';
+import { boreFor, fitting, THREADS } from './doc/threads';
 import { closeButton, deleteButton, icon } from './ui/icons';
 import { contextMenu, type MenuItem } from './ui/menu';
 import { axisHtml, sizeHtml } from './ui/axes';
@@ -2709,13 +2709,19 @@ function mirrorTool() {
  */
 function threadTool() {
   const last = viewer.lastFaceItem();
-  const face = viewer.pickedFaceItems().find((f) => f.round) ?? (last?.round && selected.includes(last.body) ? last : null);
+  const chosen = [...viewer.pickedFaceItems(), ...(last && selected.includes(last.body) ? [last] : [])];
+  // a thread's own faces, or its hole or shaft: that thread opens to edit
+  const own = chosen.map((f) => ({ f, t: threadAt(f.body, f.point) })).find((x) => x.t);
+  if (own) return viewer.dropPicked(), threadPanel(own.f.body, own.t!);
+  const face = chosen.find((f) => f.round);
   if (face) return viewer.dropPicked(), threadOn(face.body, face.round!, face.point);
-  toolHint = 'Thread: click a round face · of a hole or a shaft · [Esc] cancels';
+  toolHint = 'Thread: click a round face · of a hole or a shaft · or a thread: edit it · [Esc] cancels';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
-    if (!face?.body || !face.round) return face ? fail("Click a round face: a hole's wall or a shaft's side") : render();
+    const own = face?.body ? threadAt(face.body, face.point) : null;
+    if (own) return threadPanel(face!.body!, own);
+    if (!face?.body || !face.round) return face ? fail("Click a round face: a hole's wall or a shaft's side, or a thread to edit it") : render();
     threadOn(face.body, face.round, face.point);
   });
 }
@@ -2808,34 +2814,67 @@ function showSize(keys: string[] | null, what?: 'w' | 'h' | 'd' | 'depth') {
   else viewer.showSize(at(a[0], a[1], reach[0]), at(a[0], a[1], reach[1]));
 }
 
-/** A thread on `body`'s round face `round` (world; `point`: where it was picked: the thread starts at the nearer end). */
+/** A thread on `body`'s round face `round` (world; `point`: where it was picked: the thread starts at the nearer end), then its panel. */
 function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: number; r: number; shaft: boolean }, point: Vector3) {
   // from the end nearest the click, into the face
   const far = point.clone().sub(round.at).dot(round.dir) > round.length / 2;
   const [start, dir] = far ? [round.at.clone().addScaledVector(round.dir, round.length), round.dir.clone().negate()] : [round.at.clone(), round.dir.clone()];
   const doc = history.current;
-  const u = UNITS[doc.units];
-  let system: ThreadSize['system'] = ['in', 'ft'].includes(doc.units) ? 'imperial' : 'metric';
-  let size = fitting(2 * round.r, false, system); // by its Ø: Ø 8 is M8
+  const size = fitting(2 * round.r, false, ['in', 'ft'].includes(doc.units) ? 'imperial' : 'metric'); // by its Ø: Ø 8 is M8
   const i = stepsOf(doc, body);
   const pl = bodyPlace(body);
-  const circle = circleOf(body, round);
+  const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, start.toArray()), dir: unplaced(pl, dir.toArray(), true), r: round.r, inside: !round.shaft, size: size.name, d: len(size.d), pitch: len(size.pitch), length: len(round.length), modeled: threadModeled };
+  [selected, shapeSel] = [[body], []];
+  commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]));
+  threadPanel(body, feature.id, true);
+}
+
+/** The thread of `body` whose groove, hole or shaft world point `p` lies in (between its minor and major Ø, along it); null: none. */
+function threadAt(body: string, p: Vector3) {
+  const q = new Vector3(...unplaced(bodyPlace(body), p.toArray()));
+  for (const s of built.get(body) ?? []) {
+    if (s.type !== 'thread') continue;
+    const [at, dir] = [new Vector3(...s.at), new Vector3(...s.dir).normalize()];
+    const t = q.clone().sub(at).dot(dir);
+    const out = q.clone().sub(at).addScaledVector(dir, -t).length();
+    if (t > -0.05 && t < s.length + 0.05 && out > s.d / 2 - 0.625 * 0.8660254 * s.pitch - 0.05 && out < s.d / 2 + 0.05) return s.id;
+  }
+  return null;
+}
+
+/**
+ * A thread's panel (`fresh`: just added, Esc removes it; else Esc puts it back): Modeled or Cosmetic, Metric /
+ * Imperial, the size, Ø, Pitch, Length (T: to a point). The hole or shaft is resized to fit it (see `boreFor`) by the
+ * circle it was pulled from. Live, one undo step.
+ */
+function threadPanel(body: string, id: string, fresh = false) {
+  const doc0 = history.current;
+  const i = doc0.bodies.findIndex((b) => b.id === body);
+  const j = doc0.bodies[i]?.features.findIndex((f) => f.id === id) ?? -1;
+  const feature = doc0.bodies[i]?.features[j];
+  if (feature?.type !== 'thread') return;
+  const path = ['bodies', String(i), 'features', String(j)];
+  const u = UNITS[doc0.units];
+  const now = resolve(feature, paramLookup(doc0.params), '', new Map()) as unknown as { d: number; pitch: number; length: number };
+  const pl = bodyPlace(body);
+  const start = new Vector3(...inWorld(pl, feature.at));
+  const dir = new Vector3(...inWorld(pl, feature.dir, true)).normalize();
+  let size = THREADS.find((t) => t.name === feature.size) ?? fitting(now.d, false, 'metric');
+  let system = size.system;
+  let modeled = fresh ? threadModeled : feature.modeled;
+  const circle = circleOf(body, { at: start, dir, r: feature.r });
   /** `next` with the hole or shaft fitting a thread `d` by `pitch` (mm; see `boreFor`): its circle resized, the thread's radius with it. */
-  const fitted = (next: Doc, path: string[], d: number, pitch: number) => {
-    const r = boreFor(d, pitch, !round.shaft, (getIn(next, path) as ThreadFeature).modeled) / 2;
+  const fitted = (next: Doc, d: number, pitch: number) => {
+    const r = boreFor(d, pitch, feature.inside, modeled) / 2;
     if (!circle || !(r > 0)) return next;
     return setIn(setIn(next, circle, len(2 * r)), [...path, 'r'], r);
   };
-  const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, start.toArray()), dir: unplaced(pl, dir.toArray(), true), r: round.r, inside: !round.shaft, size: size.name, d: len(size.d), pitch: len(size.pitch), length: len(round.length), modeled: threadModeled };
-  [selected, shapeSel] = [[body], []];
-  const added = setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]);
-  const path = ['bodies', String(i), 'features', String(added.bodies[i].features.length - 1)];
-  commit(fitted(added, path, size.d, size.pitch));
-  creating();
   const write = ([d, p, l]: string[]) => {
-    const f = getIn(history.current, path) as Feature;
-    const next = setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: doc.units }, pitch: { e: p, u: doc.units }, length: { e: l, u: doc.units }, modeled: threadModeled });
-    history.replace(fitted(next, path, length(d) ?? size.d, length(p) ?? size.pitch));
+    const f = getIn(history.current, path) as ThreadFeature;
+    const units = doc0.units;
+    const next = fitted(setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: units }, pitch: { e: p, u: units }, length: { e: l, u: units }, modeled }), length(d) ?? size.d, length(p) ?? size.pitch);
+    if (fresh || history.current !== doc0) history.replace(next);
+    else history.push(next);
     update();
     creating();
   };
@@ -2850,11 +2889,11 @@ function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: numb
   pick.onchange = () => ((size = THREADS.find((t) => t.name === pick.value)!), fill());
   const systems = Object.assign(document.createElement('span'), { className: 'segmented' });
   for (const k of ['metric', 'imperial'] as const) {
-    const b = Object.assign(document.createElement('button'), { textContent: k === 'metric' ? 'Metric' : 'Imperial', className: k === system ? 'on' : '' });
+    const b = Object.assign(document.createElement('button'), { textContent: k === 'metric' ? 'Metric' : 'Imperial', className: k === system ? 'on' : '', title: `Click: List ${k} sizes` });
     b.onclick = () => {
       system = k;
       [...systems.children].forEach((x) => x.classList.toggle('on', x === b));
-      size = fitting(2 * round.r, false, system);
+      size = fitting(now.d, false, system);
       options();
       fill();
     };
@@ -2864,26 +2903,28 @@ function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: numb
   // modeled: the groove in the solid (3D printing); cosmetic: drawn only, a hole at tap-drill size (CNC, tapping)
   const kinds = Object.assign(document.createElement('span'), { className: 'segmented' });
   for (const on of [true, false]) {
-    const b = Object.assign(document.createElement('button'), { textContent: on ? 'Modeled' : 'Cosmetic', className: on === threadModeled ? 'on' : '', title: on ? 'Click: Cut the thread into the solid (for 3D printing)' : `Click: Only draw the thread${round.shaft ? '' : ': the hole at tap-drill size'} (for CNC and tapping)` });
+    const b = Object.assign(document.createElement('button'), { textContent: on ? 'Modeled' : 'Cosmetic', className: on === modeled ? 'on' : '', title: on ? 'Click: Cut the thread into the solid (for 3D printing)' : `Click: Only draw the thread${feature.inside ? ': the hole at tap-drill size' : ''} (for CNC and tapping)` });
     b.onclick = () => {
-      threadModeled = on;
+      modeled = threadModeled = on;
       [...kinds.children].forEach((x) => x.classList.toggle('on', x === b));
       panel.inputs[0].dispatchEvent(new Event('input'));
     };
     kinds.append(b);
   }
+  const where = feature.inside ? 'hole' : 'shaft';
   const panel = valuePanel(
     [
-      { label: 'Ø', value: fmt(size.d / u) },
-      { label: 'Pitch', value: fmt(size.pitch / u) },
-      { label: 'Length', value: fmt(round.length / u), reach: (p) => p.clone().sub(start).dot(dir) },
+      { label: 'Ø', value: fmt(now.d / u) },
+      { label: 'Pitch', value: fmt(now.pitch / u) },
+      { label: 'Length', value: fmt(now.length / u), reach: (p) => p.clone().sub(start).dot(dir) },
     ],
     write,
-    (ok) => (ok ? render() : undo()),
-    `Thread ${round.shaft ? 'on a shaft' : 'in a hole'} Ø ${fmt(2 * round.r)} mm: pick its size · or type Ø and pitch · ${circle ? `the ${round.shaft ? 'shaft' : 'hole'} fits it` : `its circle is not found: the ${round.shaft ? 'shaft' : 'hole'} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
+    (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
+    `Thread ${feature.inside ? 'in a hole' : 'on a shaft'}: Modeled or Cosmetic · pick its size · or type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] ${fresh ? 'leaves nothing' : 'puts it back'}`,
     [],
     [kinds, systems, pick],
   );
+  if (fresh) panel.inputs[0].dispatchEvent(new Event('input')); // fits the hole or shaft at once
 }
 
 /** Whether a new thread is cut into the solid or only drawn (the panel's last choice, this session). */
@@ -6566,6 +6607,7 @@ function render() {
     bulgeTool,
     draftTool,
     editDraft: draftPanel,
+    editThread: (body: string, id: string) => threadPanel(body, id),
     groupSelected: selected.length === 1 && doc.groups.some((g) => g.id === selected[0]),
     arrange,
     select,

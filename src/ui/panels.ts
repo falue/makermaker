@@ -169,6 +169,8 @@ export interface UIContext {
   /** Draft: a flat face turned about its hinge (see main's draftTool). */
   draftTool(): void;
   editDraft(body: string, feature: string): void;
+  /** Opens a thread's panel. */
+  editThread(body: string, feature: string): void;
   /** Whether a group is selected (the group tool then ungroups). */
   groupSelected: boolean;
   /** Moves objects before or after another one (into its group), or into a group. */
@@ -1373,15 +1375,23 @@ function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (
   };
   const rows = body.features.map((f, j) => {
     const on = f.id === ctx.selectedStep;
-    const name = h('button', { className: `item${on ? ' on' : ''}`, title: on ? 'Click: Close it' : 'Click: Select it: its faces lit, its fields below', onclick: () => ctx.selectStep(shown, on ? null : f.id) }, stepName(body, f)); // lit on the body selected (a linked copy: not its source)
+    // a step with a panel of its own opens it (its faces lit); the others show their fields below
+    const panel = toolOf(ctx, f);
+    const open = () => (ctx.selectStep(shown, f.id), panel!(shown, f.id));
+    const name = h('button', { className: `item${on ? ' on' : ''}`, title: panel ? 'Click: Edit it in its tool' : on ? 'Click: Close it' : 'Click: Select it: its faces lit, its fields below', onclick: () => (panel ? open() : ctx.selectStep(shown, on ? null : f.id)) }, stepName(body, f)); // lit on the body selected (a linked copy: not its source)
     const tool = f.type === 'boolean' ? ctx.doc.bodies.find((b) => b.id === f.body) : undefined;
     const fold = tool ? [button(tool.folded ? 'Unfold' : 'Fold', () => ctx.foldTool(tool.id, !tool.folded), tool.folded ? 'Click: List its tool body again, as an object of its own' : 'Click: Fold its tool body into this step: it leaves the list, nothing is lost')] : [];
     // the first step is the shape itself: it stays, and stays first
     const drop = j ? [deleteButton('Click: Delete this step', () => ctx.removeStep(shown, f.id))] : [];
     const row = h('div', { className: 'history-row', draggable: j > 0, ondragstart: () => (dragged = j), ondragover: (e) => j > 0 && e.preventDefault(), ondrop: () => dragged > 0 && j > 0 && dragged !== j && move(dragged, j) }, name, ...fold, ...drop);
-    return on ? h('div', {}, row, card(f, j)) : row;
+    return on && !panel ? h('div', {}, row, card(f, j)) : row;
   });
   return h('section', { className: 'history' }, head, ...rows);
+}
+
+/** The panel a step is edited in (its tool), if it has one. */
+function toolOf(ctx: UIContext, f: Feature): ((body: string, id: string) => void) | null {
+  return f.type === 'thread' ? ctx.editThread : f.type === 'bulge' ? ctx.editBulge : f.type === 'draft' ? ctx.editDraft : f.type === 'fingers' ? ctx.editFingers : null;
 }
 
 /** A linked copy: whose steps it shares (editing them edits all copies), and Unlink. */
