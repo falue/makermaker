@@ -2258,11 +2258,12 @@ export class Viewer implements ToolView {
     this.fitted = false;
   }
 
-  /** Tab: selects the next (`step` 1) or previous body under the pointer (outside the view: along the last click). */
+  /** Tab: selects the next (`step` 1) or previous body or work plane under the pointer (outside the view: along the last click). */
   cycle(step: number) {
     const ray = this.hover ? this.ray(this.hover) : this.pick;
     if (!ray) return;
-    const ids = [...new Set(this.intersect(new THREE.Raycaster(ray.origin, ray.direction)).map((h) => h.object.userData.bodyId as string))];
+    const bodies = this.intersect(new THREE.Raycaster(ray.origin, ray.direction)).map((h) => ({ id: h.object.userData.bodyId as string, d: h.distance }));
+    const ids = [...new Set([...bodies, ...this.planesOn(ray)].sort((a, b) => a.d - b.d).map((h) => h.id))];
     if (!ids.length) return;
     let i = ids.findIndex((id) => this.selection.includes(id));
     if (i < 0) i = -step; // none of them selected: start at the nearest
@@ -2711,18 +2712,22 @@ export class Viewer implements ToolView {
   onHover: ((id: string | null) => void) | null = null;
   private hovering: string | null = null;
 
+  /** The work planes `ray` passes through within their rectangles, nearest first (`d`: the distance). */
+  private planesOn(ray: THREE.Ray) {
+    return this.workPlanes
+      .flatMap((w) => {
+        const point = planeHit(ray, w.frame);
+        if (!point) return [];
+        const [u, v] = uvOf(w.frame, point);
+        return u >= w.rect[0] && u <= w.rect[2] && v >= w.rect[1] && v <= w.rect[3] ? [{ id: w.id, frame: w.frame, point, d: point.distanceTo(ray.origin) }] : [];
+      })
+      .sort((a, b) => a.d - b.d);
+  }
+
   /** The nearest work plane under the pointer within its rectangle, in front of any body (`hit`: the body face there); null: none. */
   private workPlaneAt(e: MouseEvent, hit = this.frontHit(e)) {
-    const ray = this.ray(e);
-    let best: { id: string; frame: Frame; point: THREE.Vector3; d: number } | null = null;
-    for (const w of this.workPlanes) {
-      const p = planeHit(ray, w.frame);
-      const d = p?.distanceTo(ray.origin) ?? Infinity;
-      if (!p || (hit && d > hit.distance) || (best && d >= best.d)) continue;
-      const [u, v] = uvOf(w.frame, p);
-      if (u >= w.rect[0] && u <= w.rect[2] && v >= w.rect[1] && v <= w.rect[3]) best = { id: w.id, frame: w.frame, point: p, d };
-    }
-    return best;
+    const w = this.planesOn(this.ray(e))[0];
+    return w && !(hit && w.d > hit.distance) ? w : null;
   }
 
   private hoverRow(e: MouseEvent) {
@@ -4559,6 +4564,13 @@ export class Viewer implements ToolView {
     if (picture) {
       this.downOnPart = true;
       this.host.select(picture.id, toggles(e));
+      return;
+    }
+    // a work plane in front of the body there: a click selects it (Tab: what lies behind it)
+    const plane = !shape && !this.facePick ? this.workPlaneAt(e, hit) : null;
+    if (plane) {
+      this.downOnPart = true;
+      this.host.select(plane.id, toggles(e));
       return;
     }
     if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0) {
