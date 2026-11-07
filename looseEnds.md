@@ -166,3 +166,6 @@ Answers assumed where a request left a question open.
 - Inside a turned group the camera still orbits around world Z, so a cube side looked at along the group can be rolled; the orbit controls fix their up axis when made.
 - Drag steps, Shift's axis steps and the move axes still follow the world, not the group's turned origin.
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
+
+## Tests
+- `booleans.test.ts`: "cuts threaded with every other body" fails (threaded − ball: geometry operation failed) and "cuts monster …" runs past its 5 minutes; both already so before 2026-11-07's work (checked at 90ec31d).

@@ -1,4 +1,4 @@
-import { closeButton, deleteButton } from './icons';
+import { closeButton, deleteButton, icon } from './icons';
 import { UNITS } from '../doc/expr';
 import { DEFAULT_LIGHT, effectiveLight, STANDARD_MATERIALS, toLook } from '../doc/materials';
 import { MaterialPreview } from '../viewer/preview';
@@ -75,21 +75,32 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
       make('div', { className: 'row light' }, slider, value),
     ];
   };
-  /** Zoom, pan and orbit speed: sliders from a quarter to 4 times, as they come in the middle (a factor per step of the slider). */
+  /**
+   * Zoom, pan and orbit speed: sliders from 0.1 to 8 times (by their logarithm, so 1 sits near the middle), snapping to
+   * 1 near it (a tick there), each with a reset to 1.
+   */
   const speedRows = () => {
+    const [lo, hi, snap] = [Math.log10(0.1), Math.log10(8), 0.04];
+    const ticks = make('datalist', { id: 'speed-one' }, make('option', { value: '0' }));
     const row = (key: keyof Settings['speeds'], label: string, title: string) => {
       const value = make('span', {}, `×${s.speeds[key].toFixed(2)}`);
-      const slider = input({ type: 'range', min: '-1', max: '1', step: '0.05', value: String(Math.log(s.speeds[key]) / Math.log(4)), title });
-      slider.oninput = () => {
-        const f = 4 ** +slider.value;
+      const slider = input({ type: 'range', min: String(lo), max: String(hi), step: '0.005', value: String(Math.log10(s.speeds[key])), title });
+      slider.setAttribute('list', 'speed-one');
+      const put = (f: number) => {
         value.textContent = `×${f.toFixed(2)}`;
         set({ ...s, speeds: { ...s.speeds, [key]: f } }, false);
       };
-      return make('div', { className: 'row light' }, make('span', {}, label), slider, value);
+      slider.oninput = () => {
+        if (Math.abs(+slider.value) < snap) slider.value = '0'; // 1: as they come
+        put(10 ** +slider.value);
+      };
+      const reset = make('button', { className: 'icon', innerHTML: icon('undo'), title: 'Click: Back to 1 (as it comes)', onclick: () => ((slider.value = '0'), put(1)) });
+      return make('div', { className: 'row light' }, make('span', {}, label), slider, value, reset);
     };
     return [
       make('h3', {}, 'Camera speed'),
-      make('p', { className: 'hint' }, 'How fast the views follow the mouse; the middle is as they come.'),
+      make('p', { className: 'hint' }, 'How fast the views follow the mouse, 0.1 to 8 times; 1 is as they come.'),
+      ticks,
       row('zoom', 'Zoom', 'The wheel and pinching'),
       row('pan', 'Pan', 'Right-drag, scrolling sideways, Shift + wheel'),
       row('orbit', 'Orbit', 'Dragging to turn the view'),
