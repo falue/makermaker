@@ -26,7 +26,7 @@ import { DEFAULT_LIGHT, lightDirections, plainLook, toLook, type Look } from '..
 import { applyLook, boxUv, glowLight, needsUv, pictureLoaded, renderMaterial, sphereOf } from './look';
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
-import type { Exact } from '../kernel/exact';
+import type { Exact, ExactEdge } from '../kernel/exact';
 import { turnedBox } from './turnedBox';
 import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
@@ -83,7 +83,8 @@ export interface ViewerHost {
 }
 
 /** A picked face or edges: area (mm²) or total length (mm), how many edges, and Ø (mm) when it is one circle. */
-export type PickedPart = { kind: 'face' | 'edge'; body: string; size: number; count?: number; diameter?: number };
+/** A picked face or edge's size (area or length) and a circle's Ø; `exact`: from the kernel, else from the mesh (shown with ~). */
+export type PickedPart = { kind: 'face' | 'edge'; body: string; size: number; count?: number; diameter?: number; exact: boolean };
 
 /** A part of a finish on a body: the one replacing the edge through `mid` (null: the whole finish). */
 export type FinishPick = { body: string; feature: string; mid: Vec3 | null };
@@ -3324,8 +3325,11 @@ export class Viewer implements ToolView {
     this.pickedEdge = null;
     this.markEdge(undefined, this.pickedEdgeMark);
     const count = this.pickedFaces.reduce((n, p) => n + p.faces.length, 0);
-    const size = this.pickedFaces.reduce((n, { mesh, faces }) => faces.reduce((m, k) => m + faceArea(mesh, k), n), 0);
-    this.host.pickedPart({ kind: 'face', body: this.pickedFaces[0].mesh.userData.bodyId, size, count });
+    // the kernel's areas where it has them (bodies up to 1000 faces), else the triangles'
+    const areas = this.pickedFaces.flatMap(({ mesh, faces }) => faces.map((k) => (mesh.userData.exact as Exact | null | undefined)?.faces[k]?.area ?? null));
+    const exact = areas.every((a) => a !== null);
+    const size = exact ? areas.reduce((n, a) => n + a!, 0) : this.pickedFaces.reduce((n, { mesh, faces }) => faces.reduce((m, k) => m + faceArea(mesh, k), n), 0);
+    this.host.pickedPart({ kind: 'face', body: this.pickedFaces[0].mesh.userData.bodyId, size, count, exact });
   }
 
   private pickEdges(picked: { body: string; edges: [THREE.Vector3, THREE.Vector3][][] }) {
@@ -3333,10 +3337,21 @@ export class Viewer implements ToolView {
     this.pickFaces([]);
     this.pickedEdge = picked;
     this.markEdge(picked.edges.flat(), this.pickedEdgeMark, PICKED);
+    // the kernel's edges where it has them: their lengths, and one circle's Ø (its parts on the same centre and radius)
+    const known = this.bodyEdges().filter((x) => x.body === picked.body && x.index !== undefined);
+    const exact = picked.edges.map((segs) => {
+      const hit = known.find((x) => x.segs.length === segs.length && x.segs[0][0].distanceTo(segs[0][0]) < 1e-6);
+      return hit ? this.exactEdge(picked.body, hit.index!)?.edge ?? null : null;
+    });
+    if (exact.every(Boolean)) {
+      const circles = exact.filter((e) => e!.kind === 'circle') as Extract<ExactEdge, { kind: 'circle' }>[];
+      const one = circles.length === exact.length && circles.every((c) => c.r === circles[0].r && c.c.every((v, k) => Math.abs(v - circles[0].c[k]) < 1e-9));
+      return this.host.pickedPart({ kind: 'edge', body: picked.body, size: exact.reduce((n, e) => n + e!.length, 0), count: picked.edges.length, diameter: one ? 2 * circles[0].r : undefined, exact: true });
+    }
     const size = picked.edges.flat().reduce((n, [a, b]) => n + a.distanceTo(b), 0);
     // one circle, maybe in parts (segment middles too: a rectangle's corners alone lie on a circle)
     const circle = circleOf(picked.edges.flatMap((segs) => segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)])));
-    this.host.pickedPart({ kind: 'edge', body: picked.body, size, count: picked.edges.length, diameter: circle?.d });
+    this.host.pickedPart({ kind: 'edge', body: picked.body, size, count: picked.edges.length, diameter: circle?.d, exact: false });
   }
 
   /**

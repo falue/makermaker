@@ -1180,13 +1180,15 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
   const about = (mm: number, power = 1) => `~${num(mm, power)}`;
   if (pickedPart?.kind === 'face') {
     const n = pickedPart.count ?? 1;
-    return { title: n > 1 ? 'Faces' : 'Face', rows: n > 1 ? [['Area', about(pickedPart.size, 2)], ['Faces', String(n)]] : [['Area', about(pickedPart.size, 2)]] };
+    const area = (pickedPart.exact ? num : about)(pickedPart.size, 2);
+    return { title: n > 1 ? 'Faces' : 'Face', rows: n > 1 ? [['Area', area], ['Faces', String(n)]] : [['Area', area]] };
   }
   if (pickedPart) {
     const n = pickedPart.count ?? 1;
-    const rows: [string, string][] = [['Length', about(pickedPart.size)]];
+    const val = pickedPart.exact ? num : about;
+    const rows: [string, string][] = [['Length', val(pickedPart.size)]];
     if (n > 1) rows.push(['Edges', String(n)]);
-    if (pickedPart.diameter) rows.push(['Ø', about(pickedPart.diameter)]);
+    if (pickedPart.diameter) rows.push(['Ø', val(pickedPart.diameter)]);
     return { title: pickedPart.diameter ? 'Circle' : n > 1 ? 'Edges' : 'Edge', rows };
   }
   const lookup = paramLookup(doc.params);
