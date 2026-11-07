@@ -1,20 +1,20 @@
-import { getOC, measureArea, measureLength, measureVolume, type Edge, type Face, type Shape3D, type Vector } from 'replicad';
+import { cast, getOC, measureArea, measureLength, measureVolume, type Edge, type Face, type Shape3D, type Vector } from 'replicad';
 
 type V3 = [number, number, number];
 
-/** A face's surface, exact (body coordinates): a plane (a point on it, its outward normal), a cylinder (a point on its axis, the axis, radius; `shaft`: material inside), a sphere, else free; and its area. */
-export type ExactFace = ({ kind: 'plane'; at: V3; n: V3 } | { kind: 'cylinder'; at: V3; dir: V3; r: number; shaft: boolean } | { kind: 'sphere'; c: V3; r: number } | { kind: 'free' }) & { area: number };
+/** A face's surface, exact (body coordinates): a plane (a point on it, its outward normal), a cylinder (a point on its axis, the axis, radius; `shaft`: material inside), a sphere, else free. */
+export type ExactFace = { kind: 'plane'; at: V3; n: V3 } | { kind: 'cylinder'; at: V3; dir: V3; r: number; shaft: boolean } | { kind: 'sphere'; c: V3; r: number } | { kind: 'free' };
 
 /** An edge's curve, exact (body coordinates), from end `a` to end `b`: a line, a circle or arc (centre, axis, radius), an ellipse, else a curve; and its length. */
 export type ExactEdge = ({ kind: 'line' } | { kind: 'circle'; c: V3; n: V3; r: number } | { kind: 'ellipse'; c: V3; n: V3; x: V3; major: number; minor: number } | { kind: 'curve' }) & { a: V3; b: V3; length: number };
 
-/** A body's exact data with its mesh: per mesh face group and edge group (in their order), and its volume, area and tight box. */
+/** A body's exact data with its mesh: per mesh face group and edge group (in their order), its volume and area, and its tight box (null: too many faces to find it fast; the mesh's stands in). */
 export interface Exact {
   faces: ExactFace[];
   edges: ExactEdge[];
   volume: number;
   area: number;
-  box: [V3, V3];
+  box: [V3, V3] | null;
 }
 
 type Gp = { X(): number; Y(): number; Z(): number; delete(): void };
@@ -27,18 +27,41 @@ const read = (p: Gp): V3 => {
 };
 
 /**
- * The exact data of `shape` for the mesh groups it was meshed into (`faceIds`, `edgeIds`: their ids, the faces' and
- * edges' hash codes); null for a body of more than `most` faces (a big import: the mesh stands in, as before).
+ * The faces or edges of `shape` by hash code (what the mesh groups carry as their ids), in one pass: replicad's
+ * `faces` / `edges` compare each one with all before it, which a big import takes minutes for.
  */
-export function exactOf(shape: Shape3D, faceIds: number[], edgeIds: number[], most = 3000): Exact | null {
+function byHash<T extends Face | Edge>(shape: Shape3D, kind: 'face' | 'edge'): Map<number, T> {
+  const oc = getOC();
+  const explorer = new oc.TopExp_Explorer(shape.wrapped, kind === 'face' ? oc.TopAbs_ShapeEnum.TopAbs_FACE : oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  const out = new Map<number, T>();
+  try {
+    for (; explorer.More(); explorer.Next()) {
+      const id = oc.ReplicadShapeHasher.HashCode(explorer.Current(), 2147483647); // as replicad's `hashCode`
+      if (!out.has(id)) out.set(id, cast(explorer.Current()) as T);
+    }
+  } finally {
+    explorer.delete();
+  }
+  return out;
+}
+
+/**
+ * The exact data of `shape` for the mesh groups it was meshed into (`faceIds`, `edgeIds`: their ids, the faces' and
+ * edges' hash codes); null for a body of more than `most` faces (the mesh stands in, as for an imported mesh).
+ */
+export function exactOf(shape: Shape3D, faceIds: number[], edgeIds: number[], most = 20000, boxed = 1000): Exact | null {
   if (faceIds.length > most) return null;
   const oc = getOC();
-  const faces = new Map(shape.faces.map((f) => [f.hashCode, f]));
-  const edges = new Map(shape.edges.map((e) => [e.hashCode, e]));
-  const box = new oc.Bnd_Box();
-  oc.BRepBndLib.AddOptimal(shape.wrapped, box, false, false);
-  const corners: [V3, V3] = [read(box.CornerMin()), read(box.CornerMax())];
-  box.delete();
+  const faces = byHash<Face>(shape, 'face');
+  const edges = byHash<Edge>(shape, 'edge');
+  // the tight box takes seconds on thousands of faces (6 s on 8000): only below `boxed`
+  let corners: [V3, V3] | null = null;
+  if (faceIds.length <= boxed) {
+    const box = new oc.Bnd_Box();
+    oc.BRepBndLib.AddOptimal(shape.wrapped, box, false, false);
+    corners = [read(box.CornerMin()), read(box.CornerMax())];
+    box.delete();
+  }
   return {
     faces: faceIds.map((id) => faceOf(faces.get(id))),
     edges: edgeIds.map((id) => edgeOf(edges.get(id))),
@@ -49,19 +72,18 @@ export function exactOf(shape: Shape3D, faceIds: number[], edgeIds: number[], mo
 }
 
 function faceOf(f: Face | undefined): ExactFace {
-  if (!f) return { kind: 'free', area: 0 };
-  const area = measureArea(f);
+  if (!f) return { kind: 'free' };
   const type = f.geomType;
   if (type === 'PLANE') {
     const at = f.pointOnSurface(0.5, 0.5);
-    return { kind: 'plane', at: v3(at), n: v3(f.normalAt(at)), area };
+    return { kind: 'plane', at: v3(at), n: v3(f.normalAt(at)) };
   }
-  if (type !== 'CYLINDRE' && type !== 'SPHERE') return { kind: 'free', area };
+  if (type !== 'CYLINDRE' && type !== 'SPHERE') return { kind: 'free' };
   const surface = new (getOC().BRepAdaptor_Surface)(f.wrapped, false);
   try {
     if (type === 'SPHERE') {
       const s = surface.Sphere();
-      const out: ExactFace = { kind: 'sphere', c: read(s.Location()), r: s.Radius(), area };
+      const out: ExactFace = { kind: 'sphere', c: read(s.Location()), r: s.Radius() };
       s.delete();
       return out;
     }
@@ -75,7 +97,7 @@ function faceOf(f: Face | undefined): ExactFace {
     const n = f.normalAt(p);
     const t = (p.x - at[0]) * dir[0] + (p.y - at[1]) * dir[1] + (p.z - at[2]) * dir[2];
     const out = [p.x - at[0] - t * dir[0], p.y - at[1] - t * dir[1], p.z - at[2] - t * dir[2]];
-    return { kind: 'cylinder', at, dir, r, shaft: out[0] * n.x + out[1] * n.y + out[2] * n.z > 0, area };
+    return { kind: 'cylinder', at, dir, r, shaft: out[0] * n.x + out[1] * n.y + out[2] * n.z > 0 };
   } finally {
     surface.delete();
   }

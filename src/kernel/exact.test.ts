@@ -25,8 +25,8 @@ describe('exact data with the mesh', () => {
     expect(rims.length).toBeGreaterThanOrEqual(2);
     for (const e of rims) if (e.kind === 'circle') expect([e.r, e.c[0], e.c[1]]).toEqual([2, 10, 5].map((v) => expect.closeTo(v, 9)));
     expect(x.volume).toBeCloseTo(20 * 10 * 5 - Math.PI * 4 * 5, 6);
-    expect(x.box[0].map((v) => +v.toFixed(6))).toEqual([0, 0, 0]);
-    expect(x.box[1].map((v) => +v.toFixed(6))).toEqual([20, 10, 5]);
+    expect(x.box![0].map((v) => +v.toFixed(6))).toEqual([0, 0, 0]);
+    expect(x.box![1].map((v) => +v.toFixed(6))).toEqual([20, 10, 5]);
     shape.delete();
   });
 
@@ -34,7 +34,7 @@ describe('exact data with the mesh', () => {
     const shape = makeSphere(7);
     const x = meshBody(shape).exact!;
     expect(x.faces[0]).toMatchObject({ kind: 'sphere', r: 7 });
-    expect(x.box[1][0]).toBeCloseTo(7, 6);
+    expect(x.box![1][0]).toBeCloseTo(7, 6);
     shape.delete();
   });
 });

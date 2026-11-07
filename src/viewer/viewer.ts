@@ -3366,8 +3366,8 @@ export class Viewer implements ToolView {
     // the kernel's box turned would be loose: the triangles' stays)
     const exact = solid.userData.exact as Exact | null | undefined;
     const axes = [0, 1, 2, 4, 5, 6, 8, 9, 10].every((k) => Math.abs(Math.abs(g.matrix.elements[k]) - 0.5) > 0.5 - 1e-9);
-    if (exact && axes) box.set(new THREE.Vector3(...exact.box[0]), new THREE.Vector3(...exact.box[1])).applyMatrix4(g.matrix);
-    const out = { key, box, volume: exact?.volume ?? Math.abs(volume), area: exact?.area ?? area, exact: !!exact, boxExact: !!exact && axes };
+    if (exact?.box && axes) box.set(new THREE.Vector3(...exact.box[0]), new THREE.Vector3(...exact.box[1])).applyMatrix4(g.matrix);
+    const out = { key, box, volume: exact?.volume ?? Math.abs(volume), area: exact?.area ?? area, exact: !!exact, boxExact: !!exact?.box && axes };
     this.measured.set(id, out);
     return out;
   }
