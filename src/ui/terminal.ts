@@ -115,7 +115,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   box.append(grip, cols);
   parent.append(box);
   const drawerEl = Object.assign(document.createElement('div'), { className: 'drawer' });
-  drawerEl.append(Object.assign(document.createElement('button'), { className: 'drawer-tab', innerHTML: `${icon('chevron')}<span>Python terminal</span>`, title: 'Show or hide the Python terminal (I)', onclick: () => toggle() }));
+  drawerEl.append(Object.assign(document.createElement('button'), { className: 'drawer-tab', innerHTML: `${icon('chevron')}<span>Python terminal</span>`, title: 'Show or hide the Python terminal', onclick: () => toggle() }));
   tabs.prepend(drawerEl);
 
   const print = (text: string, kind = '') => {

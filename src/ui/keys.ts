@@ -32,7 +32,7 @@ export const KEYS = {
   open: { chapter: 'File', name: 'Open', order: 11, default: [{ key: 'o', mod: true }], hint: 'Open a design file' },
   undo: { chapter: 'Edit', name: 'Undo', order: 20, default: [{ key: 'z', mod: true, shift: false }], hint: 'Undo the last step' },
   redo: { chapter: 'Edit', name: 'Redo', order: 21, default: [{ key: 'z', mod: true, shift: true }, { key: 'y', mod: true }], hint: 'Redo the step undone' },
-  terminal: { chapter: 'View', name: 'Python terminal', order: 29, default: [{ key: 'i' }], hint: 'Open or close the Python terminal and its scripts' },
+  terminal: { chapter: 'View', name: 'Python terminal', order: 29, default: [], hint: 'Open or close the Python terminal and its scripts (no key by default)' },
   fit: { chapter: 'View', name: 'Fit', order: 30, default: [{ key: 'f' }], hint: 'Move the camera back or forth, as it looks now, until everything is in view' },
   home: { chapter: 'View', name: 'Home', order: 30.5, default: [{ key: 'h' }], hint: 'Everything framed from the front-right corner' },
   lookAtFace: { chapter: 'View', name: 'Look at face', order: 30.7, default: [], hint: 'The camera looks straight at the face last clicked on a selected body, else at the face clicked next (no key by default)' },
