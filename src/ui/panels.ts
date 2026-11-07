@@ -1017,7 +1017,10 @@ function left(ctx: UIContext): Node[] {
   const find = h('input', { className: 'filter', value: filters[leftTab], placeholder: `Filter ${LEFT_TABS.find(([t]) => t === leftTab)![1].toLowerCase()}`, spellcheck: false });
   find.dataset.path = `filter.${leftTab}`;
   find.oninput = () => ((filters[leftTab] = find.value), (find.dataset.dirty = '1'), renderUI(ctx));
-  find.onkeydown = (e) => pressed(e, 'cancel') && find.value && (e.stopPropagation(), (filters[leftTab] = ''), renderUI(ctx));
+  find.onkeydown = (e) => {
+    // (no value returned: false from an on-handler would cancel the key)
+    if (pressed(e, 'cancel') && find.value) e.stopPropagation(), (filters[leftTab] = ''), renderUI(ctx);
+  };
   const hides = leftTab === 'objects' ? 'objects' : leftTab === 'aids' ? 'sketches' : null;
   const all = hides ? [h('button', { className: 'icon', innerHTML: icon(ctx.hideAll[hides] ? 'eyeOff' : 'eye'), title: ctx.hideAll[hides] ? 'Show them again as they were' : `Hide all ${hides} for now (each eye stays as it is)`, onclick: () => ctx.toggleHideAll(hides) })] : [];
   const head = h('div', { className: 'tree-head' }, find, ...all);
