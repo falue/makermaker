@@ -2391,6 +2391,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
   const end = (ok: boolean) => {
     viewer.aiming = null;
     viewer.cancelFacePick();
+    centred.disconnect();
     box.remove();
     removeEventListener('keydown', keys, { capture: true });
     toolHint = null;
@@ -2406,6 +2407,10 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
   box.append(...before, ...cells, ...extra, panelButton('✓', 'Keep it (Enter); Esc drops it', () => end(true)));
   document.body.append(box);
   atTop(box);
+  // centred again when its width changes (fields shown or hidden after it opened)
+  let width = box.offsetWidth;
+  const centred = new ResizeObserver(() => width !== box.offsetWidth && ((width = box.offsetWidth), atTop(box)));
+  centred.observe(box);
   toolHint = hint;
   render();
   // the first field shown (a caller may hide some right after)
