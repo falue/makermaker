@@ -1,7 +1,7 @@
-import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, Sketches, Transformation, type CornerFinder, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
+import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, Sketches, Transformation, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import type { DrawingPen } from 'replicad';
-import { bakeTurn, bounds, centre, cornerRadii, curved, inside, mapPoints, movedLine, nesting, roundable, sideDirs, type DrawnProfile } from '../doc/profiles';
+import { bakeTurn, bounds, centre, cornerCuts, cornerRadii, segments, curved, inside, mapPoints, movedLine, nesting, sideDirs, type DrawnProfile } from '../doc/profiles';
 import type { TopoDS_Shape } from 'replicad-opencascadejs';
 import { lineUses } from '../doc/arrangement';
 import { exactOf, type Exact } from './exact';
@@ -230,17 +230,20 @@ function drawing(p: Resolved<Profile>): Drawing {
   }
 }
 
-/** A shape with corners, each rounded by its own radius or chamfered (`cornerRadii`: as asked, at most what the corner takes). */
+/**
+ * A shape with corners, each rounded by its own radius or chamfered (`cornerRadii`: as asked, at most what the corner
+ * takes): drawn from its exact sides (`segments`), the corners where the sketch has them (tangent to curved sides too).
+ */
 function rounded(p: Resolved<Profile>): Drawing {
-  const q = roundable(p)!;
-  const radii = cornerRadii(p);
-  let d = sidesDrawn(draw(q.pts[0]), q, true).close();
-  // one fillet or chamfer per size, on its corners (doing one leaves the others' points where they are)
-  for (const r of new Set(radii.filter((x) => x))) {
-    const at = (c: CornerFinder) => c.inList(q.pts.filter((_, i) => radii[i] === r));
-    d = r > 0 ? d.fillet(r, at) : d.chamfer(-r, at);
-  }
-  return d;
+  const segs = segments(p);
+  const pen = draw(segs[0].a);
+  segs.forEach(({ b, c }, i) => {
+    if (i === segs.length - 1 && !c) return; // close() draws it
+    if (!c) pen.lineTo(b);
+    else if ('c1' in c) pen.cubicBezierCurveTo(b, c.c1, c.c2);
+    else pen.threePointsArcTo(b, c.mid);
+  });
+  return pen.close();
 }
 
 /** `pen` (at the first point) drawn on along the sides; `closed`: the last one back to the first point. */
@@ -453,20 +456,9 @@ function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
     circles.push([x, y, r]);
   };
   if (p.kind === 'circle') at(p.x, p.y, p.d / 2);
-  // rounded corners: each arc's middle on the corner's bisector
-  const q = roundable(p);
-  cornerRadii(p).forEach((r, i) => {
-    if (r <= 0 || !q) return; // a chamfer's faces are flat
-    const n = q.pts.length;
-    const [a, c, b] = [q.pts[(i - 1 + n) % n], q.pts[i], q.pts[(i + 1) % n]];
-    const [, din] = sideDirs(a, q.curves?.[(i - 1 + n) % n], c);
-    const [dout] = sideDirs(c, q.curves?.[i], b);
-    const [u, v] = [din, dout].map((d) => [d[0] / Math.hypot(...d), d[1] / Math.hypot(...d)]);
-    const bis = [v[0] - u[0], v[1] - u[1]];
-    const half = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1]))) / 2;
-    const k = r / Math.cos(half) / (Math.hypot(...bis) || 1);
-    at(c[0] + bis[0] * k, c[1] + bis[1] * k, r);
-  });
+  // rounded corners: each arc's centre, as the outline has it (`cornerCuts`)
+  const radii = cornerRadii(p);
+  cornerCuts(p).forEach((cut, i) => cut?.centre && at(cut.centre[0], cut.centre[1], radii[i]));
   // where curved sides run on without a corner: a seam, as a circle of no size
   if (p.kind === 'polygon' && curved(p)) {
     const q = bakeTurn(p);

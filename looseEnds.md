@@ -5,7 +5,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Real geometry
 - The survey and what is done: STATUS.md, "PARAMOUNT, solve ASAP" at its top (steps 1–6 built 2026-11-07). Left open there: a body turned off the axes with spheres, fillets or free-form faces takes the mesh's box; rational DXF splines are sampled; the orthographic camera keeps ±50 m.
 - Kept on purpose, with reasons in STATUS: the thread stays faceted (an exact helix cut fails in this OpenCascade build); a cut moving along a joint is stamped in steps.
-- Corners rounded beside a curved side are cut where `cornerCuts` puts them (along the tangents) in `segments`, area and snapping; the kernel's fillet touches the curve slightly elsewhere.
 
 ## Lines and polygons
 - What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.
@@ -55,7 +54,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A body's shape with corner R from an unlinked sketch (its own shapes) shows that R only in its Extrude card, not in the body's card.
 - The right-click menu offers only Fold, Unfold and Fold all so far (bodies without tool bodies get none).
 - Folded tool bodies count as tool bodies wherever those are told apart (`ownersOf`): Interference, Select all, the exports and the view skip them; `cad.measure` gives every body, tool bodies and folded ones too (as before).
-- Beside a curved side a corner's rounding is drawn along the curve's tangent at the corner, a little off the kernel's true one for strongly bent curves; a rounded curved polygon loses its curve keys (A / Shift A split its curved sides no more).
 - Not tried by hand yet: the whole Join / Cut / Object history / Fold flow.
 
 ## View

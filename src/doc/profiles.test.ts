@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignment, bounds, closedLoop, cornerCuts, cornerLimits, cornerRadii, inside, segments } from './profiles';
+import { alignment, bounds, closedLoop, cornerCuts, cornerLimits, cornerRadii, inside, segments, sideDirs } from './profiles';
 
 describe('profiles', () => {
   it('finds the loop lines close, either way round', () => {
@@ -99,6 +99,27 @@ describe('cornerCuts', () => {
     const arc = segments(shape).find((g) => g.a[0] === end[0] && g.a[1] === end[1])!;
     const mid = (arc.c as { mid: [number, number] }).mid;
     expect(Math.hypot(mid[0] - 5, mid[1] - (12 - (5 * 5 + 2 * 2) / 4))).toBeCloseTo((5 * 5 + 2 * 2) / 4, 6);
+  });
+});
+
+describe('corners beside curved sides', () => {
+  it('a rounding beside an arc or a bezier: its centre r from both true sides, tangent to them where it meets them', () => {
+    const shape = { kind: 'polygon' as const, pts: [[0, 0], [40, 0], [40, 30], [0, 30]] as [number, number][], curves: [null, { c1: [50, 10] as [number, number], c2: [55, 20] as [number, number] }, { mid: [20, 38] as [number, number] }, null], r: 4, rot: 0 };
+    const segs = segments(shape);
+    for (const cut of cornerCuts(shape)) {
+      const [a, b] = [cut!.pts[0], cut!.pts.at(-1)!];
+      for (const e of [a, b]) expect(Math.hypot(e[0] - cut!.centre![0], e[1] - cut!.centre![1])).toBeCloseTo(4, 9);
+      // the side it joins runs along the circle's tangent there: square to the radius
+      for (const e of [a, b]) {
+        const same = (p: [number, number], q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-12;
+        const rounding = (g: (typeof segs)[number]) => same(g.a, a) && same(g.b, b);
+        const side = segs.find((g) => !rounding(g) && (same(g.a, e) || same(g.b, e)))!;
+        const [d0, d1] = sideDirs(side.a, side.c, side.b);
+        const d = same(side.a, e) ? d0 : d1;
+        const rad = [e[0] - cut!.centre![0], e[1] - cut!.centre![1]];
+        expect((d[0] * rad[0] + d[1] * rad[1]) / (Math.hypot(...d) * 4)).toBeCloseTo(0, 7);
+      }
+    }
   });
 });
 

@@ -225,20 +225,48 @@ export function cornerCuts(p: P, steps = 8): ({ t: number; pts: UV[]; centre?: U
   return cornerRadii(p).map((r, i) => {
     if (!r) return null;
     const c = q.pts[i];
-    const [, din] = sideDirs(q.pts[(i - 1 + n) % n], q.curves?.[(i - 1 + n) % n], c);
-    const [dout] = sideDirs(c, q.curves?.[i], q.pts[(i + 1) % n]);
+    const before: Seg = { a: q.pts[(i - 1 + n) % n], b: c, c: q.curves?.[(i - 1 + n) % n] };
+    const after: Seg = { a: c, b: q.pts[(i + 1) % n], c: q.curves?.[i] };
+    const [, din] = sideDirs(before.a, before.c, c);
+    const [dout] = sideDirs(c, after.c, after.b);
     const [u, v] = [unit(din), unit(dout)];
     const turn = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1])));
     if (turn < 1e-6) return null;
-    // a chamfer: straight across, its length along each side
-    if (r < 0) return { t: -r, pts: [[c[0] + u[0] * r, c[1] + u[1] * r], [c[0] - v[0] * r, c[1] - v[1] * r]] };
+    const curved = !!before.c || !!after.c;
+    // a chamfer: straight across, its length along each side (along a curve too, as the kernel measures it)
+    if (r < 0) return { t: -r, pts: curved ? [pointAlong(before, segLength(before) + r), pointAlong(after, -r)] : [[c[0] + u[0] * r, c[1] + u[1] * r], [c[0] - v[0] * r, c[1] - v[1] * r]] };
     const bis = unit([v[0] - u[0], v[1] - u[1]]);
-    const o: UV = [c[0] + (bis[0] * r) / Math.cos(turn / 2), c[1] + (bis[1] * r) / Math.cos(turn / 2)];
+    let o: UV = [c[0] + (bis[0] * r) / Math.cos(turn / 2), c[1] + (bis[1] * r) / Math.cos(turn / 2)];
     const t = r * Math.tan(turn / 2);
-    const [a0, a1] = [[c[0] - u[0] * t, c[1] - u[1] * t], [c[0] + v[0] * t, c[1] + v[1] * t]].map(([x, y]) => Math.atan2(y - o[1], x - o[0]));
+    let ends: UV[] = [[c[0] - u[0] * t, c[1] - u[1] * t], [c[0] + v[0] * t, c[1] + v[1] * t]];
+    // beside a curve: the circle r from both true sides, as the kernel's fillet (Newton from the one along the tangents)
+    if (curved)
+      for (let k = 0; k < 40; k++) {
+        ends = [before, after].map((g) => nearestOn(g, o));
+        const [n1, n2] = ends.map((e) => unit([o[0] - e[0], o[1] - e[1]]));
+        const [f1, f2] = ends.map((e) => Math.hypot(o[0] - e[0], o[1] - e[1]) - r);
+        const det = n1[0] * n2[1] - n1[1] * n2[0];
+        if (Math.abs(det) < 1e-12) break;
+        const step: UV = [(-f1 * n2[1] + f2 * n1[1]) / det, (-n1[0] * f2 + n2[0] * f1) / det];
+        o = [o[0] + step[0], o[1] + step[1]];
+        if (Math.hypot(...step) < 1e-13 * (1 + r)) {
+          ends = [before, after].map((g) => nearestOn(g, o));
+          break;
+        }
+      }
+    const [a0, a1] = ends.map(([x, y]) => Math.atan2(y - o[1], x - o[0]));
     const d = ((a1 - a0 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI; // the short way round
-    return { t, centre: o, pts: Array.from({ length: steps + 1 }, (_, k): UV => [o[0] + r * Math.cos(a0 + (d * k) / steps), o[1] + r * Math.sin(a0 + (d * k) / steps)]) };
+    const pts = Array.from({ length: steps + 1 }, (_, k): UV => (k === 0 ? ends[0] : k === steps ? ends[1] : [o[0] + r * Math.cos(a0 + (d * k) / steps), o[1] + r * Math.sin(a0 + (d * k) / steps)]));
+    return { t: curved ? Math.max(...ends.map((e) => Math.hypot(e[0] - c[0], e[1] - c[1]))) : t, centre: o, pts };
   });
+}
+
+/** The point of a side nearest `q`. */
+function nearestOn({ a, b, c }: Seg, q: UV): UV {
+  if (c) return nearestOnSide(a, c, b, q);
+  const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+  const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+  return [a[0] + t * dx, a[1] + t * dy];
 }
 
 /** A side of an outline, exact: straight, an arc through `mid`, or a cubic bezier. */
@@ -311,14 +339,8 @@ function sidesNow(p: P): Seg[] {
 /** The point of the outline (`segments`) nearest `q`, and how far it is. */
 export function nearestOnOutline(p: P, q: UV): { at: UV; d: number } {
   let best = { at: q, d: Infinity };
-  for (const { a, b, c } of segments(p)) {
-    let at: UV;
-    if (c) at = nearestOnSide(a, c, b, q);
-    else {
-      const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
-      const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
-      at = [a[0] + t * dx, a[1] + t * dy];
-    }
+  for (const g of segments(p)) {
+    const at = nearestOn(g, q);
     const d = Math.hypot(q[0] - at[0], q[1] - at[1]);
     if (d < best.d) best = { at, d };
   }

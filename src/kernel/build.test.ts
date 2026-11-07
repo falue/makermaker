@@ -752,6 +752,20 @@ describe('curved sides', () => {
   });
 });
 
+describe('corners beside curved sides', () => {
+  it('a rounded or chamfered corner beside an arc or a bezier: the sketch outline as the kernel builds it (area = volume of 1 mm)', async () => {
+    const { area } = await import('../doc/profiles');
+    const shape = (r: number) => ({ id: 'q', kind: 'polygon' as const, pts: [[0, 0], [40, 0], [40, 30], [0, 30]] as [number, number][], curves: [null, { c1: [50, 10], c2: [55, 20] }, { mid: [20, 38] }, null], r, rot: 0 }) as unknown as Parameters<typeof areasOf>[0][number];
+    for (const r of [2, 5, -2, -4]) {
+      const p = shape(r);
+      const solid = buildBody([{ id: 'x', type: 'extrude', plane: ground, profiles: [p], depth: 1, mode: 'add', through: false } as BuildFeature]);
+      const volume = measureVolume(solid);
+      solid.delete();
+      expect(area(p), `r ${r}`).toBeCloseTo(volume, 5);
+    }
+  });
+});
+
 describe('curved sides in finishes', () => {
   // a rounded end on a box: two tangent seams, two real corners
   const rounded = (r = 0): BuildFeature => ({
