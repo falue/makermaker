@@ -328,9 +328,14 @@ function lineFacesExact(ps: Resolved<Profile>[]): { faces: { face: BRepFace; tri
   if (!taking.some((p) => p.kind === 'line')) return { faces: [], uses };
   const oc = getOC();
   const tools = new oc.NCollection_List_TopoDS_Shape();
+  // each edge a tool of its own: the splitter crosses tools with each other, not a wire with itself (a line crossing
+  // itself would close nothing)
   for (const p of taking) {
     const sketch = (p.kind === 'line' ? sidesDrawn(draw(p.pts[0]), p).done() : drawing(p)).sketchOnPlane('XY');
-    tools.Append(sketch instanceof Sketches ? sketch.wires().wrapped : (sketch as Sketch).wire.wrapped);
+    const wire = sketch instanceof Sketches ? sketch.wires().wrapped : (sketch as Sketch).wire.wrapped;
+    const edges = new oc.TopExp_Explorer(wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    for (; edges.More(); edges.Next()) tools.Append(edges.Current());
+    edges.delete();
   }
   // the rim: all of them inside it, with room
   const box = taking.map((p) => bounds(p as DrawnProfile)).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);

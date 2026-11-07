@@ -525,6 +525,21 @@ describe('buildBody', () => {
     expect(faces).toBe(5); // one solid: no wall left inside along the arc they share
   });
 
+  it('a single line crossing itself twice closes two areas, both extruded (failed2.mmk, its second state)', () => {
+    const line = { id: 'l', kind: 'line' as const, pts: [[-43, -35.5], [-75.406023, 14.400899], [-54.258265, 20.464921], [-64.604015, -2.232734], [-41.187796, -10.989484], [-51.101506, -23.024775], [-59.048942, -32.673001]] as [number, number][] };
+    const areas = areasOf([line]);
+    expect(areas).toHaveLength(2); // the two loops
+    const flat = areas.reduce((sum, a) => {
+      let n = 0;
+      for (let k = 0; k + 5 < a.tris.length; k += 6) n += Math.abs((a.tris[k + 2] - a.tris[k]) * (a.tris[k + 5] - a.tris[k + 1]) - (a.tris[k + 4] - a.tris[k]) * (a.tris[k + 3] - a.tris[k + 1])) / 2;
+      return sum + n;
+    }, 0);
+    const shape = buildBody([{ id: 'x', type: 'extrude', plane: ground, profiles: [line], areas: areas.map((a) => ({ in: a.in, out: a.out, at: a.at })), depth: 10, mode: 'add', through: false } as BuildFeature]);
+    const volume = measureVolume(shape);
+    shape.delete();
+    expect(volume).toBeCloseTo(flat * 10, 1); // the triangles in float32
+  });
+
   it('a line across a circle leaves two true half discs; a line across an arch leaves its arc', () => {
     const half = (shapes: Parameters<typeof areasOf>[0], pick: (at: [number, number]) => boolean) => {
       const areas = areasOf(shapes).filter((a) => pick(a.at!)).map((a) => ({ in: a.in, out: a.out, at: a.at }));
