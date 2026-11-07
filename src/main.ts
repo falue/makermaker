@@ -4796,7 +4796,13 @@ function rotateTool() {
   document.body.append(box);
   atTop(box);
   addEventListener('keydown', keys, { capture: true });
-  setAxis();
+  // an edge Alt-picked first is the axis: turning at once
+  const picked = frame ? null : pickedAxis();
+  if (!picked) return setAxis();
+  viewer.dropPicked();
+  [pivot, dir] = [picked.at.clone().addScaledVector(picked.dir, middle.clone().sub(picked.at).dot(picked.dir)), picked.dir.clone()];
+  apply(angle);
+  turnPick();
 }
 
 /**
