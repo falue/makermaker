@@ -1,5 +1,5 @@
 import { Matrix3, Vector3 } from 'three';
-import { arcOf, bakeTurn, centre, curved, mapPoints, sideDirs, sidesOf, type DrawnProfile } from '../doc/profiles';
+import { arcOf, bakeTurn, bounds, centre, mapPoints, sideDirs, type DrawnProfile } from '../doc/profiles';
 import type { Curve } from '../doc/types';
 
 type UV = [number, number];
@@ -25,11 +25,9 @@ function box(p: DrawnProfile): { half: UV; mid: UV } {
   if (p.kind === 'rect') return { half: [p.w / 2, p.h / 2], mid: [0, 0] };
   if (p.kind === 'circle' || p.kind === 'ngon') return { half: [p.d / 2, p.d / 2], mid: [0, 0] };
   const [cx, cy] = centre(p);
-  const all = curved(p) ? sidesOf(p).flat() : p.pts;
-  const xs = all.map(([x]) => x - cx);
-  const ys = all.map(([, y]) => y - cy);
-  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-  return { half: [(x1 - x0) / 2, (y1 - y0) / 2], mid: [(x0 + x1) / 2, (y0 + y1) / 2] };
+  // its true sides, unturned, corners sharp
+  const [x0, y0, x1, y1] = bounds(p.kind === 'line' ? p : { ...p, rot: 0, r: 0, rs: undefined });
+  return { half: [(x1 - x0) / 2, (y1 - y0) / 2], mid: [(x0 + x1) / 2 - cx, (y0 + y1) / 2 - cy] };
 }
 
 /** The handle on the middle of the arc on side `i`; none: its points lie on one line. */

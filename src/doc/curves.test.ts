@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arcOf, area, bakeTurn, bounds, closedLoop, flattened, inside, mapPoints, ontoArcThrough, sideDirs, sidesOf, offsetPath } from './profiles';
+import { arcOf, area, bakeTurn, bounds, closedLoop, edgeDistance, flattened, inside, mapPoints, nesting, ontoArcThrough, outlineLength, segPoints, segments, sideDirs, sidesOf, offsetPath } from './profiles';
 import { centreMoved, controlMoved, isSmooth, pointHandles, pointMoved, smoothToggled } from '../viewer/shapes';
 import { followSizes, sized } from './sizes';
 import type { Curve, Doc } from './types';
@@ -281,5 +281,42 @@ describe('onto the true curve', () => {
   });
   it('three points in line: stays', () => {
     expect(ontoArcThrough([0, 0], [1, 0], [2, 0], [0.5, 0])).toEqual([0.5, 0]);
+  });
+});
+
+describe('exact outlines', () => {
+  const rounded = { kind: 'rect' as const, x: 0, y: 0, w: 40, h: 20, r: 5, rot: 0 };
+  const hill = { kind: 'polygon' as const, pts: [[0, 0], [30, 0]] as UV[], curves: [{ c1: [0, -20], c2: [30, -20] } as Curve, null], r: 0, rot: 0 };
+  const dense = (p: Parameters<typeof segments>[0]) => {
+    const pts = segments(p).flatMap((g) => segPoints(g, 1e-6).slice(0, -1));
+    return Math.abs(pts.reduce((s, [x, y], i) => s + x * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * y, 0)) / 2;
+  };
+
+  it('areas: rounded corners taken off, arcs and beziers exact', () => {
+    expect(area(rounded)).toBeCloseTo(800 - (4 - Math.PI) * 25, 9);
+    expect(area(halfDisc)).toBeCloseTo(50 * Math.PI, 9);
+    expect(area(hill)).toBeCloseTo(dense(hill), 4);
+    expect(area({ ...rounded, r: -5 })).toBeCloseTo(800 - 4 * 12.5, 9); // chamfers
+  });
+
+  it('lengths along the true curve, not its chords', () => {
+    expect(outlineLength({ kind: 'line', pts: [[-50, 0], [50, 0]], curves: [{ mid: [0, 50] }] })).toBeCloseTo(50 * Math.PI, 9);
+    const pts = segPoints(segments(hill)[0], 1e-7);
+    expect(outlineLength({ kind: 'line', pts: hill.pts, curves: [hill.curves[0]] })).toBeCloseTo(pts.reduce((n, q, i) => n + (i ? Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) : 0), 0), 6);
+  });
+
+  it('bounds, inside and distance on the true outline', () => {
+    expect(bounds(halfDisc)).toEqual([-10, 0, 10, 10]);
+    expect(bounds(hill)[1]).toBeCloseTo(-15, 9); // the bezier's lowest point: ¾ of its handles' depth
+    expect(inside(rounded, 19.5, 9.5)).toBe(false); // cut off by the rounding
+    expect(inside(rounded, 19, 0)).toBe(true);
+    expect(inside(halfDisc, 0, 9.9999)).toBe(true);
+    expect(inside(halfDisc, 7.072, 7.072)).toBe(false);
+    expect(edgeDistance(rounded, 20, 10)).toBeCloseTo(5 * Math.SQRT2 - 5, 9);
+  });
+
+  it('a half disc in a rect is a hole even with its centre on its own edge', () => {
+    expect(nesting([{ kind: 'rect', x: 0, y: 0, w: 40, h: 40, r: 0, rot: 0 }, { ...halfDisc, pts: [[-10, 0], [10, 0]] }])).toEqual([0, 1]);
+    expect(nesting([{ kind: 'rect', x: 0, y: 20, w: 40, h: 40, r: 0, rot: 0 }, halfDisc])).toEqual([0, 1]);
   });
 });

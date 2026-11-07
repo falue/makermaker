@@ -50,17 +50,7 @@ export function nearestOnSide(a: UV, c: Curve, b: UV, q: UV): UV {
     }
     return a;
   }
-  const at = (t: number): UV => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c.c1[k] + 3 * (1 - t) * t ** 2 * c.c2[k] + t ** 3 * b[k]) as UV;
-  const far = (t: number) => Math.hypot(at(t)[0] - q[0], at(t)[1] - q[1]);
-  let best = 0;
-  for (let k = 1; k <= 256; k++) if (far(k / 256) < far(best / 256)) best = k;
-  let [lo, hi] = [Math.max(0, best - 1) / 256, Math.min(256, best + 1) / 256];
-  for (let k = 0; k < 40; k++) {
-    const [m1, m2] = [lo + (hi - lo) / 3, hi - (hi - lo) / 3];
-    if (far(m1) < far(m2)) hi = m2;
-    else lo = m1;
-  }
-  return at((lo + hi) / 2);
+  return bez(a, c.c1, c.c2, b, bezierT(a, c.c1, c.c2, b, q));
 }
 
 /** `q` moved onto the circle through three points that lie on a curve, between them: how far a chord's point really is from the curve (they lie on one line: `q`). */
@@ -232,10 +222,135 @@ export function roundedOutline(p: P, steps = 8): UV[] {
   });
 }
 
+/** A side of an outline, exact: straight, an arc through `mid`, or a cubic bezier. */
+export type Seg = { a: UV; b: UV; c?: Curve | null };
+
+const bez = (a: UV, c1: UV, c2: UV, b: UV, t: number): UV => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c1[k] + 3 * (1 - t) * t ** 2 * c2[k] + t ** 3 * b[k]) as UV;
+
+/** The bezier's parameter nearest `q`. */
+function bezierT(a: UV, c1: UV, c2: UV, b: UV, q: UV): number {
+  const far = (t: number) => Math.hypot(bez(a, c1, c2, b, t)[0] - q[0], bez(a, c1, c2, b, t)[1] - q[1]);
+  let best = 0;
+  for (let k = 1; k <= 256; k++) if (far(k / 256) < far(best / 256)) best = k;
+  let [lo, hi] = [Math.max(0, best - 1) / 256, Math.min(256, best + 1) / 256];
+  for (let k = 0; k < 40; k++) {
+    const [m1, m2] = [lo + (hi - lo) / 3, hi - (hi - lo) / 3];
+    if (far(m1) < far(m2)) hi = m2;
+    else lo = m1;
+  }
+  return (lo + hi) / 2;
+}
+
+/** The part of a side between its points nearest `from` and `to`, running from exactly `from` to `to`. */
+function trimmed(a: UV, c: Curve, b: UV, from: UV, to: UV): Seg {
+  if ('mid' in c) {
+    const arc = arcOf(a, c.mid, b);
+    if (!arc) return { a: from, b: to };
+    // the middle between the two points, along the arc
+    const dir = Math.sign(arc.a1 - arc.a0) || 1;
+    const along = (q: UV) => arc.a0 + dir * ((((Math.atan2(q[1] - arc.c[1], q[0] - arc.c[0]) - arc.a0) * dir) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    const m = (along(from) + along(to)) / 2;
+    return { a: from, b: to, c: { mid: [arc.c[0] + arc.r * Math.cos(m), arc.c[1] + arc.r * Math.sin(m)] } };
+  }
+  const [t0, t1] = [bezierT(a, c.c1, c.c2, b, from), bezierT(a, c.c1, c.c2, b, to)];
+  // de Casteljau: the handles of the piece from t0 to t1 are the derivative's, scaled to its length
+  const d = (t: number): UV => [0, 1].map((k) => 3 * ((1 - t) ** 2 * (c.c1[k] - a[k]) + 2 * (1 - t) * t * (c.c2[k] - c.c1[k]) + t ** 2 * (b[k] - c.c2[k]))) as UV;
+  const h = (t1 - t0) / 3;
+  return { a: from, b: to, c: { c1: [from[0] + d(t0)[0] * h, from[1] + d(t0)[1] * h], c2: [to[0] - d(t1)[0] * h, to[1] - d(t1)[1] * h] } };
+}
+
+/**
+ * The outline as exact sides, turned: straight, true arcs, beziers, each corner's rounding (an arc) or chamfer in
+ * its place (`cornerCuts`; beside a curved side cut where that puts it); a circle as two half arcs; a line open.
+ */
+export function segments(p: P): Seg[] {
+  if (p.kind === 'circle') {
+    const r = p.d / 2;
+    const [e, n, w, s]: UV[] = [[p.x + r, p.y], [p.x, p.y + r], [p.x - r, p.y], [p.x, p.y - r]];
+    return [{ a: e, b: w, c: { mid: n } }, { a: w, b: e, c: { mid: s } }];
+  }
+  const q = p.kind === 'line' ? p : (roundable(p) ?? { pts: corners(p) });
+  const cuts = p.kind === 'line' ? [] : cornerCuts(p);
+  const n = p.kind === 'line' ? q.pts.length - 1 : q.pts.length;
+  const out: Seg[] = [];
+  for (let i = 0; i < n; i++) {
+    const [a, b] = [q.pts[i], q.pts[(i + 1) % q.pts.length]];
+    const [from, to] = [cuts[i]?.pts.at(-1) ?? a, cuts[(i + 1) % q.pts.length]?.pts[0] ?? b];
+    const c = q.curves?.[i];
+    const cut = cuts[i];
+    if (cut) out.push(cut.centre ? { a: cut.pts[0], b: from, c: { mid: cut.pts[Math.floor(cut.pts.length / 2)] } } : { a: cut.pts[0], b: from });
+    out.push(c && (from !== a || to !== b) ? trimmed(a, c, b, from, to) : { a: from, b: to, c });
+  }
+  return out;
+}
+
+/** A side as points, both ends in, at most `tol` mm off it. */
+export function segPoints({ a, b, c }: Seg, tol = 1e-3): UV[] {
+  if (!c) return [a, b];
+  if ('mid' in c) {
+    const arc = arcOf(a, c.mid, b);
+    if (!arc) return [a, b];
+    const steps = Math.max(2, Math.ceil(Math.abs(arc.a1 - arc.a0) / (2 * Math.acos(Math.max(0, 1 - tol / arc.r)))));
+    return sidePoints(a, c, b, steps);
+  }
+  // halved until its handles lie within `tol` of its chord
+  const flat = (a: UV, c1: UV, c2: UV, b: UV): UV[] => {
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const off = (q: UV) => Math.abs((q[0] - a[0]) * (b[1] - a[1]) - (q[1] - a[1]) * (b[0] - a[0])) / l;
+    if (Math.max(off(c1), off(c2)) <= tol) return [a, b];
+    const m = (x: UV, y: UV): UV => [(x[0] + y[0]) / 2, (x[1] + y[1]) / 2];
+    const [ab, bc, cd] = [m(a, c1), m(c1, c2), m(c2, b)];
+    const [abc, bcd] = [m(ab, bc), m(bc, cd)];
+    const mid = m(abc, bcd);
+    return [...flat(a, ab, abc, mid).slice(0, -1), ...flat(mid, bcd, cd, b)];
+  };
+  return flat(a, c.c1, c.c2, b);
+}
+
+/** A side's length: exact for lines and arcs, a bezier's by 16-point Gauss–Legendre on its pieces. */
+export function segLength({ a, b, c }: Seg): number {
+  if (!c) return Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if ('mid' in c) {
+    const arc = arcOf(a, c.mid, b);
+    return arc ? arc.r * Math.abs(arc.a1 - arc.a0) : Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  const speed = (t: number) => Math.hypot(...([0, 1].map((k) => 3 * ((1 - t) ** 2 * (c.c1[k] - a[k]) + 2 * (1 - t) * t * (c.c2[k] - c.c1[k]) + t ** 2 * (b[k] - c.c2[k]))) as UV));
+  let sum = 0;
+  for (let piece = 0; piece < 8; piece++) for (const [x, w] of GAUSS) sum += (w * speed((piece + (x + 1) / 2) / 8)) / 16;
+  return sum;
+}
+
+const GAUSS = [0.0950125098, 0.2816035508, 0.4580167777, 0.6178762444, 0.7554044084, 0.8656312024, 0.9445750231, 0.9894009350]
+  .map((x, i) => [x, [0.1894506105, 0.1826034150, 0.1691565194, 0.1495959888, 0.1246289713, 0.0951585117, 0.0622535239, 0.0271524594][i]])
+  .flatMap(([x, w]) => [[x, w], [-x, w]]);
+
+/** Length of a line's or outline's sides. */
+export const outlineLength = (p: P) => segments(p).reduce((s, g) => s + segLength(g), 0);
+
 /** Bounding box in plane coordinates: [minX, minY, maxX, maxY]. */
 export function bounds(p: P): [number, number, number, number] {
   if (p.kind === 'circle') return [p.x - p.d / 2, p.y - p.d / 2, p.x + p.d / 2, p.y + p.d / 2];
-  const pts = flattened(p);
+  const pts = segments(p).flatMap((g) => {
+    if (!g.c) return [g.a, g.b];
+    if ('c1' in g.c) {
+      const { c1, c2 } = g.c;
+      // where the bezier turns along x or y: roots of its derivative
+      const ts = [0, 1].flatMap((k) => {
+        const [qa, qb, qc] = [g.b[k] - 3 * c2[k] + 3 * c1[k] - g.a[k], 2 * (c2[k] - c1[k]) - 2 * (c1[k] - g.a[k]), c1[k] - g.a[k]];
+        if (Math.abs(qa) < 1e-12) return Math.abs(qb) < 1e-12 ? [] : [-qc / qb];
+        const disc = qb * qb - 4 * qa * qc;
+        return disc < 0 ? [] : [(-qb + Math.sqrt(disc)) / (2 * qa), (-qb - Math.sqrt(disc)) / (2 * qa)];
+      });
+      return [g.a, g.b, ...ts.filter((t) => t > 0 && t < 1).map((t) => bez(g.a, c1, c2, g.b, t))];
+    }
+    const arc = arcOf(g.a, g.c.mid, g.b);
+    if (!arc) return [g.a, g.b];
+    // the arc's ends, and the quarter points it passes
+    const [lo, hi] = [Math.min(arc.a0, arc.a1), Math.max(arc.a0, arc.a1)];
+    const quarters: UV[] = [];
+    for (let k = Math.ceil(lo / (Math.PI / 2)); k * (Math.PI / 2) <= hi; k++) quarters.push([arc.c[0] + arc.r * Math.cos((k * Math.PI) / 2), arc.c[1] + arc.r * Math.sin((k * Math.PI) / 2)]);
+    return [g.a, g.b, ...quarters];
+  });
   const xs = pts.map(([x]) => x);
   const ys = pts.map(([, y]) => y);
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
@@ -269,12 +384,18 @@ export function alignment(boxes: [number, number, number, number][], how: Align)
 
 export type Align = 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom' | 'distributeX' | 'distributeY';
 
+/** Enclosed area, exact: lines, arcs and beziers by Green's theorem; corner roundings and chamfers taken off. */
 export function area(p: P): number {
   if (p.kind === 'line') return 0;
-  if (p.kind === 'rect') return p.w * p.h;
   if (p.kind === 'circle') return (Math.PI * p.d * p.d) / 4;
-  const pts = flattened(p);
-  return Math.abs(pts.reduce((s, [x, y], i) => s + x * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * y, 0)) / 2;
+  const x = (u: UV, v: UV) => u[0] * v[1] - u[1] * v[0];
+  return Math.abs(segments(p).reduce((s, { a, b, c }) => {
+    if (!c) return s + x(a, b) / 2;
+    if ('c1' in c) return s + (6 * x(a, c.c1) + 3 * x(a, c.c2) + x(a, b) + 3 * x(c.c1, c.c2) + 3 * x(c.c1, b) + 6 * x(c.c2, b)) / 20;
+    const arc = arcOf(a, c.mid, b);
+    const t = arc ? arc.a1 - arc.a0 : 0;
+    return s + x(a, b) / 2 + (arc ? (arc.r * arc.r * (t - Math.sin(t))) / 2 : 0);
+  }, 0));
 }
 
 /** Rect and circle: their centre; polygon and line: the centre of their points (unchanged by turning). */
@@ -284,37 +405,56 @@ export function centre(p: P): [number, number] {
   return [p.pts.reduce((s, q) => s + q[0], 0) / n, p.pts.reduce((s, q) => s + q[1], 0) / n];
 }
 
+/** Whether plane point (u, v) lies inside the outline (`segments`; a line is open: never). */
 export function inside(p: P, u: number, v: number): boolean {
-  if (p.kind === 'line') return false; // open: nothing inside
+  if (p.kind === 'line') return false;
   if (p.kind === 'circle') return Math.hypot(u - p.x, v - p.y) <= p.d / 2;
-  const pts = flattened(p);
+  const segs = segments(p);
+  // the polygon of the sides' ends, then each curved side's area between its chord and itself toggles
+  let odd = crosses(segs.map((g) => g.a), u, v);
+  for (const { a, b, c } of segs) {
+    if (!c) continue;
+    if ('mid' in c) {
+      const arc = arcOf(a, c.mid, b);
+      const side = (q: UV) => Math.sign((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]));
+      if (arc && Math.hypot(u - arc.c[0], v - arc.c[1]) < arc.r && side([u, v]) === side(c.mid)) odd = !odd;
+    } else if (crosses(segPoints({ a, b, c }, 1e-4), u, v)) odd = !odd;
+  }
+  return odd;
+}
+
+/** Even-odd test of a closed polygon. */
+function crosses(pts: UV[], u: number, v: number): boolean {
   let odd = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const [xi, yi] = pts[i];
-    const [xj, yj] = pts[j];
+    const [[xi, yi], [xj, yj]] = [pts[i], pts[j]];
     if (yi > v !== yj > v && u < ((xj - xi) * (v - yi)) / (yj - yi) + xi) odd = !odd;
   }
   return odd;
 }
 
-/** Distance (mm) from plane point (u, v) to the outline (rounded corners counted sharp; a line stays open). */
+/** Distance (mm) from plane point (u, v) to the outline, exact (`segments`; a line stays open). */
 export function edgeDistance(p: P, u: number, v: number): number {
   if (p.kind === 'circle') return Math.abs(Math.hypot(u - p.x, v - p.y) - p.d / 2);
-  const pts = flattened(p);
   return Math.min(
-    ...(p.kind === 'line' ? pts.slice(0, -1) : pts).map(([x0, y0], i) => {
-      const [x1, y1] = pts[(i + 1) % pts.length];
-      const [dx, dy] = [x1 - x0, y1 - y0];
-      const t = Math.max(0, Math.min(1, ((u - x0) * dx + (v - y0) * dy) / (dx * dx + dy * dy || 1)));
-      return Math.hypot(u - x0 - t * dx, v - y0 - t * dy);
+    ...segments(p).map(({ a, b, c }) => {
+      if (c) {
+        const q = nearestOnSide(a, c, b, [u, v]);
+        return Math.hypot(u - q[0], v - q[1]);
+      }
+      const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+      const t = Math.max(0, Math.min(1, ((u - a[0]) * dx + (v - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(u - a[0] - t * dx, v - a[1] - t * dy);
     }),
   );
 }
 
-/** How many larger profiles contain each profile's centre: even adds material, odd makes a hole. */
+/** How many larger profiles contain each profile (tested at the middle of its longest side): even adds material, odd makes a hole. */
 export function nesting(ps: P[]): number[] {
   return ps.map((p) => {
-    const [u, v] = centre(p);
+    const g = segments(p).reduce((l, g) => (segLength(g) > segLength(l) ? g : l));
+    const pts = segPoints(g, 1e-3);
+    const [u, v] = g.c ? pts[Math.floor(pts.length / 2)] : [(g.a[0] + g.b[0]) / 2, (g.a[1] + g.b[1]) / 2];
     const a = area(p);
     return ps.filter((q) => q !== p && area(q) > a && inside(q, u, v)).length;
   });

@@ -6,7 +6,7 @@ import { followSizes, sideNow, sized } from './doc/sizes';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
+import { alignment, area, beside, bounds, outlineLength, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, deleteButton, icon } from './ui/icons';
@@ -1196,10 +1196,8 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     if (shapes.length !== 1) return { title: shapeSel.length ? `${shapes.length} shapes` : s.name, rows: [['Shapes', String(shapes.length)]] }; // (areas would count holes too)
     const q = shapes[0];
     const [w, h] = sizeOf(q);
-    const bent = curved(q); // its outline flattened
-    const val = bent ? about : num;
-    const rows: [string, string][] = q.kind === 'circle' ? [['Ø', num(q.d)]] : [['Size', `${val(w)} × ${val(h)}`]];
-    rows.push(q.kind === 'line' ? ['Length', val(flattened(q).reduce((n, [x, y], i, f) => n + (i ? Math.hypot(x - f[i - 1][0], y - f[i - 1][1]) : 0), 0))] : ['Area', val(area(q), 2)]);
+    const rows: [string, string][] = q.kind === 'circle' ? [['Ø', num(q.d)]] : [['Size', `${num(w)} × ${num(h)}`]];
+    rows.push(q.kind === 'line' ? ['Length', num(outlineLength(q))] : ['Area', num(area(q), 2)]);
     return { title: q.kind[0].toUpperCase() + q.kind.slice(1), rows };
   }
   const ids = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));

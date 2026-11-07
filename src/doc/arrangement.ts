@@ -1,22 +1,15 @@
-import { flattened, inside, type DrawnProfile } from './profiles';
+import { bounds, inside, segments, segPoints, type DrawnProfile } from './profiles';
 
 type UV = [number, number];
 type Box = [number, number, number, number];
 
 const cross = (a: UV, b: UV) => a[0] * b[1] - a[1] * b[0];
 const sub = (a: UV, b: UV): UV => [a[0] - b[0], a[1] - b[1]];
-const boxOf = (pts: UV[]): Box => [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
 const touch = (a: Box, b: Box) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
-
-/** Points along a shape's outline (circles in `steps` pieces), or a line's points. */
-function pathOf(p: DrawnProfile, steps = 180): UV[] {
-  if (p.kind !== 'circle') return flattened(p);
-  return Array.from({ length: steps }, (_, k): UV => [p.x + (p.d / 2) * Math.cos((2 * Math.PI * k) / steps), p.y + (p.d / 2) * Math.sin((2 * Math.PI * k) / steps)]);
-}
 
 /** The lines of a sketch and the closed shapes they reach (by bounding box, and on from those): what their faces need. */
 export function lineUses(ps: (DrawnProfile & { id: string })[]): string[] {
-  const boxes = ps.map((p) => boxOf(pathOf(p)));
+  const boxes = ps.map((p) => bounds(p));
   const uses = new Set(ps.flatMap((p, i) => (p.kind === 'line' ? [i] : [])));
   for (let grew = uses.size > 0; grew; ) {
     grew = false;
@@ -26,12 +19,12 @@ export function lineUses(ps: (DrawnProfile & { id: string })[]): string[] {
 }
 
 /**
- * Closed shapes in pieces that overlap or touch (pulled, each piece is one body): outlines that meet or cross, or one
- * shape inside another (a hole in a plate), join theirs.
+ * Closed shapes in pieces that overlap or touch (pulled, each piece is one body): outlines (their true sides within
+ * 1e-3 mm) that meet or cross, or one shape inside another (a hole in a plate), join theirs.
  */
 export function pieces(ps: (DrawnProfile & { id: string })[], eps = 1e-6): string[][] {
-  const outlines = ps.map((p) => pathOf(p, 72));
-  const boxes = outlines.map((pts) => boxOf(pts));
+  const outlines = ps.map((p) => segments(p).flatMap((g) => segPoints(g).slice(0, -1)));
+  const boxes = ps.map((p) => bounds(p));
   const meet = (a: UV[], b: UV[]) =>
     a.some((p, i) => {
       const q = a[(i + 1) % a.length];
