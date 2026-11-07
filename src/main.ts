@@ -1774,7 +1774,14 @@ function paste() {
  */
 function cutTool(note = '') {
   const doc = history.current;
-  const bodies = selected.filter((id) => doc.bodies.some((b) => b.id === id));
+  // selected first as the cutter: a sketch (its picked shape, else its first), a work plane, an Alt-picked face's plane
+  const face = viewer.pickedFaceItems()[0];
+  const sketch = doc.sketches.find((k) => selected.includes(k.id));
+  const shape = sketch && (sketch.shapes.find((q) => shapeSel.includes(q.id)) ?? sketch.shapes.find((q) => !q.construction) ?? sketch.shapes[0]);
+  const plane = viewer.workPlanes.find((w) => selected.includes(w.id));
+  // groups as their bodies; a face's own body cut only when nothing else is
+  let bodies = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
+  if (face && bodies.length > 1) bodies = bodies.filter((b) => b !== face.body);
   if (!bodies.length) {
     pending = { tool: 'cut', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), cutTool()) };
     toolHint = 'Click the body to cut · [Esc] cancels';
@@ -1782,6 +1789,18 @@ function cutTool(note = '') {
   }
   [selected, shapeSel] = [bodies, []];
   showSelection();
+  const each = (cutter: (pl: ReturnType<typeof bodyPlace>) => SplitFeature['cutter']) => cutPanel(bodies, new Map(bodies.map((b) => [b, cutter(bodyPlace(b))])));
+  /** The plane through `o` (world) with normal `n` into the bodies, as each body's cutter. */
+  const planeCut = (o: Vector3, normal: Vector3) => {
+    const n = normal.clone().normalize();
+    const x = new Vector3(0, 0, 1).cross(n);
+    if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
+    x.normalize();
+    each((pl) => ({ kind: 'plane', o: unplaced(pl, o.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), turn: ex(0), axis: null, offset: len(0) }));
+  };
+  if (shape) return each(() => ({ kind: 'shape', sketch: sketch!.id, shape: shape.id, offset: len(0) }));
+  if (plane) return planeCut(new Vector3(...plane.frame.o), new Vector3(...plane.frame.n));
+  if (face) return viewer.dropPicked(), planeCut(face.point, face.n.clone().negate());
   // another body that is a ball or a cylinder (one circle pulled): along its surface
   const roundCutter = (face: PickedFace) => {
     if (bodies.includes(face.body!)) return null;
@@ -1826,17 +1845,12 @@ function cutTool(note = '') {
       selected = bodies.includes(face.body) ? bodies.filter((b) => b !== face.body) : [...bodies, face.body];
       return cutTool(note);
     }
-    const each = (cutter: (pl: ReturnType<typeof bodyPlace>) => SplitFeature['cutter']) => cutPanel(bodies, new Map(bodies.map((b) => [b, cutter(bodyPlace(b))])));
     if (face.sketch?.shape) return each(() => ({ kind: 'shape', sketch: face.sketch!.id, shape: face.sketch!.shape!, offset: len(0) }));
     const round = roundCutter(face);
     if (round?.kind === 'sphere') return each((pl) => ({ kind: 'sphere', c: unplaced(pl, round.c), d: structuredClone(round.typed), offset: len(0) }));
     if (round?.kind === 'cylinder') return each((pl) => ({ kind: 'cylinder', c: unplaced(pl, round.c), dir: unplaced(pl, round.dir!, true), h: round.h, d: round.typed, offset: len(0) }));
     // on the face clicked (its normal into the body), or the plane facing you
-    const n = face.normal.clone().normalize();
-    const x = new Vector3(0, 0, 1).cross(n);
-    if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
-    x.normalize();
-    each((pl) => ({ kind: 'plane', o: unplaced(pl, face.point.toArray()), x: unplaced(pl, x.toArray(), true), n: unplaced(pl, n.toArray(), true), turn: ex(0), axis: null, offset: len(0) }));
+    planeCut(face.point, face.normal);
   }, false, true, null, true);
 }
 
