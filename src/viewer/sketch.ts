@@ -523,8 +523,15 @@ export class SketchTool implements Tool {
       const at = this.sideEnd(e, ph);
       if (!at) return true;
       const r = this.view.el.getBoundingClientRect();
-      const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...ph.pts[0])));
-      const closes = this.canClose(ph) && Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
+      const near = (q: UV) => {
+        const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...q)));
+        return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
+      };
+      const closes = this.canClose(ph) && near(ph.pts[0]);
+      // straight back to the point before: a side on top of the last one (two points: no area to close)
+      const mode = this.drawMode()?.id;
+      if (!closes && ph.pts.length >= 2 && mode !== 'bezier' && mode !== 'arc' && near(ph.pts[ph.pts.length - 2]))
+        return this.host.hint('That runs straight back along the last side: click another point · [Esc] cancels'), true;
       // a bezier point goes in when let go: a drag first pulls its handles
       if (this.drawMode()?.id === 'bezier') ph.held = { at: closes ? ph.pts[0] : at, px: [e.clientX, e.clientY], pull: null, adds: true, closes };
       else this.corner(ph, at, closes);
