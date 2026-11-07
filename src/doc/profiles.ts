@@ -146,6 +146,37 @@ export function corners(p: P): [number, number][] {
   return pts.map(([x, y]) => [cx + (x - cx) * Math.cos(a) - (y - cy) * Math.sin(a), cy + (x - cx) * Math.sin(a) + (y - cy) * Math.cos(a)]);
 }
 
+/** A shape's corners to round, turned, with its sides' curves (rectangle, regular polygon, polygon); null: it has none. */
+export function roundable(p: P): { pts: UV[]; curves?: (Curve | null)[] } | null {
+  if (p.kind === 'rect' || p.kind === 'ngon') return { pts: corners(p) };
+  return p.kind === 'polygon' ? bakeTurn(p) : null;
+}
+
+/**
+ * The corner radii of a shape (`rs`: each corner its own, else R for all), in the order of `roundable`: each as asked,
+ * but at most what its corner takes (its rounding reaching half of either side beside it), so a radius too big for
+ * one corner leaves the others as asked and no corner fails.
+ */
+export function cornerRadii(p: P, keep = 0.999): number[] {
+  const q = roundable(p);
+  if (!q) return [];
+  const all = 'r' in p ? (p.r ?? 0) : 0;
+  const rs = 'rs' in p ? p.rs : undefined;
+  const n = q.pts.length;
+  return q.pts.map((at, i) => {
+    const asked = Math.max(0, rs?.[i] ?? all);
+    if (!asked) return 0;
+    const [prev, next] = [q.pts[(i - 1 + n) % n], q.pts[(i + 1) % n]];
+    const [, din] = sideDirs(prev, q.curves?.[(i - 1 + n) % n], at);
+    const [dout] = sideDirs(at, q.curves?.[i], next);
+    // the turn there: none (sides in line) leaves nothing to round
+    const turn = Math.acos(Math.max(-1, Math.min(1, (din[0] * dout[0] + din[1] * dout[1]) / (Math.hypot(...din) * Math.hypot(...dout) || 1))));
+    if (turn < 1e-6) return 0;
+    const reach = Math.min(Math.hypot(at[0] - prev[0], at[1] - prev[1]), Math.hypot(next[0] - at[0], next[1] - at[1])) / 2;
+    return Math.min(asked, (keep * reach) / Math.tan(turn / 2));
+  });
+}
+
 /** Bounding box in plane coordinates: [minX, minY, maxX, maxY]. */
 export function bounds(p: P): [number, number, number, number] {
   if (p.kind === 'circle') return [p.x - p.d / 2, p.y - p.d / 2, p.x + p.d / 2, p.y + p.d / 2];

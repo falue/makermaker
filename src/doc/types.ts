@@ -36,10 +36,10 @@ export type Curve = { c1: [number, number]; c2: [number, number] } | { mid: [num
  * the centre of its corners. `curves`: per side (from each point to the next; a polygon's last back to its first) how it bends: null straight.
  */
 export type Profile = (
-  | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr; rot: Expr }
+  | { id: string; kind: 'rect'; x: Expr; y: Expr; w: Expr; h: Expr; r: Expr; rot: Expr; rs?: Expr[] }
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
-  | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr }
-  | { id: string; kind: 'polygon'; pts: [number, number][]; curves?: (Curve | null)[]; sizes?: (SideSize | null)[]; r: Expr; rot: Expr }
+  | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr; r?: Expr; rs?: Expr[] }
+  | { id: string; kind: 'polygon'; pts: [number, number][]; curves?: (Curve | null)[]; sizes?: (SideSize | null)[]; r: Expr; rot: Expr; rs?: Expr[] }
   | { id: string; kind: 'line'; pts: [number, number][]; curves?: (Curve | null)[]; sizes?: (SideSize | null)[] }
 ) & {
   /** A construction line: drawn dashed, snapped to, never extruded. */

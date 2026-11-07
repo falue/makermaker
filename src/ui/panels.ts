@@ -1403,7 +1403,8 @@ function alignRow(ctx: UIContext) {
  * (degrees) around it, corner radius. Stored values show their expressions; measured ones show numbers. `place`
  * false: no X / Y / Turn and reference diamond (a body's only shape, at its origin: Position and Rotation place it).
  */
-function shapeFields(ctx: UIContext, path: string, p: Profile, place = true): HTMLElement[] {
+/** A shape's fields; `rounding`: its corner radii (a sketch's shapes; a body rounds by fillets instead). */
+function shapeFields(ctx: UIContext, path: string, p: Profile, place = true, rounding = true): HTMLElement[] {
   const keys = path.split('.');
   const m = ctx.measure(keys);
   const u = ctx.doc.units;
@@ -1432,8 +1433,28 @@ function shapeFields(ctx: UIContext, path: string, p: Profile, place = true): HT
   const [w, hh] = p.kind === 'rect' ? [stored('w'), stored('h')] : [mm(m.w), mm(m.h)];
   if (p.kind === 'line') return shape(row(...pos), row(tf('w', 'L', w), link, tf('h', 'W', hh))); // no corners to round, no turn of its own
   const rot = place ? [tf('rot', 'Turn °', stored('rot'), true)] : []; // degrees: shown as typed, never unit-converted
-  if (p.kind === 'ngon') return shape(row(...pos, ...rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true)));
-  return shape(row(...pos, ...rot), row(tf('w', 'L', w), link, tf('h', 'W', hh), pf('r', 'R')));
+  const radii = rounding ? cornerFields(ctx, path, p) : [];
+  if (p.kind === 'ngon') return shape(row(...pos, ...rot), row(tf('d', 'Ø', stored('d')), pf('sides', 'Sides', true)), ...radii);
+  return shape(row(...pos, ...rot), row(tf('w', 'L', w), link, tf('h', 'W', hh)), ...radii);
+}
+
+/**
+ * Corner radii: one R for all corners; its chain broken, one R per corner (a rectangle's where they lie: top left,
+ * top right, bottom left, bottom right). Each is clamped to what its corner takes (`cornerRadii`).
+ */
+function cornerFields(ctx: UIContext, path: string, p: Extract<Profile, { kind: 'rect' | 'ngon' | 'polygon' }>): HTMLElement[] {
+  const keys = path.split('.');
+  const zero: Expr = { e: '0', u: ctx.doc.units };
+  const all = p.r ?? zero;
+  const n = p.kind === 'rect' ? 4 : p.kind === 'polygon' ? p.pts.length : Math.max(3, Math.round(Number(p.sides.e) || 3));
+  const chain = tool('link', p.rs ? 'Each corner its own R: click to give all one R' : 'One R for all corners: click to give each its own', () => ctx.setValue([...keys, 'rs'], p.rs ? undefined : Array.from({ length: n }, () => all)), !p.rs);
+  const field = (key: string, label: string, value: Expr) => exprField(ctx, `${path}.${key}`, label, false, { value, set: (x, live) => ctx.setValue([...keys, ...key.split('.')], x, live), error: ctx.exprErrors.get(`${path}.${key}`) });
+  if (!p.rs) return [h('div', { className: 'trio' }, field('r', 'R', all), chain)];
+  const one = (i: number) => field(`rs.${i}`, `R${i + 1}`, p.rs![i] ?? all);
+  // corners run bottom left, bottom right, top right, top left
+  const cells = p.kind === 'rect' ? [3, 2, 0, 1].map(one) : Array.from({ length: n }, (_, i) => one(i));
+  const rows = Array.from({ length: Math.ceil(cells.length / (p.kind === 'rect' ? 2 : 3)) }, (_, k) => (p.kind === 'rect' ? cells.slice(k * 2, k * 2 + 2) : cells.slice(k * 3, k * 3 + 3)));
+  return rows.map((r, k) => h('div', { className: 'trio' }, ...r, ...(k ? [] : [chain])));
 }
 
 /** Illustrator's reference point locator for one shape: which point of its box X / Y give, and which point stays when sizing or turning. */
@@ -1531,7 +1552,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         const drop = button('×', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }), 'Remove this shape');
         // the only shape, at the origin unturned: Position and Rotation place it
         const alone = src.profiles.length === 1 && 'x' in p && [p.x, p.y, 'rot' in p ? p.rot : ex(0)].every((v) => isPlain(v.e) && Number(v.e) === 0);
-        return h('div', { className: 'profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p, !alone), ...(src.profiles.length > 1 ? [drop] : []));
+        return h('div', { className: 'profile' }, ...shapeFields(ctx, `${at}.source.profiles.${k}`, p, !alone, false), ...(src.profiles.length > 1 ? [drop] : []));
       });
       return h(
         'section',

@@ -3480,7 +3480,7 @@ function offsetShapes(sketch: string) {
     sources.map((q, n) => {
       const p = shown.find((x) => x.id === q.id)!;
       const id = ids[n];
-      if (q.kind === 'rect' && p.kind === 'rect') return { ...q, id, w: len(p.w + 2 * d), h: len(p.h + 2 * d), r: len(Math.max(0, p.r + d)) };
+      if (q.kind === 'rect' && p.kind === 'rect') return { ...q, id, w: len(p.w + 2 * d), h: len(p.h + 2 * d), r: len(Math.max(0, p.r + d)), ...(p.rs ? { rs: p.rs.map((r) => len(Math.max(0, r + d))) } : {}) };
       if (q.kind === 'circle' && p.kind === 'circle') return { ...q, id, d: len(Math.max(0.01, p.d + 2 * d)) };
       if (q.kind === 'ngon' && p.kind === 'ngon') return { ...q, id, d: len(Math.max(0.01, p.d + (2 * d) / Math.cos(Math.PI / p.sides))) };
       if ((q.kind === 'polygon' && p.kind === 'polygon') || (q.kind === 'line' && p.kind === 'line')) {

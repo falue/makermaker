@@ -119,8 +119,11 @@ export const COMMANDS: Record<string, Command> = {
   },
   box: {
     doc: 'A new box body: length (x) × width (y), pulled up height (z), centred on its origin at the bottom.',
-    params: [{ name: 'length', type: 'number', doc: 'along x, mm' }, { name: 'width', type: 'number', doc: 'along y, mm' }, { name: 'height', type: 'number', doc: 'up, mm' }, { name: 'radius', type: 'number', doc: 'corner radius seen from above, mm', optional: true }, at3, named],
-    run: (doc, a) => addBody(doc, [pulled(rect(0, 0, a.length, a.width, a.radius), a.height)], a.at, a.name),
+    params: [{ name: 'length', type: 'number', doc: 'along x, mm' }, { name: 'width', type: 'number', doc: 'along y, mm' }, { name: 'height', type: 'number', doc: 'up, mm' }, { name: 'radius', type: 'number', doc: 'its upright edges filleted by it, mm (a fillet step)', optional: true }, at3, named],
+    run: (doc, a) => {
+      const rounding: Feature[] = a.radius ? [{ id: newId(), type: 'finish', mode: 'fillet', size: len(a.radius), edges: 'vertical', enabled: true, baked: false, skip: [] }] : [];
+      return addBody(doc, [pulled(rect(0, 0, a.length, a.width), a.height), ...rounding], a.at, a.name);
+    },
   },
   cylinder: {
     doc: 'A new cylinder body standing up from its origin.',

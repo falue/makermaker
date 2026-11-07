@@ -392,6 +392,14 @@ describe('buildBody', () => {
     body.done();
   });
 
+  it('rounds each corner by its own radius, one too big clamped there without failing', () => {
+    const shape = buildBody([{ id: 'r', type: 'extrude', plane: ground, profiles: [{ id: 'p', kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: 0, rot: 0, rs: [0, 5, 50, 0] }], depth: 1, mode: 'add', through: false } as BuildFeature]);
+    const volume = measureVolume(shape);
+    shape.delete();
+    const cut = (r: number) => r * r * (1 - Math.PI / 4); // what rounding a right angle takes
+    expect(volume).toBeCloseTo(800 - cut(5) - cut(9.99), 1);
+  });
+
   it('extrudes areas sharing a curved side together (lamp2.mmk: a drop beside a circle, closed by a tangent)', () => {
     const shapes = [
       { id: 'c', kind: 'circle' as const, x: -20, y: 20, d: 24 },

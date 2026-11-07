@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignment, bounds, closedLoop, inside } from './profiles';
+import { alignment, bounds, closedLoop, cornerRadii, inside } from './profiles';
 
 describe('profiles', () => {
   it('finds the loop lines close, either way round', () => {
@@ -33,3 +33,23 @@ describe('profiles', () => {
     expect(alignment(boxes, 'distributeX')).toEqual([[0, 0], [0, 0], [6, 0]]);
   });
 });
+
+describe('cornerRadii', () => {
+  const rect = (r: number, rs?: number[]) => ({ kind: 'rect' as const, x: 0, y: 0, w: 40, h: 20, r, rot: 0, ...(rs ? { rs } : {}) });
+  it('gives every corner R, or each its own', () => {
+    expect(cornerRadii(rect(3))).toEqual([3, 3, 3, 3]);
+    expect(cornerRadii(rect(3, [0, 5, 2, 1]))).toEqual([0, 5, 2, 1]);
+  });
+  it('clamps a radius too big for its corner there only (half the shorter side beside it)', () => {
+    const [a, b, c, d] = cornerRadii(rect(0, [0, 5, 50, 0]));
+    expect([a, b, d]).toEqual([0, 5, 0]);
+    expect(c).toBeCloseTo(9.99, 6); // 10 (half of 20) kept a hair short
+  });
+  it('a polygon corner of 90° and one of 45° take what their sides allow', () => {
+    const tri = { kind: 'polygon' as const, pts: [[0, 0], [10, 0], [0, 10]] as [number, number][], r: 100, rot: 0 };
+    const [right, , sharp] = cornerRadii(tri);
+    expect(right).toBeCloseTo(0.999 * 5, 6); // 90°: as far as it reaches
+    expect(sharp).toBeCloseTo(0.999 * 5 * Math.tan(Math.PI / 8), 6); // 45°: its turn of 135° halved
+  });
+});
+

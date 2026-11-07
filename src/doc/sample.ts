@@ -86,10 +86,13 @@ function clashTests(): { bodies: Body[]; joint: Joint } {
   };
 }
 
+/** `body` with its upright edges filleted by `size` (a body rounds by fillets, not by its shape's corner radius). */
+const rounded = (body: Body, size: number): Body => ({ ...body, features: [...body.features, { ...(newFinish('mm') as Extract<Feature, { type: 'finish' }>), size: ex(size), edges: 'vertical' }] });
+
 /** Test pieces for Coat: a 5 mm cube (coated by 1 mm it is 7 mm), a rounded block with a hole. */
 function coatTests(): Body[] {
   const coated = (body: Body, corners: 'sharp' | 'round'): Body => ({ ...body, features: [...body.features, { id: newId(), type: 'coat', thickness: ex(1), corners, exclude: [] }] });
-  return [coated(solid('Coat: cube, sharp', '#9fd0c0', [-60, 110, 0], [rect(5, 5)], 5), 'sharp'), coated(solid('Coat: cube, round', '#9fd0c0', [-40, 110, 0], [rect(5, 5)], 5), 'round'), solid('Coat me: block with a hole', '#9fd0c0', [0, 110, 0], [{ id: newId(), kind: 'rect', x: ex(0), y: ex(0), w: ex(30), h: ex(20), r: ex(3), rot: ex(0) }, circle(0, 0, 8)], 10)];
+  return [coated(solid('Coat: cube, sharp', '#9fd0c0', [-60, 110, 0], [rect(5, 5)], 5), 'sharp'), coated(solid('Coat: cube, round', '#9fd0c0', [-40, 110, 0], [rect(5, 5)], 5), 'round'), rounded(solid('Coat me: block with a hole', '#9fd0c0', [0, 110, 0], [rect(30, 20), circle(0, 0, 8)], 10), 3)];
 }
 
 /** Test pieces for Attach: a cap and its post, moving as one. */

@@ -1,7 +1,7 @@
-import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, drawRoundedRectangle, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
+import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import type { DrawingPen } from 'replicad';
-import { bakeTurn, beside, centre, corners, curved, flattened, mapPoints, nesting, sideDirs } from '../doc/profiles';
+import { bakeTurn, beside, centre, cornerRadii, curved, flattened, mapPoints, nesting, roundable, sideDirs } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/types';
@@ -204,24 +204,30 @@ function drawing(p: Resolved<Profile>): Drawing {
     case 'rect':
       positive(p.w, 'width');
       positive(p.h, 'height');
-      if (p.r < 0 || p.r * 2 >= Math.min(p.w, p.h)) throw new Error('corner radius must be between 0 and half the shorter side');
-      return drawRoundedRectangle(p.w, p.h, p.r).rotate(p.rot).translate(p.x, p.y);
+      return rounded(p);
     case 'circle':
       positive(p.d, 'diameter');
       return drawCircle(p.d / 2).translate(p.x, p.y);
     case 'ngon':
       positive(p.d, 'diameter');
       if (!(p.sides >= 3)) throw new Error('a regular polygon needs 3 sides');
-      return corners(p).slice(1).reduce((pen, pt) => pen.lineTo(pt), draw(corners(p)[0])).close();
+      return rounded(p);
     case 'line':
       throw new Error('an open line cannot be extruded');
-    case 'polygon': {
+    case 'polygon':
       if (p.pts.length < (curved(p) ? 2 : 3)) throw new Error('a polygon needs 3 corners');
-      if (p.r < 0) throw new Error('corner radius must not be negative');
-      const closed = sidesDrawn(draw(p.pts[0]), p, true).close();
-      return (p.r > 0 ? closed.fillet(p.r) : closed).rotate(p.rot, centre(p));
-    }
+      return rounded(p);
   }
+}
+
+/** A shape with corners, each rounded by its own radius (`cornerRadii`: as asked, at most what the corner takes). */
+function rounded(p: Resolved<Profile>): Drawing {
+  const q = roundable(p)!;
+  const radii = cornerRadii(p);
+  let d = sidesDrawn(draw(q.pts[0]), q, true).close();
+  // one fillet per radius, on its corners (rounding one leaves the others' points where they are)
+  for (const r of new Set(radii.filter((x) => x > 0))) d = d.fillet(r, (c) => c.inList(q.pts.filter((_, i) => radii[i] === r)));
+  return d;
 }
 
 /** `pen` (at the first point) drawn on along the sides; `closed`: the last one back to the first point. */
@@ -352,8 +358,20 @@ function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
     circles.push([x, y, r]);
   };
   if (p.kind === 'circle') at(p.x, p.y, p.d / 2);
-  if (p.kind === 'rect' && p.r > 0)
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) at(p.x + sx * (p.w / 2 - p.r), p.y + sy * (p.h / 2 - p.r), p.r);
+  // rounded corners: each arc's middle on the corner's bisector
+  const q = roundable(p);
+  cornerRadii(p).forEach((r, i) => {
+    if (!r || !q) return;
+    const n = q.pts.length;
+    const [a, c, b] = [q.pts[(i - 1 + n) % n], q.pts[i], q.pts[(i + 1) % n]];
+    const [, din] = sideDirs(a, q.curves?.[(i - 1 + n) % n], c);
+    const [dout] = sideDirs(c, q.curves?.[i], b);
+    const [u, v] = [din, dout].map((d) => [d[0] / Math.hypot(...d), d[1] / Math.hypot(...d)]);
+    const bis = [v[0] - u[0], v[1] - u[1]];
+    const half = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1]))) / 2;
+    const k = r / Math.cos(half) / (Math.hypot(...bis) || 1);
+    at(c[0] + bis[0] * k, c[1] + bis[1] * k, r);
+  });
   // where curved sides run on without a corner: a seam, as a circle of no size
   if (p.kind === 'polygon' && curved(p)) {
     const q = bakeTurn(p);
