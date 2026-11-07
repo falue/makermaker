@@ -7829,12 +7829,18 @@ function showHint(text: string) {
     hintRow.dataset.tip = text; // cut short when long: all of it on hover
   }
   const host = panel ?? hintPanel;
-  if (host.lastElementChild !== hintRow) host.append(hintRow);
+  if (host.lastElementChild !== hintRow) {
+    host.append(hintRow);
+    if (panel && !panel.classList.contains('measure')) atTop(panel); // wider with it (its min-width): centred again
+  }
   if (panel) return hintPanel.remove();
   if (hintPanel.isConnected && !changed) return;
   document.body.append(hintPanel);
   atTop(hintPanel);
 }
+
+// a floating panel added or removed later (after the hint was placed): the hint goes into it, or back to its own
+new MutationObserver(() => showNote()).observe(document.body, { childList: true });
 
 const fail = (message: string) => notify(message, true);
 

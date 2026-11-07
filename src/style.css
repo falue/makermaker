@@ -2051,6 +2051,10 @@ button.primary.wide {
   font-weight: 600;
   color: var(--text);
 }
+/* a panel holding the hint: wide enough to read it */
+.cut-panel:has(> .tool-hint) {
+  min-width: min(420px, 90vw);
+}
 /* a tool without a panel: the hint alone, as wide as it needs, its × before it */
 .axis-move.hint-only {
   flex-wrap: nowrap;
