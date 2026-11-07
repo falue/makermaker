@@ -231,7 +231,7 @@ The goal is **mechanical reference geometry**, not visual reproduction.
 
 Requirements:
 
-- Use any dimensions explicitly shown in the image as the primary scale reference.
+- Use the alrgest dimensions explicitly shown in the image as the primary scale reference.
 - Infer all other dimensions proportionally from the image.
 - Keep everything in **metric millimetres**.
 - Make the SVG physically scaled so that CAD software imports it at the intended real-world size.
@@ -286,6 +286,8 @@ Accuracy rules:
 
 SVG construction:
 
+- Position of the drawn lines are identically placed relative to the image boundaries as on the original image
+- The SVG artboard has the same proportions as the original image
 - output a **real SVG file directly**, not a raster image
 - use millimetres for width/height where possible
 - use a matching `viewBox`
