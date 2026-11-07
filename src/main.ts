@@ -317,6 +317,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   length,
   number,
   askSolids: (asks) => kernel.measure(asks),
+  boxesKnown: () => render(),
   meshOnly: (body) => meshOnly(body),
   placeOn,
   touched() {
@@ -1231,8 +1232,8 @@ function exactNote(ids: string[]) {
   const one = ids.length === 1;
   return [
     meshes ? `${one ? 'An imported mesh' : `${meshes} imported meshes`}: no solid, every value read from the triangles.` : '',
-    big ? `${one ? 'Over' : `${big} with over`} ${EXACT_MOST} faces: no exact data, for speed; values read from the triangles.` : '',
-    boxed ? `${one ? 'Over' : `${boxed} with over`} ${EXACT_BOXED} faces: face areas and the box read from the triangles, for speed.` : '',
+    big ? `${one ? 'Over' : `${big} with over`} ${EXACT_MOST} faces: no exact data per face and edge, for speed; picked faces and edges read from the triangles.` : '',
+    boxed ? `${one ? 'Over' : `${boxed} with over`} ${EXACT_BOXED} faces: picked faces' areas read from the triangles, for speed.` : '',
   ].filter(Boolean).join(' ') || undefined;
 }
 

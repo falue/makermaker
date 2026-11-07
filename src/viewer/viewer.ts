@@ -65,6 +65,8 @@ export interface ViewerHost {
   askSolids(asks: MeasureAsk[]): Promise<MeasureAnswer[]>;
   /** A body that is a mesh: its triangles are all there is. */
   meshOnly(body: string): boolean;
+  /** The kernel's tight box of a turned body arrived (see `measure`): what shows sizes reads them again. */
+  boxesKnown(): void;
   /** Where shapes drawn on a body face go (`flat`: the face is planar). */
   placeOn(face: PickedFace, flat: boolean): Omit<Target, 'sketch'> | null;
   /** A press on a body or a sketch shape (before any selecting). */
@@ -3466,9 +3468,35 @@ export class Viewer implements ToolView {
     const turned = exact && !axes ? turnedBox(exact, g.matrix) : null;
     if (exact?.box && axes) box.set(new THREE.Vector3(...exact.box[0]), new THREE.Vector3(...exact.box[1])).applyMatrix4(g.matrix);
     else if (turned) box.copy(turned);
-    const out = { key, box, volume: exact?.volume ?? Math.abs(volume), area: exact?.area ?? area, exact: !!exact, boxExact: (!!exact?.box && axes) || !!turned, faces: (solid.userData.faces as Uint32Array | undefined)?.length ?? 0 };
+    let boxExact = (!!exact?.box && axes) || !!turned;
+    // else (a turned sphere or fillet; over 1000 faces): the kernel's numbers of the placed solid, asked once per shape and place
+    const asked = this.kernelBoxes.get(id);
+    const got = asked?.key === key ? asked.got : null;
+    if (!boxExact && got) {
+      box.copy(got.box);
+      boxExact = true;
+    } else if (!boxExact && asked?.key !== key && !this.host.meshOnly(id)) this.askBox(id, key, g.matrix);
+    const out = { key, box, volume: exact?.volume ?? got?.volume ?? Math.abs(volume), area: exact?.area ?? got?.area ?? area, exact: !!exact || !!got, boxExact, faces: (solid.userData.faces as Uint32Array | undefined)?.length ?? 0 };
     this.measured.set(id, out);
     return out;
+  }
+
+  /** The kernel's tight boxes, volumes and surfaces of placed bodies (see `measure`), by body: for which shape and place; none while asked. */
+  private kernelBoxes = new Map<string, { key: string; got?: { box: THREE.Box3; volume: number; area: number } }>();
+
+  private askBox(id: string, key: string, m: THREE.Matrix4) {
+    this.kernelBoxes.set(id, { key });
+    const [offset, q] = [new THREE.Vector3(), new THREE.Quaternion()];
+    m.decompose(offset, q, new THREE.Vector3());
+    if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
+    const s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
+    const place = { axis: (s < 1e-9 ? [0, 0, 1] : [q.x / s, q.y / s, q.z / s]) as Vec3, angle: s < 1e-9 ? 0 : (2 * Math.acos(Math.min(1, q.w)) * 180) / Math.PI, offset: offset.toArray() as Vec3 };
+    void this.host.askSolids([{ of: 'solid', body: id, place }]).then(([a]) => {
+      if (this.kernelBoxes.get(id)?.key !== key || !a || typeof a !== 'object' || !('min' in a)) return;
+      this.kernelBoxes.set(id, { key, got: { box: new THREE.Box3(new THREE.Vector3(...a.min), new THREE.Vector3(...a.max)), volume: a.volume, area: a.area } });
+      this.measured.delete(id);
+      this.host.boxesKnown();
+    });
   }
 
   /** A world point in a body's own coordinates, and back; a direction likewise. */
