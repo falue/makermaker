@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BASE, extent, toWorld, type Frame, type V3 } from '../doc/frames';
-import { arcOf, area, centre, corners, curved, flattened, inside, nesting, ontoArcThrough, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
+import { arcOf, area, centre, corners, curved, flattened, inside, nesting, ontoArcThrough, roundedOutline, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, Curve, ShapeGroup, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
@@ -2167,7 +2167,7 @@ export function uvOf(f: Frame, p: THREE.Vector3): UV {
 
 export function shape2d(p: DrawnProfile): THREE.Shape {
   if (p.kind === 'circle') return new THREE.Shape().absarc(p.x, p.y, p.d / 2, 0, Math.PI * 2, false);
-  return new THREE.Shape(flattened(p).map(([x, y]) => new THREE.Vector2(x, y)));
+  return new THREE.Shape(roundedOutline(p).map(([x, y]) => new THREE.Vector2(x, y)));
 }
 
 /**

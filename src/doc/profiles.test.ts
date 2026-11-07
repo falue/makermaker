@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignment, bounds, closedLoop, cornerRadii, inside } from './profiles';
+import { alignment, bounds, closedLoop, cornerRadii, inside, roundedOutline } from './profiles';
 
 describe('profiles', () => {
   it('finds the loop lines close, either way round', () => {
@@ -53,3 +53,16 @@ describe('cornerRadii', () => {
   });
 });
 
+
+describe('roundedOutline', () => {
+  it('rounds each corner as the kernel does: a square of 10 with R 2 keeps its box, its corner points lie 2 in', () => {
+    const pts = roundedOutline({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, r: 2, rot: 0 }, 4);
+    expect(pts).toHaveLength(20);
+    const xs = pts.map((p) => p[0]);
+    expect(Math.min(...xs)).toBeCloseTo(-5, 9);
+    expect(Math.max(...xs)).toBeCloseTo(5, 9);
+    // the arc's middle at the corner: on the circle of 2 round (3, 3)
+    const mid = pts[2];
+    expect(Math.hypot(mid[0] + 3, mid[1] + 3)).toBeCloseTo(2, 9);
+  });
+});

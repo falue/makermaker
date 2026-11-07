@@ -177,6 +177,35 @@ export function cornerRadii(p: P, keep = 0.999): number[] {
   });
 }
 
+/**
+ * The outline as drawn, its corners rounded by `cornerRadii` (each arc in `steps` pieces); curved sides as points
+ * (a corner beside one stays sharp here, the kernel rounds it). Without radii: `flattened`.
+ */
+export function roundedOutline(p: P, steps = 8): UV[] {
+  const q = roundable(p);
+  const radii = cornerRadii(p);
+  if (!q || !radii.some((r) => r > 0)) return flattened(p);
+  const n = q.pts.length;
+  const unit = (a: UV, b: UV): UV => {
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+  };
+  return q.pts.flatMap((c, i) => {
+    const [prev, next] = [q.pts[(i - 1 + n) % n], q.pts[(i + 1) % n]];
+    const side = q.curves?.[i] ? sidePoints(c, q.curves[i], next).slice(1, -1) : [];
+    const r = radii[i];
+    if (!r || q.curves?.[(i - 1 + n) % n] || q.curves?.[i]) return [c, ...side];
+    const [u, v] = [unit(prev, c), unit(c, next)];
+    const turn = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1])));
+    const bis = unit([0, 0], [v[0] - u[0], v[1] - u[1]]);
+    const o: UV = [c[0] + (bis[0] * r) / Math.cos(turn / 2), c[1] + (bis[1] * r) / Math.cos(turn / 2)];
+    const t = r * Math.tan(turn / 2);
+    const [a0, a1] = [[c[0] - u[0] * t, c[1] - u[1] * t], [c[0] + v[0] * t, c[1] + v[1] * t]].map(([x, y]) => Math.atan2(y - o[1], x - o[0]));
+    const d = ((a1 - a0 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI; // the short way round
+    return Array.from({ length: steps + 1 }, (_, k): UV => [o[0] + r * Math.cos(a0 + (d * k) / steps), o[1] + r * Math.sin(a0 + (d * k) / steps)]);
+  });
+}
+
 /** Bounding box in plane coordinates: [minX, minY, maxX, maxY]. */
 export function bounds(p: P): [number, number, number, number] {
   if (p.kind === 'circle') return [p.x - p.d / 2, p.y - p.d / 2, p.x + p.d / 2, p.y + p.d / 2];
