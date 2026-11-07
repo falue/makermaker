@@ -1350,7 +1350,7 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
   // a new one takes edges no other has yet (top, vertical, bottom, then all)
   const taken = new Set(list.map(({ f }) => f.edges));
   const edges = (['top', 'vertical', 'bottom', 'all'] as const).find((r) => !taken.has(r)) ?? 'top';
-  const add = h('button', { className: 'wide', onclick: () => setSteps({ ...steps, features: [...steps.features, { ...(newFinish(ctx.doc.units) as Extract<Feature, { type: 'finish' }>), edges }] }), title: 'Click: Add a fillet on edges no other has yet (a size below 0 makes it a chamfer)' }, 'Fillets and chamfers…');
+  const add = h('button', { className: 'wide', onclick: () => setSteps({ ...steps, features: [...steps.features, { ...(newFinish(ctx.doc.units) as Extract<Feature, { type: 'finish' }>), edges }] }), title: 'Click: Add a fillet on edges no other has yet (a size below 0 makes it a chamfer)' }, '+ Fillets and chamfers…');
   return [
     h(
       'section',
