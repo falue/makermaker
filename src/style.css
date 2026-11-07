@@ -109,7 +109,7 @@ body {
 #topbar .wordmark {
   font-size: 23.33px;
   font-size-adjust: 0.5;
-  font-weight: 500;
+  font-weight: 250;
   text-box: trim-both ex alphabetic;
   overflow: clip;
   overflow-clip-margin: 0.03em;
