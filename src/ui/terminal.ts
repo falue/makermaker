@@ -1,5 +1,5 @@
 import type { Doc } from '../doc/types';
-import { icon } from './icons';
+import { deleteButton, icon } from './icons';
 import { COPY_TIP } from './panels';
 import type { PythonField } from './pythonField';
 import type { CheckArgs, FromPython, Measured, Snapshot, ToPython } from './pythonWorker';
@@ -592,7 +592,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
             Object.assign(document.createElement('a'), { href: url, download: `${s.name}.py` }).click();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
           }))]),
-          ...(s.example ? [] : [button('delete', s.file ? 'Click: Take it off the list: the file stays (Undo comes in its place)' : 'Click: Delete the file (Undo comes in its place)', stop(async () => {
+          ...(s.example ? [] : [deleteButton(s.file ? 'Click: Take it off the list: the file stays (Undo comes in its place)' : 'Click: Delete the file (Undo comes in its place)', stop(async () => {
             if (current === s) open(null);
             await flush();
             if (s.file) await rememberFiles((links = links.filter((h) => h !== s.file)));

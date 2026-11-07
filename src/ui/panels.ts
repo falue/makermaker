@@ -12,7 +12,7 @@ import { arcOf, type Align } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml, sizeHtml } from './axes';
 import { BUILT_IN_PHOTOS } from './photospheres';
-import { closeButton, icon, tool, type IconName } from './icons';
+import { closeButton, deleteButton, icon, tool, type IconName } from './icons';
 import { MAC, mod, pressed, role, toggles } from './keys';
 import { rocket } from './rocket';
 
@@ -570,7 +570,7 @@ function toolbar(ctx: UIContext): Node[] {
     h('hr'), // making above, organizing below
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? "Ungroup (⇧⌘G): the contents move to the group's parent, staying where they are" : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
     tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
-    tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
+    Object.assign(tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')), { className: `tool danger${on('delete') ? ' on' : ''}` }),
     rocket(ctx.cheer),
   ];
 }
@@ -706,7 +706,7 @@ function customSections(ctx: UIContext): Node[] {
     // around its own line that line turns with the normal too, so the turn changes sign; around a set axis it does not
     const turnFlipped = c.axis || turnText === '0' ? turnText : isPlain(turnText) ? fmt(-parseFloat(turnText)) : `-(${turnText})`;
     const flip = button('⇄', () => set(i, { normal: c.normal.map((v) => -v) as typeof c.normal, offset: { ...c.offset, e: negated }, turn: { e: turnFlipped, u: doc.units } }), 'Keep the other side');
-    const drop = button('×', () => ctx.commit({ ...doc, sections: doc.sections.filter((_, k) => k !== i) }), 'Delete this section');
+    const drop = deleteButton('Delete this section', () => ctx.commit({ ...doc, sections: doc.sections.filter((_, k) => k !== i) }));
     const turn = exprField(ctx, `sections.${i}.turn`, 'Turn °', true, { value: c.turn ?? { e: '0', u: doc.units }, set: (x, live) => ctx.setValue(['sections', String(i), 'turn'], x, live), error: ctx.exprErrors.get(`sections.${i}.turn`) });
     const axis = button('Set axis', () => ctx.sectionAxis(i), c.axis ? 'Click: Pick another line for it to turn around' : 'Click: Pick a line for it to turn around (now: a line in its plane)');
     return h('div', { className: 'custom' }, on, name, exprField(ctx, `sections.${i}.offset`, 'Offset'), flip, drop, h('div', { className: 'turn' }, turn, axis));
@@ -934,10 +934,10 @@ function left(ctx: UIContext): Node[] {
       { className: 'param' },
       exprField(ctx, `params.${name}`, name, true),
       h('span', { className: 'value' }, ctx.paramValue(name)),
-      button('×', () => {
+      deleteButton('Delete parameter', () => {
         const { [name]: _, ...rest } = doc.params;
         ctx.commit({ ...doc, params: rest });
-      }, 'Delete parameter'),
+      }),
     ),
   );
   const addParam = input('new-param', '', (text) => {
@@ -1038,7 +1038,7 @@ function rendersPanel(ctx: UIContext): Node[] {
       button('Live render', () => renders.live(shot.id), 'See it in a live render view with this camera and background: it renders again whenever something changes, Save adds a version here'),
       button('Versions', () => renders.versions(shot.id), 'All its pictures, newest first (with a render folder: every one saved there, full size)'),
     ];
-    const remove = Object.assign(button('×', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) }), 'Delete this render'), { className: 'icon remove' });
+    const remove = Object.assign(deleteButton('Delete this render', () => ctx.commit({ ...doc, renders: doc.renders.filter((r) => r !== shot) })), { className: 'icon danger remove' });
     // its photo sphere, for the next render of this view
     const spheres = [...BUILT_IN_PHOTOS, ...ctx.photos()];
     const photos = [
@@ -1151,7 +1151,7 @@ function imagePanel(ctx: UIContext, i: number): Node[] {
   const colour = h('input', { type: 'color', value: im.key ?? '#ffffff', title: 'This colour is shown transparent', className: 'color' });
   colour.onchange = () => ctx.commit(setIn(doc, at('key'), colour.value));
   return [
-    h('div', { className: 'head' }, input(`images.${i}.name`, im.name, (name) => ctx.commit(setIn(doc, at('name'), name))), button('Delete', () => ctx.commit({ ...doc, images: doc.images.filter((x) => x !== im) }), 'Delete the image')),
+    h('div', { className: 'head' }, input(`images.${i}.name`, im.name, (name) => ctx.commit(setIn(doc, at('name'), name))), deleteButton('Delete the image', () => ctx.commit({ ...doc, images: doc.images.filter((x) => x !== im) }))),
     h('div', { className: 'row' }, h('label', { className: 'field' }, h('span', {}, 'Width mm'), width), button('Calibrate', () => ctx.calibrate(im.id), 'Click two points on the picture, then type their real distance')),
     h('div', { className: 'row' }, ...[0, 1, 2].map((k) => {
       const el = h('input', { value: String(+im.frame.o[k].toFixed(3)), title: `Its middle along ${'XYZ'[k]}, mm` });
@@ -1187,11 +1187,11 @@ function selectionPanel(ctx: UIContext): Node[] {
   if (wi >= 0) {
     const w = ctx.doc.planes[wi];
     return [
-      h('div', { className: 'head' }, input(`planes.${wi}.name`, w.name, (name) => ctx.commit(setIn(ctx.doc, ['planes', String(wi), 'name'], name))), button('Delete', () => ctx.commit({ ...ctx.doc, planes: ctx.doc.planes.filter((x) => x !== w) }), 'Delete the work plane (sketches on it lose their plane)')),
+      h('div', { className: 'head' }, input(`planes.${wi}.name`, w.name, (name) => ctx.commit(setIn(ctx.doc, ['planes', String(wi), 'name'], name))), deleteButton('Delete the work plane (sketches on it lose their plane)', () => ctx.commit({ ...ctx.doc, planes: ctx.doc.planes.filter((x) => x !== w) }))),
       h('div', { className: 'row' }, exprField(ctx, `planes.${wi}.offset`, 'Offset'), ...(w.mode !== 'points' && w.axis && !w.points.length ? [exprField(ctx, `planes.${wi}.turn`, 'Turn °', true)] : []), button('✎', () => ctx.editPlane(w.id), 'Edit it in its panel: how it is made, offset, turn, points to pass through')),
       // the points it passes through, each editable
       ...w.points.map((_, k) =>
-        h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((a, c) => exprField(ctx, `planes.${wi}.points.${k}.${c}`, `${a}${k + 1}`)), button('×', () => ctx.commit(setIn(ctx.doc, ['planes', String(wi), 'points'], w.points.filter((__, j) => j !== k))), 'Leave this point out')),
+        h('div', { className: 'row' }, ...['X', 'Y', 'Z'].map((a, c) => exprField(ctx, `planes.${wi}.points.${k}.${c}`, `${a}${k + 1}`)), deleteButton('Leave this point out', () => ctx.commit(setIn(ctx.doc, ['planes', String(wi), 'points'], w.points.filter((__, j) => j !== k))))),
       ),
       h('div', { className: 'row' }, button('Draw on it', () => ctx.drawOn(w.id), 'A new sketch on it, opened (drawing tools also draw on it directly)')),
       h('p', { className: 'hint' }, `${{ face: 'On a face (✎: Set axis to turn it)', edge: w.points.length ? 'Along an edge, through a point' : 'Along an edge, turned around it (✎: click a point instead)', points: `Through ${w.points.length} of 3 points (✎: click more; a fourth drops the first)` }[w.mode]}; moved along its normal by Offset (T: a clicked point's distance, type on, e.g. /2 for halfway). Sketches on it follow it.`),
@@ -1242,7 +1242,7 @@ function selectionPanel(ctx: UIContext): Node[] {
   const shape = dimensions(ctx, steps, si);
   const card = (feature: Feature, j: number) => featureCard(ctx, steps, feature, `bodies.${si}.features.${j}`, setSteps);
   return [
-    h('div', { className: 'head' }, input(`${at}.name`, body.name, (name) => setBody({ ...body, name })), button('Delete', ctx.remove, 'Delete the body (with its cutters)')),
+    h('div', { className: 'head' }, input(`${at}.name`, body.name, (name) => setBody({ ...body, name })), deleteButton('Delete the body (with its cutters)', ctx.remove)),
     ...freeing,
     ...linkedNote(ctx, body),
     // its first step as Dimensions (else its card)
@@ -1348,7 +1348,7 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
     ...(corners ? cornerFields(ctx, shape!.path, corners) : []),
     ...list.flatMap(({ f, j }) => {
       const setFeature = (next: Feature) => setSteps({ ...steps, features: steps.features.map((x) => (x === f ? next : x)) });
-      const remove = button('×', () => setSteps({ ...steps, features: steps.features.filter((x) => x !== f) }), 'Click: Remove it');
+      const remove = deleteButton('Click: Remove it', () => setSteps({ ...steps, features: steps.features.filter((x) => x !== f) }));
       return finishParts(ctx, steps, f, `bodies.${k}.features.${j}`, setFeature, remove);
     }),
   ];
@@ -1356,7 +1356,7 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
 
 /**
  * A body's steps in order, folded first (open while one is selected): a row selects its step (its faces lit, its
- * card below it); dragged onto another it moves there (the first, the shape, stays first); × deletes it; a boolean's
+ * card below it); dragged onto another it moves there (the first, the shape, stays first); the bin deletes it; a boolean's
  * row folds its tool body into it or unfolds it.
  */
 function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (f: Feature, j: number) => HTMLElement, shown = body.id): HTMLElement {
@@ -1376,7 +1376,7 @@ function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (
     const tool = f.type === 'boolean' ? ctx.doc.bodies.find((b) => b.id === f.body) : undefined;
     const fold = tool ? [button(tool.folded ? 'Unfold' : 'Fold', () => ctx.foldTool(tool.id, !tool.folded), tool.folded ? 'Click: List its tool body again, as an object of its own' : 'Click: Fold its tool body into this step: it leaves the list, nothing is lost')] : [];
     // the first step is the shape itself: it stays, and stays first
-    const drop = j ? [button('×', () => ctx.removeStep(shown, f.id), 'Click: Delete this step')] : [];
+    const drop = j ? [deleteButton('Click: Delete this step', () => ctx.removeStep(shown, f.id))] : [];
     const row = h('div', { className: 'history-row', draggable: j > 0, ondragstart: () => (dragged = j), ondragover: (e) => j > 0 && e.preventDefault(), ondrop: () => dragged > 0 && j > 0 && dragged !== j && move(dragged, j) }, name, ...fold, ...drop);
     return on ? h('div', {}, row, card(f, j)) : row;
   });
@@ -1399,7 +1399,7 @@ function jointCards(ctx: UIContext, id: string): Node[] {
   const nameOf = (o: string) => [...ctx.doc.bodies, ...ctx.doc.groups].find((x) => x.id === o)?.name ?? '?';
   return ctx.doc.joints.flatMap((j) => {
     if (j.parent !== id && !j.children.includes(id)) return [];
-    const remove = button('×', () => ctx.commit({ ...ctx.doc, joints: ctx.doc.joints.filter((x) => x !== j) }), 'Delete the joint: what it moved goes back to where it is without it');
+    const remove = deleteButton('Delete the joint: what it moved goes back to where it is without it', () => ctx.commit({ ...ctx.doc, joints: ctx.doc.joints.filter((x) => x !== j) }));
     return [
       h(
         'section',
@@ -1420,7 +1420,7 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
     set({ origin: kind === 'custom' ? { kind, position: [ex(0, u), ex(0, u), ex(0, u)], rotation: { rx: ex(0), ry: ex(0), rz: ex(0) } } : { kind } }),
   );
   return [
-    h('div', { className: 'head' }, input(`groups.${i}.name`, g.name, (name) => set({ name })), button('Delete', ctx.remove, 'Delete the group with everything in it')),
+    h('div', { className: 'head' }, input(`groups.${i}.name`, g.name, (name) => set({ name })), deleteButton('Delete the group with everything in it', ctx.remove)),
     ...materialRows(ctx, [g.id], 'None'),
     h('h3', {}, 'Origin'),
     h('div', { className: 'row' }, origin),
@@ -1481,7 +1481,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
   const shapeRow = (q: (typeof s.shapes)[number], depth: number) => {
     const j = s.shapes.indexOf(q);
     const name = listItem(q.id, `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
-    const drop = button('×', () => set({ shapes: s.shapes.filter((r) => r !== q) }), 'Delete this shape');
+    const drop = deleteButton('Delete this shape', () => set({ shapes: s.shapes.filter((r) => r !== q) }));
     const box = h('input', { type: 'checkbox', checked: !!q.construction, id: `construction-${q.id}` });
     // the next objects are drawn as this one now is
     box.onchange = () => (ctx.setDrawConstruction(box.checked), set({ shapes: s.shapes.map((r) => (r === q ? { ...r, construction: box.checked } : r)) }));
@@ -1513,7 +1513,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       'div',
       { className: 'head' },
       input(`${at}.name`, s.name, (name) => set({ name })),
-      button('Delete', () => {
+      deleteButton('Delete the sketch', () => {
         ctx.commit({ ...doc, sketches: doc.sketches.filter((q) => q !== s) });
         ctx.select(null);
       }),
@@ -1698,7 +1698,7 @@ function stepName(body: Body, f: Feature): string {
 
 function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, setBody: (p: Body) => void) {
   const setFeature = (next: Feature) => setBody({ ...body, features: body.features.map((s) => (s === feature ? next : s)) });
-  const remove = button('×', () => setBody({ ...body, features: body.features.filter((s) => s !== feature) }), 'Remove');
+  const remove = deleteButton('Remove', () => setBody({ ...body, features: body.features.filter((s) => s !== feature) }));
   const f = (key: string, label: string) => exprField(ctx, `${at}.${key}`, label);
 
   switch (feature.type) {
@@ -1738,7 +1738,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       // as the body's own fields: one shape takes H into its Dimensions, several each their rows, H after them
       const one = src.profiles.length === 1 && !feature.through;
       const profiles = src.profiles.map((p, k) => {
-        const drop = button('×', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }), 'Remove this shape');
+        const drop = deleteButton('Remove this shape', () => setSource({ profiles: src.profiles.filter((q) => q !== p) }));
         // the only shape, at the origin unturned: the body's Position and Rotation place it
         const alone = src.profiles.length === 1 && 'x' in p && [p.x, p.y, 'rot' in p ? p.rot : ex(0)].every((v) => isPlain(v.e) && Number(v.e) === 0);
         return h('div', { className: 'profile' }, ...shapeRows(ctx, `${at}.source.profiles.${k}`, p, !alone, one ? [reach[0]] : []), ...(src.profiles.length > 1 ? [drop] : []));
@@ -1750,7 +1750,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       const other = ctx.doc.bodies.find((b) => b.id === feature.body);
       const op = select(feature.op, { union: 'Join', subtract: 'Cut', intersect: 'Intersect' }, (o) => setFeature({ ...feature, op: o }));
       const tool = other ? h('button', { className: 'item', onclick: () => ctx.select(other.id), title: 'Select the tool body' }, other.name) : h('span', { className: 'error', title: COPY_TIP }, 'its tool body was deleted');
-      const drop = button('×', () => ctx.commit(freed(ctx.doc, feature.body)), 'Remove: the tool body becomes a body of its own');
+      const drop = deleteButton('Remove: the tool body becomes a body of its own', () => ctx.commit(freed(ctx.doc, feature.body)));
       const grow = feature.grow ? [h('div', { className: 'row' }, f('grow', 'Clearance'))] : [];
       // folded: its tool body's own fields here (it is not listed to select)
       const ti = other?.folded ? ctx.doc.bodies.indexOf(other) : -1;

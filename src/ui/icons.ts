@@ -18,3 +18,8 @@ export function tool(name: IconName, title: string, onclick: () => void, on = fa
 export function closeButton(title: string, onclick: () => void) {
   return Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('close'), title, onclick });
 }
+
+/** A button that deletes something: the red trash icon. */
+export function deleteButton(title: string, onclick: (e: MouseEvent) => void) {
+  return Object.assign(document.createElement('button'), { className: 'icon danger', innerHTML: icon('delete'), title, onclick });
+}

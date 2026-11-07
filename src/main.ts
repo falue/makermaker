@@ -9,7 +9,7 @@ import { History } from './doc/history';
 import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
-import { closeButton, icon } from './ui/icons';
+import { closeButton, deleteButton, icon } from './ui/icons';
 import { contextMenu, type MenuItem } from './ui/menu';
 import { axisHtml, sizeHtml } from './ui/axes';
 import { jointed, jointsWithout } from './doc/joints';
@@ -4138,7 +4138,7 @@ function planePanel(id: string, fresh = false) {
   );
   switcher.append(...modeButtons);
   const pointsButton = panelButton('Points', 'Click points the plane passes through', () => (picking === 'points' ? viewer.cancelFacePick() : pickPoints()));
-  const clear = panelButton('Clear', 'Leave the points out', () => (setPlane({ points: [] }), status()));
+  const clear = deleteButton('Click: Leave the points out', () => (setPlane({ points: [] }), status()));
   const setAxis = panelButton('Set axis', 'Click an edge or line: it turns around that (then Turn °)', () => {
     angles.disarm();
     viewer.cancelFacePick();
@@ -6153,7 +6153,7 @@ function versionsPanel() {
     const b = Object.assign(document.createElement('button'), { className: 'version', title, onclick: () => show(v, b) });
     b.append(Object.assign(document.createElement('b'), { textContent: when }), Object.assign(document.createElement('small'), { textContent: what }));
     if (!v) return b;
-    const drop = Object.assign(document.createElement('button'), { className: 'icon', textContent: '×', title: 'Click: Delete this version', onclick: () => remove(v, line) });
+    const drop = deleteButton('Click: Delete this version', () => remove(v, line));
     const line = Object.assign(document.createElement('div'), { className: 'version-row' });
     line.append(b, drop);
     return line;

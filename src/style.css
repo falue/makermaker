@@ -348,6 +348,11 @@ button.icon:hover {
   background: var(--selected);
   color: var(--text);
 }
+/* deletes something: red, also hovered */
+button.danger,
+button.danger:hover:not(:disabled) {
+  color: var(--error);
+}
 button.icon svg {
   display: block;
   width: 14px;
@@ -1708,13 +1713,13 @@ button.primary.wide {
   color: var(--text);
   font-size: 18px;
 }
-.settings .sky .drop {
+.settings .sky .remove {
   position: absolute;
-  top: 0;
-  right: 3px;
-  color: #fff;
-  text-shadow: 0 0 3px #000;
-  line-height: 1.2;
+  top: 2px;
+  right: 2px;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--panel);
 }
 .row.light {
   align-items: center;
@@ -1846,6 +1851,8 @@ button.primary.wide {
 }
 .settings .hotkeys .drop,
 .settings .hotkeys .add {
+  display: grid;
+  place-items: center;
   outline: none;
   flex: none;
   aspect-ratio: 1;

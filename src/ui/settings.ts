@@ -1,4 +1,4 @@
-import { closeButton } from './icons';
+import { closeButton, deleteButton } from './icons';
 import { UNITS } from '../doc/expr';
 import { DEFAULT_LIGHT, effectiveLight, STANDARD_MATERIALS, toLook } from '../doc/materials';
 import { MaterialPreview } from '../viewer/preview';
@@ -95,8 +95,8 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         { className: 'skies' },
         ...BUILT_IN_PHOTOS.map((p) => sphere(p, p.thumb, `${p.name}: click to show`)),
         ...doc.photos().map((p) => {
-          const el = sphere(p, p.data, `${p.name}: click to show · × deletes it`);
-          el.append(make('span', { className: 'drop', textContent: '×', onclick: (e: Event) => (e.stopPropagation(), doc.removePhoto(p.id), draw()) }));
+          const el = sphere(p, p.data, `${p.name}: click to show`);
+          el.append(Object.assign(deleteButton('Delete this photo sphere', (e) => (e.stopPropagation(), doc.removePhoto(p.id), draw())), { className: 'icon danger remove' }));
           return el;
         }),
         make('button', { className: 'sky add', title: 'Add a photo sphere: an equirectangular picture, about 2:1 (saved in this document)', textContent: '+', onclick: () => add.click() }),
@@ -277,7 +277,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
                   make(
                     'div',
                     { className: 'keys' },
-                    ...combos.map((c, i) => make('span', { className: 'key' }, recorder(action, i, comboText(c)), make('button', { className: 'drop', textContent: '×', title: 'Drop this key', onclick: () => (setKeys(action, combos.filter((_, j) => j !== i)), draw()) }))),
+                    ...combos.map((c, i) => make('span', { className: 'key' }, recorder(action, i, comboText(c)), Object.assign(deleteButton('Drop this key', () => (setKeys(action, combos.filter((_, j) => j !== i)), draw())), { className: 'icon danger drop' }))),
                     make('button', {
                       className: 'add',
                       textContent: '+',
@@ -309,7 +309,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         });
         return [
           make('h3', {}, 'Hotkeys'),
-          make('p', { className: 'hint' }, 'Click a key and press the new one (with its modifiers); + adds one more, × drops one. Keys also used elsewhere are marked. They are kept in this browser.'),
+          make('p', { className: 'hint' }, 'Click a key and press the new one (with its modifiers); + adds one more, the bin drops one. Keys also used elsewhere are marked. They are kept in this browser.'),
           make('div', { className: 'row' }, make('button', { textContent: 'Reset to defaults', title: 'Every key and modifier back as it came', onclick: () => (resetKeys(), draw()) })),
           make('table', { className: 'hotkeys' }, make('tbody', {}, ...rows)),
           make('h3', {}, 'Modifiers'),

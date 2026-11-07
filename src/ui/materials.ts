@@ -1,7 +1,7 @@
 import { STANDARD_SECTIONS, toLook } from '../doc/materials';
 import type { Light, Material, MaterialLook } from '../doc/types';
 import { MaterialPreview, PREVIEW_SCENE } from '../viewer/preview';
-import { closeButton } from './icons';
+import { closeButton, deleteButton } from './icons';
 import { pressed } from './keys';
 
 /** What the materials dialog needs of the app. */
@@ -159,7 +159,8 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
             editing = editing === m.id ? null : m.id;
             drawAll();
           }),
-          button('×', 'Delete this material: what uses it goes back to its group or its own colour', () => {
+          deleteButton('Delete this material: what uses it goes back to its group or its own colour', (e) => {
+            e.stopPropagation();
             if (editing === m.id) editing = null;
             host.remove(m.id);
             drawAll();
