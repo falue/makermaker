@@ -2952,14 +2952,9 @@ section > h4 .segmented button {
   color: var(--muted);
 }
 
-/* a body's fillets and chamfers: their title, + filling the rest of the row, a row each */
-.finish-head span {
-  flex: none;
-  font-size: 11px;
-  color: var(--muted);
-}
-.finish-head > button {
-  flex: 1;
+/* a body's fillets and chamfers: a card, its add button the full width, a row each */
+.finishes > .wide {
+  width: 100%;
 }
 
 /* a body's steps in order (History), folded first */
