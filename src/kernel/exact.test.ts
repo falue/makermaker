@@ -4,6 +4,7 @@ import init from 'replicad-opencascadejs';
 import { makeBox, makeCylinder, makeSphere, setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { meshBody } from './build';
+import { solidChecks } from './exact';
 
 const wasm = readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm'));
 beforeAll(async () => setOC(await init({ wasmBinary: wasm })), 60_000);
@@ -36,5 +37,20 @@ describe('exact data with the mesh', () => {
     expect(x.faces[0]).toMatchObject({ kind: 'sphere', r: 7 });
     expect(x.box![1][0]).toBeCloseTo(7, 6);
     shape.delete();
+  });
+});
+
+describe('print check on the solid', () => {
+  it('a box, a cylinder (its seam) and a ball (its poles) are closed and manifold; a lone face is open', () => {
+    for (const s of [makeBox([0, 0, 0], [10, 10, 10]), makeCylinder(5, 10), makeSphere(5)]) {
+      expect(solidChecks(s)).toEqual({ closed: true, manifold: true });
+      s.delete();
+    }
+    const face = makeBox([0, 0, 0], [10, 10, 10]).faces[0];
+    expect(solidChecks(face as unknown as Parameters<typeof solidChecks>[0])).toEqual({ closed: false, manifold: true });
+    // two boxes sharing an edge only: four faces on it
+    const pair = makeBox([0, 0, 0], [10, 10, 10]).fuse(makeBox([10, 10, 0], [20, 20, 10]));
+    expect(solidChecks(pair).manifold).toBe(false);
+    pair.delete();
   });
 });

@@ -146,3 +146,25 @@ function edgeOf(e: Edge | undefined): ExactEdge {
     curve.delete();
   }
 }
+
+/**
+ * Whether a solid is closed (every edge on two faces; a seam twice on its one) and manifold (no edge on more than two),
+ * from its own faces and edges, not a mesh of it.
+ */
+export function solidChecks(shape: Shape3D) {
+  const oc = getOC();
+  const uses = new Map<number, number>();
+  const faces = new oc.TopExp_Explorer(shape.wrapped, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  for (; faces.More(); faces.Next()) {
+    const edges = new oc.TopExp_Explorer(faces.Current(), oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    for (; edges.More(); edges.Next()) {
+      if (oc.BRep_Tool.Degenerated(oc.TopoDS.Edge(edges.Current()))) continue; // a sphere's pole
+      const id = oc.ReplicadShapeHasher.HashCode(edges.Current(), 2147483647);
+      uses.set(id, (uses.get(id) ?? 0) + 1);
+    }
+    edges.delete();
+  }
+  faces.delete();
+  const counts = [...uses.values()];
+  return { closed: counts.length > 0 && counts.every((n) => n >= 2), manifold: counts.every((n) => n <= 2) };
+}

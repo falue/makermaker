@@ -9,6 +9,7 @@ import { dxfOf, laserCuts, svgOf, withKerf } from './laser';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
 import { areasOf, buildBody, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
+import { solidChecks } from './exact';
 
 /**
  * export: one file per body: stl (binary, placed in the world) or svg / dxf (laser cuts of a flat face: `face`, else
@@ -51,19 +52,6 @@ function printMesh(shape: Shape3D) {
     return index.get(key)!;
   });
   return { points, triangles: m.triangles.map((v) => remap[v]) };
-}
-
-/** Whether a mesh is closed (every edge has a neighbour) and manifold (no edge shared by more than two triangles). */
-function meshChecks(triangles: number[]) {
-  const uses = new Map<string, number>();
-  for (let t = 0; t < triangles.length; t += 3)
-    for (let k = 0; k < 3; k++) {
-      const [a, b] = [triangles[t + k], triangles[t + ((k + 1) % 3)]];
-      const key = a < b ? `${a} ${b}` : `${b} ${a}`;
-      uses.set(key, (uses.get(key) ?? 0) + 1);
-    }
-  const counts = [...uses.values()];
-  return { closed: counts.every((n) => n >= 2), manifold: counts.every((n) => n <= 2) };
 }
 
 /** A 3MF file (millimetres) of placed bodies, each its own named object. */
@@ -153,7 +141,7 @@ async function handle(data: Job) {
         const sound = check.IsValid();
         check.delete();
         const [lo, hi] = shape.boundingBox.bounds;
-        return { name, ...meshChecks(printMesh(shape).triangles), sound, size: [0, 1, 2].map((k) => hi[k] - lo[k]) as V3 };
+        return { name, ...solidChecks(shape), sound, size: [0, 1, 2].map((k) => hi[k] - lo[k]) as V3 };
       } catch (e) {
         return { name, closed: false, manifold: false, sound: false, size: [0, 0, 0], error: (e as Error).message };
       } finally {

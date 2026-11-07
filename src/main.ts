@@ -6662,16 +6662,22 @@ function render() {
  * body's biggest flat face at 1:1 without fillets and chamfers.
  */
 /** The bodies an export takes: the selected ones (groups: their bodies), else all shown; tool bodies are part of their owner. */
-function exportable() {
+function exportable(meshes = false) {
   const doc = history.current;
   const tools = new Set(ownersOf(doc).keys());
   const chosen = contents(doc, selected).filter((id) => doc.bodies.some((b) => b.id === id));
-  return doc.bodies.filter((b) => (chosen.length ? chosen.includes(b.id) : b.visible) && !tools.has(b.id) && built.has(b.id));
+  return doc.bodies.filter((b) => (chosen.length ? chosen.includes(b.id) : b.visible) && !tools.has(b.id) && built.has(b.id) && meshOnly(b.id) === meshes);
+}
+
+/** What `exportable` leaves out for having no solid (imported meshes), said after a message; empty: none. */
+function meshesLeft() {
+  const n = exportable(true).length;
+  return n ? `; ${n} mesh bod${n === 1 ? 'y' : 'ies'} left out (no solid)` : '';
 }
 
 /** Exports bodies (default: `exportable`) as files (`extra`: a laser face and kerf per body). */
 async function exportBodies(format: ExportFormat, bodies = exportable(), extra: (b: Body) => Partial<ExportBody> = () => ({})) {
-  if (!bodies.length) return fail('Nothing to export: select bodies that build (tool bodies are part of their owner)');
+  if (!bodies.length) return fail(`Nothing to export: select bodies that build (tool bodies are part of their owner)${meshesLeft()}`);
   const taken = new Map<string, number>();
   const nameOf = (b: Body) => {
     const base = b.name.replace(/[^\w.-]+/g, '_') || 'body';
@@ -6684,7 +6690,7 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
   if ((format === 'step' || format === '3mf') && files.length) download(new Blob([files[0].data], { type }), `${project()}.${format}`);
   else if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
   else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, new Uint8Array(f.data)])))]), `${project()}_${format}.zip`);
-  notify(`Exported ${format === 'step' || format === '3mf' ? `${bodies.length - failed.length} bodies as one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}`, failed.length > 0);
+  notify(`Exported ${format === 'step' || format === '3mf' ? `${bodies.length - failed.length} bodies as one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}${meshesLeft()}`, failed.length > 0);
 }
 
 /** The export panels' choices, this session. */
@@ -6698,7 +6704,7 @@ const exportChoice = { laser: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3
  */
 async function exportPanel(kind: 'laser' | 'print') {
   const bodies = exportable();
-  if (!bodies.length) return fail('Nothing to export: select bodies that build (tool bodies are part of their owner)');
+  if (!bodies.length) return fail(`Nothing to export: select bodies that build (tool bodies are part of their owner)${meshesLeft()}`);
   const doc = history.current;
   const on = new Set(bodies.map((b) => b.id));
   const faces = new Map<string, { at: Vec3; n: Vec3 }>();
