@@ -95,3 +95,50 @@ Answers assumed where a request left a question open.
 - The list's boolean colours reuse the joint's two colours: the body it cuts as "stays", tool bodies as "moves".
 - A tool body's eye: off hides it until selected, on shows its red outlines at all times. Only tool bodies listed elsewhere have it; those under their body keep just the red icon.
 - A joint's sweep shows in see-through orange for the bodies being checked. Interference and clearance are one tool: Clearance 0 is interference. A row's Cut A | Cut B | Ignore control shows on the row the pointer is on, or the part clicked in the view; Ignore lasts while the panel is open.
+
+
+## loose ends noted by chatGpt
+# MakerMaker — Loose Ends
+
+## Bug 1 — In-progress polygon does not snap to its own segments
+
+**Status:** Reported during manual QA; not independently reproduced.
+
+**Steps to reproduce:**
+1. Activate the Line tool and start drawing a polygon point by point.
+2. Before finishing the polygon, move the cursor over a segment already drawn in that same polygon, away from its endpoints or other special snap points.
+
+**Observed:** Snapping works on other edges and on points associated with the in-progress polygon, but not at arbitrary positions along the polygon's own already-drawn line segments.
+
+**Expected:** Previously drawn segments of the still-active polygon should be eligible for on-line/segment snapping, just like other edges.
+
+**Reporter note:** “The freshly created polygon doesn't have line snapping … it snaps to edges … but it doesn't snap to its own lines … it snaps to points … but nowhere to the thing.”
+
+## Bug 2 — Closing a polygon unexpectedly exits sketch mode
+**Status:** Reported during manual QA; not independently reproduced.
+
+**Steps to reproduce:**
+1. Enter sketch mode.
+2. Activate the Line tool in polygon mode.
+3. Draw at least three corners and click the starting point to close the polygon.
+
+**Observed:** Closing the polygon exits sketch mode unexpectedly.
+
+**Expected:** The polygon stays flat, sketch mode remains active, and the drawing tool can continue to draw another shape.
+
+**Related checklist item:** “Closed inside sketch mode: stays flat, the tool goes on” — **failed; leave unchecked**.
+
+## Bug 3 — Two-point polygon retraces its own segment instead of refusing closure
+
+**Status:** Reported during manual QA; not independently reproduced.
+
+**Steps to reproduce:**
+1. Activate the Line tool in polygon mode.
+2. Click a first point, then a second point.
+3. Click the first point again, attempting to close a polygon with only two distinct points.
+
+**Observed:** The pointer hint says “point of this line,” and the tool draws a second line directly on top of the first rather than rejecting the invalid closure.
+
+**Expected:** The operation is refused with an explanatory hint, and polygon drawing remains active so another point can be added.
+
+**Related checklist item:** “Out and straight back with two points: refused with a hint, drawing goes on” — **failed; leave unchecked**.

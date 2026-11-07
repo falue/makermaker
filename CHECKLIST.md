@@ -1,3 +1,14 @@
+## Instructions for future guided QA sessions (read this first)
+You are the voice-guided QA partner for MakerMaker (repository: https://github.com/Falue/MakerMaker). The user tests the CAD application **on their own computer**; do not claim to test it yourself. Use this checklist as the source of truth for which tests exist and what they require. Consult the repository if a test needs explanation, but do not invent requirements or tests.
+- **One test at a time.** Prefer grouping related tests (for example, all Line tool modes) rather than blindly following the document order. Keep track of what was tested, what passed, what failed, and what was only partially tested.
+- **Speak slowly, with distinct pauses between actions.** Give short sequential instructions: “Activate the line tool.” [pause] “Click the first point.” [pause] “Click the second point.” [pause] “Now press Escape.” Ask one clear outcome question at the end. Don't race ahead while the user is testing.
+- If the user asks “repeat,” repeat the **same test**, more clearly and with pauses. If the user asks what a test means, explain the goal and each action before proceeding. **Do not skip a test just because it was misunderstood.**
+- Accept the user's spoken observations as test results. Mark `[x]` only when the **entire checklist item** is confirmed; if one part was not verified, leave `[ ]` and remember the partial success. If the test fails, leave it unchecked and document the observed versus expected behavior.
+- The user may say a checklist point is obsolete; **delete it** only when explicitly instructed. Do not otherwise rewrite, reorder, or omit the original checklist entries.
+- Keep a separate Markdown report called **“MakerMaker — Loose Ends”** for unrelated discoveries, bugs, suggestions, and failures. Include reproducible steps, actual and expected behavior where known. Don't count a misunderstanding or unsupported expectation as a bug.
+- **Batch file updates**, approximately every six confirmed items or when requested, instead of writing after each answer. Tell the user when files are actually updated. At the end of a session deliver **two downloadable Markdown files**: this complete checklist (all untouched items preserved, with confirmed marks) and Loose Ends.
+- Allow the user to stop or change topics whenever they wish. Don't move to the next question before they finish responding.
+---
 # Things to check by hand
 
 ## Since this list's last change (2026-11-03 17:29)
@@ -104,29 +115,29 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 ### Line tool
 
-- [ ] L starts it in one-line mode: two clicks a line, the third starts a new one anywhere
-- [ ] L again or Alt: polygon, bezier, arc, back to one line; Shift Alt: backwards; the note top left names each
-- [ ] Toolbar's line button again: next mode too; its tooltip says so
+
+- [x] L again or Alt: polygon, bezier, arc, back to one line; Shift Alt: backwards; the note top left names each
+- [x] Toolbar's line button again: next mode too; its tooltip says so
 - [ ] No Polygon button, P does nothing; ⌘ no longer continues a line
-- [ ] Switch mode in the middle of a line (Alt, L): the next side is in the new mode, the line goes on
+- [x] Switch mode in the middle of a line (Alt, L): the next side is in the new mode, the line goes on
 - [ ] One-line mode in the middle of a line: draws the last side and ends it
-- [ ] Enter finishes open; Esc finishes open; double-click finishes open, no extra point
-- [ ] With one point: Enter or Esc keeps nothing
-- [ ] Esc with nothing being drawn ends the tool
-- [ ] Backspace takes the last point back, the next angle counts from the side before it
+- [x] Enter finishes open; Esc finishes open; double-click finishes open, no extra point
+- [x] With one point: Enter or Esc keeps nothing
+- [x] Esc with nothing being drawn ends the tool
+- [x] Backspace takes the last point back, the next angle counts from the side before it
 - [ ] First arc: Backspace takes back its end
 - [ ] Hover the start with three points: "start: a click closes it", it snaps; click closes
 - [ ] Closed outside sketch mode: pulling starts; click or Esc keeps it flat and goes into the sketch
 - [ ] Closed inside sketch mode: stays flat, the tool goes on
 - [ ] Out and straight back with two points: refused with a hint, drawing goes on
-- [ ] Type a length, Tab, an angle, Enter: the point lands exactly; length and angle labels
+- [x] Type a length, Tab, an angle, Enter: the point lands exactly; length and angle labels
 - [ ] [B] on a line: the angle counts from it; rays with Shift; A / Shift A change their step
-- [ ] Bezier: plain clicks make a smooth curve through them; the point before bends as the pointer moves
-- [ ] Bezier: press and drag pulls mirrored handles; shown in orange while pulling
-- [ ] Bezier: Shift while pulling: the handle in angle steps; Ctrl: fine
-- [ ] Bezier after a line or arc: starts along it
-- [ ] Bezier closed on its start: smooth through it; press and drag on the start pulls it there
-- [ ] Alt during a handle drag does not switch the mode
+- [x] Bezier: plain clicks make a smooth curve through them; the point before bends as the pointer moves
+- [x] Bezier: press and drag pulls mirrored handles; shown in orange while pulling
+- [x] Bezier: Shift while pulling: the handle in angle steps; Ctrl: fine
+- [x] Bezier after a line or arc: starts along it
+- [x] Bezier closed on its start: smooth through it; press and drag on the start pulls it there
+- [x] Alt during a handle drag does not switch the mode
 - [ ] Arc as the first side: start, end, bulge; type a diameter at the bulge
 - [ ] Arc on from a line: one click each, tangent; arc on from an arc, on from a bezier
 - [ ] Arc: type R, Tab, angle, Enter; R in the note, ∠ at the arc
@@ -170,7 +181,7 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Arc after a line: centre moves only along the normal, stays tangent, the end and what follows move
 - [ ] Arc before a tangent side only: the same from its end
 - [ ] Arc tangent to nothing: square to its chord, both ends stay
-- [ ] Line tool: type `$d*3` as a side's length, `$d` as an arc's diameter; change $d: the points follow; L / Ø fields show the formula
+- [ ] Line tool: type `$d\*3` as a side's length, `$d` as an arc's diameter; change $d: the points follow; L / Ø fields show the formula
 - [ ] Selected line or polygon with arcs: Ø in the side panel, typed and scrubbed, one undo step; several arcs: Ø 1, Ø 2 …
 - [ ] Click the centre: it follows, type a diameter, Enter; or click to end; Esc puts it back
 - [ ] Drag the centre: radius on the zoom's step, Ø label; undo is one step
@@ -181,7 +192,7 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 ### Parameters with $
 
 - [ ] Default document: `$ply` listed, bodies using it build
-- [ ] New parameter `thick = 12mm`: becomes `$thick`; `$depth = 2*$thick` works; placeholder `$name = expression`
+- [ ] New parameter `thick = 12mm`: becomes `$thick`; `$depth = 2\*$thick` works; placeholder `$name = expression`
 - [ ] Names starting with any letter, d and t too, type normally there
 - [ ] An existing name again: refused with a note
 - [ ] A value with bare `ply`: red, tooltip says parameters start with $
@@ -361,7 +372,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Esc leaves the body as it was; ⌘Z after a kept cut
 
-  
 
 ## Rotate (W)
 
@@ -393,7 +403,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Sketch shape selected: the blue rotate handle's line reaches to its centre dot
 
-  
 
 ## Joints (J)
 
@@ -445,7 +454,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Save, reopen: joints and their poses are back
 
-  
 
 ## To object (T)
 
@@ -467,7 +475,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Esc while aiming ends only the aiming
 
-  
 
 ## Pulls and drawing
 
@@ -475,7 +482,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Two separate rectangles pulled together: two bodies; a plate with holes: one
 
-  
 
 ## Left column
 
@@ -485,7 +491,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Hidden list rows go grey
 
-  
 
 ## Move
 
@@ -495,7 +500,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Linked checkbox (see Linked copies)
 
-  
 
 ## Making solids
 
@@ -507,7 +511,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Editing the sketch shapes changes revolve, loft and sweep bodies
 
-  
 
 ## Editing
 
@@ -533,7 +536,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Thread pitch and length edited in the card afterwards
 
-  
 
 ## Linked copies
 
@@ -551,7 +553,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] A linked copy of a body with a boolean cut: cut the same way
 
-  
 
 ## Work planes
 
@@ -565,13 +566,11 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Eye, rename, delete in the list and panel
 
-  
 
 ## Export
 
 - [ ] Export STEP: selected bodies (else all shown) as named, coloured parts; opens in another CAD tool
 
-  
 
 ## Toolbars and grouping
 
@@ -583,7 +582,6 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 - [ ] Two groups selected, Group: grouped, not ungrouped; one group: Ungroup
 
-  
 
 ## Small things
 
