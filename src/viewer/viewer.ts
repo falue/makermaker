@@ -3915,15 +3915,14 @@ export class Viewer implements ToolView {
     this.hatch.repeat.set(cap / hatchMm, cap / hatchMm);
     let order = 0;
     for (const box of this.boxes) {
-      const planes = box.flatMap(([lo, hi], k) => {
+      // where it cuts (picked and outlined there); clipped `eps` further in
+      const exact = box.flatMap(([lo, hi], k) => {
         const n = new THREE.Vector3().setComponent(k, 1);
-        return [
-          ...(Number.isFinite(lo) ? [new THREE.Plane(n.clone(), -lo - eps)] : []),
-          ...(Number.isFinite(hi) ? [new THREE.Plane(n.clone().negate(), hi - eps)] : []),
-        ];
+        return [...(Number.isFinite(lo) ? [new THREE.Plane(n.clone(), -lo)] : []), ...(Number.isFinite(hi) ? [new THREE.Plane(n.clone().negate(), hi)] : [])];
       });
-      planes.push(...this.custom.map((c) => new THREE.Plane(c.normal.clone(), c.constant - eps)));
-      this.cutPlanes.push(planes);
+      exact.push(...this.custom.map((c) => c.clone()));
+      const planes = exact.map((p) => new THREE.Plane(p.normal.clone(), p.constant - eps));
+      this.cutPlanes.push(exact);
       // per plane each body's cut face in its colour, hatched, the list's last first; where an earlier one lies already
       // (stencil bit 0x80), half see-through over it: the colours mix
       const rank = (id: string) => (this.listOrder.indexOf(id) + 1 || Infinity);
