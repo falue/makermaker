@@ -3150,11 +3150,11 @@ export class Viewer implements ToolView {
     const world = ray.ray.intersectPlane(ground, new THREE.Vector3()) ?? this.controls.target.clone();
     const step = this.step(world);
     const t = world.clone().applyMatrix4(toGrid); // in the grid's own coordinates
-    const every = Math.round(step / 10 ** Math.floor(Math.log10(step))) === 5 ? 10 : 5;
+    const every = this.every(step);
     const far = step * every * 10;
     const [cx, cy] = [Math.round(t.x / far) * far, Math.round(t.y / far) * far];
     const look = this.gridLook;
-    const key = `${step} ${cx} ${cy} ${look.major} ${look.minor} ${look.zero}`;
+    const key = `${step} ${every} ${cx} ${cy} ${look.major} ${look.minor} ${look.zero}`;
     if (key === look.key) return;
     look.key = key;
     const lines: [number[], number[], number[]] = [[], [], []]; // the step's, every 5th (or 10th), through 0
@@ -4179,18 +4179,45 @@ export class Viewer implements ToolView {
     this.render();
   }
 
+  /** An inch or foot document: steps and grid in inches (see `nice`). */
+  imperial = false;
+
   /**
-   * The step a drag moves in near `at` (mm): it grows with what the screen shows, as a power law (about 1 mm at a normal
-   * zoom, 0.5 m with 20 m across the view), rounded to 1-2-5; Shift ten times (`coarse`: where Shift is no constraint),
-   * Ctrl the minimum step.
+   * The step a drag moves in near `at` (mm), which the grid shows: it grows with what the screen shows, as a power law
+   * (about 1 mm at a normal zoom, 0.5 m with 20 m across the view), rounded as `nice`; Shift ten times (`coarse`: where
+   * Shift is no constraint), Ctrl the minimum step.
    */
   step(at: THREE.Vector3, e?: ModEvent, coarse = true) {
     if (e && role(e, 'precise')) return this.minStep;
     const raw = 8.67 * (1 / this.pixelsPerMm(at)) ** 1.26;
-    const p = 10 ** Math.floor(Math.log10(raw));
-    const n = raw / p;
-    const nice = (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
-    return Math.max(this.minStep, nice * (coarse && e && role(e, 'constrain') ? 10 : 1));
+    return Math.max(this.minStep, this.nice(raw) * (coarse && e && role(e, 'constrain') ? 10 : 1));
+  }
+
+  /**
+   * `mm` rounded to a step: metric 1-2-5 mm; imperial halves of an inch down to 1/64", then 1", 2", 6", then feet
+   * 1-2-5.
+   */
+  private nice(mm: number) {
+    const tens = (v: number) => {
+      const p = 10 ** Math.floor(Math.log10(v));
+      const n = v / p;
+      return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * p;
+    };
+    if (!this.imperial) return tens(mm);
+    const inches = mm / 25.4;
+    if (inches < 0.75) return 25.4 * Math.max(1 / 64, 2 ** Math.round(Math.log2(inches)));
+    if (inches < 9) return 25.4 * [1, 2, 6].reduce((a, b) => (Math.abs(Math.log(b / inches)) < Math.abs(Math.log(a / inches)) ? b : a));
+    return 304.8 * tens(inches / 12);
+  }
+
+  /** How many grid steps from one stronger line to the next: metric every 5 (a 5 step: 10); imperial on whole quarters, feet or 5 / 10 ft. */
+  private every(step: number) {
+    const lead = (v: number) => Math.round(v / 10 ** Math.floor(Math.log10(v)));
+    if (!this.imperial) return lead(step) === 5 ? 10 : 5;
+    const inches = step / 25.4;
+    if (inches < 1 - 1e-9) return 4;
+    if (inches < 12 - 1e-9) return Math.round(12 / inches);
+    return lead(inches / 12) === 5 ? 10 : 5;
   }
 
   /** How far the move preview has moved the selection (world mm; zero without one). */

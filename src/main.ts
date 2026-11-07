@@ -453,6 +453,7 @@ kernel.setTolerance(settings.meshDetail);
 /** Resolves expressions, moves bodies, and rebuilds bodies whose features changed and resolved cleanly. */
 function update() {
   const doc = history.current;
+  viewer.imperial = doc.units === 'in' || doc.units === 'ft'; // steps and grid in inches
   const lookup = paramLookup(doc.params);
   exprErrors = new Map();
   for (const name of Object.keys(doc.params))
