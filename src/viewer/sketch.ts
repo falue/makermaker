@@ -1702,7 +1702,7 @@ export class SketchTool implements Tool {
       this.dwell = { seg, point, timer: guide ? window.setTimeout(guide, SketchTool.guideMs) : 0 };
     }
     this.clearPreview();
-    const labels: [string, THREE.Vector3, boolean, boolean?][] = []; // text, where, typed into, T reaches for it
+    const labels: [string, THREE.Vector3, boolean, boolean?, PullOp?][] = []; // text, where, typed into, T reaches for it, what a pull does to the body
     let angle: Parameters<SketchTool['angleLabel']>[0] | null = null; // the open side's angle: placed last, around the others
     let sideLength: string | null = null;
     const ph = this.phase;
@@ -1828,10 +1828,10 @@ export class SketchTool implements Tool {
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
       if (depth || back) this.solid(ph.shapes, f, depth, back);
       label('H', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
-      if (onBody(ph.target)) labels[labels.length - 1][0] += ` · ${PULL_OPS[pullOp(ph, true, depth)]}`; // what it does to the body
+      if (onBody(ph.target)) labels[labels.length - 1][4] = pullOp(ph, true, depth); // what it does to the body
       if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side, !!ph.side && !this.reaching);
     }
-    const els = labels.map(([text, , active, t]) => sizeLabel(text, active, t));
+    const els = labels.map(([text, , active, t, op]) => sizeLabel(text, active, t, op));
     this.labels.replaceChildren(...els);
     labels.forEach(([, at], i) => keepInside(els[i], ...this.view.toScreen(at)));
     if (angle) this.angleLabel(angle, els);
@@ -2043,8 +2043,10 @@ function lineHint(mode?: string) {
 const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;
 /** The pointer's note while pulling (before typing a depth). */
 /** A size label (`active`: typed into); `t`: it says T reaches to an object for it. */
-export function sizeLabel(text: string, active: boolean, t = false) {
+/** A size label in the view; `t`: T and D reach for it; `op`: what pulling on a body does, with the key that switches it. */
+export function sizeLabel(text: string, active: boolean, t = false, op?: PullOp) {
   const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: sizeHtml(caretHtml(text), true) });
+  if (op) el.append(Object.assign(document.createElement('small'), { textContent: `${PULL_OPS[op]} ${comboText(keysOf('operation')[0])}`, title: `${comboText(keysOf('operation')[0])}: join / cut / new body` }));
   if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }

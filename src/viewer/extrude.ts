@@ -5,7 +5,7 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, onBody, OP_HINT, planeHit, PULL_OPS, pullBy, pulled, pullKey, pullOp, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, onBody, OP_HINT, planeHit, pullBy, pulled, pullKey, pullOp, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -418,8 +418,8 @@ export class ExtrudeTool implements Tool {
       const shown: [string, string | undefined, number, number, boolean][] = [['H', p.typed, depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
-        const op = name === 'H' && this.onBody() ? ` · ${PULL_OPS[this.op()]}` : ''; // what it does to the body
-        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed)}${op}`, active, active && !this.reaching);
+        const op = name === 'H' && this.onBody() ? this.op() : undefined; // what it does to the body
+        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed)}`, active, active && !this.reaching, op);
         this.labels.append(el);
         keepInside(el, ...this.view.toScreen(at.clone().addScaledVector(n, along)));
       }
