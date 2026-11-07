@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignment, bounds, closedLoop, cornerRadii, inside, roundedOutline } from './profiles';
+import { alignment, bounds, closedLoop, cornerLimits, cornerRadii, inside, roundedOutline } from './profiles';
 
 describe('profiles', () => {
   it('finds the loop lines close, either way round', () => {
@@ -66,3 +66,17 @@ describe('roundedOutline', () => {
     expect(Math.hypot(mid[0] + 3, mid[1] + 3)).toBeCloseTo(2, 9);
   });
 });
+
+describe('chamfered corners', () => {
+  it('a corner below 0 is a chamfer of that length, at most half the shorter side beside it', () => {
+    const rect = { kind: 'rect' as const, x: 0, y: 0, w: 40, h: 20, r: 0, rot: 0, rs: [-3, -50, 2, 0] };
+    const [a, b, c, d] = cornerRadii(rect);
+    expect([a, c, d]).toEqual([-3, 2, 0]);
+    expect(b).toBeCloseTo(-9.99, 6);
+    expect(cornerLimits(rect)[0].round).toBeCloseTo(10, 9);
+    expect(cornerLimits(rect)[0].bevel).toBeCloseTo(10, 9);
+    // the chamfered corner (bottom left) cut straight across: 3 up its left side, 3 along its bottom
+    expect(roundedOutline(rect, 4).slice(0, 2)).toEqual([[-20, -7], [-17, -10]]);
+  });
+});
+

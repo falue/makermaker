@@ -6,7 +6,7 @@ import { followSizes, sideNow, sized } from './doc/sizes';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
+import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, icon } from './ui/icons';
@@ -1241,10 +1241,31 @@ function clampFinish(body: string, feature: string, max: number) {
 /** A value set at `path` (`live`: replacing the step before, while dragging); a finish's size goes through `finishSize`. */
 function setValue(path: string[], value: unknown, live = false) {
   const doc = setIn(history.current, path, value);
-  const next = follow(history.current, value && typeof value === 'object' && 'e' in value ? finishSize(doc, path, value as Expr) : doc);
+  const next = follow(history.current, value && typeof value === 'object' && 'e' in value ? cornerSize(finishSize(doc, path, value as Expr), path, value as Expr) : doc);
   if (live) history.replace(next);
   else history.push(next);
   update();
+}
+
+/**
+ * A shape's corner set (`path` ends in `r`: all its corners, `rs.<i>`: one; below 0 a chamfer): beyond what its corner
+ * takes (`cornerLimits`; all corners: the largest of them), that instead.
+ */
+function cornerSize(doc: Doc, path: string[], value: Expr): Doc {
+  const each = path.at(-2) === 'rs';
+  if (!each && path.at(-1) !== 'r') return doc;
+  const shape = getIn(doc, path.slice(0, each ? -2 : -1)) as Profile | undefined;
+  if (shape?.kind !== 'rect' && shape?.kind !== 'ngon' && shape?.kind !== 'polygon') return doc;
+  let mm: number;
+  try {
+    mm = evalLength(value, paramLookup(doc.params));
+  } catch {
+    return doc;
+  }
+  const limits = cornerLimits(resolve(shape, paramLookup(doc.params), '', new Map()) as DrawnProfile);
+  const of = (l: { round: number; bevel: number }) => (mm > 0 ? l.round : l.bevel);
+  const max = each ? of(limits[+path.at(-1)!] ?? { round: 0, bevel: 0 }) : Math.max(0, ...limits.map(of));
+  return Math.abs(mm) > max + 1e-9 ? setIn(doc, path, len(Math.sign(mm) * max)) : doc;
 }
 
 /**

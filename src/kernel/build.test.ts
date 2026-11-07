@@ -400,6 +400,13 @@ describe('buildBody', () => {
     expect(volume).toBeCloseTo(800 - cut(5) - cut(9.99), 1);
   });
 
+  it('chamfers a corner below 0, as long along each side as asked', () => {
+    const shape = buildBody([{ id: 'r', type: 'extrude', plane: ground, profiles: [{ id: 'p', kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: 0, rot: 0, rs: [-4, 0, 0, 0] }], depth: 1, mode: 'add', through: false } as BuildFeature]);
+    const volume = measureVolume(shape);
+    shape.delete();
+    expect(volume).toBeCloseTo(800 - (4 * 4) / 2, 3); // the corner's triangle gone
+  });
+
   it('extrudes areas sharing a curved side together (lamp2.mmk: a drop beside a circle, closed by a tangent)', () => {
     const shapes = [
       { id: 'c', kind: 'circle' as const, x: -20, y: 20, d: 24 },

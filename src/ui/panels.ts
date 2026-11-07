@@ -1263,21 +1263,25 @@ function sizeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
   return [tf('w', 'L', mm(m.w)), tf('h', 'W', mm(m.h))];
 }
 
+/** A body's one shape its first step extrudes (its own, or its sketch's) and where it is; null: none such. */
+function mainShape(ctx: UIContext, steps: Body, k: number): { path: string; p: Profile } | null {
+  const f = steps.features[0];
+  if (f?.type !== 'extrude') return null;
+  const src = f.source;
+  if (src.kind === 'own') return src.profiles.length === 1 ? { path: `bodies.${k}.features.0.source.profiles.0`, p: src.profiles[0] } : null;
+  if (src.shapes.length !== 1 || src.areas) return null;
+  const si = ctx.doc.sketches.findIndex((x) => x.id === src.sketch);
+  const j = ctx.doc.sketches[si]?.shapes.findIndex((q) => q.id === src.shapes[0]) ?? -1;
+  return j >= 0 ? { path: `sketches.${si}.shapes.${j}`, p: ctx.doc.sketches[si].shapes[j] } : null;
+}
+
 /** A body's Dimensions from its first step: its one shape's L and W (or Ø) and H; null: it has none such (its card shows instead). */
 function dimensions(ctx: UIContext, steps: Body, k: number): HTMLElement | null {
   const f = steps.features[0];
   const at = `bodies.${k}.features.0`;
   const row = (...fields: HTMLElement[]) => h('div', { className: 'placing dimensions' }, h('span', {}, 'Dimensions'), ...fields);
   if (f?.type === 'sphere') return row(exprField(ctx, `${at}.d`, 'Ø'));
-  if (f?.type !== 'extrude') return null;
-  const src = f.source;
-  let shape: { path: string; p: Profile } | null = null;
-  if (src.kind === 'own' && src.profiles.length === 1) shape = { path: `${at}.source.profiles.0`, p: src.profiles[0] };
-  if (src.kind === 'sketch' && src.shapes.length === 1 && !src.areas) {
-    const si = ctx.doc.sketches.findIndex((x) => x.id === src.sketch);
-    const j = ctx.doc.sketches[si]?.shapes.findIndex((q) => q.id === src.shapes[0]) ?? -1;
-    if (j >= 0) shape = { path: `sketches.${si}.shapes.${j}`, p: ctx.doc.sketches[si].shapes[j] };
-  }
+  const shape = mainShape(ctx, steps, k);
   if (!shape || shape.p.kind === 'line') return null;
   return row(...sizeFields(ctx, shape.path, shape.p), sizeHover(ctx, exprField(ctx, `${at}.depth`, 'H'), at, 'depth'));
 }
@@ -1285,7 +1289,11 @@ function dimensions(ctx: UIContext, steps: Body, k: number): HTMLElement | null 
 /** Its fillets and chamfers: a title (Fillet, Chamfer or both) with +, then one row each. */
 function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) => void): Node[] {
   const list = steps.features.flatMap((f, j) => (f.type === 'finish' ? [{ f, j }] : []));
-  const kinds = new Set(list.map(({ f }) => f.mode));
+  // its shape's rounded or chamfered corners (in its sketch, or its own): its upright edges' finish, edited here too
+  const shape = mainShape(ctx, steps, k);
+  const corners = shape && (shape.p.kind === 'rect' || shape.p.kind === 'ngon' || shape.p.kind === 'polygon') ? shape.p : null;
+  const signs = corners ? [corners.r, ...(corners.rs ?? [])].flatMap((x) => (x && Number(x.e) ? [Number(x.e) < 0 ? 'chamfer' : 'fillet'] : [])) : [];
+  const kinds = new Set([...list.map(({ f }) => f.mode), ...signs]);
   const title = !kinds.size ? 'Fillets or Chamfers' : kinds.size === 2 ? 'Fillet | Chamfer' : kinds.has('chamfer') ? 'Chamfer' : 'Fillet';
   // a new one takes edges no other has yet (top, vertical, bottom, then all)
   const taken = new Set(list.map(({ f }) => f.edges));
@@ -1293,6 +1301,7 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
   const add = button('+', () => setSteps({ ...steps, features: [...steps.features, { ...(newFinish(ctx.doc.units) as Extract<Feature, { type: 'finish' }>), edges }] }), 'Click: Add a fillet on edges no other has yet (a size below 0 makes it a chamfer)');
   return [
     h('div', { className: 'row finish-head' }, h('span', {}, title), add),
+    ...(corners && signs.length ? cornerFields(ctx, shape!.path, corners) : []),
     ...list.flatMap(({ f, j }) => {
       const setFeature = (next: Feature) => setSteps({ ...steps, features: steps.features.map((x) => (x === f ? next : x)) });
       const remove = button('×', () => setSteps({ ...steps, features: steps.features.filter((x) => x !== f) }), 'Click: Remove it');
@@ -1545,11 +1554,17 @@ function cornerFields(ctx: UIContext, path: string, p: Extract<Profile, { kind: 
   const all = p.r ?? zero;
   const n = p.kind === 'rect' ? 4 : p.kind === 'polygon' ? p.pts.length : Math.max(3, Math.round(Number(p.sides.e) || 3));
   const chain = tool('link', p.rs ? 'Each corner its own R: click to give all one R' : 'One R for all corners: click to give each its own', () => ctx.setValue([...keys, 'rs'], p.rs ? undefined : Array.from({ length: n }, () => all)), !p.rs);
-  const field = (key: string, label: string, value: Expr) => exprField(ctx, `${path}.${key}`, label, false, { value, set: (x, live) => ctx.setValue([...keys, ...key.split('.')], x, live), error: ctx.exprErrors.get(`${path}.${key}`) });
-  if (!p.rs) return [h('div', { className: 'trio' }, field('r', 'R', all), chain)];
+  // R a radius; below 0 (C) a chamfer that long along each side
+  const kind = (x: Expr) => (x.e.trim().startsWith('-') ? 'C' : 'R');
+  const field = (key: string, label: string, value: Expr) => {
+    const el = exprField(ctx, `${path}.${key}`, label, false, { value, set: (x, live) => ctx.setValue([...keys, ...key.split('.')], x, live), error: ctx.exprErrors.get(`${path}.${key}`) });
+    el.title = 'R: the corner rounded by this radius · below 0 (C): chamfered, this long along each side';
+    return el;
+  };
+  if (!p.rs) return [h('div', { className: 'trio' }, field('r', kind(all), all), chain)];
   // hovered or typed in: its corner marked in the view
   const one = (i: number) => {
-    const el = field(`rs.${i}`, `R${i + 1}`, p.rs![i] ?? all);
+    const el = field(`rs.${i}`, `${kind(p.rs![i] ?? all)}${i + 1}`, p.rs![i] ?? all);
     const show = (on: boolean) => ctx.showCorner(on ? keys : null, i);
     return Object.assign(el, { onmouseenter: () => show(true), onmouseleave: () => !el.contains(document.activeElement) && show(false), onfocusin: () => show(true), onfocusout: () => show(false) });
   };

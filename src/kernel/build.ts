@@ -1,4 +1,4 @@
-import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
+import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type CornerFinder, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import type { DrawingPen } from 'replicad';
 import { bakeTurn, beside, centre, cornerRadii, curved, flattened, mapPoints, nesting, roundable, sideDirs } from '../doc/profiles';
@@ -220,13 +220,16 @@ function drawing(p: Resolved<Profile>): Drawing {
   }
 }
 
-/** A shape with corners, each rounded by its own radius (`cornerRadii`: as asked, at most what the corner takes). */
+/** A shape with corners, each rounded by its own radius or chamfered (`cornerRadii`: as asked, at most what the corner takes). */
 function rounded(p: Resolved<Profile>): Drawing {
   const q = roundable(p)!;
   const radii = cornerRadii(p);
   let d = sidesDrawn(draw(q.pts[0]), q, true).close();
-  // one fillet per radius, on its corners (rounding one leaves the others' points where they are)
-  for (const r of new Set(radii.filter((x) => x > 0))) d = d.fillet(r, (c) => c.inList(q.pts.filter((_, i) => radii[i] === r)));
+  // one fillet or chamfer per size, on its corners (doing one leaves the others' points where they are)
+  for (const r of new Set(radii.filter((x) => x))) {
+    const at = (c: CornerFinder) => c.inList(q.pts.filter((_, i) => radii[i] === r));
+    d = r > 0 ? d.fillet(r, at) : d.chamfer(-r, at);
+  }
   return d;
 }
 
@@ -361,7 +364,7 @@ function addCircles(p: Resolved<Profile>, f: Frame, circles: Circle[]) {
   // rounded corners: each arc's middle on the corner's bisector
   const q = roundable(p);
   cornerRadii(p).forEach((r, i) => {
-    if (!r || !q) return;
+    if (r <= 0 || !q) return; // a chamfer's faces are flat
     const n = q.pts.length;
     const [a, c, b] = [q.pts[(i - 1 + n) % n], q.pts[i], q.pts[(i + 1) % n]];
     const [, din] = sideDirs(a, q.curves?.[(i - 1 + n) % n], c);

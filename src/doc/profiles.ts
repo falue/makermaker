@@ -153,32 +153,41 @@ export function roundable(p: P): { pts: UV[]; curves?: (Curve | null)[] } | null
 }
 
 /**
- * The corner radii of a shape (`rs`: each corner its own, else R for all), in the order of `roundable`: each as asked,
- * but at most what its corner takes (its rounding reaching half of either side beside it), so a radius too big for
- * one corner leaves the others as asked and no corner fails.
+ * The largest rounding each corner of a shape takes (in the order of `roundable`): `round` a radius, `bevel` a
+ * chamfer's length along its sides; each reaching half of either side beside it, so no two corners overlap. A corner
+ * whose sides run on in line takes none.
  */
-export function cornerRadii(p: P, keep = 0.999): number[] {
+export function cornerLimits(p: P): { round: number; bevel: number }[] {
   const q = roundable(p);
   if (!q) return [];
-  const all = 'r' in p ? (p.r ?? 0) : 0;
-  const rs = 'rs' in p ? p.rs : undefined;
   const n = q.pts.length;
   return q.pts.map((at, i) => {
-    const asked = Math.max(0, rs?.[i] ?? all);
-    if (!asked) return 0;
     const [prev, next] = [q.pts[(i - 1 + n) % n], q.pts[(i + 1) % n]];
     const [, din] = sideDirs(prev, q.curves?.[(i - 1 + n) % n], at);
     const [dout] = sideDirs(at, q.curves?.[i], next);
-    // the turn there: none (sides in line) leaves nothing to round
     const turn = Math.acos(Math.max(-1, Math.min(1, (din[0] * dout[0] + din[1] * dout[1]) / (Math.hypot(...din) * Math.hypot(...dout) || 1))));
-    if (turn < 1e-6) return 0;
+    if (turn < 1e-6) return { round: 0, bevel: 0 };
     const reach = Math.min(Math.hypot(at[0] - prev[0], at[1] - prev[1]), Math.hypot(next[0] - at[0], next[1] - at[1])) / 2;
-    return Math.min(asked, (keep * reach) / Math.tan(turn / 2));
+    return { round: reach / Math.tan(turn / 2), bevel: reach };
   });
 }
 
 /**
- * The outline as drawn, its corners rounded by `cornerRadii` (each arc in `steps` pieces); curved sides as points
+ * The corners of a shape as asked (`rs`: each corner its own, else R for all), in the order of `roundable`: above 0
+ * a radius, below 0 a chamfer of that length; each at most what its corner takes (`cornerLimits`, kept a hair short
+ * so neighbours never meet), so one too big leaves the others as asked and no corner fails.
+ */
+export function cornerRadii(p: P, keep = 0.999): number[] {
+  const all = 'r' in p ? (p.r ?? 0) : 0;
+  const rs = 'rs' in p ? p.rs : undefined;
+  return cornerLimits(p).map(({ round, bevel }, i) => {
+    const asked = rs?.[i] ?? all;
+    return asked > 0 ? Math.min(asked, keep * round) : asked < 0 ? -Math.min(-asked, keep * bevel) : 0;
+  });
+}
+
+/**
+ * The outline as drawn, its corners rounded or chamfered by `cornerRadii` (each arc in `steps` pieces); curved sides as points
  * (a corner beside one stays sharp here, the kernel rounds it). Without radii: `flattened`.
  */
 export function roundedOutline(p: P, steps = 8): UV[] {
@@ -196,6 +205,8 @@ export function roundedOutline(p: P, steps = 8): UV[] {
     const r = radii[i];
     if (!r || q.curves?.[(i - 1 + n) % n] || q.curves?.[i]) return [c, ...side];
     const [u, v] = [unit(prev, c), unit(c, next)];
+    // a chamfer: straight across, its length along each side
+    if (r < 0) return [[c[0] - u[0] * -r, c[1] - u[1] * -r], [c[0] + v[0] * -r, c[1] + v[1] * -r]] as UV[];
     const turn = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1])));
     const bis = unit([0, 0], [v[0] - u[0], v[1] - u[1]]);
     const o: UV = [c[0] + (bis[0] * r) / Math.cos(turn / 2), c[1] + (bis[1] * r) / Math.cos(turn / 2)];
