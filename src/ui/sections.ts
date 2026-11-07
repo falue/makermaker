@@ -1,5 +1,6 @@
 import type { Axis } from '../viewer/viewer';
 import { drawer } from './drawer';
+import { icon } from './icons';
 
 /**
  * Section panel (a drawer at the bottom left of the 3D view), as in incase: per axis a two-handle slider for the shown range,
@@ -74,7 +75,7 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
     };
     slider.ondblclick = reset;
     const tools = document.createElement('span');
-    tools.append(button('↺', 'Show the whole range again', reset), invert);
+    tools.append(Object.assign(button('', 'Click: Show the whole range again', reset), { innerHTML: icon('undo') }), invert);
     panel.append(Object.assign(document.createElement('span'), { textContent: axis.toUpperCase(), title: tips[axis][0], className: `axis-${axis}` }), tools, slider);
   }
   const custom = Object.assign(document.createElement('div'), { id: 'custom-sections' });
