@@ -175,8 +175,8 @@ export interface Pulling extends PullStart {
 export type PullOp = 'join' | 'cut' | 'new';
 export const PULL_OPS: Record<PullOp, string> = { join: 'Join', cut: 'Cut', new: 'New body' };
 
-/** Whether a pull from `t` can join or cut a body: drawn on an extrusion's end or side face. */
-export const onBody = (t: Target) => !!t.body && (t.placement.kind === 'cap' || t.placement.kind === 'side');
+/** Whether a pull from `t` can join or cut a body: drawn on one of its faces. */
+export const onBody = (t: Target) => !!t.body;
 
 /** A pull's operation: on a body as chosen, else by the direction (into it: Cut, out of it: Join); elsewhere a new body. */
 export const pullOp = (p: Pulling, onBody: boolean, depth: number): PullOp => (!onBody ? 'new' : (p.op ?? (depth < 0 ? 'cut' : 'join')));

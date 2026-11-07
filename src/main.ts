@@ -5433,14 +5433,16 @@ function withSketched(doc: Doc, r: SketchResult): { doc: Doc; id: string; ids: s
   if (r.depth || r.back) {
     const back = r.back ? { back: len(r.back, r.backTyped) } : {};
     const sketch = sketches.find((s) => s.id === id)!;
-    // on a body, joining or cutting it: one step of that body (a linked copy's go to its source), all shapes in it
-    const owner = sketch.plane.kind === 'cap' || sketch.plane.kind === 'side' ? sketch.plane.body : null;
-    if (owner && (r.op === 'join' || r.op === 'cut')) {
-      const k = stepsOf({ ...doc, bodies }, owner);
+    // on a body (any face it was drawn on), joining or cutting it: one tool body of all the shapes, folded into that
+    // body's boolean step (Unfold makes it an object); not on a linked copy (its booleans sit by its source)
+    const into = bodies.find((b) => b.id === r.target.body);
+    if (into && !into.link && (r.op === 'join' || r.op === 'cut')) {
       const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, ...(r.areas ? { areas: r.areas } : {}) };
-      const step: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), ...back, mode: r.op === 'cut' ? 'cut' : 'add', through: false };
-      bodies = bodies.map((b, i) => (i === k ? { ...b, features: [...b.features, step] } : b));
-      return { doc: { ...doc, sketches, bodies, joints }, id, ids, made: [owner] };
+      const pulled: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), ...back, mode: 'add', through: false };
+      const tool: Body = { ...newBody(bodies.length, [pulled], into.group), name: `${into.name} ${r.op}`, folded: true };
+      const step: Feature = { id: newId(), type: 'boolean', op: r.op === 'cut' ? 'subtract' : 'union', body: tool.id };
+      bodies = [...bodies.map((b) => (b === into ? { ...b, features: [...b.features, step] } : b)), tool];
+      return { doc: { ...doc, sketches, bodies, joints }, id, ids, made: [into.id] };
     }
     // else new bodies, one per piece of shapes that do not overlap or touch
     const lookup = paramLookup(doc.params);
