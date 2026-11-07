@@ -3,7 +3,7 @@ import { caret } from '../ui/complete';
 import { inName } from '../doc/expr';
 import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
-import { area } from '../doc/profiles';
+import { area, inside, type DrawnProfile } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
 import { aimInto, FRONT, onBody, OP_HINT, planeHit, pullBy, pullCuts, pulled, pullKey, pullOp, pullTap, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
@@ -256,7 +256,7 @@ export class ExtrudeTool implements Tool {
       const p = planeHit(ray, g.target.frame);
       const d = p?.distanceTo(ray.origin) ?? Infinity;
       if (d > (body?.distance ?? Infinity) + 1e-3 || (best && d >= best.d)) continue;
-      const i = areaAt(g.areas, uvOf(g.target.frame, p!));
+      const i = areaAt(g.areas, uvOf(g.target.frame, p!), this.view.sketches.find((s) => s.id === g.target.sketch)?.shapes ?? []);
       if (i !== null) best = { group: g, i, d };
     }
     if (best) return { group: best.group, idx: [best.i] };
@@ -419,9 +419,16 @@ export class ExtrudeTool implements Tool {
   }
 }
 
-/** The area containing point (u, v) of its plane (by its triangles), or null. */
-function areaAt(areas: AreaMesh[], [u, v]: [number, number]) {
+/**
+ * The area containing point (u, v) of its plane, or null: an area of overlapping shapes by their exact outlines
+ * (`shapes`: the sketch's), one lines close by its triangles.
+ */
+function areaAt(areas: AreaMesh[], [u, v]: [number, number], shapes: (DrawnProfile & { id: string })[]) {
+  const shape = (id: string) => shapes.find((q) => q.id === id);
+  const exact = areas.findIndex((a) => !a.at && a.in.every((id) => shape(id) && inside(shape(id)!, u, v)) && !a.out.some((id) => shape(id) && inside(shape(id)!, u, v)));
+  if (exact >= 0) return exact;
   const i = areas.findIndex((a) => {
+    if (!a.at) return false;
     const t = a.tris;
     for (let k = 0; k < t.length; k += 6) {
       const d1 = (u - t[k + 2]) * (t[k + 1] - t[k + 3]) - (t[k] - t[k + 2]) * (v - t[k + 3]);

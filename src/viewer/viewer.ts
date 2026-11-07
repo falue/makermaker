@@ -3452,7 +3452,7 @@ export class Viewer implements ToolView {
     return v.clone().transformDirection(this.bodies.get(body)?.matrix.clone().invert() ?? new THREE.Matrix4());
   }
 
-  /** The nearest point on the true curve of a curved sketch side or circle (`only`: of that shape) within `reach` mm of `at` (world); null: none there. */
+  /** The nearest point on a body's true edge (the kernel's line, or its circle all round) within `reach` mm of `at` (world); null: none there. */
   onBodyEdge(at: THREE.Vector3, reach = 0.1) {
     let best: [number, THREE.Vector3] | null = null;
     for (const [id, g] of this.bodies) {
@@ -3469,6 +3469,24 @@ export class Viewer implements ToolView {
         }
         const d = q ? q.distanceTo(p) : Infinity;
         if (q && d < reach && (!best || d < best[0])) best = [d, q.applyMatrix4(g.matrix)];
+      }
+    }
+    return best?.[1] ?? null;
+  }
+
+  /** The kernel's circle (world) of the round body edge nearest `at` within `reach` mm; null: none there. */
+  bodyCircleAt(at: THREE.Vector3, reach: number): { c: THREE.Vector3; n: THREE.Vector3; r: number } | null {
+    let best: [number, { c: THREE.Vector3; n: THREE.Vector3; r: number }] | null = null;
+    for (const [id, g] of this.bodies) {
+      const exact = g.children.find((c) => c.userData.exact)?.userData.exact as Exact | undefined;
+      if (!exact || this.hidden.has(id)) continue;
+      const p = at.clone().applyMatrix4(g.matrix.clone().invert());
+      for (const e of exact.edges) {
+        if (e.kind !== 'circle') continue;
+        const [c, n] = [new THREE.Vector3(...e.c), new THREE.Vector3(...e.n)];
+        const out = p.clone().sub(c).projectOnPlane(n);
+        const d = out.lengthSq() > 1e-18 ? c.clone().addScaledVector(out.normalize(), e.r).distanceTo(p) : Infinity;
+        if (d < reach && (!best || d < best[0])) best = [d, { c: c.applyMatrix4(g.matrix), n: n.transformDirection(g.matrix), r: e.r }];
       }
     }
     return best?.[1] ?? null;

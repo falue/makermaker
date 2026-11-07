@@ -109,6 +109,7 @@ export interface ToolView {
   onSketchCurve(at: THREE.Vector3, reach?: number, only?: string): THREE.Vector3 | null;
   /** The point on the kernel's true line or circle of the body edge within `reach` mm of `at` (world); null: none (a mesh body). */
   onBodyEdge(at: THREE.Vector3, reach?: number): THREE.Vector3 | null;
+  bodyCircleAt(at: THREE.Vector3, reach: number): { c: THREE.Vector3; n: THREE.Vector3; r: number } | null;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   toScreen(p: THREE.Vector3): [number, number];
@@ -1062,11 +1063,31 @@ export class SketchTool implements Tool {
     const [u, v] = [v3(t.frame.x), v3(t.frame.y)];
     const sides: [THREE.Vector3, THREE.Vector3][] = [[u, v], [u.clone().negate(), v], [v, u], [v.clone().negate(), u]]; // outward, along
     const tops: [THREE.Vector3, THREE.Vector3][] = [];
-    for (const l of lines)
-      if (l.shape?.p.kind === 'circle' || (!l.shape && !l.guide && l.segs.length > 1)) {
+    // a circle's top along w: its middle and radius out, in its plane (null: w stands square to it)
+    const topOf = (c: THREE.Vector3, n: THREE.Vector3, r: number, w: THREE.Vector3) => {
+      const out = w.clone().projectOnPlane(n);
+      return out.lengthSq() > 1e-12 ? c.clone().addScaledVector(out.normalize(), r) : null;
+    };
+    for (const l of lines) {
+      const p = l.shape?.p;
+      if (p?.kind === 'circle') {
+        const f = l.shape!.sketch.frame;
+        for (const [w, along] of sides) {
+          const top = topOf(v3(toWorld(f, p.x, p.y)), v3(f.n), p.d / 2, w);
+          if (top) tops.push([top, along]);
+        }
+      } else if (!l.shape && !l.guide && l.segs.length > 1) {
+        // a round body edge: on the kernel's circle, where its points' outermost one lies near it (else that point: an end)
         const pts = [l.segs[0][0], ...l.segs.map((g) => g[1])];
-        for (const [w, along] of sides) tops.push([pts.reduce((a, b) => (b.dot(w) > a.dot(w) ? b : a)), along]);
+        const reach = Math.max(...l.segs.map(([a, b]) => a.distanceTo(b)));
+        for (const [w, along] of sides) {
+          const far = pts.reduce((a, b) => (b.dot(w) > a.dot(w) ? b : a));
+          const k = this.view.bodyCircleAt(far, reach);
+          const top = k && topOf(k.c, k.n, k.r, w);
+          tops.push([top && top.distanceTo(far) <= reach ? top : far, along]);
+        }
       }
+    }
     for (const s of this.view.spheres()) for (const [w, along] of sides) tops.push([s.center.clone().addScaledVector(w, s.r), along]);
     const r = this.view.el.getBoundingClientRect();
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
