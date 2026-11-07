@@ -5586,26 +5586,34 @@ function moveOrigin(id: string, next: Doc, live = false) {
 function pickOrigin(id: string) {
   toolHint = 'Origin: click where it goes · a corner, centre or edge: there, unturned · a face: there, Z out of the face · its contents stay · [Esc] cancels';
   render();
-  viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the origin` : null);
-  viewer.aiming(viewer.aimHere());
-  viewer.pickFace((face) => {
-    viewer.aiming = null;
-    viewer.aimAt(null);
-    tips.cursorTip(null);
-    toolHint = null;
-    const at = face?.snap;
-    if (!at) return render();
-    const old = groupPlace(id);
+  // where a click puts it: at `at`, turned as now, or (`out`: a face's outward normal) Z out of the face, X as near the old X as it allows
+  const placedAt = (at: Vector3, out: Vector3 | null) => {
     const q = new Quaternion();
-    old.decompose(new Vector3(), q, new Vector3());
-    if (face.what === 'on face') {
-      const z = face.normal.clone().normalize();
+    groupPlace(id).decompose(new Vector3(), q, new Vector3());
+    if (out) {
+      const z = out.clone().normalize();
       const x = new Vector3(1, 0, 0).applyQuaternion(q).projectOnPlane(z);
       if (x.lengthSq() < 1e-6) x.copy(new Vector3(0, 1, 0).applyQuaternion(q).projectOnPlane(z));
       x.normalize();
       q.setFromRotationMatrix(new Matrix4().makeBasis(x, z.clone().cross(x), z));
     }
-    commit(originTo(history.current, id, new Matrix4().compose(at, q, new Vector3(1, 1, 1))));
+    return new Matrix4().compose(at, q, new Vector3(1, 1, 1));
+  };
+  // its axes show where it would go
+  viewer.aiming = (a) => {
+    tips.cursorTip(a ? `${a.what}\nClick: the origin` : null);
+    viewer.previewOrigin(a ? placedAt(a.at, a.what === 'on face' ? viewer.faceOutHere() : null) : null);
+  };
+  viewer.aiming(viewer.aimHere());
+  viewer.pickFace((face) => {
+    viewer.aiming = null;
+    viewer.aimAt(null);
+    viewer.previewOrigin(null);
+    tips.cursorTip(null);
+    toolHint = null;
+    const at = face?.snap;
+    if (!at) return render();
+    commit(originTo(history.current, id, placedAt(at, face.what === 'on face' ? face.normal.clone().negate() : null))); // its normal points into the face
   }, true);
 }
 

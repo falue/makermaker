@@ -916,6 +916,26 @@ export class Viewer implements ToolView {
     return { point: hit.point.clone(), n: hit.face!.normal.clone() };
   }
 
+  /** The outward normal (world) of the body face under the pointer, if any. */
+  faceOutHere() {
+    const hit = this.hover && this.frontHit(this.hover);
+    return hit ? this.onSurface(hit).n.clone() : null;
+  }
+
+  private originPreview: LineSegments2 | null = null;
+
+  /** The origin axes at `m` (world; 60 px long on screen) while a group's origin is picked; null: none. */
+  previewOrigin(m: THREE.Matrix4 | null) {
+    if (!m) return this.originPreview?.removeFromParent(), this.render();
+    const o = (this.originPreview ??= Object.assign(originLines(30, 3), { matrixAutoUpdate: false }));
+    (o.material as LineMaterial).resolution.set(this.el.clientWidth, this.el.clientHeight);
+    const k = 60 / this.pixelsPerMm(new THREE.Vector3().setFromMatrixPosition(m)) / 30;
+    o.matrix.copy(m).scale(new THREE.Vector3(k, k, k));
+    o.matrixWorldNeedsUpdate = true;
+    if (!o.parent) this.scene.add(o);
+    this.render();
+  }
+
   /** A body hit as a face pick: its point and the normal into the face (world), on the true surface where the kernel has it. */
   private picked(hit: THREE.Intersection) {
     const { point, n } = this.onSurface(hit);
