@@ -464,12 +464,11 @@ select.invalid {
 .param {
   display: grid;
   grid-template-columns: 1fr auto auto;
-  align-items: end;
+  align-items: center; /* field, value and delete on one middle line */
   gap: 4px;
   margin-bottom: 4px;
 }
 .value {
-  padding-bottom: 4px;
   color: var(--muted);
   white-space: nowrap;
 }
