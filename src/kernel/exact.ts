@@ -9,8 +9,8 @@ type V3 = [number, number, number];
  */
 export type ExactFace = ({ kind: 'plane'; at: V3; n: V3 } | { kind: 'cylinder'; at: V3; dir: V3; r: number; shaft: boolean } | { kind: 'sphere'; c: V3; r: number } | { kind: 'free' }) & { area?: number; mid?: V3 };
 
-/** An edge's curve, exact (body coordinates), from end `a` to end `b`: a line, a circle or arc (centre, axis, radius), an ellipse, else a curve; and its length. */
-export type ExactEdge = ({ kind: 'line' } | { kind: 'circle'; c: V3; n: V3; r: number } | { kind: 'ellipse'; c: V3; n: V3; x: V3; major: number; minor: number } | { kind: 'curve' }) & { a: V3; b: V3; length: number };
+/** An edge's curve, exact (body coordinates), from end `a` to end `b`: a line, a circle or arc (centre, axis, radius, the point half way along it), an ellipse, else a curve; and its length. */
+export type ExactEdge = ({ kind: 'line' } | { kind: 'circle'; c: V3; n: V3; r: number; mid: V3 } | { kind: 'ellipse'; c: V3; n: V3; x: V3; major: number; minor: number } | { kind: 'curve' }) & { a: V3; b: V3; length: number };
 
 /** A body's exact data with its mesh: per mesh face group and edge group (in their order), its volume and area, and its tight box (null: too many faces to find it fast; the mesh's stands in). */
 export interface Exact {
@@ -130,7 +130,7 @@ function edgeOf(e: Edge | undefined): ExactEdge {
     if (type === 'CIRCLE') {
       const c = curve.Circle();
       const ax = c.Axis();
-      const out: ExactEdge = { kind: 'circle', c: read(c.Location()), n: read(ax.Direction()), r: c.Radius(), ...ends };
+      const out: ExactEdge = { kind: 'circle', c: read(c.Location()), n: read(ax.Direction()), r: c.Radius(), mid: v3(e.pointAt(0.5)), ...ends };
       ax.delete();
       c.delete();
       return out;

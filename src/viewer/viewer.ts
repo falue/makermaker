@@ -27,6 +27,7 @@ import { applyLook, boxUv, glowLight, needsUv, pictureLoaded, renderMaterial, sp
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import type { Exact } from '../kernel/exact';
+import { turnedBox } from './turnedBox';
 import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
 import { caret, caretHtml, restOf } from '../ui/complete';
@@ -3431,12 +3432,14 @@ export class Viewer implements ToolView {
       volume += a.dot(b.clone().cross(c)) / 6; // signed tetrahedra from the origin
       area += b.sub(a).cross(c.sub(a)).length() / 2;
     }
-    // the kernel's numbers where it has them: volume and area, and the box while the body's turn keeps the axes (else
-    // the kernel's box turned would be loose: the triangles' stays)
+    // the kernel's numbers where it has them: volume and area, and the box: the kernel's while the body's turn keeps
+    // the axes, else from its exact edges (`turnedBox`; turned, the kernel's box would be loose)
     const exact = solid.userData.exact as Exact | null | undefined;
     const axes = [0, 1, 2, 4, 5, 6, 8, 9, 10].every((k) => Math.abs(Math.abs(g.matrix.elements[k]) - 0.5) > 0.5 - 1e-9);
+    const turned = exact && !axes ? turnedBox(exact, g.matrix) : null;
     if (exact?.box && axes) box.set(new THREE.Vector3(...exact.box[0]), new THREE.Vector3(...exact.box[1])).applyMatrix4(g.matrix);
-    const out = { key, box, volume: exact?.volume ?? Math.abs(volume), area: exact?.area ?? area, exact: !!exact, boxExact: !!exact?.box && axes };
+    else if (turned) box.copy(turned);
+    const out = { key, box, volume: exact?.volume ?? Math.abs(volume), area: exact?.area ?? area, exact: !!exact, boxExact: (!!exact?.box && axes) || !!turned };
     this.measured.set(id, out);
     return out;
   }
