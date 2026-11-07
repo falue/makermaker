@@ -221,9 +221,17 @@ span.error,
 #left > .tabs small {
   font-size: 11px;
 }
+#left > .tabs .kind {
+  display: flex; /* centred with its count, not on the text's baseline */
+}
 #left > .tabs .kind svg {
+  display: block;
   width: 14px;
   height: 14px;
+  vertical-align: 0;
+}
+#left > .tabs small {
+  line-height: 14px;
 }
 #left > .list-section {
   flex: 1;
