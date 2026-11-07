@@ -703,15 +703,20 @@ export function grown(pts: [number, number][], d: number): [number, number][] {
   });
 }
 
-/** A side as it lies after an offset; `on`: the circle or line it runs on, where it meets its neighbours. */
-type Offset = { a: UV; b: UV; curve: Curve | null; on: { c: UV; r: number } | { o: UV; d: UV }; sweep?: number };
+/**
+ * A side after an offset: its exact offset curve `f` (t 0..1 the side, beyond it run on: a line straight, an arc round, a
+ * bezier's along its end's tangent), the part kept (`t0`..`t1`, set where neighbours meet), what it is.
+ */
+type Offset = { kind: 'line' | 'arc' | 'bezier'; f: (t: number) => UV; t0: number; t1: number; base?: { a: UV; c1: UV; c2: UV; b: UV }; toA?: UV; toB?: UV };
 
 /**
- * A curved line or polygon `by` mm to the side (a polygon: outside; a line: its left). Arcs stay arcs around their
- * middle, straight sides stay straight, beziers go by their control legs (close, not exact). Where a corner opens or
- * crosses, neighbours meet where they cross; no crossing near it: half way between their ends.
+ * A curved line or polygon `by` mm to the side (a polygon: outside; a line: its left), exact: straight sides stay
+ * straight, arcs stay arcs around their middle (a radius it would turn inside out kept at 0.01), beziers become beziers
+ * within `tol` mm of their true offset (`offsetBezier`). Neighbours meet where their offsets (run on past their ends)
+ * cross: a mitre where the corner opens, the true crossing where it closes; none near: straight on to half way between
+ * their ends (`toA`, `toB`).
  */
-export function offsetPath(p: Pathed, by: number): { pts: UV[]; curves: (Curve | null)[] } {
+export function offsetPath(p: Pathed, by: number, tol = 1e-3): { pts: UV[]; curves: (Curve | null)[] } {
   const n = p.pts.length;
   const closed = p.kind === 'polygon';
   const ring = flattened(p);
@@ -719,81 +724,121 @@ export function offsetPath(p: Pathed, by: number): { pts: UV[]; curves: (Curve |
   const left = closed && ccw ? -by : by;
   const hat = ([x, y]: UV): UV => [x / (Math.hypot(x, y) || 1), y / (Math.hypot(x, y) || 1)];
   const off = (q: UV, d: UV): UV => [q[0] - hat(d)[1] * left, q[1] + hat(d)[0] * left];
-  const cross = (o: UV, d: UV, q: UV, e: UV): UV | null => {
-    const den = d[0] * e[1] - d[1] * e[0];
-    if (Math.abs(den) < 1e-9) return null;
-    const t = ((q[0] - o[0]) * e[1] - (q[1] - o[1]) * e[0]) / den;
-    return [o[0] + d[0] * t, o[1] + d[1] * t];
-  };
-  const sides: Offset[] = Array.from({ length: closed ? n : n - 1 }, (_, i) => {
+  const sides: Offset[] = Array.from({ length: closed ? n : n - 1 }, (_, i): Offset => {
     const [a, b] = [p.pts[i], p.pts[(i + 1) % n]];
     const c = p.curves?.[i] ?? null;
-    const [d0, d1] = sideDirs(a, c, b);
     const arc = c && 'mid' in c ? arcOf(a, c.mid, b) : null;
     if (arc) {
       const sweep = arc.a1 - arc.a0;
       const r = Math.max(0.01, sweep > 0 ? arc.r - left : arc.r + left);
-      const at = (t: number): UV => [arc.c[0] + r * Math.cos(t), arc.c[1] + r * Math.sin(t)];
-      return { a: at(arc.a0), b: at(arc.a1), curve: { mid: at(arc.a0 + sweep / 2) }, on: { c: arc.c, r }, sweep };
+      return { kind: 'arc', f: (t) => [arc.c[0] + r * Math.cos(arc.a0 + sweep * t), arc.c[1] + r * Math.sin(arc.a0 + sweep * t)], t0: 0, t1: 1 };
     }
     if (c && 'c1' in c) {
-      const [a1, b1] = [off(a, d0), off(b, d1)];
-      const leg: UV = [c.c2[0] - c.c1[0], c.c2[1] - c.c1[1]];
-      const at = off(c.c1, leg);
-      return { a: a1, b: b1, curve: { c1: cross(a1, d0, at, leg) ?? off(c.c1, d0), c2: cross(b1, d1, at, leg) ?? off(c.c2, d1) }, on: { o: b1, d: d1 } };
+      const base = { a, c1: c.c1, c2: c.c2, b };
+      const on = (t: number) => off(bez(a, c.c1, c.c2, b, t), bezDir(base, t));
+      // past its ends: on along its end's tangent
+      const f = (t: number): UV => {
+        if (t >= 0 && t <= 1) return on(t);
+        const [e, d] = t < 0 ? [on(0), hat(bezDir(base, 0))] : [on(1), hat(bezDir(base, 1))];
+        const k = (t < 0 ? t : t - 1) * Math.hypot(...bezDir(base, t < 0 ? 0 : 1));
+        return [e[0] + d[0] * k, e[1] + d[1] * k];
+      };
+      return { kind: 'bezier', f, t0: 0, t1: 1, base };
     }
-    return { a: off(a, d0), b: off(b, d0), curve: null, on: { o: off(a, d0), d: d0 } };
+    const d: UV = [b[0] - a[0], b[1] - a[1]];
+    const [oa, ob] = [off(a, d), off(b, d)];
+    return { kind: 'line', f: (t) => [oa[0] + (ob[0] - oa[0]) * t, oa[1] + (ob[1] - oa[1]) * t], t0: 0, t1: 1 };
   });
-  /** Where two sides' circles or lines cross. */
-  const crossings = (u: Offset['on'], v: Offset['on']): UV[] => {
-    if ('o' in u && 'o' in v) return [cross(u.o, u.d, v.o, v.d)].filter((q): q is UV => !!q);
-    if ('c' in u && 'c' in v) {
-      const l = Math.hypot(v.c[0] - u.c[0], v.c[1] - u.c[1]);
-      const x = (l * l + u.r * u.r - v.r * v.r) / (2 * l || 1);
-      const h = u.r * u.r - x * x;
-      if (!l || h < 0) return [];
-      const e = hat([v.c[0] - u.c[0], v.c[1] - u.c[1]]);
-      return [1, -1].map((k) => [u.c[0] + e[0] * x - k * e[1] * Math.sqrt(h), u.c[1] + e[1] * x + k * e[0] * Math.sqrt(h)]);
+  /** Where `u` (past its end) and `v` (before its start) cross nearest their ends, as their parameters (Newton); null: not near. */
+  const meet = (u: Offset, v: Offset): [number, number] | null => {
+    let [s, t] = [1, 0];
+    const h = 1e-6;
+    for (let k = 0; k < 60; k++) {
+      const [pu, pv] = [u.f(s), v.f(t)];
+      const r: UV = [pu[0] - pv[0], pu[1] - pv[1]];
+      if (Math.hypot(...r) < 1e-12 * (1 + Math.abs(by))) return [s, t];
+      const du: UV = [(u.f(s + h)[0] - u.f(s - h)[0]) / (2 * h), (u.f(s + h)[1] - u.f(s - h)[1]) / (2 * h)];
+      const dv: UV = [(v.f(t + h)[0] - v.f(t - h)[0]) / (2 * h), (v.f(t + h)[1] - v.f(t - h)[1]) / (2 * h)];
+      const det = -du[0] * dv[1] + du[1] * dv[0];
+      if (Math.abs(det) < 1e-14) return null;
+      // [du, -dv] [ds, dt] = -r
+      s += (-(-r[0]) * dv[1] + -r[1] * dv[0]) / det;
+      t += (du[0] * -r[1] - du[1] * -r[0]) / det;
+      if (!Number.isFinite(s + t)) return null;
     }
-    const [circle, line] = ('c' in u ? [u, v] : [v, u]) as [{ c: UV; r: number }, { o: UV; d: UV }];
-    const e = hat(line.d);
-    const t = (circle.c[0] - line.o[0]) * e[0] + (circle.c[1] - line.o[1]) * e[1];
-    const near: UV = [line.o[0] + e[0] * t, line.o[1] + e[1] * t];
-    const h = circle.r ** 2 - (near[0] - circle.c[0]) ** 2 - (near[1] - circle.c[1]) ** 2;
-    if (h < 0) return [];
-    return [1, -1].map((k) => [near[0] + k * e[0] * Math.sqrt(h), near[1] + k * e[1] * Math.sqrt(h)]);
-  };
-  const moved = (s: Offset, end: 'a' | 'b', q: UV) => {
-    const by2: UV = [q[0] - s[end][0], q[1] - s[end][1]];
-    s[end] = q;
-    if (s.curve && 'c1' in s.curve) {
-      const k = end === 'a' ? 'c1' : 'c2';
-      s.curve = { ...s.curve, [k]: [s.curve[k][0] + by2[0], s.curve[k][1] + by2[1]] };
-    }
+    return null;
   };
   sides.forEach((next, i) => {
     if (!i && !closed) return;
     const prev = sides[(i - 1 + sides.length) % sides.length];
-    if (Math.hypot(prev.b[0] - next.a[0], prev.b[1] - next.a[1]) < 1e-6) return;
-    const half: UV = [(prev.b[0] + next.a[0]) / 2, (prev.b[1] + next.a[1]) / 2];
-    const far = 5 * Math.abs(by);
-    const q = crossings(prev.on, next.on)
-      .sort((u, v) => Math.hypot(u[0] - half[0], u[1] - half[1]) - Math.hypot(v[0] - half[0], v[1] - half[1]))
-      .find((u) => Math.hypot(u[0] - p.pts[i][0], u[1] - p.pts[i][1]) <= far) ?? half;
-    moved(prev, 'b', q);
-    moved(next, 'a', q);
-  });
-  // arcs cut or lengthened at their ends: their middle again
-  for (const s of sides)
-    if (s.sweep !== undefined && 'c' in s.on) {
-      const { c, r } = s.on;
-      const dir = Math.sign(s.sweep);
-      const [t0, t1] = [s.a, s.b].map((q) => Math.atan2(q[1] - c[1], q[0] - c[0]));
-      const full = 2 * Math.PI;
-      const sweep = dir * ((((t1 - t0) * dir) % full + full) % full);
-      s.curve = { mid: [c[0] + r * Math.cos(t0 + sweep / 2), c[1] + r * Math.sin(t0 + sweep / 2)] };
+    const [pe, ns] = [prev.f(1), next.f(0)];
+    if (Math.hypot(pe[0] - ns[0], pe[1] - ns[1]) < 1e-9) return; // smooth: they run on
+    const found = meet(prev, next);
+    const q = found && prev.f(found[0]);
+    if (q && Math.hypot(q[0] - p.pts[i][0], q[1] - p.pts[i][1]) <= 5 * Math.abs(by) && found![0] > 0 && found![1] < 1) [prev.t1, next.t0] = found!;
+    else {
+      // no crossing near: both run straight to half way between their ends
+      prev.toB = next.toA = [(pe[0] + ns[0]) / 2, (pe[1] + ns[1]) / 2];
     }
-  return { pts: closed ? sides.map((s) => s.a) : [...sides.map((s) => s.a), sides[sides.length - 1].b], curves: sides.map((s) => s.curve) };
+  });
+  // each side as points and curves: a bezier refitted in pieces, straight on where it was run on past its ends
+  const pts: UV[] = [];
+  const curves: (Curve | null)[] = [];
+  for (const s of sides) {
+    const start = s.f(s.t0);
+    if (s.toA) (pts.push(s.toA), curves.push(null));
+    if (s.kind === 'line') (pts.push(start), curves.push(null));
+    else if (s.kind === 'arc') (pts.push(start), curves.push({ mid: s.f((s.t0 + s.t1) / 2) }));
+    else {
+      const [lo, hi] = [Math.max(0, s.t0), Math.min(1, s.t1)];
+      if (s.t0 < 0) (pts.push(start), curves.push(null));
+      const fit = offsetBezier(s.base!, left, lo, hi, tol);
+      fit.curves.forEach((c, k) => (pts.push(fit.pts[k]), curves.push(c)));
+      if (s.t1 > 1) (pts.push(s.f(1)), curves.push(null));
+    }
+    if (s.toB) (pts.push(s.f(s.t1)), curves.push(null));
+  }
+  if (!closed) pts.push(sides[sides.length - 1].f(sides[sides.length - 1].t1));
+  return { pts, curves };
+}
+
+/** A bezier's direction (not unit length) at `t`. */
+const bezDir = ({ a, c1, c2, b }: { a: UV; c1: UV; c2: UV; b: UV }, t: number): UV => {
+  const d = [0, 1].map((k) => 3 * ((1 - t) ** 2 * (c1[k] - a[k]) + 2 * (1 - t) * t * (c2[k] - c1[k]) + t ** 2 * (b[k] - c2[k]))) as UV;
+  // a handle on its end: the direction from the chord's side
+  return Math.hypot(...d) > 1e-12 ? d : [b[0] - a[0], b[1] - a[1]];
+};
+
+/**
+ * A bezier's offset `left` mm to its left, `t0`..`t1` of it, as beziers within `tol` mm: each piece from the offset's
+ * points and directions at its ends, its handles sized so it passes through the offset's middle; halved until it fits.
+ */
+export function offsetBezier(base: { a: UV; c1: UV; c2: UV; b: UV }, left: number, t0 = 0, t1 = 1, tol = 1e-3, depth = 12): { pts: UV[]; curves: Curve[] } {
+  const hat = ([x, y]: UV): UV => [x / (Math.hypot(x, y) || 1), y / (Math.hypot(x, y) || 1)];
+  const at = (t: number): UV => {
+    const [q, d] = [bez(base.a, base.c1, base.c2, base.b, t), hat(bezDir(base, t))];
+    return [q[0] - d[1] * left, q[1] + d[0] * left];
+  };
+  const piece = (u: number, w: number, deep: number): { pts: UV[]; curves: Curve[] } => {
+    const [p0, p3, d0, d3, m] = [at(u), at(w), hat(bezDir(base, u)), hat(bezDir(base, w)), at((u + w) / 2)];
+    // C(½) = ½(p0 + p3) + ⅜(α d0 − β d3) = m
+    const rhs: UV = [(m[0] - (p0[0] + p3[0]) / 2) / 0.375, (m[1] - (p0[1] + p3[1]) / 2) / 0.375];
+    const det = -d0[0] * d3[1] + d0[1] * d3[0];
+    const chord = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]) / 3;
+    let [al, be] = [chord, chord];
+    if (Math.abs(det) > 1e-9) [al, be] = [(-rhs[0] * d3[1] + rhs[1] * d3[0]) / det, (d0[0] * rhs[1] - d0[1] * rhs[0]) / det];
+    if (!(al > 0 && be > 0)) [al, be] = [chord, chord];
+    const c: Curve = { c1: [p0[0] + d0[0] * al, p0[1] + d0[1] * al], c2: [p3[0] - d3[0] * be, p3[1] - d3[1] * be] };
+    const fits = Array.from({ length: 15 }, (_, k) => at(u + ((w - u) * (k + 1)) / 16)).every((q) => {
+      const near = nearestOnSide(p0, c, p3, q);
+      return Math.hypot(q[0] - near[0], q[1] - near[1]) <= tol;
+    });
+    if (fits || !deep) return { pts: [p0, p3], curves: [c] };
+    const mid = (u + w) / 2;
+    const [x, y] = [piece(u, mid, deep - 1), piece(mid, w, deep - 1)];
+    return { pts: [...x.pts, ...y.pts.slice(1)], curves: [...x.curves, ...y.curves] };
+  };
+  return piece(t0, t1, depth);
 }
 
 /** A split line moved `by` mm to its left as the cut takes it: arcs stay arcs (`offsetPath`), straight lines mitred (`beside`). */

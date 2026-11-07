@@ -356,3 +356,38 @@ describe('biarcs', () => {
   });
 });
 
+describe('offsets of beziers', () => {
+  const [a, c1, c2, b]: UV[] = [[0, 0], [10, 30], [40, -20], [50, 10]];
+  const at = (t: number): UV => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c1[k] + 3 * (1 - t) * t ** 2 * c2[k] + t ** 3 * b[k]) as UV;
+  const dir = (t: number): UV => [0, 1].map((k) => 3 * (1 - t) ** 2 * (c1[k] - a[k]) + 6 * (1 - t) * t * (c2[k] - c1[k]) + 3 * t ** 2 * (b[k] - c2[k])) as UV;
+  /** The true offset's point at t: d mm to the left. */
+  const offAt = (t: number, d: number): UV => {
+    const [q, v] = [at(t), dir(t)];
+    const l = Math.hypot(...v);
+    return [q[0] - (v[1] / l) * d, q[1] + (v[0] / l) * d];
+  };
+
+  it('every point of the true offset lies within 1 µm of the offset line, both ways', () => {
+    for (const d of [2, -2, 5]) {
+      const out = offsetPath({ kind: 'line', pts: [a, b], curves: [{ c1, c2 }] }, d);
+      const line = { kind: 'line' as const, ...out };
+      for (let i = 0; i <= 400; i++) expect(edgeDistance(line, ...offAt(i / 400, d)), `d ${d}`).toBeLessThan(1e-3);
+      // and the offset line lies on the true offset: its pieces' points are d from the bezier
+      for (const g of segments(line)) for (const q of segPoints(g, 1e-4)) expect(Math.abs(edgeDistance({ kind: 'line', pts: [a, b], curves: [{ c1, c2 }] }, ...q) - Math.abs(d))).toBeLessThan(1e-3);
+    }
+  });
+
+  it('a corner that opens takes a mitre on the end tangents; one that closes, the offsets crossing', () => {
+    // a bezier then a straight line on, turned left at the joint: offset to the right (-) opens, to the left (+) closes
+    const shape = { kind: 'line' as const, pts: [a, b, [50, 40]] as UV[], curves: [{ c1, c2 }, null] };
+    for (const d of [-3, 3]) {
+      const out = { kind: 'line' as const, ...offsetPath(shape, d) };
+      // the end is d from the straight line and the start d from the bezier's
+      const last = out.pts.at(-1)!;
+      expect(Math.abs(last[0] - 50)).toBeCloseTo(Math.abs(d), 9);
+      // all of it d from the shape (a mitre's tip is farther: that one only where it opens)
+      for (const g of segments(out)) for (const q of segPoints(g, 1e-4)) expect(edgeDistance(shape, ...q)).toBeGreaterThan(Math.abs(d) - 1e-3);
+    }
+  });
+});
+
