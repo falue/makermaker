@@ -33,6 +33,7 @@ import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, versionDate, type Version } from './io/design';
 import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
 import type { MeasureAsk, SolidMeasure } from './kernel/measure';
+import type { Exact } from './kernel/exact';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
 import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
@@ -3143,8 +3144,24 @@ function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
   ticks();
 }
 
-/** Bulges a face or sketch shapes (see `bulgeTool`): a new bulge, its peak 10 mm out (a round face: half its radius), then its panel. */
+/** The bulge that made `face` (a free-form face of a body with bulges: the nearest of them), else null. */
+function bulgeAt(face: FaceItem) {
+  if ((face.mesh.userData.exact as Exact | null | undefined)?.faces[face.index]?.kind !== 'free') return null;
+  const doc = history.current;
+  const steps = doc.bodies[stepsOf(doc, face.body)];
+  const p = new Vector3(...unplaced(bodyPlace(face.body), face.point.toArray()));
+  const away = (f: BulgeFeature) => (f.on.kind === 'sketch' ? 0 : p.distanceTo(new Vector3(...(f.on.kind === 'face' ? f.on.mid : f.on.at))));
+  const bulges = steps.features.filter((f): f is BulgeFeature => f.type === 'bulge').sort((a, b) => away(a) - away(b));
+  return bulges.length ? { body: steps.id, feature: bulges[0].id } : null;
+}
+
+/**
+ * Bulges a face or sketch shapes (see `bulgeTool`): a new bulge, its peak 10 mm out (a round face: half its radius),
+ * then its panel; a bulge's own face opens that bulge's panel.
+ */
 function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
+  const made = 'sketch' in on ? null : bulgeAt(on);
+  if (made) return bulgePanel(made.body, made.feature);
   const doc = history.current;
   const base = { id: newId(), type: 'bulge' as const, fullness: ex('1') };
   const peak = (v: Vector3 | number[]) => (Array.isArray(v) ? v : v.toArray()).map((x) => len(x)) as BulgeFeature['peak'];
