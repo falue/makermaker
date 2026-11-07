@@ -4844,7 +4844,11 @@ export class Viewer implements ToolView {
       if (t < 1) {
         this.controls.dispatchEvent({ type: 'change' }); // renders, tools follow
         requestAnimationFrame(animate);
-      } else this.controls.update();
+      } else {
+        this.controls.update();
+        // the cube bounces as it settles (CSS `scale` stacks on its transform)
+        this.cube.animate({ scale: [1, 1.12, 0.95, 1.03, 1] }, { duration: 400, easing: 'ease-out' });
+      }
     };
     requestAnimationFrame(animate);
   }
