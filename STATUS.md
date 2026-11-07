@@ -23,6 +23,74 @@ Chromium-based browsers only.
 - `src/io` – `.mmk` design file (ZIP: `document.json`, `history/`, and `blobs/`: long texts such as imported files and pictures, each stored once), file access
 - `public/sw.js` – offline cache
 
+## PARAMOUNT, solve ASAP: everything from real geometry
+
+Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features, and so are measuring and clash. What is not: what reaches it from the sketch (areas), what the view reads from its own triangles (0.05 mm by default, Settings → mesh detail 0.02–0.12, Float32) and then stores, a few kernel features, and the file formats with curves. Seen by the user: drawing on a cube's edge and zooming right in, shapes overlap it (a display offset, see Display).
+
+**Rule.** Whatever is stored (sketch points, picked edges, planes, axes) and every value shown without `~` comes from the exact geometry. Hover may read triangles only where it gives the same answer as the click. The screen still draws triangles; that is fine.
+
+**Why not ask the solid everywhere.** It lives in the worker: every question is a round trip (`truePoint` waits up to 1.5 s), the worker is busy rebuilding while a drag runs, exact queries (`BRepExtrema`, `BRepGProp`) are far slower than a ray on the triangles, and hover must answer within the frame (50–60 fps goal). Mesh bodies (STL, OBJ, 3MF, GLB, SKP), section and crossing lines and a failed build have no solid at all.
+
+**Plan, in order.**
+1. Fix the bugs found on the way (A); they are not approximations.
+2. Exact data with each build: the worker sends, with each body's mesh, its edges as line / circle / arc / ellipse / spline (centre, axis, radius, ends), each face as plane / cylinder / cone / sphere / free (its parameters), keyed by the mesh's face and edge groups, plus volume, area and box. Snaps, centres, axes, face planes, face size, the Info panel, align and box joint read these on the main thread, at once and exact; only free-form faces still need `truePoint` at the click.
+3. Store picked edges, faces and planes from that data, not from the mesh (B).
+4. Sketch areas found on the true curves (C).
+5. Curves through import and export (E); the kernel features (D).
+6. Display: depth offsets in pixels, not mm (F).
+
+**A. Bugs found by the survey (not approximations)**
+- Face normals turned into the world twice on a turned body: `intersect` (src/viewer/viewer.ts:2910) already gives world normals, `faceItem` (:1099), `edgeLoop` (:3225), `pickFaceAt` (:3563) and `planeUnder` (src/viewer/sketch.ts:620) turn them again; `pickedFaceItems` (:1147) once. Wrong direction for push, draft, bulge, work plane on a face, laser face, extrude on a rotated body or group.
+- Bulge on a round face, its panel middle: `unplaced(pl, on.dir, true)` where `inWorld(pl, on.dir, true)` is meant (src/main.ts:3093).
+- Faces found again in the kernel by a point at replicad's default 1e-6 mm (`FaceFinder.containsPoint`), the point a Float32 triangle hit: push (src/kernel/build.ts:771), draft (:788), bulge (:827), shell open faces (:558), laser face (src/kernel/laser.ts:53). Far from the origin "its face is gone", shell faces silently not opened, laser silently on the biggest face. Coat uses 1e-3 (:604).
+
+**B. Stored or used as results, from triangles**
+- Fillet / chamfer edges stored as mesh polylines (src/main.ts:342), matched in the kernel within 0.05 mm (src/kernel/build.ts:1079, 1148): a round edge's middle is up to the mesh detail off its chord; at detail ≥ 0.05 a fillet can lose its edge.
+- `faceAt` (src/doc/pull.ts:23) eps 0.05 fixed: a click mid-facet on a cylinder at detail 0.12 finds no side (no sketch on it, a push instead of a resize); `rate` scales by the float dot product, not its sign (:41).
+- Round faces (`roundOfFace`, src/viewer/viewer.ts:3501): axis from two vertex normals, circle through 3 Float32 vertices, length from vertices; feeds thread, bulge round, push refusal. Spanning < 5.7°: not round; > 0.8°: not flat; between: neither. `circleOf` (src/main.ts:2728, tol max(0.1, 2% r)) can take the wrong circle. Alt-picked: the thread starts at an arbitrary end.
+- Axis picks on a round edge (`axisAt`, src/viewer/viewer.ts:1650): a circle fitted to segment starts and middles (middles one sagitta inside), tolerance 0.05: centre and Ø biased, and from about Ø 20 (detail 0.05) the fit fails and a straight edge is taken. Stored in joint axes, pattern around, revolve, rotate pivot, work plane and section axis, cut turn, draft hinge.
+- Round-edge centre snaps (`edgeCentres`, :3052): the same fit, yet shown without `~` and used as exact by T, point-to-point, attach anchor, joint, work plane points (`truePoint` returns `about: false` for centres, :1592).
+- Flat face plane: from one triangle normal and the hit point when the face is no extrusion end or side (`placeOn`, src/main.ts:200); flat means vertex normals within 0.8° (viewer.ts:854).
+- Work plane on a face: origin from triangle centroids (`faceCentre`), x and hull from the mesh's smallest rectangle over its first 600 indices (`faceSize`, viewer.ts:1806); on a curved face: the hit triangle's plane. Draft hinge, bulge middle and half-size the same way.
+- Cut, mirror, custom section from a face: the hit point and triangle normal (src/main.ts:1761, 2692, 5965); shell open faces and coat exclude too (:3170, 3524).
+- Sketch on a section face: 1e-3 mm inside, the slider in steps of 1/1000 of the mesh bounds (viewer.ts:1443, 3730; src/ui/sections.ts:28).
+- Mesh bounding box (`viewer.measure`, viewer.ts:3284): curved extremes short by up to a sagitta. Used by align (src/main.ts:4514), move to object (:1416, 1534), shell wall T (:1520), joint T and rest (:4686, 4788), box joint touch test and finger count (:3627, 3659), pattern box (:2486), and `cad.measure` whenever the kernel returns null, silently (:7631).
+- Measure into a field: a rejected kernel length silently hands over the segment sum (src/main.ts:3904); face length falls back to the mesh without `~` (:3921); face L/B orientation from mesh edges (:3820).
+- Sketch snaps on body edges: a curved one put on the circle through 3 mesh vertices (src/viewer/sketch.ts:1132–1143), wrong for ellipses and splines; a curved edge's top from its extreme vertex (`roundSeg`, :1024); stored as sketch points.
+- Extrude area pick on area triangles at 0.05 (src/viewer/extrude.ts:432, build.ts:350): within 0.05 of an arc a click takes the neighbour or nothing.
+
+**C. Sketch**
+- Areas closed by lines (src/doc/arrangement.ts): circles 180 pieces (`pathOf`, :219), curved sides 32 (`sidePoints`, src/doc/profiles.ts:24; R50 half circle: 0.06 mm); crossings on the chords (:87): a tangent line or one ending just past a curve finds none and its area goes missing; arcs redrawn through 3 points from chord corners (:29), beziers likewise distorted; line ends attach only within 1% of a piece (`withEnds`, :182), which a half circle's 32 pieces already exceed; picked areas joined as solids, maybe with a seam along a shared arc (build.ts:275).
+- Corner radii ignored wherever areas are found: `flattened` gives sharp corners (profiles.ts:99); a rounded rect touched by a line gets sharp areas and a sharp body. Shapes taken into the arrangement by overlapping boxes, touching or not (arrangement.ts:252), lose radii and exact areas.
+- How many bodies a pull makes (`pieces`, arrangement.ts:269): circles as 72-gons, radii ignored, inside tested by one point.
+- `area()` (profiles.ts:272): a rect is w·h whatever its R, polygons ignore R, curves by 32 pieces; shown in the Info panel without `~` (src/main.ts:1199), used by `nesting` and picking. `nesting` (:315) tests `centre()`, the corners' average, which can lie outside (a half disc's lies on its edge).
+- `inside`, `edgeDistance`, `bounds` (profiles.ts:236, 287) and `box` (src/viewer/shapes.ts:24) on flattened, sharp-cornered outlines: picking in a rounded-off corner, align and typed sizes off by up to a sagitta (120° arc R50: 0.027 mm).
+- Snapping: circles as 96 pieces (sketch.ts:2155), rounded corners 8 pieces and snapped on the chord (`onTrueLine`, :1139; R100: 0.5 mm); a curved polygon with corner R treats its curves as chords (:2162); crossings found on chords and refined by 12 alternating projections, slow at shallow angles (:1090, 1271); points along a curve spaced by chord, shown lengths sums of chords (:2116; R50 half circle 157.054 vs 157.080); half along a curved side dragged on the chord (viewer.ts:4534).
+- Offsets: miter clamped at 0.2 in `grown` / `beside` (profiles.ts:350, 460): corners under ~23° under-offset (Offset tool, split, kerf); bezier offset by its legs; an arc offset past its radius clamped to 0.01 (:396); an offset curved split line becomes a 32-piece polyline (build.ts:1058).
+- Tangents found by 96 brackets (shapes.ts:478): two within one bracket missed. "Smooth" means within ~0.5° (shapes.ts:146, build.ts:385).
+- Stored points rounded to 4 decimals of the document unit (src/main.ts:5480): 5e-5 mm in mm, 0.05 mm in m; a point snapped onto a curve is stored off it; in in / ft / m a line end can miss `withEnds`' 1e-3 and its area does not close.
+
+**D. Kernel features (src/kernel/build.ts)**
+- Thread: flat triangles, 36 steps per turn (:640): sag ≈ 0.0038·R, thousands of faces, heavy STEP and booleans.
+- Bulge on a flat face (:854): rim as ~2 mm polygon, 60-cell height field, `MakeFilling` least squares; accepted within ±20% of the height (:975); on failure the peak silently moves to the middle (:916).
+- Bulge on a round face: 41 samples fitted by a B-spline (:998), the peak rounded off.
+- Cut moving along a joint, and joint clash (:427): curved faces stamped every 3° / 1 mm, at most 60: ridges (hinge R100 with r 5: ~0.7 mm); clash's first contact snapped to those steps (src/main.ts:3222).
+- Coat with excluded faces: the slab sized from 5 samples per edge (:613): a lip on large arcs.
+- Measure: a curve's middle is the point nearest the mesh guess, not half its length (src/kernel/measure.ts:123).
+
+**E. Import and export**
+- SVG / DXF import (src/io/vector.ts): every curve but a full circle sampled every 0.5 mm (`sample`, :15): extruded holes and slots become dozens of flat faces; profiles could carry arcs and cubics (quadratics raise exactly). SVG rect rx/ry dropped (:188); DXF fit-point splines straight, NURBS weights ignored (:312); pieces chain only within 1e-4 (:22), so other CAD's DXF arrives open.
+- Laser export (src/kernel/laser.ts): every curve sampled every 0.5 mm (:19), only all-circle loops become circles (:68): no arcs in SVG or DXF; kerf on the polyline with the 0.2 miter clamp (:77); finishes left out (:49).
+- Print check: closed and manifold counted on the print mesh (src/kernel/worker.ts:57, 148), not the solid; mesh bodies left out of export, print and clash without a message (src/main.ts:572).
+- GLB and SketchUp import weld vertices at 1e-4 in metres, i.e. 0.1 mm (src/io/mesh.ts:58, 206).
+- Unavoidable: STL / 3MF are meshes (0.01 mm), imported meshes have no solid, STEP faceted bodies stay faceted. STEP import and export are exact otherwise, but export carries D.
+
+**F. Display only**
+- Sketches drawn shifted towards the viewer by fixed mm: outlines 0.05 (viewer.ts:1292), area fills 0.08 (extrude.ts:358), section lines 0.02 (:3794): at close zoom they stand off the face and seem to overlap edges. Body materials use `polygonOffset` 1/1 (:2153). Better: offsets in pixels (depth offset or scaled by zoom).
+- Circles drawn as 96 pieces whatever their size (sketch.ts:2155, 2191): Ø 1000 misses the body edge by ~1 mm.
+- Camera near 1 / far 50000 (viewer.ts:431); the section cap plane 1e4 mm (:3702); clash meshes at a fixed 0.05 (src/kernel/clash.ts:44); crossing snaps skipped above 300k triangles (viewer.ts:2952).
+- Tolerances fixed at 0.05 / 0.02 mm that do not follow Settings → mesh detail fail at 0.12: `faceAt`, `axisAt`, edge matching, `edgeLoop` (viewer.ts:3207).
+
 ## Status
 
 - Bodies are recipes of extrude steps: each has a sketch plane (ground / front / right plane with offset, or the top face of an earlier step), one or more profiles (rectangle with corner radius, circle, regular polygon, polygon) or picked areas, a depth, how far it also reaches behind its plane (back) and add / cut (cut: blind or through). Features run in order, except fillets/chamfers: unbaked they run last, so they also round or chamfer edges of later cuts (their edges draw light grey). Bake (button on the card) keeps one where it is: later cuts go through it (hatched card, dark edges). Click a fillet/chamfer face to pick that part (double-click: the whole finish); Del leaves that edge out (Restore on the card brings it back) or deletes the whole finish.
@@ -191,7 +259,7 @@ What a basic, fully working CAD tool still needs, most important first (revolve,
 6. **Any body as a cutter** in the Cut tool (now: planes, sketch lines and shapes, balls, cylinders).
 
 ## Planned, not built yet
-- **Paramount, soon: everything from real geometry.** As much as possible should come from the exact curves and the kernel's results, not from polygons flattened from curves or arcs rebuilt through three points (sketch areas closed by lines do both today: see looseEnds.md, Curves). To start with a survey of where approximations are used (areas, snapping, measuring, exports) and a plan.
+- **Everything from real geometry**: PARAMOUNT, ASAP; the survey and plan are at the top of this file.
 - **Custom origin picker**, for later if needed: a 3D picker (corner, plane or point, moved and turned like an object) for groups and objects, turned with the group, moved by joints. To check first: whether drawing on moved joint parts or rotated groups already gets what it would give.
 - **Cross browser**: usable in Firefox and Safari too, with the drawbacks being file handling (no saving in place, no script folder: downloads and uploads instead).
 - **Drawings**: sheets with live views at several scales, title block, multipage, vector PDF and SVG. The plan: DRAWINGS.md.

@@ -2,6 +2,9 @@
 
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
+## Real geometry
+- All approximations found on 2026-11-07, and the plan: STATUS.md, "PARAMOUNT, solve ASAP" at its top. Three plain bugs found there, to fix first: face normals turned twice on turned bodies (`faceItem` and others), the round bulge's panel middle (`unplaced` for `inWorld`), faces found again in the kernel at 1e-6 mm from a Float32 hit.
+
 ## Lines and polygons
 - What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.
 - A typed sweep angle of an arc is used once (its diameter stays). `cad.line` and `cad.polygon` take plain points, no side formulas.
