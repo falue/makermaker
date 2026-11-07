@@ -75,4 +75,14 @@ describe('curves kept', () => {
     expect(line.kind === 'line' && line.pts).toEqual([[0, 0], [20, 5], [40, 0]]);
     expect(line.kind === 'line' && line.curves).toEqual([{ c1: [10, 20], c2: [15, 5] }, { c1: [25, 5], c2: [30, 20] }]);
   });
+
+  it('a weighted (rational) DXF spline, a quarter circle, arrives as true arcs on that circle', () => {
+    const w = Math.SQRT1_2;
+    const dxf = [0, 'SECTION', 2, 'ENTITIES', 0, 'SPLINE', 71, 2, ...[0, 0, 0, 1, 1, 1].flatMap((k) => [40, k]), ...[1, w, 1].flatMap((k) => [41, k]), ...[[10, 0], [10, 10], [0, 10]].flatMap(([x, y]) => [10, x, 20, y]), 0, 'ENDSEC', 0, 'EOF'].join('\n');
+    const [line] = dxfShapes(dxf);
+    expect(line.kind === 'line' && line.curves?.every((c) => c && 'mid' in c)).toBe(true);
+    const pts = line.kind === 'line' ? [...line.pts, ...line.curves!.map((c) => (c as { mid: [number, number] }).mid)] : [];
+    for (const q of pts) expect(Math.hypot(...q)).toBeCloseTo(10, 6);
+  });
 });
+

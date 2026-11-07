@@ -1,3 +1,4 @@
+import { biarcs } from '../doc/profiles';
 import type { Curve } from '../doc/types';
 
 /**
@@ -18,12 +19,6 @@ const apply = (m: M, [x, y]: P): P => [m[0] * x + m[2] * y + m[4], m[1] * x + m[
 /** Whether the transform keeps circles round (turns, mirrors, even scales). */
 const similar = (m: M) => Math.abs(Math.hypot(m[0], m[1]) - Math.hypot(m[2], m[3])) < 1e-9 * Math.max(1, Math.hypot(m[0], m[1])) && Math.abs(m[0] * m[2] + m[1] * m[3]) < 1e-9 * Math.max(1, m[0] * m[0] + m[1] * m[1]);
 const dist = (a: P, b: P) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-
-/** Points along a curve `at(t)` (t 0 to 1): about one per `step` mm, at least `min` (rational splines only). */
-function sample(at: (t: number) => P, length: number, step = 0.5, min = 8): P[] {
-  const n = Math.max(min, Math.ceil(length / step));
-  return Array.from({ length: n + 1 }, (_, i) => at(i / n));
-}
 
 /**
  * An elliptic arc (centre `c`, radii, turned `phi`, from angle `t0` by `dt`) as sides to append, through `m`: true arcs
@@ -338,7 +333,7 @@ export function dxfShapes(text: string): Shape2[] {
       const ctrl = all(10).map((x, i): P => s([x, all(20)[i]]));
       const [degree, knots, weights] = [v(71) || 3, all(40), all(41)];
       const rational = weights.length === ctrl.length && weights.some((w) => Math.abs(w - 1) > 1e-12);
-      if (ctrl.length > degree && knots.length === ctrl.length + degree + 1) pieces.push(rational || degree > 3 ? straight(nurbsPoints(ctrl, weights, degree, knots)) : bezierPieces(ctrl, degree, knots));
+      if (ctrl.length > degree && knots.length === ctrl.length + degree + 1) pieces.push(rational || degree > 3 ? nurbsArcs(ctrl, weights, degree, knots) : bezierPieces(ctrl, degree, knots));
       else if (fit.length > 1) pieces.push(throughPoints(fit));
     }
   }
@@ -373,12 +368,12 @@ function bezierPieces(ctrl: P[], degree: number, knots: number[]): Piece {
   return out;
 }
 
-/** A rational or higher-degree B-spline as points (de Boor on homogeneous points, weights 1 where none). */
-function nurbsPoints(ctrl: P[], weights: number[], degree: number, knots: number[]): P[] {
+/** A rational or higher-degree B-spline as arcs within 1 µm (`biarcs`; de Boor on homogeneous points, weights 1 where none). */
+function nurbsArcs(ctrl: P[], weights: number[], degree: number, knots: number[]): Piece {
   const [lo, hi] = [knots[degree], knots[ctrl.length]];
   const w = ctrl.map((_, i) => weights[i] ?? 1);
   const at = (t: number): P => {
-    const u = lo + (hi - lo) * Math.min(t, 1 - 1e-12);
+    const u = lo + (hi - lo) * Math.max(0, Math.min(t, 1 - 1e-12));
     let span = degree;
     while (span < ctrl.length - 1 && knots[span + 1] <= u) span++;
     const d = ctrl.slice(span - degree, span + 1).map((p, j) => [p[0] * w[span - degree + j], p[1] * w[span - degree + j], w[span - degree + j]]);
@@ -390,8 +385,14 @@ function nurbsPoints(ctrl: P[], weights: number[], degree: number, knots: number
       }
     return [d[degree][0] / d[degree][2], d[degree][1] / d[degree][2]];
   };
-  const rough = ctrl.slice(1).reduce((n, p, i) => n + dist(p, ctrl[i]), 0);
-  return [...sample(at, rough).slice(0, -1), at(1)];
+  // its direction: from points a hair either side (one-sided at its ends)
+  const h = 1e-7;
+  const dir = (t: number): P => {
+    const [a, b] = [at(Math.max(0, t - h)), at(Math.min(1, t + h))];
+    return [b[0] - a[0], b[1] - a[1]];
+  };
+  const fit = biarcs(at, dir, 1e-3);
+  return { pts: fit.pts, curves: fit.curves };
 }
 
 /** A smooth curve through points (a spline given by fit points only): cubics with Catmull–Rom tangents. */
