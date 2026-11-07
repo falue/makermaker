@@ -3172,8 +3172,7 @@ function bulgeOn(on: FaceItem | { sketch: string; shapes: string[] }) {
     if (!s || !shapes.length) return fail('Bulge needs closed sketch shapes');
     const feature: BulgeFeature = { ...base, on: { kind: 'sketch', sketch: s.id, shapes: shapes.map((q) => q.id) }, peak: peak(new Vector3(...s.frame.n).multiplyScalar(10)) };
     const sk = doc.sketches.find((k) => k.id === s.id)!;
-    const body = newBody(doc.bodies.length, [feature], sk.plane.kind === 'base' ? sk.group : null);
-    body.name = `Bulge ${doc.bodies.filter((b) => b.features.some((x) => x.type === 'bulge')).length + 1}`;
+    const body = newBody(doc.bodies.length, [feature], sk.plane.kind === 'base' ? sk.group : null, 'Bulge');
     i = doc.bodies.length;
     [selected, shapeSel] = [[body.id], []];
     commit({ ...doc, bodies: [...doc.bodies, body] });
@@ -4383,7 +4382,7 @@ function sweepTool() {
   pick('Sweep: click the path · the line or shape outline it runs along · [Esc] cancels', (path) =>
     pick('Sweep: click the profile · the outline of a closed shape to sweep along the path · [Esc] cancels', (profile) => {
       const doc = history.current;
-      const body = newBody(doc.bodies.length, [{ id: newId(), type: 'sweep', profile, path }]);
+      const body = newBody(doc.bodies.length, [{ id: newId(), type: 'sweep', profile, path }], null, 'Sweep');
       [selected, shapeSel] = [[body.id], []];
       commit({ ...doc, bodies: [...doc.bodies, body] });
     }),
@@ -4403,7 +4402,7 @@ function loftTool() {
     const doc = history.current;
     const feature: Feature = { id: newId(), type: 'loft', sections: [...picked], ruled: false };
     if (!body) {
-      const made = newBody(doc.bodies.length, [feature]);
+      const made = newBody(doc.bodies.length, [feature], null, 'Loft');
       [body, selected, shapeSel] = [made.id, [made.id], []];
       history.push({ ...doc, bodies: [...doc.bodies, made] });
     } else history.replace({ ...doc, bodies: doc.bodies.map((b) => (b.id === body ? { ...b, features: [feature] } : b)) });
@@ -5703,8 +5702,8 @@ function toggleConstruction() {
 }
 
 /** The `count`-th body at the origin (of `group`), with a colour from a small palette. */
-function newBody(count: number, features: Feature[], group: string | null = null, palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f']): Body {
-  return { id: newId(), name: `Body ${count + 1}`, group, rotation: unturned(), color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features, link: null };
+function newBody(count: number, features: Feature[], group: string | null = null, kind = 'Body', palette = ['#d8c3a0', '#a9c4d8', '#b8cfa1', '#d9a98f', '#c7b3dc', '#e3d48f']): Body {
+  return { id: newId(), name: `${kind} ${count + 1}`, group, rotation: unturned(), color: palette[count % palette.length], visible: true, position: [len(0), len(0), len(0)], features, link: null };
 }
 
 /** A new, empty sketch at a picked target (the `count`-th sketch). */
@@ -5717,7 +5716,7 @@ function sketchAt(t: Target, count: number): Sketch {
 function addSphere({ center, d, typed }: NonNullable<SketchResult['sphere']>) {
   const doc = history.current;
   const sphere: Feature = { id: newId(), type: 'sphere', x: len(center[0]), y: len(center[1]), z: len(center[2]), d: len(d, typed) };
-  const body = newBody(doc.bodies.length, [sphere]);
+  const body = newBody(doc.bodies.length, [sphere], null, 'Ball');
   [selected, shapeSel] = [[body.id], []];
   commit({ ...doc, bodies: [...doc.bodies, body] });
 }

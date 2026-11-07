@@ -74,11 +74,11 @@ const sketchOf = (doc: Doc, id: unknown) => {
 };
 const withBody = (doc: Doc, i: number, b: Body): Doc => ({ ...doc, bodies: doc.bodies.map((x, k) => (k === i ? b : x)) });
 
-/** A new body from `features`, at `at` (mm), named `name` (else "Body n"). */
-function addBody(doc: Doc, features: Feature[], at: unknown, name: unknown): Result {
+/** A new body from `features`, at `at` (mm), named `name` (else "`kind` n", n counting all bodies). */
+function addBody(doc: Doc, features: Feature[], at: unknown, name: unknown, kind = 'Body'): Result {
   const n = doc.bodies.length;
   const [x, y, z] = xyz(at);
-  const body: Body = { id: newId(), name: typeof name === 'string' ? name : `Body ${n + 1}`, group: null, rotation: unturned(), color: palette[n % palette.length], visible: true, position: [len(x), len(y), len(z)], features, link: null };
+  const body: Body = { id: newId(), name: typeof name === 'string' ? name : `${kind} ${n + 1}`, group: null, rotation: unturned(), color: palette[n % palette.length], visible: true, position: [len(x), len(y), len(z)], features, link: null };
   return { doc: { ...doc, bodies: [...doc.bodies, body] }, result: body.id };
 }
 
@@ -133,7 +133,7 @@ export const COMMANDS: Record<string, Command> = {
   sphere: {
     doc: 'A new ball body centred on its origin.',
     params: [{ name: 'diameter', type: 'number', doc: 'mm' }, at3, named],
-    run: (doc, a) => addBody(doc, [{ id: newId(), type: 'sphere', x: ex(0), y: ex(0), z: ex(0), d: len(a.diameter) }], a.at, a.name),
+    run: (doc, a) => addBody(doc, [{ id: newId(), type: 'sphere', x: ex(0), y: ex(0), z: ex(0), d: len(a.diameter) }], a.at, a.name, 'Ball'),
   },
   sketch: {
     doc: 'A new, empty sketch on a base plane (xy: the ground, xz: the front, yz: the side), moved `offset` along its normal.',
