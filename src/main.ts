@@ -3803,7 +3803,8 @@ function boxJoint() {
 /** Box joint between bodies `a` and `b`: the number of fingers to start with, or why they cannot have one. */
 function fingerPair(a: string, b: string): number | string {
   const doc = history.current;
-  const [boxA, boxB] = [viewer.measure(a)?.box, viewer.measure(b)?.box];
+  // in the first one's coordinates, as the kernel cuts them: plates turned together (a slant) measure true
+  const [boxA, boxB] = [viewer.boxIn(a, a), viewer.boxIn(b, a)];
   if (!boxA || !boxB) return 7;
   const meet = boxA.clone().intersect(boxB);
   const sides: number[] = meet.isEmpty() ? [] : meet.getSize(new Vector3()).toArray();

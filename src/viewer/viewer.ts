@@ -3712,6 +3712,18 @@ export class Viewer implements ToolView {
     return normals;
   }
 
+  /** Body `id`'s box in body `of`'s own coordinates (from its mesh points, tight however the two are turned); null: either not shown yet. */
+  boxIn(id: string, of: string) {
+    const [g, h] = [this.bodies.get(id), this.bodies.get(of)];
+    const mesh = g?.children[0] as THREE.Mesh | undefined;
+    if (!mesh?.geometry || !h) return null;
+    const m = h.matrix.clone().invert().multiply(g!.matrix);
+    const pos = mesh.geometry.attributes.position;
+    const [box, v] = [new THREE.Box3(), new THREE.Vector3()];
+    for (let i = 0; i < pos.count; i++) box.expandByPoint(v.fromBufferAttribute(pos, i).applyMatrix4(m));
+    return box;
+  }
+
   measure(id: string) {
     const g = this.bodies.get(id);
     const solid = g?.children[0] as THREE.Mesh | undefined;
