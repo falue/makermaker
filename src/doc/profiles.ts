@@ -380,6 +380,53 @@ const GAUSS = [0.0950125098, 0.2816035508, 0.4580167777, 0.6178762444, 0.7554044
   .map((x, i) => [x, [0.1894506105, 0.1826034150, 0.1691565194, 0.1495959888, 0.1246289713, 0.0951585117, 0.0622535239, 0.0271524594][i]])
   .flatMap(([x, w]) => [[x, w], [-x, w]]);
 
+/**
+ * A curve (`at`, `dir`: point and direction at t, 0..1) as arcs within `tol` mm: a biarc per piece (two arcs meeting
+ * tangent, tangent to the curve at both ends), pieces halved until it fits. The points from start to end and each
+ * side's arc (null: straight).
+ */
+export function biarcs(at: (t: number) => UV, dir: (t: number) => UV, tol = 1e-3, depth = 14): { pts: UV[]; curves: ({ mid: UV } | null)[] } {
+  const unit = ([x, y]: UV): UV => [x / (Math.hypot(x, y) || 1), y / (Math.hypot(x, y) || 1)];
+  const dot = (u: UV, v: UV) => u[0] * v[0] + u[1] * v[1];
+  /** The arc from `a` leaving along unit `t` to `b`: its middle (null: straight). */
+  const arcTo = (a: UV, t: UV, b: UV): { mid: UV } | null => {
+    const c: UV = [b[0] - a[0], b[1] - a[1]];
+    const l = Math.hypot(...c);
+    const turn = Math.atan2(t[0] * c[1] - t[1] * c[0], dot(t, c)); // from the tangent to the chord: half the arc's sweep
+    if (l < 1e-12 || Math.abs(turn) < 1e-9) return null;
+    const h = (Math.tan(turn / 2) * l) / 2; // the arc's height over its chord's middle
+    return { mid: [(a[0] + b[0]) / 2 + (c[1] / l) * h, (a[1] + b[1]) / 2 - (c[0] / l) * h] };
+  };
+  const piece = (t0: number, t1: number, left: number): { pts: UV[]; curves: ({ mid: UV } | null)[] } => {
+    const [p0, p1, d0, d1] = [at(t0), at(t1), unit(dir(t0)), unit(dir(t1))];
+    const v: UV = [p1[0] - p0[0], p1[1] - p0[1]];
+    const s: UV = [d0[0] + d1[0], d0[1] + d1[1]];
+    // the joint: both arms d long (|v − d s| = 2d)
+    const a = 2 * (1 - dot(d0, d1));
+    const d = a < 1e-12 ? dot(v, v) / (2 * dot(v, s) || 1) : (-dot(v, s) + Math.sqrt(dot(v, s) ** 2 + a * dot(v, v))) / a;
+    const j: UV = [(p0[0] + d * d0[0] + p1[0] - d * d1[0]) / 2, (p0[1] + d * d0[1] + p1[1] - d * d1[1]) / 2];
+    const jd = unit([p1[0] - d * d1[0] - p0[0] - d * d0[0], p1[1] - d * d1[1] - p0[1] - d * d0[1]]);
+    const out = { pts: [p0, j, p1], curves: [arcTo(p0, d0, j), arcTo(j, jd, p1)] };
+    // how far the curve strays from them (to the nearest point of either arc, its ends included)
+    const off = (q: UV, k: number) => {
+      const [x, y, c] = [out.pts[k], out.pts[k + 1], out.curves[k]];
+      if (c) {
+        const n = nearestOnSide(x, c, y, q);
+        return Math.hypot(q[0] - n[0], q[1] - n[1]);
+      }
+      const l2 = (y[0] - x[0]) ** 2 + (y[1] - x[1]) ** 2 || 1;
+      const t = Math.max(0, Math.min(1, ((q[0] - x[0]) * (y[0] - x[0]) + (q[1] - x[1]) * (y[1] - x[1])) / l2));
+      return Math.hypot(q[0] - x[0] - t * (y[0] - x[0]), q[1] - x[1] - t * (y[1] - x[1]));
+    };
+    const fits = Number.isFinite(d) && d > 0 && Array.from({ length: 31 }, (_, i) => at(t0 + ((t1 - t0) * (i + 1)) / 32)).every((q) => Math.min(off(q, 0), off(q, 1)) <= tol);
+    if (fits || !left) return out;
+    const m = (t0 + t1) / 2;
+    const [x, y] = [piece(t0, m, left - 1), piece(m, t1, left - 1)];
+    return { pts: [...x.pts, ...y.pts.slice(1)], curves: [...x.curves, ...y.curves] };
+  };
+  return piece(0, 1, depth);
+}
+
 /** Length of a line's or outline's sides. */
 export const outlineLength = (p: P) => segments(p).reduce((s, g) => s + segLength(g), 0);
 

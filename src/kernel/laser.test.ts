@@ -78,3 +78,19 @@ describe('loops', () => {
     expect(area(hole.pts)).toBeCloseTo(4 * 10, 3);
   });
 });
+
+describe('free-form edges as arcs', () => {
+  it('a bezier side cut as arcs within 1 µm: the area right, the DXF all bulges', () => {
+    const plate: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[0, 0], [40, 0]], curves: [null, { c1: [40, 30], c2: [0, 10] }], r: 0, rot: 0 }], depth: 3, mode: 'add', through: false }];
+    const [cut] = laserCuts(plate);
+    expect(cut.curves.filter(Boolean).length).toBeGreaterThan(2);
+    const exact = area({ kind: 'polygon', pts: [[0, 0], [40, 0]], curves: [null, { c1: [40, 30], c2: [0, 10] }], r: 0, rot: 0 });
+    expect(area({ kind: 'polygon', pts: cut.pts, curves: cut.curves, r: 0, rot: 0 })).toBeCloseTo(exact, 2);
+    const dxf = dxfOf([cut]);
+    expect(dxf.match(/VERTEX/g)!.length).toBe(cut.pts.length);
+    // a bezier written straight into the DXF also turns into arcs
+    const written = dxfOf([{ hole: false, pts: [[0, 0], [40, 0]], curves: [null, { c1: [40, -30], c2: [0, -10] }] }]);
+    expect(written.match(/\n42\n/g)!.length).toBeGreaterThan(2);
+  });
+});
+

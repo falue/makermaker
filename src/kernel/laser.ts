@@ -1,5 +1,5 @@
 import { drawRectangle, FaceFinder, measureArea, Plane, type Edge, type Face, type Shape3D, type Sketch, type Wire } from 'replicad';
-import { arcOf, bounds, offsetPath } from '../doc/profiles';
+import { arcOf, biarcs, bounds, offsetPath } from '../doc/profiles';
 import type { Curve } from '../doc/types';
 import { buildBody, type BuildFeature } from './build';
 
@@ -16,25 +16,32 @@ const unit = (a: V3): V3 => {
 /** One closed cut of a part: a loop of corners with its sides' curves (side i from corner i to i + 1; arcs exact), or a circle (kept as one); `hole`: inside the outline. */
 export type Cut = { hole: boolean; pts: P2[]; curves: (Curve | null)[]; circle?: { c: P2; r: number } };
 
-/** An edge as points and its sides' curves: straight by its ends, an arc by its ends and middle (a full circle in halves), else every `step` mm (at least 16 pieces). */
-function sidesOf(e: Edge, step = 0.5): { pts: V3[]; curves: ({ mid: V3 } | null)[] } {
-  const at = (t: number) => e.pointAt(t).toTuple() as V3;
+/**
+ * An edge flat (`flat`: onto the cut's plane) as points and its sides' arcs: straight by its ends, an arc by its ends
+ * and middle (a full circle in halves), anything else as arcs within `tol` mm (`biarcs`).
+ */
+function sidesOf(e: Edge, flat: (p: V3) => P2, tol = 1e-3): { pts: P2[]; curves: ({ mid: P2 } | null)[] } {
+  const at = (t: number) => flat(e.pointAt(t).toTuple() as V3);
   if (e.geomType === 'LINE') return { pts: [at(0), at(1)], curves: [null] };
-  if (e.geomType === 'CIRCLE') return Math.hypot(...sub(at(0), at(1))) < 1e-9 ? { pts: [at(0), at(0.5), at(1)], curves: [{ mid: at(0.25) }, { mid: at(0.75) }] } : { pts: [at(0), at(1)], curves: [{ mid: at(0.5) }] };
-  const n = Math.max(16, Math.ceil(e.length / step));
-  return { pts: Array.from({ length: n + 1 }, (_, i) => at(i / n)), curves: Array(n).fill(null) };
+  if (e.geomType === 'CIRCLE') return Math.hypot(at(0)[0] - at(1)[0], at(0)[1] - at(1)[1]) < 1e-9 ? { pts: [at(0), at(0.5), at(1)], curves: [{ mid: at(0.25) }, { mid: at(0.75) }] } : { pts: [at(0), at(1)], curves: [{ mid: at(0.5) }] };
+  const dir = (t: number): P2 => {
+    const [p, d] = [e.pointAt(t).toTuple() as V3, e.tangentAt(t).toTuple() as V3];
+    const [a, b] = [flat(p), flat([p[0] + d[0], p[1] + d[1], p[2] + d[2]])];
+    return [b[0] - a[0], b[1] - a[1]];
+  };
+  return biarcs(at, dir, tol);
 }
 
 /**
- * A wire's edges chained into one closed loop (the start not repeated). OpenCascade lists them in no set order or
- * direction: each next one is the edge with an end nearest the loop's end, turned to follow it.
+ * A wire's edges chained into one closed loop (the start not repeated), flat (see `sidesOf`). OpenCascade lists them
+ * in no set order or direction: each next one is the edge with an end nearest the loop's end, turned to follow it.
  */
-function loopOf(w: Wire): { pts: V3[]; curves: ({ mid: V3 } | null)[] } {
-  const left = w.edges.map((e) => sidesOf(e));
+function loopOf(w: Wire, flat: (p: V3) => P2): { pts: P2[]; curves: ({ mid: P2 } | null)[] } {
+  const left = w.edges.map((e) => sidesOf(e, flat));
   const out = left.shift()!;
   while (left.length) {
     const end = out.pts.at(-1)!;
-    const gap = (p: V3) => Math.hypot(...sub(p, end));
+    const gap = (p: P2) => Math.hypot(p[0] - end[0], p[1] - end[1]);
     let [best, flip, d] = [0, false, Infinity];
     left.forEach(({ pts }, i) => {
       for (const [p, f] of [[pts[0], false], [pts.at(-1)!, true]] as const) if (gap(p) < d) [best, flip, d] = [i, f, gap(p)];
@@ -86,9 +93,7 @@ export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): C
     // the outlines and each one's holes (both calls use up the face they are called on)
     return cut.flatMap((f) => [f.clone().outerWire(), ...f.clone().innerWires()].map((w, k): Cut => {
       const edges = w.edges;
-      const loop = loopOf(w);
-      const pts = loop.pts.map(flatten);
-      const curves = loop.curves.map((c) => c && { mid: flatten(c.mid) });
+      const { pts, curves } = loopOf(w, flatten);
       // all its edges arcs of one circle: one circle (OpenCascade may split it in two)
       const arc = edges.every((e) => e.geomType === 'CIRCLE') && curves[0] ? arcOf(pts[0], curves[0].mid, pts[1 % pts.length]) : null;
       const round = arc && pts.every((p, i) => Math.abs(Math.hypot(p[0] - arc.c[0], p[1] - arc.c[1]) - arc.r) < 1e-6 && curves[i] && Math.abs(Math.hypot(curves[i]!.mid[0] - arc.c[0], curves[i]!.mid[1] - arc.c[1]) - arc.r) < 1e-6);
@@ -145,7 +150,7 @@ export function svgOf(cuts: Cut[], margin = 2): string {
 `;
 }
 
-/** A DXF (R12, mm) of the cuts: closed polylines (arcs as bulges, beziers in 0.5 mm pieces) and circles, y up as DXF has it. */
+/** A DXF (R12, mm) of the cuts: closed polylines (arcs as bulges, beziers as arcs within 1 µm) and circles, y up as DXF has it. */
 export function dxfOf(cuts: Cut[]): string {
   const out: (string | number)[] = [0, 'SECTION', 2, 'HEADER', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC', 0, 'SECTION', 2, 'ENTITIES'];
   for (const c of cuts) {
@@ -155,19 +160,18 @@ export function dxfOf(cuts: Cut[]): string {
     }
     out.push(0, 'POLYLINE', 8, 'CUT', 66, 1, 10, 0, 20, 0, 30, 0, 70, 1);
     const vertex = ([x, y]: P2, bulge = 0) => out.push(0, 'VERTEX', 8, 'CUT', 10, f(x), 20, f(-y), 30, 0, ...(bulge ? [42, +bulge.toFixed(9)] : []));
+    // a bulge: tan of a quarter of the arc's angle, counter-clockwise positive (y flipped: turned round)
+    const bulge = (a: P2, k: Curve | null, b: P2) => {
+      const arc = arcFlags(a, k, b);
+      return arc ? -Math.tan(arc.turn / 4) : 0;
+    };
     c.pts.forEach((a, i) => {
       const [b, k] = [c.pts[(i + 1) % c.pts.length], c.curves[i]];
-      const arc = arcFlags(a, k, b);
-      // a bulge: tan of a quarter of the arc's angle, counter-clockwise positive (y flipped: turned round)
-      if (arc) return vertex(a, -Math.tan(arc.turn / 4));
-      vertex(a);
-      if (k && 'c1' in k) {
-        const n = Math.max(8, Math.ceil((Math.hypot(k.c1[0] - a[0], k.c1[1] - a[1]) + Math.hypot(k.c2[0] - k.c1[0], k.c2[1] - k.c1[1]) + Math.hypot(b[0] - k.c2[0], b[1] - k.c2[1])) / 0.5));
-        for (let j = 1; j < n; j++) {
-          const t = j / n;
-          vertex([0, 1].map((m) => (1 - t) ** 3 * a[m] + 3 * (1 - t) ** 2 * t * k.c1[m] + 3 * (1 - t) * t ** 2 * k.c2[m] + t ** 3 * b[m]) as P2);
-        }
-      }
+      if (!k || !('c1' in k)) return vertex(a, bulge(a, k, b));
+      // a bezier as arcs within 1 µm
+      const bez = (t: number, d = 0): P2 => [0, 1].map((m) => (d ? 3 * (1 - t) ** 2 * (k.c1[m] - a[m]) + 6 * (1 - t) * t * (k.c2[m] - k.c1[m]) + 3 * t ** 2 * (b[m] - k.c2[m]) : (1 - t) ** 3 * a[m] + 3 * (1 - t) ** 2 * t * k.c1[m] + 3 * (1 - t) * t ** 2 * k.c2[m] + t ** 3 * b[m])) as P2;
+      const fit = biarcs((t) => bez(t), (t) => bez(t, 1));
+      fit.curves.forEach((c, j) => vertex(fit.pts[j], bulge(fit.pts[j], c, fit.pts[j + 1])));
     });
     out.push(0, 'SEQEND', 8, 'CUT');
   }

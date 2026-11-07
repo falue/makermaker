@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arcOf, area, bakeTurn, bounds, closedLoop, edgeDistance, flattened, inside, mapPoints, nesting, ontoArcThrough, outlineLength, pointAlong, segCrossings, segLength, segPoints, segments, sideDirs, sidesOf, offsetPath } from './profiles';
+import { arcOf, area, biarcs, bakeTurn, bounds, closedLoop, edgeDistance, flattened, inside, mapPoints, nesting, ontoArcThrough, outlineLength, pointAlong, segCrossings, segLength, segPoints, segments, sideDirs, sidesOf, offsetPath } from './profiles';
 import { centreMoved, controlMoved, isSmooth, pointHandles, pointMoved, smoothToggled } from '../viewer/shapes';
 import { followSizes, sized } from './sizes';
 import type { Curve, Doc } from './types';
@@ -333,6 +333,26 @@ describe('exact outlines', () => {
     const q = pointAlong(half, segLength(half) / 3);
     expect(Math.atan2(q[1], q[0])).toBeCloseTo(Math.PI / 3, 9); // from (10, 0) round to (-10, 0)
     expect(segCrossings(segments(hillLine)[0], tangent)).toBeNull();
+  });
+});
+
+describe('biarcs', () => {
+  it('a bezier as arcs, every point of it within 1 µm of them, tangent where they meet', () => {
+    const [a, c1, c2, b]: UV[] = [[0, 0], [10, 40], [60, -30], [70, 10]];
+    const at = (t: number): UV => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c1[k] + 3 * (1 - t) * t ** 2 * c2[k] + t ** 3 * b[k]) as UV;
+    const dir = (t: number): UV => [0, 1].map((k) => 3 * (1 - t) ** 2 * (c1[k] - a[k]) + 6 * (1 - t) * t * (c2[k] - c1[k]) + 3 * t ** 2 * (b[k] - c2[k])) as UV;
+    const fit = biarcs(at, dir, 1e-3);
+    const segs = fit.curves.map((c, i) => ({ a: fit.pts[i], b: fit.pts[i + 1], c }));
+    for (let i = 0; i <= 2000; i++) {
+      const q = at(i / 2000);
+      expect(Math.min(...segs.map((g) => edgeDistance({ kind: 'line', pts: [g.a, g.b], curves: [g.c] }, ...q)))).toBeLessThan(1e-3);
+    }
+    // neighbours run on in the same direction
+    for (let i = 1; i < segs.length; i++) {
+      const [, out] = sideDirs(segs[i - 1].a, segs[i - 1].c, segs[i - 1].b);
+      const [into] = sideDirs(segs[i].a, segs[i].c, segs[i].b);
+      expect((out[0] * into[1] - out[1] * into[0]) / (Math.hypot(...out) * Math.hypot(...into))).toBeCloseTo(0, 6);
+    }
   });
 });
 
