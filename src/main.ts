@@ -2540,7 +2540,8 @@ function checkbox(label: string, title: string, on: boolean, change: (on: boolea
  * middle).
  */
 function patternTool(mode: 'around' | 'grid' = 'grid') {
-  const sources = selected.filter((id) => history.current.bodies.some((b) => b.id === id));
+  // groups as their bodies
+  const sources = contents(history.current, selected).filter((id) => history.current.bodies.some((b) => b.id === id));
   if (!sources.length) {
     const picked: string[] = [];
     pending = {
@@ -2560,6 +2561,9 @@ function patternTool(mode: 'around' | 'grid' = 'grid') {
     return render();
   }
   if (mode === 'around') {
+    // an edge Alt-picked first is the axis
+    const picked = pickedAxis();
+    if (picked) return viewer.dropPicked(), patternPanel(sources, 'around', picked);
     toolHint = 'Pattern around: click the axis · an edge or line, a circle (its centre) or a point (Z through it) · [Esc] cancels';
     render();
     return viewer.pickAxis(
@@ -3632,7 +3636,9 @@ function clashTool() {
 
 /** Coat: the body (selected, or clicked next) gets a coat, 1 mm at first, shown at once; its panel has the rest. */
 function coatTool() {
-  const body = selected.find((id) => history.current.bodies.some((b) => b.id === id));
+  // an Alt-picked face's body (that face left out, if flat), else the first selected body (a group's: its first)
+  const face = viewer.pickedFaceItems()[0];
+  const body = face?.body ?? contents(history.current, selected).find((id) => history.current.bodies.some((b) => b.id === id));
   if (!body) {
     pending = { tool: 'shell', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), coatTool()) };
     toolHint = 'Coat: click a body · [Esc] cancels';
@@ -3641,7 +3647,11 @@ function coatTool() {
   const doc = history.current;
   const i = stepsOf(doc, body);
   const id = newId();
-  commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, { id, type: 'coat' as const, thickness: len(1), corners: 'sharp' as const, exclude: [] }]));
+  const flat = face && (face.mesh.userData.exact as Exact | null | undefined)?.faces[face.index]?.kind === 'plane';
+  const pl = bodyPlace(body);
+  const exclude = flat ? [{ at: unplaced(pl, face.point.toArray()), n: unplaced(pl, face.n.toArray(), true) }] : [];
+  if (face) viewer.dropPicked();
+  commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, { id, type: 'coat' as const, thickness: len(1), corners: 'sharp' as const, exclude }]));
   coatPanel(body, id, true);
 }
 
