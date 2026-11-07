@@ -48,7 +48,7 @@ export interface UIContext {
   /** The smallest step values move in (mm; Settings → General). */
   minStep: number;
   /** Measurements of the selection, for the info panel (null: nothing to measure). */
-  info: { title: string; rows: [string, string, Measure?][] } | null;
+  info: { title: string; rows: [string, string, Measure?][]; note?: string } | null;
   /** Shows a measure of the selection in the view: one box side (axis 0 / 1 / 2) or its position ('at'); null: none. */
   showMeasure(what: Measure | null): void;
   /** A sketch shape's corner `i` (below 0: all) marked in the view (its R field hovered or typed in); null: none. */
@@ -985,7 +985,8 @@ function right(ctx: UIContext): Node[] {
   };
   const aboutTip = 'About: values with ~ are read from the triangles drawn in the view, so on curves they can be slightly off. The Distance measure reads the real geometry.';
   const aboutIcon = ctx.info?.rows.some((r) => r[1].startsWith('~')) ? [h('span', { className: 'info-about', title: aboutTip, innerHTML: icon('info') })] : [];
-  const info = ctx.info ? [h('section', { className: 'info' }, h('h3', {}, `Info · ${ctx.info.title}`, ...aboutIcon), h('dl', {}, ...ctx.info.rows.flatMap(infoRow)))] : [];
+  const note = ctx.info?.note ? [h('p', { className: 'hint' }, ctx.info.note)] : [];
+  const info = ctx.info ? [h('section', { className: 'info' }, h('h3', {}, `Info · ${ctx.info.title}`, ...aboutIcon), h('dl', {}, ...ctx.info.rows.flatMap(infoRow)), ...note)] : [];
   return [...status, ...selectionPanel(ctx), ...info];
 }
 

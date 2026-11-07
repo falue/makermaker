@@ -1,3 +1,4 @@
+import { EXACT_BOXED, EXACT_MOST } from './limits';
 import { cast, getOC, measureArea, measureLength, measureVolume, type Edge, type Face, type Shape3D, type Vector } from 'replicad';
 
 type V3 = [number, number, number];
@@ -53,7 +54,7 @@ function byHash<T extends Face | Edge>(shape: Shape3D, kind: 'face' | 'edge'): M
  * The exact data of `shape` for the mesh groups it was meshed into (`faceIds`, `edgeIds`: their ids, the faces' and
  * edges' hash codes); null for a body of more than `most` faces (the mesh stands in, as for an imported mesh).
  */
-export function exactOf(shape: Shape3D, faceIds: number[], edgeIds: number[], most = 20000, boxed = 1000): Exact | null {
+export function exactOf(shape: Shape3D, faceIds: number[], edgeIds: number[], most = EXACT_MOST, boxed = EXACT_BOXED): Exact | null {
   if (faceIds.length > most) return null;
   const oc = getOC();
   const faces = byHash<Face>(shape, 'face');

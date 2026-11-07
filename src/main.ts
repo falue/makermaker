@@ -9,6 +9,7 @@ import { History } from './doc/history';
 import { alignment, area, beside, bounds, movedLine, outlineLength, segments, segPoints, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { boreFor, fitting, THREADS } from './doc/threads';
+import { EXACT_BOXED, EXACT_MOST } from './kernel/limits';
 import { closeButton, deleteButton, icon } from './ui/icons';
 import { contextMenu, type MenuItem } from './ui/menu';
 import { axisHtml, sizeHtml } from './ui/axes';
@@ -1167,7 +1168,7 @@ function selectAll() {
  * The info panel's rows for what is selected: a picked edge (length) or face (area); sketch shapes (size, Ø, area, a
  * line's length); bodies (box size; one body: position and turn; volume and surface area from their triangles).
  */
-function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Box3; at?: Vec3 } | null {
+function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Box3; at?: Vec3; note?: string } | null {
   const doc = history.current;
   const u = doc.units;
   // areas and volumes one unit up (mm → cm², cm³), else the numbers get long
@@ -1181,7 +1182,7 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
   if (pickedPart?.kind === 'face') {
     const n = pickedPart.count ?? 1;
     const area = (pickedPart.exact ? num : about)(pickedPart.size, 2);
-    return { title: n > 1 ? 'Faces' : 'Face', rows: n > 1 ? [['Area', area], ['Faces', String(n)]] : [['Area', area]] };
+    return { title: n > 1 ? 'Faces' : 'Face', rows: n > 1 ? [['Area', area], ['Faces', String(n)]] : [['Area', area]], note: pickedPart.exact ? undefined : exactNote([pickedPart.body]) };
   }
   if (pickedPart) {
     const n = pickedPart.count ?? 1;
@@ -1189,7 +1190,7 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     const rows: [string, string][] = [['Length', val(pickedPart.size)]];
     if (n > 1) rows.push(['Edges', String(n)]);
     if (pickedPart.diameter) rows.push(['Ø', val(pickedPart.diameter)]);
-    return { title: pickedPart.diameter ? 'Circle' : n > 1 ? 'Edges' : 'Edge', rows };
+    return { title: pickedPart.diameter ? 'Circle' : n > 1 ? 'Edges' : 'Edge', rows, note: pickedPart.exact ? undefined : exactNote([pickedPart.body]) };
   }
   const lookup = paramLookup(doc.params);
   const s = doc.sketches.find((x) => x.id === activeSketch());
@@ -1219,7 +1220,20 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     rows.push(['Rotation', `${fmt(turn.rx)}°, ${fmt(turn.ry)}°, ${fmt(turn.rz)}°`]);
   }
   rows.push(['Volume', counted(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', counted(m.reduce((n, x) => n + x.area, 0), 2)]);
-  return { title: b ? b.name : `${ids.length} bodies`, rows, box, at: b ? positions.get(b.id) : undefined };
+  return { title: b ? b.name : `${ids.length} bodies`, rows, box, at: b ? positions.get(b.id) : undefined, note: exactNote(ids) };
+}
+
+/** Why some of the bodies' values come from their triangles (shown under the Info panel); none: all are exact. */
+function exactNote(ids: string[]) {
+  const meshes = ids.filter((id) => meshOnly(id)).length;
+  const big = ids.filter((id) => !meshOnly(id) && (viewer.measure(id)?.faces ?? 0) / 2 > EXACT_MOST).length;
+  const boxed = ids.filter((id) => !meshOnly(id) && (viewer.measure(id)?.faces ?? 0) / 2 > EXACT_BOXED).length - big;
+  const one = ids.length === 1;
+  return [
+    meshes ? `${one ? 'An imported mesh' : `${meshes} imported meshes`}: no solid, every value read from the triangles.` : '',
+    big ? `${one ? 'Over' : `${big} with over`} ${EXACT_MOST} faces: no exact data, for speed; values read from the triangles.` : '',
+    boxed ? `${one ? 'Over' : `${boxed} with over`} ${EXACT_BOXED} faces: face areas and the box read from the triangles, for speed.` : '',
+  ].filter(Boolean).join(' ') || undefined;
 }
 
 /** The largest sizes found for finishes that were too big (by feature id and kind, `id fillet`): drags stop there. */

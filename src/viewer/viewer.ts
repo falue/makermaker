@@ -3410,7 +3410,7 @@ export class Viewer implements ToolView {
     return this.balls;
   }
 
-  private measured = new Map<string, { key: string; box: THREE.Box3; volume: number; area: number; exact: boolean; boxExact: boolean }>();
+  private measured = new Map<string, { key: string; box: THREE.Box3; volume: number; area: number; exact: boolean; boxExact: boolean; faces: number }>();
 
   /** A body's box in the world, volume (mm³) and surface area (mm²) from its triangles (null: not built yet); kept until its mesh or place changes. */
   /** The normals (world) of a body's B-rep faces touching point `p`: those meeting at an edge, at a point on it. */
@@ -3465,7 +3465,7 @@ export class Viewer implements ToolView {
     const turned = exact && !axes ? turnedBox(exact, g.matrix) : null;
     if (exact?.box && axes) box.set(new THREE.Vector3(...exact.box[0]), new THREE.Vector3(...exact.box[1])).applyMatrix4(g.matrix);
     else if (turned) box.copy(turned);
-    const out = { key, box, volume: exact?.volume ?? Math.abs(volume), area: exact?.area ?? area, exact: !!exact, boxExact: (!!exact?.box && axes) || !!turned };
+    const out = { key, box, volume: exact?.volume ?? Math.abs(volume), area: exact?.area ?? area, exact: !!exact, boxExact: (!!exact?.box && axes) || !!turned, faces: (solid.userData.faces as Uint32Array | undefined)?.length ?? 0 };
     this.measured.set(id, out);
     return out;
   }
