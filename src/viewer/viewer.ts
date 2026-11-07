@@ -2224,6 +2224,7 @@ export class Viewer implements ToolView {
   home(ms = 600) {
     // seen from the front-right corner: 45° around the vertical axis, ~40° above the horizon
     const dir = new THREE.Vector3(1.1 * Math.SQRT1_2, -1.1 * Math.SQRT1_2, 0.9).normalize();
+    this.leaveSideView(); // a corner: the cube's arrows go, a side's own ortho too
     this.upright();
     const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), this.camera.up));
     this.frameAll(this.allBox().getCenter(new THREE.Vector3()), turn, ms);
