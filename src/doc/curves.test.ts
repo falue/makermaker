@@ -391,3 +391,42 @@ describe('offsets of beziers', () => {
   });
 });
 
+describe('offsets turning sides inside out', () => {
+  it('an arc offset past its radius goes, its neighbours meet', () => {
+    // a 30 × 20 plate with a bump R2 on its right side, shrunk by 3: the bump goes, the right side is straight at x 27
+    const plate = { kind: 'polygon' as const, pts: [[0, 0], [30, 0], [30, 8], [30, 12], [30, 20], [0, 20]] as UV[], curves: [null, null, { mid: [32, 10] } as Curve, null, null, null], r: 0, rot: 0 };
+    const out = offsetPath(plate, -3);
+    expect(out.curves.every((c) => !c)).toBe(true);
+    expect(area({ kind: 'polygon', ...out, r: 0, rot: 0 })).toBeCloseTo(24 * 14, 9);
+  });
+
+  it('a bezier bending tighter than the offset loses its loop: nothing of it nearer its bend than the offset, no crossing', () => {
+    // a sharp tip (R about 3.6 at its middle), its legs 20 apart: offset 5 or 6 into it loops round the tip and crosses back
+    const tip = { kind: 'line' as const, pts: [[-10, 0], [10, 0]] as UV[], curves: [{ c1: [-2, 15], c2: [2, 15] } as Curve] };
+    for (const d of [6, -5, -6]) {
+      const out = { kind: 'line' as const, ...offsetPath(tip, d) };
+      expect(out.pts.length, `d ${d}`).toBeGreaterThan(1);
+      // never nearer than the offset to its bend (a loop would be)
+      const bend = Array.from({ length: 2001 }, (_, k): UV => {
+        const t = 0.3 + (0.4 * k) / 2000;
+        return [0, 1].map((m) => (1 - t) ** 3 * tip.pts[0][m] + 3 * (1 - t) ** 2 * t * (tip.curves[0] as { c1: UV }).c1[m] + 3 * (1 - t) * t ** 2 * (tip.curves[0] as { c2: UV }).c2[m] + t ** 3 * tip.pts[1][m]) as UV;
+      });
+      for (const g of segments(out)) for (const q of segPoints(g, 1e-3)) expect(Math.min(...bend.map((b) => Math.hypot(b[0] - q[0], b[1] - q[1]))), `d ${d}`).toBeGreaterThan(Math.abs(d) - 1e-3);
+      // and it does not cross itself
+      const flat = segments(out).flatMap((g, i) => segPoints(g, 1e-3).slice(i ? 1 : 0));
+      for (let i = 0; i + 1 < flat.length; i++)
+        for (let j = i + 2; j + 1 < flat.length; j++) {
+          const [p, q, r, t] = [flat[i], flat[i + 1], flat[j], flat[j + 1]];
+          const den = (q[0] - p[0]) * (t[1] - r[1]) - (q[1] - p[1]) * (t[0] - r[0]);
+          if (Math.abs(den) < 1e-15) continue;
+          const u = ((r[0] - p[0]) * (t[1] - r[1]) - (r[1] - p[1]) * (t[0] - r[0])) / den;
+          const w = ((r[0] - p[0]) * (q[1] - p[1]) - (r[1] - p[1]) * (q[0] - p[0])) / den;
+          expect(u > 1e-9 && u < 1 - 1e-9 && w > 1e-9 && w < 1 - 1e-9, `d ${d} crosses itself`).toBe(false);
+        }
+    }
+    // offset wider than the curve holds (12 into a U 20 wide): it never comes back, nothing is left
+    const u = { kind: 'line' as const, pts: [[-10, 0], [10, 0]] as UV[], curves: [{ c1: [-10, 15], c2: [10, 15] } as Curve] };
+    expect(offsetPath(u, -12).pts).toHaveLength(0);
+  });
+});
+

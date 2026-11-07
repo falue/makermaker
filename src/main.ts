@@ -3659,7 +3659,8 @@ function offsetShapes(sketch: string) {
   const shown = viewer.sketches.find((v) => v.id === sketch)!.shapes.filter((q) => shapeSel.includes(q.id));
   const sources = doc0.sketches[k].shapes.filter((q) => shapeSel.includes(q.id));
   const ids = sources.map(() => newId());
-  const made = (d: number): Profile[] =>
+  // a shape the offset turns wholly inside out is left out (null)
+  const made = (d: number): (Profile | null)[] =>
     sources.map((q, n) => {
       const p = shown.find((x) => x.id === q.id)!;
       const id = ids[n];
@@ -3669,6 +3670,7 @@ function offsetShapes(sketch: string) {
       if ((q.kind === 'polygon' && p.kind === 'polygon') || (q.kind === 'line' && p.kind === 'line')) {
         if (curved(p)) {
           const { pts, curves } = offsetPath(p, d);
+          if (pts.length < 2) return null;
           return { ...q, id, pts: roundPts(pts), curves: roundCurves(curves) } as Profile;
         }
       }
@@ -3676,15 +3678,20 @@ function offsetShapes(sketch: string) {
       if (q.kind === 'line' && p.kind === 'line') return { ...q, id, pts: roundPts(beside(p.pts, d)) };
       return { ...q, id };
     });
+  const hint = 'Offset: how far outside · type or scrub it; negative: inside, a line: to its left · [Enter] keeps them · [Esc] leaves nothing';
   const apply = (d: number) => {
-    const next = setIn(doc0, ['sketches', String(k), 'shapes'], [...doc0.sketches[k].shapes, ...made(d)]);
+    const shapes = made(d);
+    const kept = shapes.filter((x): x is Profile => !!x);
+    const next = setIn(doc0, ['sketches', String(k), 'shapes'], [...doc0.sketches[k].shapes, ...kept]);
     if (history.current === doc0) history.push(next);
     else history.replace(next);
+    const gone = shapes.length - kept.length;
+    toolHint = gone ? `${gone === 1 ? 'A shape vanishes' : `${gone} shapes vanish`} this far inside: the offset is wider than ${gone === 1 ? 'it holds' : 'they hold'} · ${hint}` : hint;
     update();
   };
   shapeSel = ids;
   apply(2);
-  valuePanel([{ label: 'Offset', value: fmt(2 / UNITS[doc0.units]) }], ([t]) => apply(length(t) ?? 0), (ok) => (ok ? render() : undo()), 'Offset: how far outside · type or scrub it; negative: inside, a line: to its left · [Enter] keeps them · [Esc] leaves nothing');
+  valuePanel([{ label: 'Offset', value: fmt(2 / UNITS[doc0.units]) }], ([t]) => apply(length(t) ?? 0), (ok) => (ok ? render() : undo()), hint);
 }
 
 /**

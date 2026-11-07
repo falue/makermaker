@@ -43,7 +43,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Curves
 - Sketch areas closed by lines come from OpenCascade's splitter on the true curves, fuzzy within 1e-3 mm: a line ending up to 1e-3 mm short of a curve still closes its area. Picked areas are joined as solids, not flat.
 - Moving a point holds tangents through arcs (`tangentsHeld`), with exceptions: an arc turned almost straight or doubling back loses it there, a chain ending back at the moved point cannot close smoothly, a bezier's handle turns and stops there, and dragging a bezier's handles does not reach an arc beyond. Tried through tests, not yet by hand.
-- A side that an offset would turn inside out (an arc past its radius, a bezier past its bend) is not removed.
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
 ## Combining shapes

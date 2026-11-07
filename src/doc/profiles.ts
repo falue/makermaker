@@ -705,16 +705,19 @@ export function grown(pts: [number, number][], d: number): [number, number][] {
 
 /**
  * A side after an offset: its exact offset curve `f` (t 0..1 the side, beyond it run on: a line straight, an arc round, a
- * bezier's along its end's tangent), the part kept (`t0`..`t1`, set where neighbours meet), what it is.
+ * bezier's along its end's tangent), the part kept (`t0`..`t1`, set where neighbours meet; `from`, `to`: before any
+ * meet), what it is; `cuts`: loops taken out of a bezier's offset (from, to); `gone`: turned inside out, left out.
  */
-type Offset = { kind: 'line' | 'arc' | 'bezier'; f: (t: number) => UV; t0: number; t1: number; base?: { a: UV; c1: UV; c2: UV; b: UV }; toA?: UV; toB?: UV };
+type Offset = { kind: 'line' | 'arc' | 'bezier'; f: (t: number) => UV; t0: number; t1: number; from: number; to: number; at: number; base?: { a: UV; c1: UV; c2: UV; b: UV }; cuts?: [number, number][]; toA?: UV; toB?: UV; gone?: boolean };
 
 /**
  * A curved line or polygon `by` mm to the side (a polygon: outside; a line: its left), exact: straight sides stay
- * straight, arcs stay arcs around their middle (a radius it would turn inside out kept at 0.01), beziers become beziers
- * within `tol` mm of their true offset (`offsetBezier`). Neighbours meet where their offsets (run on past their ends)
- * cross: a mitre where the corner opens, the true crossing where it closes; none near: straight on to half way between
- * their ends (`toA`, `toB`).
+ * straight, arcs stay arcs around their middle, beziers become beziers within `tol` mm of their true offset
+ * (`offsetBezier`). Neighbours meet where their offsets (run on past their ends) cross: a mitre where the corner opens,
+ * the true crossing where it closes; none near: straight on to half way between their ends (`toA`, `toB`). What the
+ * offset turns inside out goes: an arc past its radius, a side its neighbours' crossing runs back over, a bezier's loop
+ * where it bends tighter than the offset (cut out where the offset crosses itself; all of it: the side); its
+ * neighbours then meet each other.
  */
 export function offsetPath(p: Pathed, by: number, tol = 1e-3): { pts: UV[]; curves: (Curve | null)[] } {
   const n = p.pts.length;
@@ -730,8 +733,8 @@ export function offsetPath(p: Pathed, by: number, tol = 1e-3): { pts: UV[]; curv
     const arc = c && 'mid' in c ? arcOf(a, c.mid, b) : null;
     if (arc) {
       const sweep = arc.a1 - arc.a0;
-      const r = Math.max(0.01, sweep > 0 ? arc.r - left : arc.r + left);
-      return { kind: 'arc', f: (t) => [arc.c[0] + r * Math.cos(arc.a0 + sweep * t), arc.c[1] + r * Math.sin(arc.a0 + sweep * t)], t0: 0, t1: 1 };
+      const r = sweep > 0 ? arc.r - left : arc.r + left;
+      return { kind: 'arc', f: (t) => [arc.c[0] + r * Math.cos(arc.a0 + sweep * t), arc.c[1] + r * Math.sin(arc.a0 + sweep * t)], t0: 0, t1: 1, from: 0, to: 1, at: i, gone: r <= 1e-9 };
     }
     if (c && 'c1' in c) {
       const base = { a, c1: c.c1, c2: c.c2, b };
@@ -743,15 +746,15 @@ export function offsetPath(p: Pathed, by: number, tol = 1e-3): { pts: UV[]; curv
         const k = (t < 0 ? t : t - 1) * Math.hypot(...bezDir(base, t < 0 ? 0 : 1));
         return [e[0] + d[0] * k, e[1] + d[1] * k];
       };
-      return { kind: 'bezier', f, t0: 0, t1: 1, base };
+      return { kind: 'bezier', f, t0: 0, t1: 1, from: 0, to: 1, at: i, base, ...loopsOf(base, f, left) };
     }
     const d: UV = [b[0] - a[0], b[1] - a[1]];
     const [oa, ob] = [off(a, d), off(b, d)];
-    return { kind: 'line', f: (t) => [oa[0] + (ob[0] - oa[0]) * t, oa[1] + (ob[1] - oa[1]) * t], t0: 0, t1: 1 };
+    return { kind: 'line', f: (t) => [oa[0] + (ob[0] - oa[0]) * t, oa[1] + (ob[1] - oa[1]) * t], t0: 0, t1: 1, from: 0, to: 1, at: i };
   });
   /** Where `u` (past its end) and `v` (before its start) cross nearest their ends, as their parameters (Newton); null: not near. */
   const meet = (u: Offset, v: Offset): [number, number] | null => {
-    let [s, t] = [1, 0];
+    let [s, t] = [u.to, v.from];
     const h = 1e-6;
     for (let k = 0; k < 60; k++) {
       const [pu, pv] = [u.f(s), v.f(t)];
@@ -768,23 +771,32 @@ export function offsetPath(p: Pathed, by: number, tol = 1e-3): { pts: UV[]; curv
     }
     return null;
   };
-  sides.forEach((next, i) => {
-    if (!i && !closed) return;
-    const prev = sides[(i - 1 + sides.length) % sides.length];
-    const [pe, ns] = [prev.f(1), next.f(0)];
-    if (Math.hypot(pe[0] - ns[0], pe[1] - ns[1]) < 1e-9) return; // smooth: they run on
-    const found = meet(prev, next);
-    const q = found && prev.f(found[0]);
-    if (q && Math.hypot(q[0] - p.pts[i][0], q[1] - p.pts[i][1]) <= 5 * Math.abs(by) && found![0] > 0 && found![1] < 1) [prev.t1, next.t0] = found!;
-    else {
-      // no crossing near: both run straight to half way between their ends
-      prev.toB = next.toA = [(pe[0] + ns[0]) / 2, (pe[1] + ns[1]) / 2];
-    }
-  });
-  // each side as points and curves: a bezier refitted in pieces, straight on where it was run on past its ends
+  // neighbours meet; a side they run back over goes, and its neighbours meet again, until none goes
+  for (let pass = 0; pass <= sides.length; pass++) {
+    const live = sides.filter((x) => !x.gone);
+    for (const x of live) Object.assign(x, { t0: x.from, t1: x.to, toA: undefined, toB: undefined });
+    live.forEach((next, k) => {
+      if (!k && !closed) return;
+      const prev = live[(k - 1 + live.length) % live.length];
+      const [pe, ns] = [prev.f(prev.to), next.f(next.from)];
+      if (Math.hypot(pe[0] - ns[0], pe[1] - ns[1]) < 1e-9) return; // smooth: they run on
+      const found = meet(prev, next);
+      const q = found && prev.f(found[0]);
+      // near the corners between them (a side gone between: either end of it)
+      const corners = [p.pts[(prev.at + 1) % n], p.pts[next.at]];
+      const near = q && Math.min(...corners.map((c) => Math.hypot(q[0] - c[0], q[1] - c[1]))) <= 5 * Math.abs(by);
+      if (near) [prev.t1, next.t0] = found!; // run back past a side's start: it goes (below)
+      else prev.toB = next.toA = [(pe[0] + ns[0]) / 2, (pe[1] + ns[1]) / 2]; // no crossing near: both run straight to half way between their ends
+    });
+    const back = live.filter((x) => x.t1 <= x.t0 + 1e-12 && (live.length > 1 || closed));
+    if (!back.length) break;
+    for (const x of back) x.gone = true;
+  }
+  // each side as points and curves: a bezier refitted in pieces (its loops left out), straight on where it was run on past its ends
   const pts: UV[] = [];
   const curves: (Curve | null)[] = [];
-  for (const s of sides) {
+  const live = sides.filter((x) => !x.gone);
+  for (const s of live) {
     const start = s.f(s.t0);
     if (s.toA) (pts.push(s.toA), curves.push(null));
     if (s.kind === 'line') (pts.push(start), curves.push(null));
@@ -792,14 +804,95 @@ export function offsetPath(p: Pathed, by: number, tol = 1e-3): { pts: UV[]; curv
     else {
       const [lo, hi] = [Math.max(0, s.t0), Math.min(1, s.t1)];
       if (s.t0 < 0) (pts.push(start), curves.push(null));
-      const fit = offsetBezier(s.base!, left, lo, hi, tol);
-      fit.curves.forEach((c, k) => (pts.push(fit.pts[k]), curves.push(c)));
+      // the kept stretches between its loops
+      const bounds = [lo, ...(s.cuts ?? []).filter(([u, w]) => u > lo && w < hi).flat(), hi];
+      for (let k = 0; k + 1 < bounds.length; k += 2) {
+        const fit = offsetBezier(s.base!, left, bounds[k], bounds[k + 1], tol);
+        fit.curves.forEach((c, j) => (pts.push(fit.pts[j]), curves.push(c)));
+      }
       if (s.t1 > 1) (pts.push(s.f(1)), curves.push(null));
     }
     if (s.toB) (pts.push(s.f(s.t1)), curves.push(null));
   }
-  if (!closed) pts.push(sides[sides.length - 1].f(sides[sides.length - 1].t1));
+  if (!closed && live.length) pts.push(live[live.length - 1].f(live[live.length - 1].t1));
   return { pts, curves };
+}
+
+/**
+ * Where a bezier's offset `f` (`left` mm) runs backwards (it bends tighter than the offset: left · curvature > 1): each
+ * such loop cut out where the offset crosses itself around it (`cuts`); one at an end trims the side there (`from`,
+ * `to`); backwards all along, or a loop that never crosses back: `gone`.
+ */
+function loopsOf(base: { a: UV; c1: UV; c2: UV; b: UV }, f: (t: number) => UV, left: number): Partial<Offset> {
+  const bend = (t: number) => {
+    const d = bezDir(base, t);
+    const dd = [0, 1].map((k) => 6 * ((1 - t) * (base.c2[k] - 2 * base.c1[k] + base.a[k]) + t * (base.b[k] - 2 * base.c2[k] + base.c1[k])));
+    return (left * (d[0] * dd[1] - d[1] * dd[0])) / Math.hypot(...d) ** 3;
+  };
+  const steps = 400;
+  const back = Array.from({ length: steps + 1 }, (_, k) => bend(k / steps) > 1);
+  if (back.every(Boolean)) return { gone: true };
+  // the backward stretches, their ends bisected
+  const edge = (u: number, w: number) => {
+    for (let k = 0; k < 50; k++) {
+      const m = (u + w) / 2;
+      if ((bend(m) > 1) === (bend(u) > 1)) u = m;
+      else w = m;
+    }
+    return (u + w) / 2;
+  };
+  const runs: [number, number][] = [];
+  let start = back[0] ? 0 : -1;
+  for (let k = 0; k < steps; k++) {
+    if (back[k + 1] && !back[k]) start = edge(k / steps, (k + 1) / steps);
+    if (!back[k + 1] && back[k]) runs.push([start, edge(k / steps, (k + 1) / steps)]);
+  }
+  if (back[steps]) runs.push([start, 1]);
+  const out: Partial<Offset> = { cuts: [] };
+  for (const [ra, rb] of runs) {
+    if (ra <= 0) out.from = rb;
+    else if (rb >= 1) out.to = ra;
+    else {
+      // where the offset before the loop meets the offset after it; none: it never comes back (offset wider than the side holds)
+      const cross = selfCrossing(f, ra, rb);
+      if (!cross) return { gone: true };
+      out.cuts!.push(cross);
+    }
+  }
+  return out;
+}
+
+/** Where `f` before `ra` meets `f` after `rb` (its loop between): their parameters, from the crossing of its pieces refined by Newton; null: none. */
+function selfCrossing(f: (t: number) => UV, ra: number, rb: number): [number, number] | null {
+  const steps = 200;
+  const a = Array.from({ length: steps + 1 }, (_, k) => (ra * k) / steps);
+  const b = Array.from({ length: steps + 1 }, (_, k) => rb + ((1 - rb) * k) / steps);
+  for (let i = steps - 1; i >= 0; i--)
+    for (let j = 0; j < steps; j++) {
+      const [p, q, r, s] = [f(a[i]), f(a[i + 1]), f(b[j]), f(b[j + 1])];
+      const d1: UV = [q[0] - p[0], q[1] - p[1]];
+      const d2: UV = [s[0] - r[0], s[1] - r[1]];
+      const den = d1[0] * d2[1] - d1[1] * d2[0];
+      if (Math.abs(den) < 1e-18) continue;
+      const u = ((r[0] - p[0]) * d2[1] - (r[1] - p[1]) * d2[0]) / den;
+      const w = ((r[0] - p[0]) * d1[1] - (r[1] - p[1]) * d1[0]) / den;
+      if (u < 0 || u > 1 || w < 0 || w > 1) continue;
+      let [x, y] = [a[i] + u * (a[i + 1] - a[i]), b[j] + w * (b[j + 1] - b[j])];
+      const h = 1e-7;
+      for (let k = 0; k < 30; k++) {
+        const [pu, pv] = [f(x), f(y)];
+        const res: UV = [pu[0] - pv[0], pu[1] - pv[1]];
+        if (Math.hypot(...res) < 1e-13) break;
+        const du: UV = [(f(x + h)[0] - f(x - h)[0]) / (2 * h), (f(x + h)[1] - f(x - h)[1]) / (2 * h)];
+        const dv: UV = [(f(y + h)[0] - f(y - h)[0]) / (2 * h), (f(y + h)[1] - f(y - h)[1]) / (2 * h)];
+        const det = -du[0] * dv[1] + du[1] * dv[0];
+        if (Math.abs(det) < 1e-18) break;
+        x += (res[0] * dv[1] - res[1] * dv[0]) / det;
+        y += (du[0] * -res[1] + du[1] * res[0]) / det;
+      }
+      return [x, y];
+    }
+  return null;
 }
 
 /** A bezier's direction (not unit length) at `t`. */
