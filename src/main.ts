@@ -3090,7 +3090,7 @@ function bulgePanel(body: string, id: string, fresh = false) {
   const on = resolve(feature.on, paramLookup(doc0.params), '', new Map()) as BulgeFeature['on'];
   let middle: Vector3;
   if (on.kind === 'face') middle = new Vector3(...inWorld(pl, on.mid));
-  else if (on.kind === 'round') middle = new Vector3(...inWorld(pl, on.at)).addScaledVector(new Vector3(...unplaced(pl, on.dir, true)).normalize(), on.length / 2);
+  else if (on.kind === 'round') middle = new Vector3(...inWorld(pl, on.at)).addScaledVector(new Vector3(...inWorld(pl, on.dir, true)).normalize(), on.length / 2); // its axis from the body into the world, as its point
   else {
     const s = viewer.sketches.find((v) => v.id === on.sketch);
     const shapes = s?.shapes.filter((q) => on.shapes.includes(q.id)) ?? [];
