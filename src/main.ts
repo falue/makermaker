@@ -6,7 +6,7 @@ import { followSizes, sideNow, sized } from './doc/sizes';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, beside, bounds, outlineLength, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
+import { alignment, area, beside, bounds, movedLine, outlineLength, segments, segPoints, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, deleteButton, icon } from './ui/icons';
@@ -1871,7 +1871,8 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
     const s = viewer.sketches.find((k) => k.id === c.sketch);
     const q = s?.shapes.find((k) => k.id === c.shape);
     if (!s || !q) return viewer.showCut(null);
-    const pts = q.kind === 'line' ? beside(flattened(q), resolve(c.offset, lookup, '', new Map()) as number) : [...flattened(q), flattened(q)[0]];
+    // the outline as the cut takes it, within 0.01 mm (a closed one back at its start)
+    const pts = segments(q.kind === 'line' ? movedLine(q, resolve(c.offset, lookup, '', new Map()) as number) : q).flatMap((g, i) => segPoints(g, 0.01).slice(i ? 1 : 0));
     const n = new Vector3(...s.frame.n);
     // the band reaches through the body along the sketch's normal
     const h = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => new Vector3(k & 1 ? whole.max.x : whole.min.x, k & 2 ? whole.max.y : whole.min.y, k & 4 ? whole.max.z : whole.min.z).sub(new Vector3(...s.frame.o)).dot(n));

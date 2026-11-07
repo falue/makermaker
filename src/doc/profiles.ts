@@ -655,6 +655,12 @@ export function offsetPath(p: Pathed, by: number): { pts: UV[]; curves: (Curve |
   return { pts: closed ? sides.map((s) => s.a) : [...sides.map((s) => s.a), sides[sides.length - 1].b], curves: sides.map((s) => s.curve) };
 }
 
+/** A split line moved `by` mm to its left as the cut takes it: arcs stay arcs (`offsetPath`), straight lines mitred (`beside`). */
+export function movedLine(p: Extract<P, { kind: 'line' }>, by: number): Extract<P, { kind: 'line' }> {
+  if (!by) return p;
+  return curved(p) ? { ...p, ...offsetPath(p, by) } : { ...p, pts: beside(p.pts, by) };
+}
+
 /** An open line moved `d` mm to its left, its corners mitred (as a parallel line at that distance). */
 export function beside(pts: [number, number][], d: number): [number, number][] {
   if (!d) return pts;

@@ -1,7 +1,7 @@
 import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, Sketches, Transformation, type CornerFinder, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import type { DrawingPen } from 'replicad';
-import { bakeTurn, beside, bounds, centre, cornerRadii, curved, inside, mapPoints, nesting, offsetPath, roundable, sideDirs, type DrawnProfile } from '../doc/profiles';
+import { bakeTurn, bounds, centre, cornerRadii, curved, inside, mapPoints, movedLine, nesting, roundable, sideDirs, type DrawnProfile } from '../doc/profiles';
 import type { TopoDS_Shape } from 'replicad-opencascadejs';
 import { lineUses } from '../doc/arrangement';
 import { exactOf, type Exact } from './exact';
@@ -1150,8 +1150,7 @@ function cutterSide(c: Of<'split'>['cutter'], far: number): Shape3D {
     return drawRectangle(2 * far, 2 * far).sketchOnPlane(new Plane(f.o, f.x, f.n)).extrude(far) as Shape3D;
   }
   const { frame: f, profile: p } = c;
-  // moved aside: arcs stay arcs (`offsetPath`), beziers go by their legs
-  const line = p.kind === 'line' ? (curved(p) ? (c.offset ? offsetPath(p, c.offset) : p) : { pts: beside(p.pts, c.offset) }) : null;
+  const line = p.kind === 'line' ? movedLine(p, c.offset) : null;
   return (line ? leftOf(line, far) : drawing(p)).sketchOnPlane(new Plane(add(f.o, scale(f.n, -far)), f.x, f.n)).extrude(2 * far) as Shape3D;
 }
 
