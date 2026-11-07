@@ -5,7 +5,7 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area, inside, type DrawnProfile } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, FRONT, onBody, OP_HINT, planeHit, pullBy, pullCuts, pulled, pullKey, pullOp, pullTap, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, FRONT, onBody, OP_HINT, planeHit, pullBy, pullCuts, pullName, pulled, pullKey, pullOp, pullTap, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -406,10 +406,10 @@ export class ExtrudeTool implements Tool {
       // the depth at the end, how far back behind the plane (when it reaches back or is typed into)
       const { frame, at } = this.ref();
       const n = v3(frame.n);
-      const shown: [string, string | undefined, number, number, boolean][] = [['H', p.typed, depth, depth, !p.side]];
+      const shown: [string, string | undefined, number, number, boolean][] = [[pullName(frame.n), p.typed, depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
-        const op = name === 'H' && this.onBody() ? this.op() : undefined; // what it does to the body
+        const op = name !== 'Back' && this.onBody() ? this.op() : undefined; // what it does to the body
         const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed)}`, active, active && !this.reaching, op);
         this.labels.append(el);
         keepInside(el, ...this.view.toScreen(at.clone().addScaledVector(n, along)));

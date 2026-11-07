@@ -216,6 +216,9 @@ export function reachInto(p: Pulling, at: THREE.Vector3, frame: { o: V3; n: V3 }
   p[k] = (p[k] ?? '') + host.lengthText(p.side ? -d : d);
 }
 
+/** A pull's size label: the size along the world axis it goes (L, W, H along X, Y, Z), else Depth (a slanted face). */
+export const pullName = (n: V3) => ['L', 'W', 'H'].find((_, k) => Math.abs(n[k]) > 0.999) ?? 'Depth';
+
 /** While aiming To object: the pull shows reaching `at` (only while nothing is typed for the depth). */
 export function aimInto(p: Pulling, at: THREE.Vector3, frame: { o: V3; n: V3 }) {
   if (!p.side && p.typed === undefined) p.depth = at.clone().sub(v3(frame.o)).dot(v3(frame.n));
@@ -1891,7 +1894,7 @@ export class SketchTool implements Tool {
       const { depth, back } = pulled(ph, (t) => this.host.length(t));
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
       if (depth || back) this.solid(ph.shapes, f, depth, back);
-      label('H', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
+      label(pullName(f.n), ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
       if (onBody(ph.target)) labels[labels.length - 1][4] = pullOp(ph, true, depth, this.cuts(ph)); // what it does to the body
       if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side, !!ph.side && !this.reaching);
     }
