@@ -1168,7 +1168,7 @@ function imagePanel(ctx: UIContext, i: number): Node[] {
 function inheritedLabel(ctx: UIContext, body: Body) {
   const bare = { ...body, material: undefined };
   const m = setLook(ctx.doc, bare) as Material | undefined;
-  return m ? `From its group${m.name ? `: ${m.name}` : ''}` : 'None (its own colour)';
+  return m ? `From its group${m.name ? `: ${m.name}` : ''}` : 'Material: Colour only';
 }
 
 function selectionPanel(ctx: UIContext): Node[] {
