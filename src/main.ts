@@ -3374,7 +3374,12 @@ function bulgePanel(body: string, id: string, fresh = false) {
 function offsetTool() {
   const sketch = activeSketch();
   if (sketch && shapeSel.length) return offsetShapes(sketch);
-  const body = selected.find((id) => history.current.bodies.some((b) => b.id === id));
+  // a sketch selected alone (not drawing in it): all its shapes
+  const all = !sketching && history.current.sketches.find((s) => s.id === sketch)?.shapes.filter((q) => !q.construction);
+  if (sketch && all && all.length) return (shapeSel = all.map((q) => q.id)), offsetShapes(sketch);
+  // shell: Alt-picked faces are left open, their body hollowed
+  const faces = viewer.pickedFaceItems();
+  const body = faces[0]?.body ?? selected.find((id) => history.current.bodies.some((b) => b.id === id));
   if (!body) {
     pending = { tool: 'shell', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), offsetTool()) };
     toolHint = 'Offset: select sketch shapes first · or click a body to hollow it (shell) · [Esc] cancels';
@@ -3384,7 +3389,8 @@ function offsetTool() {
   const doc0 = history.current;
   const i = stepsOf(doc0, body);
   const path = ['bodies', String(i), 'features', String(doc0.bodies[i].features.length)];
-  const open: [number, number, number][] = [];
+  const open: [number, number, number][] = faces.filter((f) => f.body === body).map((f) => unplaced(bodyPlace(body), f.point.toArray()));
+  if (faces.length) viewer.dropPicked();
   commit(setIn(doc0, ['bodies', String(i), 'features'], [...doc0.bodies[i].features, { id: newId(), type: 'shell' as const, thickness: len(2), open }]));
   let ended = false;
   const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), walls());
