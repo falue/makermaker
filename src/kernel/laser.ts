@@ -50,7 +50,8 @@ export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): C
   try {
     const flat = shape.faces.filter((f) => f.geomType === 'PLANE');
     if (!flat.length) throw new Error('it has no flat face');
-    const picked = face && new FaceFinder().containsPoint(face.at).find(shape).find((f) => f.geomType === 'PLANE' && dot(unit(f.normalAt(face.at).toTuple() as V3), unit(face.n)) > 0.99);
+    // the view's point lies about 1e-3 mm near its face (replicad's own 1e-6 misses it far from the origin)
+    const picked = face && new FaceFinder().near(face.at, 1e-3).find(shape).find((f) => f.geomType === 'PLANE' && dot(unit(f.normalAt(face.at).toTuple() as V3), unit(face.n)) > 0.99);
     const chosen: Face = picked ?? flat.reduce((a, b) => (measureArea(b) > measureArea(a) ? b : a));
     const o = chosen.center.toTuple() as V3;
     const n = unit(chosen.normalAt(o).toTuple() as V3);

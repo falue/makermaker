@@ -65,6 +65,8 @@ export class FeatureError extends Error {
 type Circle = [number, number, number];
 
 const EPS = 1e-3;
+/** How near (mm) a point from the view's triangles lies to the face it was picked on (replicad's own 1e-6 misses it far from the origin). */
+const ON_FACE = 1e-3;
 
 /**
  * Features run in order, except unbaked finishes: they run last, so they also finish edges of later booleans (and
@@ -555,7 +557,7 @@ function sweep(shape: Shape3D | null, s: Of<'sweep'>): Shape3D {
 function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
   if (!shape) throw new Error('nothing to hollow yet');
   if (!(s.thickness > 0)) throw new Error('the wall thickness must be greater than 0');
-  if (s.open.length) return shape.shell(s.thickness, (f) => f.either(s.open.map((p) => (g: typeof f) => g.containsPoint(p))));
+  if (s.open.length) return shape.shell(s.thickness, (f) => f.either(s.open.map((p) => (g: typeof f) => g.near(p, ON_FACE))));
   const flat = shape.faces.filter((f) => f.geomType === 'PLANE').sort((a, b) => measureArea(b) - measureArea(a))[0];
   if (!flat) throw new Error('a closed shell needs a flat face (or pick faces to leave open)');
   const at = flat.center;
@@ -768,7 +770,7 @@ function piece(shape: Shape3D | null, s: Of<'piece'>): Shape3D {
 function push(shape: Shape3D | null, s: Of<'push'>): Shape3D {
   if (!shape) throw new Error('nothing to push or pull yet');
   if (!s.distance) throw new Error('the distance must not be 0');
-  const face = new FaceFinder().containsPoint(s.at).find(shape).find((f) => f.geomType === 'PLANE' && dot(f.normalAt(s.at).toTuple() as V3, s.n) > 0.99);
+  const face = new FaceFinder().near(s.at, ON_FACE).find(shape).find((f) => f.geomType === 'PLANE' && dot(f.normalAt(s.at).toTuple() as V3, s.n) > 0.99);
   if (!face) throw new Error('its face is gone, or no longer flat');
   const tool = basicFaceExtrusion(face.clone() as BRepFace, new Vector(scale(norm(s.n), s.distance))) as Shape3D;
   try {
@@ -785,7 +787,7 @@ function push(shape: Shape3D | null, s: Of<'push'>): Shape3D {
 function draft(shape: Shape3D | null, s: Of<'draft'>): Shape3D {
   if (!shape) throw new Error('nothing to draft yet');
   const oc = getOC();
-  const face = new FaceFinder().containsPoint(s.at).find(shape).find((f) => f.geomType === 'PLANE' && dot(f.normalAt(s.at).toTuple() as V3, s.n) > 0.99);
+  const face = new FaceFinder().near(s.at, ON_FACE).find(shape).find((f) => f.geomType === 'PLANE' && dot(f.normalAt(s.at).toTuple() as V3, s.n) > 0.99);
   if (!face) throw new Error('its face is gone, or no longer flat');
   // the pull direction: in the face, square to the hinge, from it towards the face
   let d = norm(cross(norm(s.n), norm(s.axis.dir)));
@@ -824,7 +826,7 @@ function bulge(shape: Shape3D | null, s: Of<'bulge'>): Shape3D {
   }
   if (!shape) throw new Error('nothing to bulge yet');
   const faces = shape.faces;
-  const hit = new FaceFinder().containsPoint(on.at).find(shape).find((f) => f.geomType === 'PLANE');
+  const hit = new FaceFinder().near(on.at, ON_FACE).find(shape).find((f) => f.geomType === 'PLANE');
   const i = hit ? faces.findIndex((f) => f.isSame(hit)) : -1;
   if (i < 0) throw new Error('its face is gone, or no longer flat');
   const face = faces[i];

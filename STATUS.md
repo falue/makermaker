@@ -32,17 +32,14 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 **Why not ask the solid everywhere.** It lives in the worker: every question is a round trip (`truePoint` waits up to 1.5 s), the worker is busy rebuilding while a drag runs, exact queries (`BRepExtrema`, `BRepGProp`) are far slower than a ray on the triangles, and hover must answer within the frame (50–60 fps goal). Mesh bodies (STL, OBJ, 3MF, GLB, SKP), section and crossing lines and a failed build have no solid at all.
 
 **Plan, in order.**
-1. Fix the bugs found on the way (A); they are not approximations.
+1. Fix the bugs found on the way (A); they are not approximations. Done.
 2. Exact data with each build: the worker sends, with each body's mesh, its edges as line / circle / arc / ellipse / spline (centre, axis, radius, ends), each face as plane / cylinder / cone / sphere / free (its parameters), keyed by the mesh's face and edge groups, plus volume, area and box. Snaps, centres, axes, face planes, face size, the Info panel, align and box joint read these on the main thread, at once and exact; only free-form faces still need `truePoint` at the click.
 3. Store picked edges, faces and planes from that data, not from the mesh (B).
 4. Sketch areas found on the true curves (C).
 5. Curves through import and export (E); the kernel features (D).
 6. Display: depth offsets in pixels, not mm (F).
 
-**A. Bugs found by the survey (not approximations)**
-- Face normals turned into the world twice on a turned body: `intersect` (src/viewer/viewer.ts:2910) already gives world normals, `faceItem` (:1099), `edgeLoop` (:3225), `pickFaceAt` (:3563) and `planeUnder` (src/viewer/sketch.ts:620) turn them again; `pickedFaceItems` (:1147) once. Wrong direction for push, draft, bulge, work plane on a face, laser face, extrude on a rotated body or group.
-- Bulge on a round face, its panel middle: `unplaced(pl, on.dir, true)` where `inWorld(pl, on.dir, true)` is meant (src/main.ts:3093).
-- Faces found again in the kernel by a point at replicad's default 1e-6 mm (`FaceFinder.containsPoint`), the point a Float32 triangle hit: push (src/kernel/build.ts:771), draft (:788), bulge (:827), shell open faces (:558), laser face (src/kernel/laser.ts:53). Far from the origin "its face is gone", shell faces silently not opened, laser silently on the biggest face. Coat uses 1e-3 (:604).
+**A. Bugs found by the survey (not approximations)**: fixed 2026-11-07. Face normals are turned into the world once (`intersect`, and `faceItemAt` for its own ray), no longer twice on a turned body; the round bulge's panel middle turns its axis into the world; push, draft, bulge, shell's open faces and the laser face find their face within 1e-3 mm (`ON_FACE`), as coat did.
 
 **B. Stored or used as results, from triangles**
 - Fillet / chamfer edges stored as mesh polylines (src/main.ts:342), matched in the kernel within 0.05 mm (src/kernel/build.ts:1079, 1148): a round edge's middle is up to the mesh detail off its chord; at detail ≥ 0.05 a fillet can lose its edge.

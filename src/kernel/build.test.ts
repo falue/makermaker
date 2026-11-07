@@ -392,6 +392,16 @@ describe('buildBody', () => {
     body.done();
   });
 
+  it('finds a pushed face far from the origin by a point only as exact as the view has it (Float32)', () => {
+    const block: BuildFeature = { id: 'b', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 5000.3, y: 0, w: 20, h: 20, r: 0, rot: 0 }], depth: 10, mode: 'add', through: false };
+    // its right side at x 5010.3, the picked point as the view's triangles give it
+    const at: [number, number, number] = [Math.fround(5010.3), Math.fround(2.1), Math.fround(4.7)];
+    const shape = buildBody([block, { id: 'p', type: 'push', at, n: [1, 0, 0], distance: 5 } as BuildFeature]);
+    const volume = measureVolume(shape);
+    shape.delete();
+    expect(volume).toBeCloseTo(25 * 20 * 10, 1);
+  });
+
   it('rounds each corner by its own radius, one too big clamped there without failing', () => {
     const shape = buildBody([{ id: 'r', type: 'extrude', plane: ground, profiles: [{ id: 'p', kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: 0, rot: 0, rs: [0, 5, 50, 0] }], depth: 1, mode: 'add', through: false } as BuildFeature]);
     const volume = measureVolume(shape);
