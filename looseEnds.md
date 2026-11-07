@@ -163,7 +163,6 @@ Answers assumed where a request left a question open.
 - Lines and All lines: a section shows its cut copies shaded, and the extra views beside the main one draw Lines as classic hidden lines (each body hiding the others too).
 
 ## Group origins
-- Inside a turned group the camera still orbits around world Z, so a cube side looked at along the group can be rolled; the orbit controls fix their up axis when made.
 - Drag steps, Shift's axis steps and the move axes still follow the world, not the group's turned origin.
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
 

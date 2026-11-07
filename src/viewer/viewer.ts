@@ -3106,6 +3106,9 @@ export class Viewer implements ToolView {
     f.decompose(new THREE.Vector3(), this.frameTurn, new THREE.Vector3());
     for (const o of [this.grid, this.axes]) Object.assign(o, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(f);
     this.gridLook.key = '';
+    // the view stands upright to it (its Z up on screen), orbiting around its Z
+    this.upright();
+    this.controls.update();
     this.render();
   }
 
@@ -5247,16 +5250,18 @@ export class Viewer implements ToolView {
         this.leaveSideView();
       }
       const target = this.controls.target;
-      const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(target).applyQuaternion(toCube));
+      // in the cube's frame: inside a turned group, turned as the group
+      const back = this.frameTurn.clone().invert();
+      const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(target).applyQuaternion(back).applyQuaternion(toCube));
       // over a pole it goes on upside down (up flipped) instead of stopping there; phi < 0: that side
-      const flip = this.camera.up.z < 0;
+      const flip = this.camera.up.clone().applyQuaternion(back).z < 0;
       s.theta -= (flip ? -1 : 1) * e.movementX * dragSpeed;
       let phi = THREE.MathUtils.euclideanModulo((flip ? -s.phi : s.phi) - e.movementY * dragSpeed + Math.PI, 2 * Math.PI) - Math.PI;
       phi = Math.sign(phi || 1) * THREE.MathUtils.clamp(Math.abs(phi), 1e-6, Math.PI - 1e-6); // never on the pole itself
       if (phi < 0 !== flip) s.theta += Math.PI;
       s.phi = Math.abs(phi);
       this.upright(phi > 0);
-      const offset = new THREE.Vector3().setFromSpherical(s).applyQuaternion(toCube.clone().invert());
+      const offset = new THREE.Vector3().setFromSpherical(s).applyQuaternion(toCube.clone().invert()).applyQuaternion(this.frameTurn);
       this.camera.position.copy(target).add(offset);
       this.controls.update();
     };
@@ -5292,9 +5297,13 @@ export class Viewer implements ToolView {
   /** Looks at the neighbouring side: the one to the right / left / above / below on screen. */
   private turn(side: 'up' | 'down' | 'left' | 'right') {
     const [x, y] = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] }[side];
-    const dir = this.screenAxis(x, y);
-    if (dir.z) dir.addScaledVector(this.camera.position.clone().sub(this.controls.target).normalize(), 1e-3); // off the pole, towards the old view
-    this.viewFrom(dir);
+    // the axis nearest that screen direction, inside a turned group its axes
+    const back = this.frameTurn.clone().invert();
+    const v = this.screenDir(x, y).applyQuaternion(back);
+    const i = [v.x, v.y, v.z].reduce((best, c, k, all) => (Math.abs(c) > Math.abs(all[best]) ? k : best), 0);
+    const own = new THREE.Vector3().setComponent(i, Math.sign(v.getComponent(i)));
+    if (own.z) own.addScaledVector(this.camera.position.clone().sub(this.controls.target).normalize().applyQuaternion(back), 1e-3); // off the pole, towards the old view
+    this.viewFrom(own.applyQuaternion(this.frameTurn));
   }
 
   /** The user rotated away from a cube side: hide the arrows, back to perspective if the cube switched to orthographic. */
@@ -5306,9 +5315,16 @@ export class Viewer implements ToolView {
     this.setOrthographic(false);
   }
 
-  /** Both cameras' up: Z, or -Z after the view cube was dragged over a pole. */
+  /**
+   * Both cameras' up: Z (inside a turned group its Z: the view orbits upright to it), or -Z after the view cube was
+   * dragged over a pole. The orbit controls keep the up they were made with, so theirs is set too.
+   */
   private upright(on = true) {
-    for (const c of [this.perspective, this.orthographic]) c.up.set(0, 0, on ? 1 : -1);
+    const up = new THREE.Vector3(0, 0, on ? 1 : -1).applyQuaternion(this.frameTurn);
+    for (const c of [this.perspective, this.orthographic]) c.up.copy(up);
+    const own = this.controls as unknown as { _quat: THREE.Quaternion; _quatInverse: THREE.Quaternion };
+    own._quat.setFromUnitVectors(up, new THREE.Vector3(0, 1, 0));
+    own._quatInverse.copy(own._quat).invert();
   }
 
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
