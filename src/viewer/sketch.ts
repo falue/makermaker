@@ -10,7 +10,7 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import { comboText, keysOf, MODIFIER_NAMES, pressed, role, roleKey, roleKeyName, type Action, type ModEvent } from '../ui/keys';
+import { comboText, keysOf, MODIFIER_NAMES, MODIFIER_SIGNS, pressed, role, roleKey, roleKeyName, type Action, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import { inName } from '../doc/expr';
@@ -2087,7 +2087,7 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** A size label in the view; `t`: T and D reach for it; `op`: what pulling on a body does, with the key that switches it. */
 export function sizeLabel(text: string, active: boolean, t = false, op?: PullOp) {
   const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: sizeHtml(caretHtml(text), true) });
-  if (op) el.append(Object.assign(document.createElement('small'), { className: `op ${op}`, innerHTML: icon(OP_ICONS[op]), title: `${PULL_OPS[op]} · tap ${MODIFIER_NAMES[roleKey('centre')]}: join / cut / new body` }));
+  if (op) el.append(Object.assign(document.createElement('small'), { className: `op ${op}`, innerHTML: `${icon(OP_ICONS[op])}${MODIFIER_SIGNS[roleKey('centre')]}`, title: `${PULL_OPS[op]} · tap ${MODIFIER_NAMES[roleKey('centre')]}: join / cut / new body` }));
   if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }

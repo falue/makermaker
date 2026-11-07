@@ -142,6 +142,8 @@ export const sameCombo = (a: Combo, b: Combo) => a.key === b.key && !!a.mod === 
 /** A modifier key. */
 export type Modifier = 'shift' | 'ctrl' | 'alt' | 'meta';
 export const MODIFIER_NAMES: Record<Modifier, string> = { shift: 'Shift', ctrl: 'Ctrl', alt: MAC ? '⌥ Alt' : 'Alt', meta: MAC ? '⌘' : 'Win' };
+/** The same, as short as the Mac's key caps print them. */
+export const MODIFIER_SIGNS: Record<Modifier, string> = MAC ? { shift: '⇧', ctrl: '⌃', alt: '⌥', meta: '⌘' } : MODIFIER_NAMES;
 
 /**
  * What each modifier means, in one place (Settings → Hotkeys changes them). At a click it changes what is picked,
