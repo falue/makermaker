@@ -156,3 +156,11 @@ export function displayText(x: Expr, unit: Unit): string {
 }
 
 export const isPlain = (text: string) => PLAIN.test(text);
+
+/** Expression `e` with the other sign: a leading minus goes, a number (with its unit) gets one (0 stays 0), else `-( )` round it. */
+export function negated(e: string): string {
+  const t = e.trim();
+  if (t.startsWith('-')) return t.slice(1).trim();
+  return /^(\d+\.?\d*|\.\d+)\s*[a-z]*$/i.test(t) ? (parseFloat(t) ? `-${t}` : t) : `-(${t})`;
+}
+

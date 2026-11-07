@@ -193,7 +193,7 @@ export function cornerRadii(p: P, keep = 0.999): number[] {
 export function roundedOutline(p: P, steps = 8): UV[] {
   const q = roundable(p);
   const radii = cornerRadii(p);
-  if (!q || !radii.some((r) => r > 0)) return flattened(p);
+  if (!q || !radii.some((r) => r !== 0)) return flattened(p);
   const n = q.pts.length;
   const unit = (a: UV, b: UV): UV => {
     const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;

@@ -1,4 +1,4 @@
-import { displayText, fmt, inName, isPlain, UNITS } from '../doc/expr';
+import { displayText, fmt, inName, isPlain, negated, UNITS } from '../doc/expr';
 import { fitting, THREADS } from '../doc/threads';
 import { getIn, setIn } from '../doc/resolve';
 import { lookOf, setLook, STANDARD_SECTIONS } from '../doc/materials';
@@ -1555,11 +1555,14 @@ function cornerFields(ctx: UIContext, path: string, p: Extract<Profile, { kind: 
   const all = p.r ?? zero;
   const n = p.kind === 'rect' ? 4 : p.kind === 'polygon' ? p.pts.length : Math.max(3, Math.round(Number(p.sides.e) || 3));
   const chain = tool('link', p.rs ? 'Each corner its own R: click to give all one R' : 'One R for all corners: click to give each its own', () => ctx.setValue([...keys, 'rs'], p.rs ? undefined : Array.from({ length: n }, () => all)), !p.rs);
-  // R a radius; below 0 (C) a chamfer that long along each side
+  // R a radius; stored below 0, C: a chamfer that long along each side, shown positive (typed below 0: the other kind;
+  // a drag through 0 goes on into it, as it counts from the kind the field showed)
   const kind = (x: Expr) => (x.e.trim().startsWith('-') ? 'C' : 'R');
   const field = (key: string, label: string, value: Expr) => {
-    const el = exprField(ctx, `${path}.${key}`, label, false, { value, set: (x, live) => ctx.setValue([...keys, ...key.split('.')], x, live), error: ctx.exprErrors.get(`${path}.${key}`) });
-    el.title = 'R: the corner rounded by this radius · below 0 (C): chamfered, this long along each side';
+    const c = kind(value) === 'C';
+    const flip = (x: Expr): Expr => (c ? { ...x, e: negated(x.e) } : x);
+    const el = exprField(ctx, `${path}.${key}`, label, false, { value: flip(value), set: (x, live) => ctx.setValue([...keys, ...key.split('.')], flip(x), live), error: ctx.exprErrors.get(`${path}.${key}`) });
+    el.title = 'R: the corner rounded by this radius · C: chamfered, this long along each side · below 0: the other kind';
     return el;
   };
   if (!p.rs) return [h('div', { className: 'trio' }, field('r', kind(all), all), chain)];

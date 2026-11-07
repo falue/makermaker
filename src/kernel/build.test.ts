@@ -405,6 +405,9 @@ describe('buildBody', () => {
     const volume = measureVolume(shape);
     shape.delete();
     expect(volume).toBeCloseTo(800 - (4 * 4) / 2, 3); // the corner's triangle gone
+    const all = buildBody([{ id: 'r', type: 'extrude', plane: ground, profiles: [{ id: 'p', kind: 'rect', x: 0, y: 0, w: 40, h: 20, r: -2, rot: 0 }], depth: 1, mode: 'add', through: false } as BuildFeature]);
+    expect(measureVolume(all)).toBeCloseTo(800 - 4 * 2, 3); // one R for all, below 0: every corner
+    all.delete();
   });
 
   it('extrudes areas sharing a curved side together (lamp2.mmk: a drop beside a circle, closed by a tangent)', () => {

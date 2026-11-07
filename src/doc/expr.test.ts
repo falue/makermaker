@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayText, evalLength, inName } from './expr';
+import { displayText, evalLength, inName, negated } from './expr';
 import { paramLookup } from './resolve';
 import type { Expr, Unit } from './types';
 
@@ -65,3 +65,10 @@ describe('resolve', () => {
     expect(errors.get('q.rot')).toMatch('no unit');
   });
 });
+
+describe('negated', () => {
+  it('flips the sign: a leading minus goes, a number gets one, 0 stays, anything else gets -( )', () => {
+    expect(['-3', '4', '2.5mm', '0', '$r', '-$r'].map(negated)).toEqual(['3', '-4', '-2.5mm', '0', '-($r)', '$r']);
+  });
+});
+

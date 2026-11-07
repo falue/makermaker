@@ -77,6 +77,8 @@ describe('chamfered corners', () => {
     expect(cornerLimits(rect)[0].bevel).toBeCloseTo(10, 9);
     // the chamfered corner (bottom left) cut straight across: 3 up its left side, 3 along its bottom
     expect(roundedOutline(rect, 4).slice(0, 2)).toEqual([[-20, -7], [-17, -10]]);
+    // only chamfers: drawn too
+    expect(roundedOutline({ ...rect, rs: undefined, r: -2 })).toHaveLength(8);
   });
 });
 

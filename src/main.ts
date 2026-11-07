@@ -1,7 +1,7 @@
 import { zipSync } from 'fflate';
 import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
-import { evalLength, evalQuantity, fmt, inName, isPlain, UNITS } from './doc/expr';
+import { evalLength, evalQuantity, fmt, inName, isPlain, negated, UNITS } from './doc/expr';
 import { followSizes, sideNow, sized } from './doc/sizes';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
@@ -6378,9 +6378,7 @@ function render() {
       // a drag past 0 has turned it into the other kind already: the value still counts from the kind it began as
       const f = history.current.bodies[+path[1]]?.features[+path[3]];
       const flip = f?.type === 'finish' && f.mode !== from;
-      const e = value.e.trim();
-      const negated = e.startsWith('-') ? e.slice(1).trim() : /^(\d+\.?\d*|\.\d+)\s*[a-z]*$/i.test(e) ? (parseFloat(e) ? `-${e}` : e) : `-(${e})`;
-      setValue(path, flip ? { ...value, e: negated } : value, live);
+      setValue(path, flip ? { ...value, e: negated(value.e) } : value, live);
     },
     shapeRef: refOf,
     linkSize: (id) => linkedSizes.has(id),
