@@ -2193,6 +2193,9 @@ export function divideMore(key: string, more: boolean) {
   SketchTool.divisions.set(key, Math.max(circle ? 2 : 1, (SketchTool.divisions.get(key) ?? (circle ? 4 : 1)) + (more ? 1 : -1)));
 }
 
+/** Drawn on a face, in front of it: a depth offset towards the viewer, the same at any zoom (bodies sit 1 / 1 behind theirs). */
+export const FRONT = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 } as const;
+
 /** A shape's outline as segments (world), its corners rounded or chamfered as drawn; a line stays open. */
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {
   const pts = (p.kind === 'circle' ? shape2d(p).getPoints(48).map((q): UV => [q.x, q.y]) : roundedOutline(p)).map((q) => v3(toWorld(f, ...q)));
@@ -2226,13 +2229,13 @@ export function shape2d(p: DrawnProfile): THREE.Shape {
 }
 
 /**
- * The shape's outline on the frame's plane, `width` px wide, lifted `lift` mm along the normal (0: drawn over
- * everything, for previews); construction lines dashed; `opacity` below 1: faint.
+ * The shape's outline on the frame's plane, `width` px wide; `onFace`: depth tested, pulled towards the viewer by a
+ * depth offset (no shift in mm: it lies on its face at any zoom), else drawn over everything (previews); construction
+ * lines dashed; `opacity` below 1: faint.
  */
-export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, lift = 0, dashMm = 1.5, width = 2, opacity = 1) {
-  const n = v3(f.n).multiplyScalar(lift);
-  const pts = (p.kind === 'line' ? flattened(p).map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)).add(n));
+export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, onFace = false, dashMm = 1.5, width = 2, opacity = 1) {
+  const pts = (p.kind === 'line' ? flattened(p).map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)));
   if (p.kind !== 'line') pts.push(pts[0]); // closed by its own last segment
-  const material = new LineMaterial({ color, linewidth: width, depthTest: lift !== 0, dashed: !!p.construction, dashSize: dashMm, gapSize: dashMm, transparent: opacity < 1, opacity });
+  const material = new LineMaterial({ color, linewidth: width, depthTest: onFace, ...(onFace ? FRONT : {}), dashed: !!p.construction, dashSize: dashMm, gapSize: dashMm, transparent: opacity < 1, opacity });
   return new Line2(new LineGeometry().setPositions(pts.flatMap((v) => v.toArray())), material).computeLineDistances();
 }

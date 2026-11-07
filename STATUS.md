@@ -37,7 +37,7 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 3. Store picked edges, faces and planes from that data, not from the mesh (B).
 4. Sketch areas found on the true curves (C).
 5. Curves through import and export (E); the kernel features (D).
-6. Display: depth offsets in pixels, not mm (F).
+6. Display: depth offsets in pixels, not mm (F). The offsets done 2026-11-07: sketch outlines, area fills and section lines lie on their plane, in front by a depth offset (`FRONT` in src/viewer/sketch.ts), no longer 0.05 / 0.08 / 0.02 mm towards the viewer; the rest of F is open.
 
 **A. Bugs found by the survey (not approximations)**: fixed 2026-11-07. Face normals are turned into the world once (`intersect`, and `faceItemAt` for its own ray), no longer twice on a turned body; the round bulge's panel middle turns its axis into the world; push, draft, bulge, shell's open faces and the laser face find their face within 1e-3 mm (`ON_FACE`), as coat did.
 
@@ -83,7 +83,7 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 - Unavoidable: STL / 3MF are meshes (0.01 mm), imported meshes have no solid, STEP faceted bodies stay faceted. STEP import and export are exact otherwise, but export carries D.
 
 **F. Display only**
-- Sketches drawn shifted towards the viewer by fixed mm: outlines 0.05 (viewer.ts:1292), area fills 0.08 (extrude.ts:358), section lines 0.02 (:3794): at close zoom they stand off the face and seem to overlap edges. Body materials use `polygonOffset` 1/1 (:2153). Better: offsets in pixels (depth offset or scaled by zoom).
+- Done: sketch outlines, area fills and section lines were shifted towards the viewer by fixed mm (0.05, 0.08, 0.02): at close zoom they stood off the face. Now on their plane with a depth offset (`FRONT`), bodies keeping theirs (`polygonOffset` 1/1).
 - Circles drawn as 96 pieces whatever their size (sketch.ts:2155, 2191): Ø 1000 misses the body edge by ~1 mm.
 - Camera near 1 / far 50000 (viewer.ts:431); the section cap plane 1e4 mm (:3702); clash meshes at a fixed 0.05 (src/kernel/clash.ts:44); crossing snaps skipped above 300k triangles (viewer.ts:2952).
 - Tolerances fixed at 0.05 / 0.02 mm that do not follow Settings → mesh detail fail at 0.12: `faceAt`, `axisAt`, edge matching, `edgeLoop` (viewer.ts:3207).

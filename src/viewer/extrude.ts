@@ -5,7 +5,7 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, onBody, OP_HINT, planeHit, pullBy, pullCuts, pulled, pullKey, pullOp, pullTap, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, FRONT, onBody, OP_HINT, planeHit, pullBy, pullCuts, pulled, pullKey, pullOp, pullTap, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -368,12 +368,12 @@ export class ExtrudeTool implements Tool {
 
   /** A fill of an area on its sketch's plane. */
   private fill(f: Frame, a: AreaMesh, color: number, opacity: number) {
-    const lift = v3(f.n).multiplyScalar(0.08);
     const pts: number[] = [];
-    for (let k = 0; k < a.tris.length; k += 2) pts.push(...v3(toWorld(f, a.tris[k], a.tris[k + 1])).add(lift).toArray());
+    for (let k = 0; k < a.tris.length; k += 2) pts.push(...v3(toWorld(f, a.tris[k], a.tris[k + 1])).toArray());
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    this.view.overlay.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false })));
+    // on its plane, in front of the face it lies on by a depth offset (no shift in mm)
+    this.view.overlay.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false, ...FRONT })));
   }
 
   /** Areas pulled from `from` to `to` along their plane's normal, translucent (see `prismOf`). */

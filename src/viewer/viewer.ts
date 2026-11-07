@@ -31,7 +31,7 @@ import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
 import { caret, caretHtml, restOf } from '../ui/complete';
 import type { Settings } from '../ui/settings';
-import { divideMore, edgeKey, linePoints, outline, planeHit, shape2d, sideKey, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
+import { divideMore, edgeKey, FRONT, linePoints, outline, planeHit, shape2d, sideKey, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 import { picksFace, pressed, role, toggles, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -1307,8 +1307,8 @@ export class Viewer implements ToolView {
   }
 
   /** Sketch outlines (the selected sketch darker, its selected shapes orange) and the handles of a single selected shape. */
-  private renderSketches(raised = 0.05) {
-    const lift = this.focus ? 0 : raised; // a sketch group open: outlines over everything, the see-through bodies included
+  private renderSketches() {
+    const onFace = !this.focus; // a sketch group open: outlines over everything, the see-through bodies included
     for (const o of this.sketchView.children) {
       (o as THREE.Line).geometry.dispose();
       ((o as THREE.Line).material as THREE.Material).dispose();
@@ -1321,8 +1321,8 @@ export class Viewer implements ToolView {
         const color = s.id === this.activeSketch && this.selectedShapes.includes(p.id) ? 0xff8c1a : s.color;
         const q = this.overrides.get(p.id) ?? p;
         const faint = this.focus ? s.id !== this.focus.sketch || !inGroup(s, p, this.focus.group) : !!this.kept && !this.kept.has(s.id); // outside the open (sub-)group, or the selection's group
-        if (this.moving && (q !== p || by)) this.sketchView.add(outline(p, s.frame, 0x8a8f98, lift)); // where it was
-        this.sketchView.add(outline(q, frame, color, lift, 1.5, 2, faint ? 0.25 : 1));
+        if (this.moving && (q !== p || by)) this.sketchView.add(outline(p, s.frame, 0x8a8f98, onFace)); // where it was
+        this.sketchView.add(outline(q, frame, color, onFace, 1.5, 2, faint ? 0.25 : 1));
       }
     }
     const refs = this.tool ? [] : this.refMarks();
@@ -1451,7 +1451,7 @@ export class Viewer implements ToolView {
     for (const o of this.sketchHover.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
     this.sketchHover.clear();
     const s = id ? this.sketches.find((k) => k.id === id) : undefined;
-    for (const q of s?.shapes ?? []) this.sketchHover.add(outline(q, s!.frame, 0xff8c1a, 0, 1.5, 3));
+    for (const q of s?.shapes ?? []) this.sketchHover.add(outline(q, s!.frame, 0xff8c1a, false, 1.5, 3));
     this.sketchHover.traverse((o) => (o.renderOrder = 1e6));
     this.render();
   }
@@ -1469,7 +1469,7 @@ export class Viewer implements ToolView {
       const fill = new THREE.Mesh(new THREE.ShapeGeometry(shape, 32), new THREE.MeshBasicMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.35, depthTest: false, side: THREE.DoubleSide }));
       fill.matrixAutoUpdate = false;
       fill.matrix.makeBasis(new THREE.Vector3(...f.x), new THREE.Vector3(...f.y), new THREE.Vector3(...f.n)).setPosition(...f.o);
-      this.sketchMark.add(fill, outline(at.q, f, 0xff8c1a, 0, 1.5, 4));
+      this.sketchMark.add(fill, outline(at.q, f, 0xff8c1a, false, 1.5, 4));
       this.sketchMark.traverse((o) => (o.renderOrder = 1e6));
     }
     this.render();
@@ -3868,10 +3868,10 @@ export class Viewer implements ToolView {
         if (last) last.onAfterRender = (r) => r.clearStencil();
         // every body's cut outline, also where another covers it: a line where bodies meet
         if (segs.length) {
-          const lift = plane.normal.clone().multiplyScalar(-0.02); // towards the viewer, off the cap
-          const m = new LineMaterial({ color: line, linewidth: 1.5, clippingPlanes: others });
+          // in front of the cap by a depth offset, on it at any zoom
+          const m = new LineMaterial({ color: line, linewidth: 1.5, clippingPlanes: others, ...FRONT });
           m.resolution.set(this.el.clientWidth, this.el.clientHeight);
-          const lines = new LineSegments2(new LineSegmentsGeometry().setPositions(segs.flatMap(([a, b]) => [...a.clone().add(lift).toArray(), ...b.clone().add(lift).toArray()])), m);
+          const lines = new LineSegments2(new LineSegmentsGeometry().setPositions(segs.flatMap(([a, b]) => [...a.toArray(), ...b.toArray()])), m);
           lines.userData.cap = true;
           lines.renderOrder = order + 0.75;
           this.sectionView.add(lines);
