@@ -27,6 +27,7 @@ import { applyLook, boxUv, glowLight, needsUv, pictureLoaded, renderMaterial, sp
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import type { Exact, ExactEdge } from '../kernel/exact';
+import { farthestOnPath, nearestOnPath } from '../kernel/paths';
 import { turnedBox } from './turnedBox';
 import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
@@ -3481,7 +3482,7 @@ export class Viewer implements ToolView {
     return v.clone().transformDirection(this.bodies.get(body)?.matrix.clone().invert() ?? new THREE.Matrix4());
   }
 
-  /** The nearest point on a body's true edge (the kernel's line, or its circle all round) within `reach` mm of `at` (world); null: none there. */
+  /** The nearest point on a body's true edge (the kernel's line, its circle all round, an ellipse's or free curve's path) within `reach` mm of `at` (world); null: none there. */
   onBodyEdge(at: THREE.Vector3, reach = 0.1) {
     let best: [number, THREE.Vector3] | null = null;
     for (const [id, g] of this.bodies) {
@@ -3496,8 +3497,27 @@ export class Viewer implements ToolView {
           const out = p.clone().sub(c).projectOnPlane(n);
           if (out.lengthSq() > 1e-18) q = c.addScaledVector(out.normalize(), e.r);
         }
+        // an ellipse or free curve: on its path (the cubics between its exact points)
+        if ((e.kind === 'ellipse' || e.kind === 'curve') && e.path.pts.length > 1) q = new THREE.Vector3(...nearestOnPath(e.path, p.toArray()));
         const d = q ? q.distanceTo(p) : Infinity;
         if (q && d < reach && (!best || d < best[0])) best = [d, q.applyMatrix4(g.matrix)];
+      }
+    }
+    return best?.[1] ?? null;
+  }
+
+  /** The top along world direction `w` of the ellipse or free body edge nearest `at` within `reach` mm (on its path); null: none there. */
+  bodyCurveTop(at: THREE.Vector3, w: THREE.Vector3, reach: number): THREE.Vector3 | null {
+    let best: [number, THREE.Vector3] | null = null;
+    for (const [id, g] of this.bodies) {
+      const exact = g.children.find((c) => c.userData.exact)?.userData.exact as Exact | undefined;
+      if (!exact || this.hidden.has(id)) continue;
+      const p = at.clone().applyMatrix4(g.matrix.clone().invert()).toArray();
+      const local = w.clone().transformDirection(g.matrix.clone().invert()).toArray();
+      for (const e of exact.edges) {
+        if ((e.kind !== 'ellipse' && e.kind !== 'curve') || e.path.pts.length < 2) continue;
+        const d = new THREE.Vector3(...nearestOnPath(e.path, p)).distanceTo(new THREE.Vector3(...p));
+        if (d < reach && (!best || d < best[0])) best = [d, new THREE.Vector3(...farthestOnPath(e.path, local)).applyMatrix4(g.matrix)];
       }
     }
     return best?.[1] ?? null;

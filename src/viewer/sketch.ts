@@ -110,6 +110,7 @@ export interface ToolView {
   /** The point on the kernel's true line or circle of the body edge within `reach` mm of `at` (world); null: none (a mesh body). */
   onBodyEdge(at: THREE.Vector3, reach?: number): THREE.Vector3 | null;
   bodyCircleAt(at: THREE.Vector3, reach: number): { c: THREE.Vector3; n: THREE.Vector3; r: number } | null;
+  bodyCurveTop(at: THREE.Vector3, w: THREE.Vector3, reach: number): THREE.Vector3 | null;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   toScreen(p: THREE.Vector3): [number, number];
@@ -1077,13 +1078,13 @@ export class SketchTool implements Tool {
           if (top) tops.push([top, along]);
         }
       } else if (!l.shape && !l.guide && l.segs.length > 1) {
-        // a round body edge: on the kernel's circle, where its points' outermost one lies near it (else that point: an end)
+        // a curved body edge: on the kernel's circle or path, where its points' outermost one lies near it (else that point: an end)
         const pts = [l.segs[0][0], ...l.segs.map((g) => g[1])];
         const reach = Math.max(...l.segs.map(([a, b]) => a.distanceTo(b)));
         for (const [w, along] of sides) {
           const far = pts.reduce((a, b) => (b.dot(w) > a.dot(w) ? b : a));
           const k = this.view.bodyCircleAt(far, reach);
-          const top = k && topOf(k.c, k.n, k.r, w);
+          const top = k ? topOf(k.c, k.n, k.r, w) : this.view.bodyCurveTop(far, w, reach);
           tops.push([top && top.distanceTo(far) <= reach ? top : far, along]);
         }
       }

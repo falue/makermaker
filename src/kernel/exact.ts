@@ -1,4 +1,5 @@
 import { EXACT_BOXED, EXACT_MOST } from './limits';
+import { nearestOnPath, type EdgePath } from './paths';
 import { cast, getOC, measureArea, measureLength, measureVolume, type Edge, type Face, type Shape3D, type Vector } from 'replicad';
 
 type V3 = [number, number, number];
@@ -10,8 +11,14 @@ type V3 = [number, number, number];
  */
 export type ExactFace = ({ kind: 'plane'; at: V3; n: V3 } | { kind: 'cylinder'; at: V3; dir: V3; r: number; shaft: boolean } | { kind: 'sphere'; c: V3; r: number } | { kind: 'free' }) & { area?: number; mid?: V3 };
 
-/** An edge's curve, exact (body coordinates), from end `a` to end `b`: a line, a circle or arc (centre, axis, radius, the point half way along it), an ellipse, else a curve; and its length. */
-export type ExactEdge = ({ kind: 'line' } | { kind: 'circle'; c: V3; n: V3; r: number; mid: V3 } | { kind: 'ellipse'; c: V3; n: V3; x: V3; major: number; minor: number } | { kind: 'curve' }) & { a: V3; b: V3; length: number };
+/**
+ * An edge's curve, exact (body coordinates), from end `a` to end `b`: a line, a circle or arc (centre, axis, radius,
+ * the point half way along it), an ellipse, else a curve; and its length. An ellipse or curve also as `path`: points on
+ * it with its directions there (unit), close enough that the cubic between two (Hermite) stays on it within 1e-6 mm.
+ */
+export type ExactEdge = ({ kind: 'line' } | { kind: 'circle'; c: V3; n: V3; r: number; mid: V3 } | { kind: 'ellipse'; c: V3; n: V3; x: V3; major: number; minor: number; path: EdgePath } | { kind: 'curve'; path: EdgePath }) & { a: V3; b: V3; length: number };
+
+
 
 /** A body's exact data with its mesh: per mesh face group and edge group (in their order), its volume and area, and its tight box (null: too many faces to find it fast; the mesh's stands in). */
 export interface Exact {
@@ -120,12 +127,43 @@ function faceOf(f: Face | undefined): ExactFace {
   }
 }
 
+/**
+ * A free edge's `EdgePath`: halved until the edge's points a quarter, half and three quarters between two neighbours
+ * lie on the cubic through them along their directions (Hermite) within `tol` mm (at most `most` points).
+ */
+function pathOf(e: Edge, tol = 1e-6, most = 1024): EdgePath {
+  const known = new Map<number, [V3, V3]>();
+  const read = (t: number) => {
+    if (!known.has(t)) {
+      const d = v3(e.tangentAt(t));
+      const l = Math.hypot(...d) || 1;
+      known.set(t, [v3(e.pointAt(t)), [d[0] / l, d[1] / l, d[2] / l]]);
+    }
+    return known.get(t)!;
+  };
+  const [at, dir] = [(t: number) => read(t)[0], (t: number) => read(t)[1]];
+  const ts = [0, 1];
+  for (let k = 0; k + 1 < ts.length && ts.length < most; ) {
+    const [u, w] = [ts[k], ts[k + 1]];
+    // the edge's points a quarter, half and three quarters along: on the cubic within `tol`
+    const piece = { pts: [at(u), at(w)], dirs: [dir(u), dir(w)] };
+    const off = [0.25, 0.5, 0.75].some((f) => {
+      const q = at(u + (w - u) * f);
+      const p = nearestOnPath(piece, q);
+      return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) > tol;
+    });
+    if (off && w - u > 1e-9) ts.splice(k + 1, 0, (u + w) / 2);
+    else k++;
+  }
+  return { pts: ts.map(at), dirs: ts.map(dir) };
+}
+
 function edgeOf(e: Edge | undefined): ExactEdge {
-  if (!e) return { kind: 'curve', a: [0, 0, 0], b: [0, 0, 0], length: 0 };
+  if (!e) return { kind: 'curve', path: { pts: [], dirs: [] }, a: [0, 0, 0], b: [0, 0, 0], length: 0 };
   const ends = { a: v3(e.startPoint), b: v3(e.endPoint), length: measureLength(e) };
   const type = e.geomType;
   if (type === 'LINE') return { kind: 'line', ...ends };
-  if (type !== 'CIRCLE' && type !== 'ELLIPSE') return { kind: 'curve', ...ends };
+  if (type !== 'CIRCLE' && type !== 'ELLIPSE') return { kind: 'curve', path: pathOf(e), ...ends };
   const curve = new (getOC().BRepAdaptor_Curve)(e.wrapped);
   try {
     if (type === 'CIRCLE') {
@@ -138,7 +176,7 @@ function edgeOf(e: Edge | undefined): ExactEdge {
     }
     const el = curve.Ellipse();
     const [ax, xa] = [el.Axis(), el.XAxis()];
-    const out: ExactEdge = { kind: 'ellipse', c: read(el.Location()), n: read(ax.Direction()), x: read(xa.Direction()), major: el.MajorRadius(), minor: el.MinorRadius(), ...ends };
+    const out: ExactEdge = { kind: 'ellipse', c: read(el.Location()), n: read(ax.Direction()), x: read(xa.Direction()), major: el.MajorRadius(), minor: el.MinorRadius(), path: pathOf(e), ...ends };
     ax.delete();
     xa.delete();
     el.delete();

@@ -54,3 +54,35 @@ describe('print check on the solid', () => {
     pair.delete();
   });
 });
+
+describe('free edges', () => {
+  it('a bezier edge comes with a path the true edge lies on within 1e-6 mm, both ways', async () => {
+    const { draw } = await import('replicad');
+    const { nearestOnPath, hermite } = await import('./paths');
+    const shape = draw([0, 0]).cubicBezierCurveTo([40, 0], [5, 35], [40, 30]).lineTo([0, 30]).close().sketchOnPlane().extrude(5) as Parameters<typeof meshBody>[0];
+    const m = meshBody(shape);
+    const k = m.exact!.edges.findIndex((e) => e.kind === 'curve');
+    const e = m.exact!.edges[k] as Extract<NonNullable<typeof m.exact>['edges'][number], { kind: 'curve' }>;
+    const edge = shape.edges.find((x) => x.geomType === 'BEZIER_CURVE' || x.geomType === 'BSPLINE_CURVE')!;
+    const dense = Array.from({ length: 20001 }, (_, i) => edge.pointAt(i / 20000).toTuple() as [number, number, number]);
+    const toDense = (q: number[]) => Math.min(...dense.slice(1).map((b, i) => {
+      const a = dense[i];
+      const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * d[0] + (q[1] - a[1]) * d[1] + (q[2] - a[2]) * d[2]) / (d[0] ** 2 + d[1] ** 2 + d[2] ** 2 || 1)));
+      return Math.hypot(q[0] - a[0] - t * d[0], q[1] - a[1] - t * d[1], q[2] - a[2] - t * d[2]);
+    }));
+    // the edge's points on the path (only the edge at z 0 or 5: whichever the path is)
+    const z = e.path.pts[0][2];
+    for (let i = 0; i <= 200; i++) {
+      const q = edge.pointAt(i / 200).toTuple() as [number, number, number];
+      if (Math.abs(q[2] - z) > 1e-9) continue;
+      const p = nearestOnPath(e.path, q);
+      expect(Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])).toBeLessThan(1e-6);
+    }
+    // the path's pieces on the edge
+    if (Math.abs(dense[0][2] - z) < 1e-9)
+      for (let i = 0; i + 1 < e.path.pts.length; i++) for (const t of [0.25, 0.5, 0.75]) expect(toDense(hermite(e.path.pts[i], e.path.dirs[i], e.path.pts[i + 1], e.path.dirs[i + 1], t))).toBeLessThan(1e-6);
+    expect(e.path.pts.length).toBeLessThan(1024);
+    shape.delete();
+  });
+});
