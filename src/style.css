@@ -3006,6 +3006,10 @@ section > h4 .segmented button {
 .history-row .item.on {
   color: var(--accent);
 }
+.history-card > h4 {
+  color: var(--accent);
+  cursor: pointer;
+}
 
 /* a right-click menu: its entries one under the other */
 .context-menu {

@@ -1396,7 +1396,13 @@ function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (
     // the first step is the shape itself: it stays, and stays first
     const drop = j ? [deleteButton('Click: Delete this step', () => ctx.removeStep(shown, f.id))] : [];
     const row = h('div', { className: 'history-row', draggable: j > 0, ondragstart: () => (dragged = j), ondragover: (e) => j > 0 && e.preventDefault(), ondrop: () => dragged > 0 && j > 0 && dragged !== j && move(dragged, j) }, name, ...fold, ...drop);
-    return on && !panel ? h('div', {}, row, card(f, j)) : row;
+    if (!on || panel) return row;
+    // open: its card stands in its row, its title the row (click: close it)
+    const shownCard = card(f, j);
+    shownCard.classList.add('history-card');
+    const title = shownCard.querySelector('h4');
+    if (title) Object.assign(title, { title: 'Click: Close it', onclick: (e: MouseEvent) => e.target === title && ctx.selectStep(shown, null) });
+    return shownCard;
   });
   return h('section', { className: 'history' }, head, ...rows);
 }
