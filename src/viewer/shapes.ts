@@ -457,18 +457,45 @@ export function ballsInCorner(planes: { at: Vector3; n: Vector3 }[]) {
   return at && along && { at, along };
 }
 
-/** A curve a line can be drawn tangent to: its point and direction (any length, either way) at `t`, 0..1. */
-export type TangentCurve = { at(t: number): [number, number]; dir(t: number): [number, number] };
+/**
+ * A curve a line can be drawn tangent to: its point and direction (any length, either way) at `t`, 0..1; `from` /
+ * `along`: its exact tangent points from a point or in a direction (radians), where it has them (else searched).
+ */
+export type TangentCurve = { at(t: number): [number, number]; dir(t: number): [number, number]; from?(to: [number, number]): number[]; along?(dir: number): number[] };
 
 export function circleCurve([x, y]: [number, number], r: number, a0 = 0, a1 = 2 * Math.PI): TangentCurve {
   const angle = (t: number) => a0 + (a1 - a0) * t;
-  return { at: (t) => [x + r * Math.cos(angle(t)), y + r * Math.sin(angle(t))], dir: (t) => [-Math.sin(angle(t)), Math.cos(angle(t))] };
+  // an angle's t on the arc, if it lies on it
+  const tOf = (a: number) => {
+    const d = Math.sign(a1 - a0) || 1;
+    const t = (((((a - a0) * d) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / Math.abs(a1 - a0);
+    return t <= 1 + 1e-12 ? [Math.min(1, t)] : t * Math.abs(a1 - a0) >= 2 * Math.PI - 1e-12 ? [0] : [];
+  };
+  return {
+    at: (t) => [x + r * Math.cos(angle(t)), y + r * Math.sin(angle(t))],
+    dir: (t) => [-Math.sin(angle(t)), Math.cos(angle(t))],
+    from: ([u, v]) => {
+      const d = Math.hypot(u - x, v - y);
+      if (d < r) return [];
+      const [base, open] = [Math.atan2(v - y, u - x), Math.acos(r / d)];
+      return [...tOf(base + open), ...tOf(base - open)];
+    },
+    along: (dir) => [...tOf(dir + Math.PI / 2), ...tOf(dir - Math.PI / 2)],
+  };
 }
 
 export function bezierCurve(a: [number, number], c1: [number, number], c2: [number, number], b: [number, number]): TangentCurve {
   return {
     at: (t) => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c1[k] + 3 * (1 - t) * t ** 2 * c2[k] + t ** 3 * b[k]) as [number, number],
     dir: (t) => [0, 1].map((k) => 3 * (1 - t) ** 2 * (c1[k] - a[k]) + 6 * (1 - t) * t * (c2[k] - c1[k]) + 3 * t ** 2 * (b[k] - c2[k])) as [number, number],
+    along: (dir) => {
+      // its direction × dir = 0: a quadratic in t
+      const cr = (p: [number, number], q: [number, number]) => (q[0] - p[0]) * Math.sin(dir) - (q[1] - p[1]) * Math.cos(dir);
+      const [p0, p1, p2] = [cr(a, c1), cr(c1, c2), cr(c2, b)];
+      const [qa, qb, qc] = [p0 - 2 * p1 + p2, 2 * (p1 - p0), p0];
+      const roots = Math.abs(qa) < 1e-12 ? (Math.abs(qb) < 1e-12 ? [] : [-qc / qb]) : qb * qb - 4 * qa * qc < 0 ? [] : [-1, 1].map((k) => (-qb + k * Math.sqrt(qb * qb - 4 * qa * qc)) / (2 * qa));
+      return roots.filter((t) => t >= 0 && t <= 1);
+    },
   };
 }
 
@@ -502,7 +529,7 @@ export const tangentStart = (c: TangentCurve, q: [number, number]) => nearestOf(
  * an arc's end): it stays at `from`, running along the curve there. `dir`: radians, the way `to` lies.
  */
 export function tangentFrom(c: TangentCurve, near: [number, number], from: number, to: [number, number]) {
-  const t = nearestOf(c, zeros((u) => {
+  const t = nearestOf(c, c.from?.(to) ?? zeros((u) => {
     const [p, d] = [c.at(u), c.dir(u)];
     return (p[0] - to[0]) * d[1] - (p[1] - to[1]) * d[0];
   }), near) ?? from;
@@ -513,7 +540,7 @@ export function tangentFrom(c: TangentCurve, near: [number, number], from: numbe
 
 /** The `t` where curve `c` runs in direction `dir` (radians, either way), the one nearest `near`; null: nowhere. */
 export function tangentAlong(c: TangentCurve, dir: number, near: [number, number]) {
-  return nearestOf(c, zeros((u) => {
+  return nearestOf(c, c.along?.(dir) ?? zeros((u) => {
     const d = c.dir(u);
     return d[0] * Math.sin(dir) - d[1] * Math.cos(dir);
   }), near);

@@ -541,7 +541,9 @@ export function closedLoop(lines: { id: string; pts: UV[]; curves?: (Curve | nul
   return { ids, pts: pts.slice(0, -1), ...(curves.some(Boolean) ? { curves } : {}) };
 }
 
-/** An open line moved `d` mm to its left, its corners mitred (as a parallel line at that distance). */
+/** Corners offset exactly (sides meeting where they cross) down to about 1° (cos of half the turn); sharper ones reach only that far. */
+const MITER = 0.01;
+
 /** A closed outline grown by `d` mm (negative: shrunk), its corners mitred. */
 export function grown(pts: [number, number][], d: number): [number, number][] {
   const n = pts.length;
@@ -555,7 +557,7 @@ export function grown(pts: [number, number][], d: number): [number, number][] {
   return pts.map((p, i) => {
     const [n0, n1] = [out(pts[(i - 1 + n) % n], p), out(p, pts[(i + 1) % n])];
     const m = [n0[0] + n1[0], n0[1] + n1[1]];
-    const k = d / Math.max(0.2, (m[0] * n1[0] + m[1] * n1[1]) / (Math.hypot(...m) || 1)) / (Math.hypot(...m) || 1);
+    const k = d / Math.max(MITER, (m[0] * n1[0] + m[1] * n1[1]) / (Math.hypot(...m) || 1)) / (Math.hypot(...m) || 1);
     return [p[0] + m[0] * k, p[1] + m[1] * k];
   });
 }
@@ -653,6 +655,7 @@ export function offsetPath(p: Pathed, by: number): { pts: UV[]; curves: (Curve |
   return { pts: closed ? sides.map((s) => s.a) : [...sides.map((s) => s.a), sides[sides.length - 1].b], curves: sides.map((s) => s.curve) };
 }
 
+/** An open line moved `d` mm to its left, its corners mitred (as a parallel line at that distance). */
 export function beside(pts: [number, number][], d: number): [number, number][] {
   if (!d) return pts;
   const left = (a: [number, number], b: [number, number]): [number, number] => {
@@ -662,7 +665,7 @@ export function beside(pts: [number, number][], d: number): [number, number][] {
   return pts.map((p, i) => {
     const [n0, n1] = [left(pts[Math.max(0, i - 1)], pts[Math.max(1, i)]), left(pts[Math.min(i, pts.length - 2)], pts[Math.min(i + 1, pts.length - 1)])];
     const m = [n0[0] + n1[0], n0[1] + n1[1]];
-    const k = d / Math.max(0.2, (m[0] * n1[0] + m[1] * n1[1]) / (Math.hypot(...m) || 1)) / (Math.hypot(...m) || 1);
+    const k = d / Math.max(MITER, (m[0] * n1[0] + m[1] * n1[1]) / (Math.hypot(...m) || 1)) / (Math.hypot(...m) || 1);
     return [p[0] + m[0] * k, p[1] + m[1] * k];
   });
 }

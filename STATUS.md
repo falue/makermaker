@@ -59,8 +59,8 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 **C. Sketch**
 - Done 2026-11-07 (step 4): areas closed by lines, corner radii where areas are found, `pieces`, `area`, `nesting`, `inside` / `edgeDistance` / `bounds` / the shape box, stored points.
 - Snapping: done 2026-11-07: sketch outlines snap on their exact sides, rounded corners too (`onSketchCurve`); two sketch lines or arcs cross where they really do (`segCrossings`; with a bezier or a body edge still by alternating projections); points along a curved side spaced by its true length, its parts' lengths true; an axis picked on a sketch arc is its centre. Outlines are drawn and snapped within 0.01 mm of the true curve (`DRAWN`).
-- Offsets: miter clamped at 0.2 in `grown` / `beside` (profiles.ts:350, 460): corners under ~23° under-offset (Offset tool, split, kerf); bezier offset by its legs; an arc offset past its radius clamped to 0.01 (:396); an offset curved split line becomes a 32-piece polyline (build.ts:1058).
-- Tangents found by 96 brackets (shapes.ts:478): two within one bracket missed. "Smooth" means within ~0.5° (shapes.ts:146, build.ts:385).
+- Offsets: corners mitred exactly down to ~1° (`MITER` 0.01, was 0.2: ~23°), done 2026-11-07; an offset curved split line keeps its arcs (`offsetPath`, was a 32-piece polyline), its preview still flattened (src/main.ts `showCut`). Still: beziers offset by their legs (no bezier is the exact offset of one); an arc offset past its radius clamped to 0.01.
+- Tangents: on circles and arcs exact (from a point and along a direction), on beziers exact along a direction, done 2026-11-07; a tangent from a point to a bezier still searched in 96 brackets (two within one missed). "Smooth" means within ~0.5° (shapes.ts:146, build.ts:385).
 
 **D. Kernel features (src/kernel/build.ts)**
 - Thread: flat triangles, 36 steps per turn (:640): sag ≈ 0.0038·R, thousands of faces, heavy STEP and booleans.
