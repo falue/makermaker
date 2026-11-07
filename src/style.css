@@ -827,7 +827,7 @@ body.scrubbing * {
   align-items: center;
   gap: 4px 6px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 0 8px 0 0; /* only where neither its tab (top left) nor the view's bottom meets it */
   background: var(--panel);
   color: var(--muted);
 }
@@ -2124,7 +2124,7 @@ button.icon.tool-op {
   display: grid;
   gap: 4px;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: 8px 0 0 0; /* only where neither its tab (top right) nor the view's bottom meets it */
   background: var(--panel);
   color: var(--muted);
   font-size: 12px;
