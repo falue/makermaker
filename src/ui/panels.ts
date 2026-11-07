@@ -1301,7 +1301,8 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
   const add = button('+', () => setSteps({ ...steps, features: [...steps.features, { ...(newFinish(ctx.doc.units) as Extract<Feature, { type: 'finish' }>), edges }] }), 'Click: Add a fillet on edges no other has yet (a size below 0 makes it a chamfer)');
   return [
     h('div', { className: 'row finish-head' }, h('span', {}, title), add),
-    ...(corners && signs.length ? cornerFields(ctx, shape!.path, corners) : []),
+    // always there (at 0 too): dragged through 0 it goes on into a chamfer
+    ...(corners ? cornerFields(ctx, shape!.path, corners) : []),
     ...list.flatMap(({ f, j }) => {
       const setFeature = (next: Feature) => setSteps({ ...steps, features: steps.features.map((x) => (x === f ? next : x)) });
       const remove = button('×', () => setSteps({ ...steps, features: steps.features.filter((x) => x !== f) }), 'Click: Remove it');
