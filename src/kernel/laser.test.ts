@@ -4,6 +4,7 @@ import init from 'replicad-opencascadejs';
 import { setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { BuildFeature } from './build';
+import { area, bounds } from '../doc/profiles';
 import { dxfOf, laserCuts, laserSvg, withKerf } from './laser';
 
 beforeAll(async () => setOC(await init({ wasmBinary: readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm')) })), 60_000);
@@ -42,13 +43,27 @@ describe('laserSvg', () => {
 });
 
 describe('curved outlines', () => {
-  it('cut out in short pieces, the area right', () => {
-    const plate: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[-20, 0], [20, 0]], curves: [null, { mid: [0, 20] }], r: 0, rot: 0 }], depth: 3, mode: 'add', through: false }];
+  const plate: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[-20, 0], [20, 0]], curves: [null, { mid: [0, 20] }], r: 0, rot: 0 }], depth: 3, mode: 'add', through: false }];
+
+  it('an arc stays an arc: in SVG an A, in DXF a bulge', () => {
     const [cut] = laserCuts(plate);
-    expect(cut.pts.length).toBeGreaterThan(8);
-    expect(Math.max(...cut.pts.map((p) => p[1])) - Math.min(...cut.pts.map((p) => p[1]))).toBeCloseTo(20, 0);
-    expect(laserSvg(plate)).toContain('<path');
-    expect(dxfOf(cut ? [cut] : [])).toContain('LINE');
+    expect(cut.pts).toHaveLength(2);
+    expect(area({ kind: 'polygon', pts: cut.pts, curves: cut.curves, r: 0, rot: 0 })).toBeCloseTo(200 * Math.PI, 6);
+    expect(laserSvg(plate)).toMatch(/A20 20 0 0 [01] /);
+    expect(dxfOf([cut])).toMatch(/\n42\n-?1\n/); // a half circle: bulge ±1
+    // the kerf on the true arc: 0.1 out, still a half disc
+    const [k] = withKerf([cut], 0.2);
+    expect(bounds({ kind: 'polygon', pts: k.pts, curves: k.curves, r: 0, rot: 0 })[2]).toBeCloseTo(20.1, 6);
+  });
+
+  it('rounded corners of a finished plate show; its chamfered top edges do not shrink it', () => {
+    const rounded: BuildFeature[] = [
+      { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 100, h: 60, r: 0, rot: 0 }], depth: 4, mode: 'add', through: false },
+      { id: 'f', type: 'finish', mode: 'fillet', size: 5, edges: 'vertical', enabled: true, baked: false, skip: [] },
+      { id: 'g', type: 'finish', mode: 'chamfer', size: 1, edges: 'top', enabled: true, baked: false, skip: [] },
+    ];
+    const [cut] = laserCuts(rounded);
+    expect(area({ kind: 'polygon', pts: cut.pts, curves: cut.curves, r: 0, rot: 0 })).toBeCloseTo(6000 - (4 - Math.PI) * 25, 3);
   });
 });
 
