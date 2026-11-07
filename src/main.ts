@@ -5493,7 +5493,8 @@ function profileOf(drawn: Drawn): Profile {
   return drawConstruction ? { ...profile, construction: true } : profile;
 }
 
-const roundPts = (pts: [number, number][]) => pts.map(([x, y]) => [+fmt(x), +fmt(y)] as [number, number]);
+/** Points as stored: mm to 6 decimals (a point snapped onto a curve stays on it within 5e-7 mm). */
+const roundPts = (pts: [number, number][]) => pts.map(([x, y]) => [+x.toFixed(6), +y.toFixed(6)] as [number, number]);
 const roundCurves = (curves: (Curve | null)[]) => curves.map((c) => (!c ? null : 'c1' in c ? { c1: roundPts([c.c1])[0], c2: roundPts([c.c2])[0] } : { mid: roundPts([c.mid])[0] }));
 
 function shapeOf({ profile: p, typed: t, sides }: Drawn): Profile {

@@ -433,6 +433,23 @@ describe('buildBody', () => {
     expect(volume).toBeCloseTo(7857.7, 0); // the circle (π · 12² · 10), the drop and a sliver where the bezier dips in
   });
 
+  it('a line across a circle leaves two true half discs; a line across an arch leaves its arc', () => {
+    const half = (shapes: Parameters<typeof areasOf>[0], pick: (at: [number, number]) => boolean) => {
+      const areas = areasOf(shapes).filter((a) => pick(a.at!)).map((a) => ({ in: a.in, out: a.out, at: a.at }));
+      const shape = buildBody([{ id: 'x', type: 'extrude', plane: ground, profiles: shapes, areas, depth: 10, mode: 'add', through: false } as BuildFeature]);
+      const volume = measureVolume(shape);
+      shape.delete();
+      return volume;
+    };
+    const across = { id: 'l', kind: 'line' as const, pts: [[-20, 0], [20, 0]] as [number, number][] };
+    expect(half([{ id: 'c', kind: 'circle', x: 0, y: 0, d: 20 }, across], (at) => at[1] > 0)).toBeCloseTo((Math.PI * 100 * 10) / 2, 3);
+    // an arch (radius 10) over a floor at y 2: the circle's segment above it
+    const arch = { id: 'a', kind: 'line' as const, pts: [[-10, 0], [10, 0]] as [number, number][], curves: [{ mid: [0, 10] as [number, number] }] };
+    const floor = { id: 'b', kind: 'line' as const, pts: [[-20, 2], [20, 2]] as [number, number][] };
+    const segment = 100 * Math.acos(0.2) - 2 * Math.sqrt(96);
+    expect(half([arch, floor], (at) => at[1] > 2)).toBeCloseTo(segment * 10, 3);
+  });
+
   it('splits overlapping shapes into areas and extrudes only the picked ones', async () => {
     const { areasOf } = await import('./build');
     const rect = { id: 'r', kind: 'rect' as const, x: 0, y: 0, w: 20, h: 10, r: 0, rot: 0 };

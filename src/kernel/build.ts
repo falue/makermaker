@@ -1,8 +1,9 @@
-import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, type CornerFinder, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
+import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, Sketches, Transformation, type CornerFinder, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import type { DrawingPen } from 'replicad';
-import { bakeTurn, beside, centre, cornerRadii, curved, flattened, mapPoints, nesting, roundable, sideDirs } from '../doc/profiles';
-import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
+import { bakeTurn, beside, bounds, centre, cornerRadii, curved, flattened, inside, mapPoints, nesting, roundable, sideDirs, type DrawnProfile } from '../doc/profiles';
+import type { TopoDS_Shape } from 'replicad-opencascadejs';
+import { lineUses } from '../doc/arrangement';
 import { exactOf, type Exact } from './exact';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/types';
@@ -272,30 +273,112 @@ function area(byId: Map<string, Resolved<Profile>>, a: Area): Drawing {
   return a.out.reduce((d, id) => (byId.has(id) ? d.cut(get(id)) : d), inside);
 }
 
-/** A face as a drawing: its outline, its holes cut out. */
-function faceDrawing(f: Face): Drawing {
-  const [outer, ...holes] = f.loops.map((l) => sidesDrawn(draw(l.pts[0]), l, true).close());
-  return holes.reduce((d, h) => d.cut(h), outer);
+/** The faces of a shape (a compound of them, or one). */
+function facesIn(shape: { wrapped: TopoDS_Shape }): BRepFace[] {
+  const oc = getOC();
+  const out: BRepFace[] = [];
+  const explorer = new oc.TopExp_Explorer(shape.wrapped, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  for (; explorer.More(); explorer.Next()) out.push(cast(explorer.Current()) as BRepFace);
+  explorer.delete();
+  return out;
+}
+
+/** A face's triangles in its plane (x, y per corner; the face on XY). */
+function trisOf(face: BRepFace): Float32Array {
+  const m = face.mesh({ tolerance: 0.05, angularTolerance: 0.2 });
+  const out = new Float32Array(m.triangles.length * 2);
+  m.triangles.forEach((v, i) => out.set([m.vertices[v * 3], m.vertices[v * 3 + 1]], i * 2));
+  return out;
+}
+
+/** Whether plane point (u, v) lies in triangles `t` (see `trisOf`). */
+function inTris(t: Float32Array, [u, v]: [number, number]) {
+  for (let k = 0; k + 5 < t.length; k += 6) {
+    const d1 = (u - t[k + 2]) * (t[k + 1] - t[k + 3]) - (t[k] - t[k + 2]) * (v - t[k + 3]);
+    const d2 = (u - t[k + 4]) * (t[k + 3] - t[k + 5]) - (t[k + 2] - t[k + 4]) * (v - t[k + 5]);
+    const d3 = (u - t[k]) * (t[k + 5] - t[k + 1]) - (t[k + 4] - t[k]) * (v - t[k + 1]);
+    if (!((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0))) return true;
+  }
+  return false;
 }
 
 /**
- * The picked areas, each a drawing of its own: they are joined as solids (`madeOf`), since areas sharing a curved side
- * do not join flat (the two drawings' arcs never quite match).
+ * The faces a sketch's lines and the shapes they reach enclose, exact (plane coordinates, on XY): a face larger than
+ * all of them split by their true curves (lines open, the shapes' outlines with their rounded corners), those clear
+ * of its rim (the rest is outside); each with its triangles, a point inside it (its largest triangle's middle) and
+ * the shapes it lies in. `uses`: the lines and shapes taking part (`lineUses`).
  */
-function areaDrawings(ps: Resolved<Profile>[], areas: Area[]): Drawing[] {
-  const byId = new Map(ps.map((p) => [p.id, p]));
-  const lined = (at: [number, number]) => {
-    const f = lineFaceAt(ps, at);
-    if (!f) throw new Error('a picked area is no longer closed by its lines');
-    return faceDrawing(f);
+function lineFacesExact(ps: Resolved<Profile>[]): { faces: { face: BRepFace; tris: Float32Array; at: [number, number]; in: string[] }[]; uses: string[] } {
+  const uses = lineUses(ps);
+  const taking = ps.filter((p) => uses.includes(p.id) && (p.kind !== 'line' || p.pts.length > 1));
+  if (!taking.some((p) => p.kind === 'line')) return { faces: [], uses };
+  const oc = getOC();
+  const tools = new oc.NCollection_List_TopoDS_Shape();
+  for (const p of taking) {
+    const sketch = (p.kind === 'line' ? sidesDrawn(draw(p.pts[0]), p).done() : drawing(p)).sketchOnPlane('XY');
+    tools.Append(sketch instanceof Sketches ? sketch.wires().wrapped : (sketch as Sketch).wire.wrapped);
+  }
+  // the rim: all of them inside it, with room
+  const box = taking.map((p) => bounds(p as DrawnProfile)).reduce((a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]);
+  const room = 1 + 0.1 * Math.max(box[2] - box[0], box[3] - box[1]);
+  const [x0, y0, x1, y1] = [box[0] - room, box[1] - room, box[2] + room, box[3] + room];
+  const rim = (drawRectangle(x1 - x0, y1 - y0).translate((x0 + x1) / 2, (y0 + y1) / 2).sketchOnPlane('XY') as Sketch).face();
+  const args = new oc.NCollection_List_TopoDS_Shape();
+  args.Append(rim.wrapped);
+  const splitter = new oc.BRepAlgoAPI_Splitter();
+  splitter.SetArguments(args);
+  splitter.SetTools(tools);
+  splitter.SetFuzzyValue(1e-3); // a stored point (rounded) lies that near the curve it was snapped to: it meets it
+  splitter.Build();
+  const done = !splitter.HasErrors();
+  const pieces = done ? facesIn({ wrapped: splitter.Shape() }) : [];
+  [splitter, args, tools].forEach((x) => x.delete());
+  if (!done) throw new Error('the lines could not be split into areas');
+  const inner = pieces.filter((f) => {
+    const [[a, b], [c, d]] = f.boundingBox.bounds;
+    return a > x0 + 1e-6 && b > y0 + 1e-6 && c < x1 - 1e-6 && d < y1 - 1e-6;
+  });
+  return {
+    uses,
+    faces: inner.map((face) => {
+      const tris = trisOf(face);
+      let [best, at]: [number, [number, number]] = [-1, [0, 0]];
+      for (let k = 0; k + 5 < tris.length; k += 6) {
+        const area = Math.abs((tris[k + 2] - tris[k]) * (tris[k + 5] - tris[k + 1]) - (tris[k + 4] - tris[k]) * (tris[k + 3] - tris[k + 1]));
+        if (area > best) [best, at] = [area, [(tris[k] + tris[k + 2] + tris[k + 4]) / 3, (tris[k + 1] + tris[k + 3] + tris[k + 5]) / 3]];
+      }
+      return { face, tris, at, in: taking.filter((p) => p.kind !== 'line' && inside(p as DrawnProfile, ...at)).map((p) => p.id) };
+    }),
   };
-  const ds = areas.map((a) => (a.at ? lined(a.at) : area(byId, a))).filter(filled);
-  if (!ds.length) throw new Error('the picked areas are empty');
-  return ds;
 }
 
-/** `make` of each drawing (the picked areas, or all the shapes as one), joined. */
-function madeOf(ds: Drawing[], make: (d: Drawing) => Shape3D): Shape3D {
+/**
+ * The picked areas as faces on frame `f` moved `offset` along its normal, exact: overlapping shapes' areas from their
+ * drawings, areas lines close from `lineFacesExact` (the one around each area's point). Each a face of its own: they
+ * are joined as solids (`madeOf`).
+ */
+function areaFaces(ps: Resolved<Profile>[], areas: Area[], f: Frame, offset = 0): BRepFace[] {
+  const byId = new Map(ps.map((p) => [p.id, p]));
+  const place = new Transformation().coordSystemChange({ origin: add(f.o, scale(f.n, offset)), zDir: f.n, xDir: f.x }, 'reference');
+  let lined: ReturnType<typeof lineFacesExact>['faces'] | null = null;
+  const faces = areas.flatMap((a): BRepFace[] => {
+    if (!a.at) {
+      const d = area(byId, a);
+      if (!filled(d)) return [];
+      const sketch = d.sketchOnPlane('XY');
+      return sketch instanceof Sketches ? facesIn(sketch.faces()) : [(sketch as Sketch).face()];
+    }
+    lined ??= lineFacesExact(ps).faces;
+    const hit = lined.find((x) => inTris(x.tris, a.at!));
+    if (!hit) throw new Error('a picked area is no longer closed by its lines');
+    return [hit.face];
+  });
+  if (!faces.length) throw new Error('the picked areas are empty');
+  return faces.map((face) => cast(place.transform(face.wrapped)) as BRepFace);
+}
+
+/** `make` of each one (the picked areas' faces, or all the shapes as one drawing), joined. */
+function madeOf<T>(ds: T[], make: (d: T) => Shape3D): Shape3D {
   return ds.map(make).reduce((x, y) => {
     try {
       return x.fuse(y);
@@ -317,8 +400,8 @@ export interface AreaMesh extends Area {
  * shapes they reach enclose (see `lineFaces`); elsewhere the exact areas of overlapping shapes (see `shapeAreas`).
  */
 export function areasOf(ps: Resolved<Profile>[]): AreaMesh[] {
-  const { faces, uses } = lineFaces(ps);
-  const lined = faces.map((f): AreaMesh => ({ in: f.in, out: [], at: f.at, uses, tris: triangles(faceDrawing(f)) }));
+  const { faces, uses } = lineFacesExact(ps);
+  const lined = faces.map((f): AreaMesh => ({ in: f.in, out: [], at: f.at, uses, tris: f.tris }));
   return [...shapeAreas(ps.filter((p) => p.kind !== 'line' && !uses.includes(p.id))), ...lined];
 }
 
@@ -509,12 +592,13 @@ function extrude(shape: Shape3D | null, s: Of<'extrude'>, f: Frame | undefined, 
   if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
   if (!s.profiles.length) throw new Error('no profile to extrude');
   if (!s.through && s.depth === 0 && !s.back) throw new Error('depth must not be 0');
-  const outlines = s.areas ? areaDrawings(s.profiles, s.areas) : [combine(s.profiles)];
   // span along the normal; through: beyond the body on both sides
-  const bounds = shape?.boundingBox;
-  const far = bounds ? Math.hypot(bounds.width, bounds.height, bounds.depth) + Math.hypot(...f.o) + 1 : 0;
+  const box = shape?.boundingBox;
+  const far = box ? Math.hypot(box.width, box.height, box.depth) + Math.hypot(...f.o) + 1 : 0;
   const [from, to] = s.through ? [-far, far] : extent(s.depth, s.back);
-  const tool = madeOf(outlines, (d) => d.sketchOnPlane(new Plane(add(f.o, scale(f.n, from)), f.x, f.n)).extrude(to - from) as Shape3D);
+  const tool = s.areas
+    ? madeOf(areaFaces(s.profiles, s.areas, f, from), (face) => basicFaceExtrusion(face, new Vector(scale(f.n, to - from))) as Shape3D)
+    : madeOf([combine(s.profiles)], (d) => d.sketchOnPlane(new Plane(add(f.o, scale(f.n, from)), f.x, f.n)).extrude(to - from) as Shape3D);
   for (const p of s.profiles) addCircles(p, f, circles);
   return joined(shape, tool, s.mode);
 }
@@ -525,9 +609,11 @@ function revolve(shape: Shape3D | null, s: Of<'revolve'>, f: Frame | undefined):
   if (!shape && s.mode === 'cut') throw new Error('nothing to cut yet');
   if (!s.profiles.length) throw new Error('no profile to revolve');
   if (!s.angle) throw new Error('the angle must not be 0');
-  const outlines = s.areas ? areaDrawings(s.profiles, s.areas) : [combine(s.profiles)];
   const dir = add(scale(f.x, s.axis.dir[0]), scale(f.y, s.axis.dir[1]));
-  const tool = madeOf(outlines, (d) => d.sketchOnPlane(new Plane(f.o, f.x, f.n)).revolve(dir, { origin: toWorld(f, ...s.axis.at), angle: Math.max(-360, Math.min(360, s.angle)) }) as Shape3D);
+  const [origin, angle] = [toWorld(f, ...s.axis.at), Math.max(-360, Math.min(360, s.angle))];
+  const tool = s.areas
+    ? madeOf(areaFaces(s.profiles, s.areas, f), (face) => revolution(face, origin, dir, angle) as Shape3D)
+    : madeOf([combine(s.profiles)], (d) => d.sketchOnPlane(new Plane(f.o, f.x, f.n)).revolve(dir, { origin, angle }) as Shape3D);
   return joined(shape, tool, s.mode);
 }
 
