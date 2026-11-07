@@ -174,6 +174,7 @@ export interface Pulling extends PullStart {
 /** What a pull on a body does to it: joins it, cuts it, or makes a new body beside it. */
 export type PullOp = 'join' | 'cut' | 'new';
 export const PULL_OPS: Record<PullOp, string> = { join: 'Join', cut: 'Cut', new: 'New body' };
+const OP_ICONS: Record<PullOp, string> = { join: 'union', cut: 'subtract', new: 'body' };
 
 /** Whether a pull from `t` can join or cut a body: drawn on one of its faces. */
 export const onBody = (t: Target) => !!t.body;
@@ -2046,7 +2047,8 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** A size label in the view; `t`: T and D reach for it; `op`: what pulling on a body does, with the key that switches it. */
 export function sizeLabel(text: string, active: boolean, t = false, op?: PullOp) {
   const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: sizeHtml(caretHtml(text), true) });
-  if (op) el.append(Object.assign(document.createElement('small'), { textContent: `${PULL_OPS[op]} ${comboText(keysOf('operation')[0])}`, title: `${comboText(keysOf('operation')[0])}: join / cut / new body` }));
+  const key = op && comboText(keysOf('operation')[0]);
+  if (op) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon(OP_ICONS[op])}${key}`, title: `${PULL_OPS[op]} · ${key}: join / cut / new body` }));
   if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }
