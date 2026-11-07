@@ -466,6 +466,21 @@ describe('buildBody', () => {
     expect(volume).toBeCloseTo(7857.7, 0); // the circle (π · 12² · 10), the drop and a sliver where the bezier dips in
   });
 
+  it('extrudes a circle and the spike two lines close on it, one of them tangent (failed2.mmk)', () => {
+    const shapes = [
+      { id: 'c', kind: 'circle' as const, x: 0, y: 0, d: 41.4005 },
+      { id: 'a', kind: 'line' as const, pts: [[-7.2653, 19.3834], [-41.5688, 64.9056]] as [number, number][] },
+      { id: 't', kind: 'line' as const, pts: [[-19.7896, -6.0723], [-41.5688, 64.9056]] as [number, number][] },
+    ];
+    const areas = areasOf(shapes).map((a) => ({ in: a.in, out: a.out, at: a.at }));
+    expect(areas).toHaveLength(2); // the circle, the spike
+    const shape = buildBody([{ id: 'x', type: 'extrude', plane: ground, profiles: shapes, areas, depth: 27.5, mode: 'add', through: false } as BuildFeature]);
+    const [volume, faces] = [measureVolume(shape), shape.faces.length];
+    shape.delete();
+    expect(volume).toBeCloseTo(53850.67, 0); // (circle 1346.17 + spike 612.03) · 27.5
+    expect(faces).toBe(5); // one solid: no wall left inside along the arc they share
+  });
+
   it('a line across a circle leaves two true half discs; a line across an arch leaves its arc', () => {
     const half = (shapes: Parameters<typeof areasOf>[0], pick: (at: [number, number]) => boolean) => {
       const areas = areasOf(shapes).filter((a) => pick(a.at!)).map((a) => ({ in: a.in, out: a.out, at: a.at }));
