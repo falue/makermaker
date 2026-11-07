@@ -1260,10 +1260,22 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
     }
     return lo;
   };
+  // OpenCascade can hand back a broken solid instead of failing: sound only if valid and within the body's box (a
+  // fillet or chamfer only takes from corners or fills them, never reaches beyond)
+  const [lo, hi] = shape.boundingBox.bounds;
+  const sound = (out: Shape3D) => {
+    const check = new (getOC().BRepCheck_Analyzer)(out.wrapped, true, false, false);
+    const valid = check.IsValid();
+    check.delete();
+    const [a, b] = out.boundingBox.bounds;
+    return valid && [0, 1, 2].every((k) => a[k] > lo[k] - 1e-3 && b[k] < hi[k] + 1e-3);
+  };
   const tried = (make: () => Shape3D) => {
     try {
-      make().delete();
-      return true;
+      const out = make();
+      const ok = sound(out);
+      out.delete();
+      return ok;
     } catch {
       return false;
     }
@@ -1288,6 +1300,7 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
       if (fit > 0) {
         try {
           const out = each(scaled(fit));
+          if (!sound(out)) throw (out.delete(), new Error('broken'));
           finished(sizes);
           const capped = picked.flatMap((e, k) => (sizes[k] < s.size - 1e-9 ? [{ pts: line(e), normals: normalsAt(shape, e), max: sizes[k] }] : []));
           if (capped.length && lostIn) lostIn.capped = { ...lostIn.capped, [s.id]: capped };

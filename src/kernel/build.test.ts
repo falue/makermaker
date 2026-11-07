@@ -138,6 +138,29 @@ describe('buildBody', () => {
     expect(volume).toBeLessThan(full * 5 - 3 * 8 * 8 * (1 - Math.PI / 4) * 5 + 1); // three 8 mm roundings at least
   }, 120000);
 
+  it('a fillet far too big on a thin plate holds its edges to sound sizes, never a broken solid reaching out (Frosted plate, R 32)', async () => {
+    const { getOC } = await import('replicad');
+    const plate = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 40, h: 40, r: 0, rot: 0 }], depth: 4, mode: 'add', through: false } as BuildFeature;
+    const fillet = { id: 'f', type: 'finish', mode: 'fillet', size: 32, edges: 'all', enabled: true, baked: false, skip: [] } as BuildFeature;
+    const finishing: Finishing = { base: null, edges: [] };
+    let shape;
+    try {
+      shape = buildBody([plate, fillet], finishing);
+    } catch (e) {
+      expect(e).toBeInstanceOf(FeatureError); // too big even edge by edge: an error, not a broken body
+      return;
+    } finally {
+      finishing.base?.delete();
+    }
+    const check = new (getOC().BRepCheck_Analyzer)(shape.wrapped, true, false, false);
+    expect(check.IsValid()).toBe(true);
+    check.delete();
+    const [lo, hi] = shape.boundingBox.bounds;
+    expect(lo.every((v, k) => v > [-20, -20, 0][k] - 1e-3) && hi.every((v, k) => v < [20, 20, 4][k] + 1e-3)).toBe(true);
+    expect(finishing.edges.every((e) => e.size <= 20 + 1e-9)).toBe(true); // no edge rounder than half the plate
+    shape.delete();
+  }, 300000);
+
   it('a cosmetic thread leaves the solid as it is and is drawn at its other Ø; a hole for one takes the tap drill', async () => {
     const { cosmeticOf } = await import('./build');
     const { boreFor } = await import('../doc/threads');
