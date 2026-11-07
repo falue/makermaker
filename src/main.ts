@@ -5456,18 +5456,18 @@ function withSketched(doc: Doc, r: SketchResult): { doc: Doc; id: string; ids: s
       const k = a.at || !a.in.length ? -1 : parts.findIndex((p) => p.includes(a.in[0]));
       (areaParts.get(k) ?? areaParts.set(k, []).get(k)!).push(a);
     }
+    // on a base plane the bodies share the sketch's group (so both count from the same origin); drawn on a body, its group
+    const on = sketch.plane.kind === 'cap' || sketch.plane.kind === 'side' ? sketch.plane.body : null;
+    const host = doc.bodies.find((b) => b.id === (on ?? t.body));
+    const group = sketch.plane.kind === 'base' ? sketch.group : (host?.group ?? null);
     const made = (r.areas ? [...areaParts.values()].map((areas) => ({ shapes: ids, areas })) : parts.map((shapes) => ({ shapes, areas: undefined }))).map(({ shapes, areas }, k): Body => {
       const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes, areas };
       const feature: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), ...back, mode: 'add', through: false };
-      // on a base plane the body shares the sketch's group (so both count from the same origin)
-      return newBody(bodies.length + k, [feature], sketch.plane.kind === 'base' ? sketch.group : null);
+      return newBody(bodies.length + k, [feature], group);
     });
-    // drawn on a moving part of a joint: they move with it (beside it in the joint, or in its moving group)
-    const on = sketch.plane.kind === 'cap' || sketch.plane.kind === 'side' ? sketch.plane.body : null;
+    // drawn on a moving part of a joint: they move with it, beside it in the joint (in its moving group: by the group)
     const joint = on && doc.joints.find((j) => j.children.includes(on));
-    const host = doc.bodies.find((b) => b.id === on);
     if (joint) joints = doc.joints.map((j) => (j === joint ? { ...j, children: [...j.children, ...made.map((b) => b.id)] } : j));
-    else if (host?.group && doc.joints.some((j) => j.children.some((c) => within(doc, c).has(host.group!)))) made.forEach((b) => (b.group = host.group));
     bodies = [...bodies, ...made];
     return { doc: { ...doc, sketches, bodies, joints }, id, ids, made: made.map((b) => b.id) };
   }
