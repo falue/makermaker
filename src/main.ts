@@ -1208,7 +1208,9 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
   const box = m.reduce((b, x) => b.union(x.box), new Box3());
   const size = box.getSize(new Vector3());
   // L / W / H along x / y / z: hovering one shows it on the box
-  const rows: [string, string, Measure?][] = [['L', about(size.x), 0], ['W', about(size.y), 1], ['H', about(size.z), 2]];
+  // exact where the kernel gave the numbers (the box: a body turned off the axes still from its triangles)
+  const [sized, counted] = [m.every((x) => x.boxExact) ? num : about, m.every((x) => x.exact) ? num : about];
+  const rows: [string, string, Measure?][] = [['L', sized(size.x), 0], ['W', sized(size.y), 1], ['H', sized(size.z), 2]];
   const b = ids.length === 1 && doc.bodies.find((x) => x.id === ids[0]);
   if (b) {
     const at = positions.get(b.id);
@@ -1216,7 +1218,7 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     if (at) rows.push(['Position', at.map((v) => num(v)).join(', '), 'at']);
     rows.push(['Rotation', `${fmt(turn.rx)}°, ${fmt(turn.ry)}°, ${fmt(turn.rz)}°`]);
   }
-  rows.push(['Volume', about(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', about(m.reduce((n, x) => n + x.area, 0), 2)]);
+  rows.push(['Volume', counted(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', counted(m.reduce((n, x) => n + x.area, 0), 2)]);
   return { title: b ? b.name : `${ids.length} bodies`, rows, box, at: b ? positions.get(b.id) : undefined };
 }
 

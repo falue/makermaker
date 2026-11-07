@@ -25,6 +25,7 @@ import { DEFAULT_LIGHT, lightDirections, plainLook, toLook, type Look } from '..
 import { applyLook, boxUv, glowLight, needsUv, pictureLoaded, renderMaterial, sphereOf } from './look';
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
+import type { Exact } from '../kernel/exact';
 import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
 import { caret, caretHtml, restOf } from '../ui/complete';
@@ -703,7 +704,7 @@ export class Viewer implements ToolView {
         const hit = this.frontHit(e);
         const s = this.sketchShapeAt(e, hit);
         this.markSketch(s);
-        this.faceAim?.(hit && !s ? { point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId } : null);
+        this.faceAim?.(hit && !s ? this.picked(hit) : null);
         return this.markFace(s ? undefined : hit);
       }
       if (!this.tool && !this.drag && !e.buttons) {
@@ -851,16 +852,30 @@ export class Viewer implements ToolView {
   private crumbs = Object.assign(document.createElement('div'), { className: 'overlay crumbs', hidden: true });
   private lastHit: THREE.Intersection | null = null;
 
+  /**
+   * A body hit as a face pick: its point and the normal into the face (world). On a kernel plane exact: its normal, the
+   * point moved onto it; else the hit triangle's.
+   */
+  private picked(hit: THREE.Intersection) {
+    const face = (hit.object.userData.exact as Exact | null | undefined)?.faces[faceOf(hit)];
+    const m = hit.object.matrixWorld;
+    if (face?.kind !== 'plane') return { point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId as string };
+    const n = new THREE.Vector3(...face.n).transformDirection(m);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, new THREE.Vector3(...face.at).applyMatrix4(m));
+    return { point: plane.projectPoint(hit.point, new THREE.Vector3()), normal: n.negate(), body: hit.object.userData.bodyId as string };
+  }
+
   placeOn(hit: THREE.Intersection) {
-    // flat: all normals of the B-rep face agree
+    // flat: all normals of the B-rep face agree (a kernel plane: it is)
     const k = faceOf(hit);
     const groups = hit.object.userData.faces as Uint32Array;
     const geo = (hit.object as THREE.Mesh).geometry;
     const index = geo.index!.array.subarray(groups[k * 2], groups[k * 2] + groups[k * 2 + 1]);
     const normal = (v: number) => new THREE.Vector3().fromBufferAttribute(geo.attributes.normal, v);
     const n0 = normal(index[0]);
-    const flat = index.every((v) => normal(v).dot(n0) > 0.9999);
-    return this.host.placeOn({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId }, flat);
+    const kind = (hit.object.userData.exact as Exact | null | undefined)?.faces[k]?.kind;
+    const flat = kind ? kind === 'plane' : index.every((v) => normal(v).dot(n0) > 0.9999);
+    return this.host.placeOn(this.picked(hit), flat);
   }
 
   /**
@@ -1658,7 +1673,11 @@ export class Viewer implements ToolView {
     const line = ([a, b]: [THREE.Vector3, THREE.Vector3], what: string) => ({ at: a.clone(), dir: b.clone().sub(a).normalize(), what, length: a.distanceTo(b) });
     const edge = this.edgeAt(e);
     if (edge) {
-      const circle = circleOf(edge.segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)]));
+      // the kernel's circle; a mesh body's: fitted to its segments
+      const exact = edge.index === undefined ? null : this.exactEdge(edge.body, edge.index);
+      if (exact?.edge.kind === 'circle') return { at: new THREE.Vector3(...exact.edge.c).applyMatrix4(exact.place), dir: new THREE.Vector3(...exact.edge.n).transformDirection(exact.place), what: 'round edge: its centre', d: 2 * exact.edge.r, body: edge.body };
+      if (exact?.edge.kind === 'line') return line([new THREE.Vector3(...exact.edge.a).applyMatrix4(exact.place), new THREE.Vector3(...exact.edge.b).applyMatrix4(exact.place)], 'edge');
+      const circle = exact ? null : circleOf(edge.segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)]));
       return circle ? { at: circle.centre, dir: circle.normal, what: 'round edge: its centre', d: circle.d, body: edge.body } : line(nearest(edge.segs), 'edge');
     }
     const s = this.shapeAt(ray, this.frontHit(e)?.distance);
@@ -1937,7 +1956,7 @@ export class Viewer implements ToolView {
     if (mesh.uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(mesh.uvs, 2));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
     const solid = Object.assign(new THREE.Mesh(geometry), { raycast: fastRaycast });
-    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes });
+    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes, exact: mesh.exact });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
     // edges unbaked finishes made are light grey, the rest near black
@@ -1948,6 +1967,7 @@ export class Viewer implements ToolView {
     edges.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const lines = new THREE.LineSegments(edges);
     lines.userData.edgeGroups = mesh.edgeGroups;
+    lines.userData.exact = mesh.exact; // its edges' curves, by edge group
     group.add(solid, lines);
     this.dress(id);
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
@@ -3060,7 +3080,14 @@ export class Viewer implements ToolView {
         const pos = (c as THREE.LineSegments).geometry.attributes.position;
         const key = `${(c as THREE.LineSegments).geometry.id} ${g.matrix.elements.join()}`;
         let kept = this.roundCentres.get(c);
+        const exact = c.userData.exact as Exact | null | undefined;
+        if (kept?.key !== key && exact) {
+          // the kernel's circles and ellipses: their centres exact
+          const pts = exact.edges.flatMap((e) => (e.kind === 'circle' || e.kind === 'ellipse' ? [new THREE.Vector3(...e.c).applyMatrix4(g.matrix)] : []));
+          this.roundCentres.set(c, (kept = { key, pts }));
+        }
         if (kept?.key !== key) {
+          // a mesh body: circles fitted to its edges' segments
           const pts: THREE.Vector3[] = [];
           for (let k = 0; k < groups.length; k += 2) {
             // segment starts and middles: a rectangle's corners alone lie on a circle
@@ -3094,6 +3121,14 @@ export class Viewer implements ToolView {
         }
       }
     return out;
+  }
+
+  /** Body edge `index` (its edge group) as the kernel has it, and how its body is placed (null: a mesh body, none). */
+  private exactEdge(body: string, index: number) {
+    const g = this.bodies.get(body);
+    const lines = g?.children.find((c) => c.userData.exact);
+    const edge = (lines?.userData.exact as Exact | null | undefined)?.edges[index];
+    return edge && g ? { edge, place: g.matrix } : null;
   }
 
   /** The body edge within `px` of the pointer that no face in front hides (null: none). */
@@ -3256,7 +3291,7 @@ export class Viewer implements ToolView {
     return this.balls;
   }
 
-  private measured = new Map<string, { key: string; box: THREE.Box3; volume: number; area: number }>();
+  private measured = new Map<string, { key: string; box: THREE.Box3; volume: number; area: number; exact: boolean; boxExact: boolean }>();
 
   /** A body's box in the world, volume (mm³) and surface area (mm²) from its triangles (null: not built yet); kept until its mesh or place changes. */
   /** The normals (world) of a body's B-rep faces touching point `p`: those meeting at an edge, at a point on it. */
@@ -3304,7 +3339,12 @@ export class Viewer implements ToolView {
       volume += a.dot(b.clone().cross(c)) / 6; // signed tetrahedra from the origin
       area += b.sub(a).cross(c.sub(a)).length() / 2;
     }
-    const out = { key, box, volume: Math.abs(volume), area };
+    // the kernel's numbers where it has them: volume and area, and the box while the body's turn keeps the axes (else
+    // the kernel's box turned would be loose: the triangles' stays)
+    const exact = solid.userData.exact as Exact | null | undefined;
+    const axes = [0, 1, 2, 4, 5, 6, 8, 9, 10].every((k) => Math.abs(Math.abs(g.matrix.elements[k]) - 0.5) > 0.5 - 1e-9);
+    if (exact && axes) box.set(new THREE.Vector3(...exact.box[0]), new THREE.Vector3(...exact.box[1])).applyMatrix4(g.matrix);
+    const out = { key, box, volume: exact?.volume ?? Math.abs(volume), area: exact?.area ?? area, exact: !!exact, boxExact: !!exact && axes };
     this.measured.set(id, out);
     return out;
   }
@@ -3485,6 +3525,8 @@ export class Viewer implements ToolView {
    */
   flatFace(hit: THREE.Intersection) {
     const mesh = hit.object as THREE.Mesh;
+    const kind = (mesh.userData.exact as Exact | null | undefined)?.faces[faceOf(hit)]?.kind;
+    if (kind) return kind === 'plane'; // the kernel's surface
     const groups = mesh.userData.faces as Uint32Array | undefined;
     const [index, nor] = [mesh.geometry.index, mesh.geometry.attributes.normal];
     if (!groups || !index) return true;
@@ -3507,6 +3549,16 @@ export class Viewer implements ToolView {
     const [pos, nor] = [mesh.geometry.attributes.position, mesh.geometry.attributes.normal];
     const ids = [...new Set(index.array.subarray(groups[k * 2], groups[k * 2] + groups[k * 2 + 1]))];
     const pts = ids.map((i) => new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld));
+    // the kernel's cylinder: axis, radius and side exact (its length from the face's points along it); a mesh body's: fitted
+    const exact = (mesh.userData.exact as Exact | null | undefined)?.faces[k];
+    if (exact) {
+      if (exact.kind !== 'cylinder') return undefined;
+      const dir = new THREE.Vector3(...exact.dir).transformDirection(mesh.matrixWorld);
+      const on = new THREE.Vector3(...exact.at).applyMatrix4(mesh.matrixWorld);
+      const along = pts.map((p) => p.clone().sub(on).dot(dir));
+      const [lo, hi] = [Math.min(...along), Math.max(...along)];
+      return { at: on.addScaledVector(dir, lo), dir, length: hi - lo, r: exact.r, shaft: exact.shaft };
+    }
     const ns = ids.map((i) => new THREE.Vector3().fromBufferAttribute(nor, i).transformDirection(mesh.matrixWorld));
     // the two normals most apart: their cross is the axis
     let dir = new THREE.Vector3();
@@ -3572,7 +3624,7 @@ export class Viewer implements ToolView {
     }
     const s = this.sketchShapeAt(e, hit);
     const sketch = s ? { sketch: { id: s.sketch.id, shape: s.q.id } } : {};
-    if (hit) return this.endFacePick({ point: hit.point.clone(), normal: hit.face!.normal.clone().negate(), body: hit.object.userData.bodyId, round: this.roundOf(hit), item: this.faceItem(hit), adds: role(e, 'add'), ...sketch });
+    if (hit) return this.endFacePick({ ...this.picked(hit), round: this.roundOf(hit), item: this.faceItem(hit), adds: role(e, 'add'), ...sketch });
     // a body cut open by a section: its cut face (only back faces are hit through it)
     const behind = this.intersect(this.raycaster(e))[0];
     const cut = behind && this.cutPlane(e);
@@ -4278,7 +4330,7 @@ export class Viewer implements ToolView {
       return;
     }
     if (hit?.face && hit.face.normal.dot(ray.ray.direction) < 0) {
-      this.lastFace = { point: hit.point.clone(), normal: hit.face.normal.clone().negate(), body: hit.object.userData.bodyId };
+      this.lastFace = this.picked(hit);
       this.lastHit = hit;
     }
     if (shape) {

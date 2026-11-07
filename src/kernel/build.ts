@@ -3,6 +3,7 @@ import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, t
 import type { DrawingPen } from 'replicad';
 import { bakeTurn, beside, centre, cornerRadii, curved, flattened, mapPoints, nesting, roundable, sideDirs } from '../doc/profiles';
 import { lineFaceAt, lineFaces, type Face } from '../doc/arrangement';
+import { exactOf, type Exact } from './exact';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/types';
 
@@ -38,6 +39,8 @@ export interface BodyMesh {
   uvs?: Float32Array;
   /** How many separate solids it is in (a mesh: 1). */
   pieces?: number;
+  /** Its faces', edges' and own exact numbers, per face and edge group (null: too many faces; a mesh: none). */
+  exact?: Exact | null;
 }
 
 type V3 = [number, number, number];
@@ -186,6 +189,7 @@ export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05
     finishes: finishing?.edges.map(({ feature, mid }) => ({ feature, mid })) ?? [],
     lostEdges: finishing?.lost ?? {},
     pieces: shape.solids.length,
+    exact: exactOf(shape, m.faceGroups.map((g) => g.faceId), e.edgeGroups.map((g) => g.edgeId)),
   };
 }
 
