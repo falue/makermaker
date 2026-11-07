@@ -2149,7 +2149,8 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
  * angle (360° first) typed or scrubbed live, Enter keeps it, Esc leaves nothing.
  */
 function revolveTool() {
-  const id = activeSketch();
+  // the sketch selected (the first of several), or the one of the selected shapes
+  const id = activeSketch() ?? selected.find((x) => history.current.sketches.some((k) => k.id === x));
   const s = viewer.sketches.find((v) => v.id === id);
   const shapes = s ? (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction && q.kind !== 'line') : [];
   if (!s || !shapes.length) {
@@ -2163,23 +2164,30 @@ function revolveTool() {
       revolveTool();
     }, false, true);
   }
+  const f = s.frame;
+  const around = (a: TurnAxis | null) => {
+    tips.cursorTip(null);
+    viewer.showAxis(null);
+    toolHint = null;
+    if (!a) return render();
+    // the axis in the shapes' plane: it must not stand (nearly) square to it
+    const [u, v] = [a.dir.dot(new Vector3(...f.x)), a.dir.dot(new Vector3(...f.y))];
+    const l = Math.hypot(u, v);
+    if (l < 0.5) return fail("The axis has to lie in the shapes' plane");
+    revolvePanel(s.id, shapes.map((q) => q.id), { at: uvOf(f, a.at), dir: [u / l, v / l] });
+  };
+  // selected first as the axis: a line among the selected shapes, else an Alt-picked edge
+  const line = s.shapes.find((q) => shapeSel.includes(q.id) && q.kind === 'line'); // a construction line too: drawn as an axis
+  if (line?.kind === 'line') {
+    const [a, b] = [line.pts[0], line.pts[1]];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (l > 1e-9) return revolvePanel(s.id, shapes.map((q) => q.id), { at: a, dir: [(b[0] - a[0]) / l, (b[1] - a[1]) / l] });
+  }
+  const picked = pickedAxis();
+  if (picked) return viewer.dropPicked(), around(picked);
   toolHint = "Revolve: click the axis · a sketch line or a body edge in the shapes' plane · [Esc] cancels";
   render();
-  const f = s.frame;
-  viewer.pickAxis(
-    (a) => {
-      tips.cursorTip(null);
-      viewer.showAxis(null);
-      toolHint = null;
-      if (!a) return render();
-      // the axis in the shapes' plane: it must not stand (nearly) square to it
-      const [u, v] = [a.dir.dot(new Vector3(...f.x)), a.dir.dot(new Vector3(...f.y))];
-      const l = Math.hypot(u, v);
-      if (l < 0.5) return fail("The axis has to lie in the shapes' plane");
-      revolvePanel(s.id, shapes.map((q) => q.id), { at: uvOf(f, a.at), dir: [u / l, v / l] });
-    },
-    (a) => (tips.cursorTip(a ? `${a.what}\nClick: the shapes turn around it` : null), viewer.showAxis(a, new Vector3(...f.o), 200)),
-  );
+  viewer.pickAxis(around, (a) => (tips.cursorTip(a ? `${a.what}\nClick: the shapes turn around it` : null), viewer.showAxis(a, new Vector3(...f.o), 200)));
 }
 
 /** The revolve being set up: its body shown, a panel at the top middle of the view with the angle; Enter keeps it, Esc leaves nothing. */
