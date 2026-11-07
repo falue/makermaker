@@ -1,5 +1,5 @@
 import { Matrix3, Vector3 } from 'three';
-import { arcOf, bakeTurn, bounds, centre, mapPoints, sideDirs, type DrawnProfile } from '../doc/profiles';
+import { arcOf, bakeTurn, bezierPoly, bounds, centre, mapPoints, polyMul, polyRoots, polySub, sideDirs, type DrawnProfile } from '../doc/profiles';
 import type { Curve } from '../doc/types';
 
 type UV = [number, number];
@@ -485,48 +485,17 @@ export function circleCurve([x, y]: [number, number], r: number, a0 = 0, a1 = 2 
 }
 
 export function bezierCurve(a: [number, number], c1: [number, number], c2: [number, number], b: [number, number]): TangentCurve {
-  // per axis in powers of t (lowest first), and its direction's
-  const pos = [0, 1].map((k) => [a[k], 3 * (c1[k] - a[k]), 3 * (c2[k] - 2 * c1[k] + a[k]), b[k] - 3 * c2[k] + 3 * c1[k] - a[k]]);
-  const vel = pos.map((p) => [p[1], 2 * p[2], 3 * p[3]]);
+  const [pos, vel] = bezierPoly(a, c1, c2, b);
   return {
     at: (t) => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c1[k] + 3 * (1 - t) * t ** 2 * c2[k] + t ** 3 * b[k]) as [number, number],
     dir: (t) => [0, 1].map((k) => 3 * (1 - t) ** 2 * (c1[k] - a[k]) + 6 * (1 - t) * t * (c2[k] - c1[k]) + 3 * t ** 2 * (b[k] - c2[k])) as [number, number],
     // (its point − to) × its direction = 0: a quintic
-    from: (to) => polyRoots(sub(mul([pos[0][0] - to[0], ...pos[0].slice(1)], vel[1]), mul([pos[1][0] - to[1], ...pos[1].slice(1)], vel[0]))),
+    from: (to) => polyRoots(polySub(polyMul([pos[0][0] - to[0], ...pos[0].slice(1)], vel[1]), polyMul([pos[1][0] - to[1], ...pos[1].slice(1)], vel[0]))),
     // its direction × dir = 0: a quadratic
     along: (dir) => polyRoots(vel[0].map((x, i) => x * Math.sin(dir) - vel[1][i] * Math.cos(dir))),
   };
 }
 
-/** Polynomials in powers of t (lowest first): product and difference. */
-const mul = (p: number[], q: number[]) => p.flatMap((x, i) => q.map((y, j) => [i + j, x * y] as const)).reduce((out, [k, v]) => ((out[k] = (out[k] ?? 0) + v), out), [] as number[]);
-const sub = (p: number[], q: number[]) => Array.from({ length: Math.max(p.length, q.length) }, (_, i) => (p[i] ?? 0) - (q[i] ?? 0));
-
-/**
- * The roots of polynomial `p` (powers of t, lowest first) on `lo`..`hi`, all of them: between its derivative's roots it
- * runs one way, so each stretch holds at most one (bisected); a root it only touches is one of the derivative's.
- */
-export function polyRoots(p: number[], lo = 0, hi = 1): number[] {
-  while (p.length > 1 && Math.abs(p[p.length - 1]) < 1e-14 * Math.max(...p.map(Math.abs))) p = p.slice(0, -1);
-  const f = (t: number) => p.reduceRight((s, c) => s * t + c, 0);
-  if (p.length < 2) return [];
-  if (p.length === 2) return [-p[0] / p[1]].filter((t) => t >= lo && t <= hi);
-  const scale = Math.max(...p.map(Math.abs));
-  const turns = polyRoots(p.slice(1).map((c, i) => c * (i + 1)), lo, hi);
-  const marks = [lo, ...turns, hi];
-  const out: number[] = turns.filter((t) => Math.abs(f(t)) < 1e-12 * scale);
-  for (let i = 0; i + 1 < marks.length; i++) {
-    let [a, b] = [marks[i], marks[i + 1]];
-    if (f(a) * f(b) > 0 || out.some((t) => t === a || t === b)) continue;
-    for (let k = 0; k < 60 && b - a > 1e-15; k++) {
-      const m = (a + b) / 2;
-      if (f(a) * f(m) <= 0) b = m;
-      else a = m;
-    }
-    out.push((a + b) / 2);
-  }
-  return [...new Set(out)].sort((x, y) => x - y);
-}
 
 /** The `t` of those that lies nearest `near`; null: none where the curve has a direction. */
 function nearestOf(c: TangentCurve, ts: number[], near: [number, number]) {

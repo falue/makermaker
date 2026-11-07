@@ -11,7 +11,7 @@ import type { Backdrop, BasePlane, CameraState, Light, Views } from '../doc/type
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { arcOf, area, bounds, centre, edgeDistance, inside, bakeTurn, nearestOnSide, segments, segPoints, type DrawnProfile, type Seg } from '../doc/profiles';
+import { arcOf, area, bounds, centre, edgeDistance, inside, bakeTurn, nearestOnOutline, nearBox, segments, segPoints, type DrawnProfile, type Seg } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
 import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, pointHandles, pointMoved, resized, rotated, simpleLine, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
@@ -1448,6 +1448,7 @@ export class Viewer implements ToolView {
       const [u, v] = uvOf(s.frame, p);
       const reach = reachPx / this.pixelsPerMm(p);
       for (const q of s.shapes) {
+        if (!nearBox(q, u, v, reach)) continue; // too far to be near or inside
         const d = q.kind === 'circle' ? Math.min(edgeDistance(q, u, v), Math.hypot(u - q.x, v - q.y)) : edgeDistance(q, u, v); // a circle's centre picks it too
         const edge = d <= reach ? d : Infinity; // outside the reach only the inside counts
         if (edge === Infinity && !inside(q, u, v)) continue;
@@ -3506,18 +3507,7 @@ export class Viewer implements ToolView {
       const n = new THREE.Vector3(...s.frame.n);
       if (Math.abs(at.clone().sub(new THREE.Vector3(...s.frame.o)).dot(n)) > reach) continue;
       const q = uvOf(s.frame, at);
-      for (const p of s.shapes) {
-        if (only && p.id !== only) continue;
-        for (const { a, b, c } of segments(p)) {
-          if (c) {
-            found(s.frame, nearestOnSide(a, c, b, q), q);
-            continue;
-          }
-          const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
-          const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
-          found(s.frame, [a[0] + t * dx, a[1] + t * dy], q);
-        }
-      }
+      for (const p of s.shapes) if (!only || p.id === only) found(s.frame, nearestOnOutline(p, q).at, q);
     }
     return (best as { p: THREE.Vector3 } | null)?.p ?? null;
   }

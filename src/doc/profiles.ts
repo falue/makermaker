@@ -35,6 +35,42 @@ function sidePoints(a: UV, c: Curve | null | undefined, b: UV, steps = 32): UV[]
   });
 }
 
+/** Polynomials in powers of t (lowest first): product and difference. */
+export const polyMul = (p: number[], q: number[]) => p.flatMap((x, i) => q.map((y, j) => [i + j, x * y] as const)).reduce((out, [k, v]) => ((out[k] = (out[k] ?? 0) + v), out), [] as number[]);
+/** A cubic bezier per axis in powers of t (lowest first), and its direction's. */
+export function bezierPoly(a: UV, c1: UV, c2: UV, b: UV): [number[][], number[][]] {
+  const pos = [0, 1].map((k) => [a[k], 3 * (c1[k] - a[k]), 3 * (c2[k] - 2 * c1[k] + a[k]), b[k] - 3 * c2[k] + 3 * c1[k] - a[k]]);
+  return [pos, pos.map((p) => [p[1], 2 * p[2], 3 * p[3]])];
+}
+
+export const polySub = (p: number[], q: number[]) => Array.from({ length: Math.max(p.length, q.length) }, (_, i) => (p[i] ?? 0) - (q[i] ?? 0));
+
+/**
+ * The roots of polynomial `p` (powers of t, lowest first) on `lo`..`hi`, all of them: between its derivative's roots it
+ * runs one way, so each stretch holds at most one (bisected); a root it only touches is one of the derivative's.
+ */
+export function polyRoots(p: number[], lo = 0, hi = 1): number[] {
+  while (p.length > 1 && Math.abs(p[p.length - 1]) < 1e-14 * Math.max(...p.map(Math.abs))) p = p.slice(0, -1);
+  const f = (t: number) => p.reduceRight((s, c) => s * t + c, 0);
+  if (p.length < 2) return [];
+  if (p.length === 2) return [-p[0] / p[1]].filter((t) => t >= lo && t <= hi);
+  const scale = Math.max(...p.map(Math.abs));
+  const turns = polyRoots(p.slice(1).map((c, i) => c * (i + 1)), lo, hi);
+  const marks = [lo, ...turns, hi];
+  const out: number[] = turns.filter((t) => Math.abs(f(t)) < 1e-12 * scale);
+  for (let i = 0; i + 1 < marks.length; i++) {
+    let [a, b] = [marks[i], marks[i + 1]];
+    if (f(a) * f(b) > 0 || out.some((t) => t === a || t === b)) continue;
+    for (let k = 0; k < 60 && b - a > 1e-15; k++) {
+      const m = (a + b) / 2;
+      if (f(a) * f(m) <= 0) b = m;
+      else a = m;
+    }
+    out.push((a + b) / 2);
+  }
+  return [...new Set(out)].sort((x, y) => x - y);
+}
+
 /** The point of a curved side nearest `q`. */
 export function nearestOnSide(a: UV, c: Curve, b: UV, q: UV): UV {
   if ('mid' in c) {
@@ -210,18 +246,12 @@ export type Seg = { a: UV; b: UV; c?: Curve | null };
 
 const bez = (a: UV, c1: UV, c2: UV, b: UV, t: number): UV => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c1[k] + 3 * (1 - t) * t ** 2 * c2[k] + t ** 3 * b[k]) as UV;
 
-/** The bezier's parameter nearest `q`. */
+/** The bezier's parameter nearest `q`: of its ends and where (B − q) · B′ = 0 (a quintic), the nearest. */
 function bezierT(a: UV, c1: UV, c2: UV, b: UV, q: UV): number {
+  const [pos, vel] = bezierPoly(a, c1, c2, b);
+  const off = pos.map((p, k) => [p[0] - q[k], ...p.slice(1)]);
   const far = (t: number) => Math.hypot(bez(a, c1, c2, b, t)[0] - q[0], bez(a, c1, c2, b, t)[1] - q[1]);
-  let best = 0;
-  for (let k = 1; k <= 256; k++) if (far(k / 256) < far(best / 256)) best = k;
-  let [lo, hi] = [Math.max(0, best - 1) / 256, Math.min(256, best + 1) / 256];
-  for (let k = 0; k < 40; k++) {
-    const [m1, m2] = [lo + (hi - lo) / 3, hi - (hi - lo) / 3];
-    if (far(m1) < far(m2)) hi = m2;
-    else lo = m1;
-  }
-  return (lo + hi) / 2;
+  return [0, 1, ...polyRoots(polySub(polyMul(off[0], vel[0]), polyMul(off[1].map((x) => -x), vel[1])))].reduce((best, t) => (far(t) < far(best) ? t : best));
 }
 
 /** The part of a side between its points nearest `from` and `to`, running from exactly `from` to `to`. */
@@ -247,6 +277,17 @@ function trimmed(a: UV, c: Curve, b: UV, from: UV, to: UV): Seg {
  * its place (`cornerCuts`; beside a curved side cut where that puts it); a circle as two half arcs; a line open.
  */
 export function segments(p: P): Seg[] {
+  const known = SEGMENTS.get(p);
+  if (known) return known;
+  const out = sidesNow(p);
+  SEGMENTS.set(p, out);
+  return out;
+}
+
+/** `segments` by shape: shapes are never changed in place, so each is worked out once (hover asks many times a frame). */
+const SEGMENTS = new WeakMap<P, Seg[]>();
+
+function sidesNow(p: P): Seg[] {
   if (p.kind === 'circle') {
     const r = p.d / 2;
     const [e, n, w, s]: UV[] = [[p.x + r, p.y], [p.x, p.y + r], [p.x - r, p.y], [p.x, p.y - r]];
@@ -265,6 +306,23 @@ export function segments(p: P): Seg[] {
     out.push(c && (from !== a || to !== b) ? trimmed(a, c, b, from, to) : { a: from, b: to, c });
   }
   return out;
+}
+
+/** The point of the outline (`segments`) nearest `q`, and how far it is. */
+export function nearestOnOutline(p: P, q: UV): { at: UV; d: number } {
+  let best = { at: q, d: Infinity };
+  for (const { a, b, c } of segments(p)) {
+    let at: UV;
+    if (c) at = nearestOnSide(a, c, b, q);
+    else {
+      const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+      const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+      at = [a[0] + t * dx, a[1] + t * dy];
+    }
+    const d = Math.hypot(q[0] - at[0], q[1] - at[1]);
+    if (d < best.d) best = { at, d };
+  }
+  return best;
 }
 
 /** A side as points, both ends in, at most `tol` mm off it. */
@@ -359,7 +417,9 @@ export function segCrossings(g: Seg, h: Seg): UV[] | null {
     const d = Math.hypot(dx, dy);
     if (d < 1e-12 || d > cg.r + ch.r + 1e-9 || d < Math.abs(cg.r - ch.r) - 1e-9) return [];
     const x = (d * d + cg.r * cg.r - ch.r * ch.r) / (2 * d);
-    const y = Math.sqrt(Math.max(0, cg.r * cg.r - x * x));
+    // touching (within rounding, which the root would blow up to about 1e-6): one point
+    const touch = Math.abs(d - cg.r - ch.r) < 1e-12 * (cg.r + ch.r) || Math.abs(d - Math.abs(cg.r - ch.r)) < 1e-12 * (cg.r + ch.r);
+    const y = touch ? 0 : Math.sqrt(Math.max(0, cg.r * cg.r - x * x));
     const m: UV = [cg.c[0] + (x * dx) / d, cg.c[1] + (x * dy) / d];
     return ([[m[0] - (y * dy) / d, m[1] + (y * dx) / d], [m[0] + (y * dy) / d, m[1] - (y * dx) / d]] as UV[]).filter(on);
   }
@@ -368,7 +428,9 @@ export function segCrossings(g: Seg, h: Seg): UV[] | null {
   const [dx, dy] = [l.b[0] - l.a[0], l.b[1] - l.a[1]];
   const [fx, fy] = [l.a[0] - k.c[0], l.a[1] - k.c[1]];
   const [qa, qb, qc] = [dx * dx + dy * dy, 2 * (fx * dx + fy * dy), fx * fx + fy * fy - k.r * k.r];
-  const disc = qb * qb - 4 * qa * qc;
+  // touching (the line's distance from the middle the radius, within rounding): one point
+  const away = Math.abs(fx * dy - fy * dx) / Math.sqrt(qa);
+  const disc = Math.abs(away - k.r) < 1e-12 * k.r ? 0 : qb * qb - 4 * qa * qc;
   if (disc < 0 || qa < 1e-24) return [];
   return [-1, 1].map((sg): UV => {
     const t = (-qb + sg * Math.sqrt(disc)) / (2 * qa);
@@ -433,6 +495,8 @@ export const outlineLength = (p: P) => segments(p).reduce((s, g) => s + segLengt
 /** Bounding box in plane coordinates: [minX, minY, maxX, maxY]. */
 export function bounds(p: P): [number, number, number, number] {
   if (p.kind === 'circle') return [p.x - p.d / 2, p.y - p.d / 2, p.x + p.d / 2, p.y + p.d / 2];
+  const known = BOUNDS.get(p);
+  if (known) return known;
   const pts = segments(p).flatMap((g) => {
     if (!g.c) return [g.a, g.b];
     if ('c1' in g.c) {
@@ -456,8 +520,19 @@ export function bounds(p: P): [number, number, number, number] {
   });
   const xs = pts.map(([x]) => x);
   const ys = pts.map(([, y]) => y);
-  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  const out: [number, number, number, number] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  BOUNDS.set(p, out);
+  return out;
 }
+
+/** `bounds` by shape (see `SEGMENTS`). */
+const BOUNDS = new WeakMap<P, [number, number, number, number]>();
+
+/** Whether plane point (u, v) lies within `reach` of the shape's box (nothing farther can be near or inside it). */
+export const nearBox = (p: P, u: number, v: number, reach: number) => {
+  const [x0, y0, x1, y1] = bounds(p);
+  return u >= x0 - reach && u <= x1 + reach && v >= y0 - reach && v <= y1 + reach;
+};
 
 /** Shifts that line the boxes up (left, centre, right, top, middle, bottom) or space them evenly (distribute: equal gaps). */
 export function alignment(boxes: [number, number, number, number][], how: Align): [number, number][] {
@@ -521,35 +596,32 @@ export function inside(p: P, u: number, v: number): boolean {
       const arc = arcOf(a, c.mid, b);
       const side = (q: UV) => Math.sign((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]));
       if (arc && Math.hypot(u - arc.c[0], v - arc.c[1]) < arc.r && side([u, v]) === side(c.mid)) odd = !odd;
-    } else if (crosses(segPoints({ a, b, c }, 1e-4), u, v)) odd = !odd;
+    } else if ((bezierCrossings(a, c.c1, c.c2, b, u, v) + +crossesSide(b, a, u, v)) % 2) odd = !odd; // inside the loop of it and its chord
   }
   return odd;
 }
 
+/** How often a ray from (u, v) along +x crosses the bezier (roots of y(t) = v, where it passes through, not touches). */
+function bezierCrossings(a: UV, c1: UV, c2: UV, b: UV, u: number, v: number): number {
+  const [[x, y], [, dy]] = bezierPoly(a, c1, c2, b);
+  const at = (p: number[], t: number) => p.reduceRight((s, k) => s * t + k, 0);
+  return polyRoots([y[0] - v, ...y.slice(1)]).filter((t) => t > 0 && t < 1 && at(x, t) > u && Math.abs(at(dy, t)) > 1e-12).length;
+}
+
+/** Whether a ray from (u, v) along +x crosses the segment (the even-odd rule's half-open test). */
+const crossesSide = ([xi, yi]: UV, [xj, yj]: UV, u: number, v: number) => yi > v !== yj > v && u < ((xj - xi) * (v - yi)) / (yj - yi) + xi;
+
 /** Even-odd test of a closed polygon. */
 function crosses(pts: UV[], u: number, v: number): boolean {
   let odd = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const [[xi, yi], [xj, yj]] = [pts[i], pts[j]];
-    if (yi > v !== yj > v && u < ((xj - xi) * (v - yi)) / (yj - yi) + xi) odd = !odd;
-  }
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) if (crossesSide(pts[i], pts[j], u, v)) odd = !odd;
   return odd;
 }
 
 /** Distance (mm) from plane point (u, v) to the outline, exact (`segments`; a line stays open). */
 export function edgeDistance(p: P, u: number, v: number): number {
   if (p.kind === 'circle') return Math.abs(Math.hypot(u - p.x, v - p.y) - p.d / 2);
-  return Math.min(
-    ...segments(p).map(({ a, b, c }) => {
-      if (c) {
-        const q = nearestOnSide(a, c, b, [u, v]);
-        return Math.hypot(u - q[0], v - q[1]);
-      }
-      const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
-      const t = Math.max(0, Math.min(1, ((u - a[0]) * dx + (v - a[1]) * dy) / (dx * dx + dy * dy || 1)));
-      return Math.hypot(u - a[0] - t * dx, v - a[1] - t * dy);
-    }),
-  );
+  return nearestOnOutline(p, [u, v]).d;
 }
 
 /** How many larger profiles contain each profile (tested at the middle of its longest side): even adds material, odd makes a hole. */
