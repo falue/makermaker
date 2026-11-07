@@ -104,15 +104,12 @@ body {
   align-items: center;
   gap: 6px;
 }
-/* the name: its x-height as tall as the logo's square (14 of 24 on its 20 px), cut there: the k's top goes, the
-   round letters' overshoot stays (the clip's margin) */
-#topbar .wordmark {
-  font-size: 23.33px;
-  font-size-adjust: 0.5;
-  font-weight: 250;
-  text-box: trim-both ex alphabetic;
-  overflow: clip;
-  overflow-clip-margin: 0.03em;
+/* the name (makermaker.svg): its letters as tall as the logo's square (14 of 24 on its 20 px) */
+#topbar .wordmark svg {
+  display: block;
+  height: 12px;
+  width: auto;
+  fill: var(--text);
 }
 #topbar .logo svg {
   display: block;

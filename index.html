@@ -22,30 +22,19 @@
         justify-content: center;
         gap: 6px;
         background: #f7f7f5;
-        color: #222;
-        font: 250 23.33px system-ui, sans-serif;
-      }
-      /* as the top bar's .wordmark: its x-height as tall as the logo's square, cut there */
-      #loading span {
-        font-size-adjust: 0.5;
-        text-box: trim-both ex alphabetic;
-        overflow: clip;
-        overflow-clip-margin: 0.03em;
       }
       @media (prefers-color-scheme: dark) {
         :root:not([data-theme='light']) #loading {
           background: #18191b;
-          color: #e4e4e2;
         }
       }
       :root[data-theme='dark'] #loading {
         background: #18191b;
-        color: #e4e4e2;
       }
     </style>
   </head>
   <body>
-    <div id="loading"><img src="/src/ui/icons/logo.svg" alt="" width="20" height="20" /><span>makermaker</span></div>
+    <div id="loading"><img src="/src/ui/icons/logo.svg" alt="" width="20" height="20" /><img src="/src/ui/icons/makermaker.svg" alt="makermaker" width="115" height="12" /></div>
     <header id="topbar"></header>
     <aside id="left"></aside>
     <nav id="toolbar"></nav>
