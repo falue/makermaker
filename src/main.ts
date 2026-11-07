@@ -7223,14 +7223,15 @@ function importFile(f: File, at?: { x: number; y: number }) {
 /** A drawing's shapes as a new sketch on `target`, 1:1, its middle at `target.point` (none: its own origin there). */
 function importDrawing(name: string, shapes: Shape2[], target: { placement: Target['placement']; frame: Frame; body: string | null; name: string; point: Vector3 | null }) {
   if (!shapes.length) return fail(`${name}: nothing drawn in it that a sketch takes`);
-  const xs = shapes.flatMap((q) => (q.kind === 'circle' ? [q.x - q.d / 2, q.x + q.d / 2] : q.pts.map((p) => p[0])));
-  const ys = shapes.flatMap((q) => (q.kind === 'circle' ? [q.y - q.d / 2, q.y + q.d / 2] : q.pts.map((p) => p[1])));
+  const boxes = shapes.map((q) => bounds(q.kind === 'circle' ? q : { ...q, r: 0, rot: 0 }));
+  const [x0, y0, x1, y1] = [0, 1, 2, 3].map((k) => (k < 2 ? Math.min : Math.max)(...boxes.map((b) => b[k])));
   const [u, v] = target.point ? uvOf(target.frame, target.point) : [0, 0];
-  const [dx, dy] = target.point ? [u - (Math.min(...xs) + Math.max(...xs)) / 2, v - (Math.min(...ys) + Math.max(...ys)) / 2] : [0, 0];
-  const r = (x: number) => +fmt(x);
+  const [dx, dy] = target.point ? [u - (x0 + x1) / 2, v - (y0 + y1) / 2] : [0, 0];
+  const at = (pts: [number, number][]) => roundPts(pts.map(([x, y]) => [x + dx, y + dy]));
+  const sides = (q: { curves?: (Curve | null)[] }) => (q.curves ? { curves: roundCurves(q.curves.map((c) => (!c ? null : 'mid' in c ? { mid: at([c.mid])[0] } : { c1: at([c.c1])[0], c2: at([c.c2])[0] }))) } : {});
   const doc = history.current;
   const sketch = { ...sketchAt({ sketch: null, ...target }, doc.sketches.length), name: name.replace(/\.[^.]*$/, '') };
-  sketch.shapes = shapes.map((q): Profile => (q.kind === 'circle' ? { id: newId(), kind: 'circle', x: len(q.x + dx), y: len(q.y + dy), d: len(q.d) } : q.kind === 'polygon' ? { id: newId(), kind: 'polygon', pts: q.pts.map(([x, y]) => [r(x + dx), r(y + dy)]), r: len(0), rot: ex('0') } : { id: newId(), kind: 'line', pts: q.pts.map(([x, y]) => [r(x + dx), r(y + dy)]) }));
+  sketch.shapes = shapes.map((q): Profile => (q.kind === 'circle' ? { id: newId(), kind: 'circle', x: len(q.x + dx), y: len(q.y + dy), d: len(q.d) } : q.kind === 'polygon' ? { id: newId(), kind: 'polygon', pts: at(q.pts), ...sides(q), r: len(0), rot: ex('0') } : { id: newId(), kind: 'line', pts: at(q.pts), ...sides(q) }));
   [selected, shapeSel] = [[sketch.id], []];
   commit({ ...doc, sketches: [...doc.sketches, sketch] });
   notify(`${name}: ${shapes.length} shape${shapes.length === 1 ? '' : 's'} as sketch "${sketch.name}" on ${target.name}, 1:1`);

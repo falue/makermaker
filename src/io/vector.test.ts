@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { dxfShapes, svgShapes } from './vector';
+import { area, bounds } from '../doc/profiles';
+import { dxfShapes, svgShapes, type Shape2 } from './vector';
+
+const outline = (q: Shape2 | undefined) => (q && q.kind !== 'circle' ? { ...q, r: 0, rot: 0 } : { kind: 'polygon' as const, pts: [] as [number, number][], r: 0, rot: 0 });
 
 describe('svgShapes', () => {
   it('reads a drawing 1:1 in mm, y up: a rectangle, a hole, a curve', () => {
@@ -19,8 +22,9 @@ describe('svgShapes', () => {
     expect(rect?.kind === 'polygon' && rect.pts.length).toBe(4);
     const xs = rect?.kind === 'polygon' ? rect.pts.map((p) => p[0]) : [];
     expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(50, 6);
+    // the curve stays one bezier
     const curve = shapes.find((s) => s.kind === 'line');
-    expect(curve?.kind === 'line' && curve.pts.length).toBeGreaterThan(8);
+    expect(curve).toEqual({ kind: 'line', pts: [[0, -45], [100, -45]], curves: [{ c1: [25, -30], c2: [75, -30] }] });
   });
 
   it('chains loose lines into a closed polygon', () => {
@@ -41,10 +45,34 @@ describe('dxfShapes', () => {
     ]);
     const shapes = dxfShapes(text);
     expect(shapes.find((s) => s.kind === 'circle')).toEqual({ kind: 'circle', x: 10, y: 20, d: 10 }); // cm to mm
-    const outline = shapes.find((s) => s.kind === 'polygon');
-    // 40 × 20 mm with a half round end (bulge 1) reaching 10 mm out
-    const xs = outline?.kind === 'polygon' ? outline.pts.map((p) => p[0]) : [];
-    expect(Math.max(...xs)).toBeCloseTo(50, 1);
-    expect(shapes.some((s) => s.kind === 'line')).toBe(true);
+    // 40 × 20 mm with a half round end (bulge 1) reaching 10 mm out: a true arc
+    const slot = outline(shapes.find((s) => s.kind === 'polygon'));
+    expect(bounds(slot)[2]).toBeCloseTo(50, 9);
+    expect(area(slot)).toBeCloseTo(800 + 50 * Math.PI, 9);
+    const arc = shapes.find((s) => s.kind === 'line');
+    expect(arc?.kind === 'line' && arc.curves?.[0] && 'mid' in arc.curves[0] && arc.curves[0].mid[0]).toBeCloseTo(100 + 10 * Math.SQRT1_2, 9);
+  });
+});
+
+describe('curves kept', () => {
+  it('a rounded rect, an ellipse and an arc path arrive with true arcs or cubics', () => {
+    const svg = `<svg width="100mm" height="100mm" viewBox="0 0 100 100">
+      <rect x="0" y="0" width="40" height="20" rx="5"/>
+      <ellipse cx="70" cy="70" rx="20" ry="10"/>
+      <path d="M 0 60 A 10 10 0 0 1 20 60"/>
+    </svg>`;
+    const shapes = svgShapes(svg);
+    const rect = outline(shapes.find((q) => q.kind === 'polygon' && q.pts.length === 8 && !q.curves?.every(Boolean)));
+    expect(area(rect)).toBeCloseTo(800 - (4 - Math.PI) * 25, 9);
+    const ellipse = outline(shapes.find((q) => q.kind === 'polygon' && q.pts.length === 8 && !!q.curves?.every(Boolean)));
+    expect(area(ellipse)).toBeCloseTo(Math.PI * 200, 2); // eight cubics: within 1e-5
+    expect(bounds(outline(shapes.find((q) => q.kind === 'line')))[1]).toBeCloseTo(-60, 9); // the half circle's top, y up
+  });
+
+  it('a DXF B-spline becomes its exact cubic pieces', () => {
+    const dxf = [0, 'SECTION', 2, 'ENTITIES', 0, 'SPLINE', 71, 3, ...[0, 0, 0, 0, 1, 2, 2, 2, 2].flatMap((k) => [40, k]), ...[[0, 0], [10, 20], [20, -10], [30, 20], [40, 0]].flatMap(([x, y]) => [10, x, 20, y]), 0, 'ENDSEC', 0, 'EOF'].join('\n');
+    const [line] = dxfShapes(dxf);
+    expect(line.kind === 'line' && line.pts).toEqual([[0, 0], [20, 5], [40, 0]]);
+    expect(line.kind === 'line' && line.curves).toEqual([{ c1: [10, 20], c2: [15, 5] }, { c1: [25, 5], c2: [30, 20] }]);
   });
 });

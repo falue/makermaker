@@ -71,7 +71,7 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 - Measure: a curve's middle is the point nearest the mesh guess, not half its length (src/kernel/measure.ts:123).
 
 **E. Import and export**
-- SVG / DXF import (src/io/vector.ts): every curve but a full circle sampled every 0.5 mm (`sample`, :15): extruded holes and slots become dozens of flat faces; profiles could carry arcs and cubics (quadratics raise exactly). SVG rect rx/ry dropped (:188); DXF fit-point splines straight, NURBS weights ignored (:312); pieces chain only within 1e-4 (:22), so other CAD's DXF arrives open.
+- SVG / DXF import (src/io/vector.ts): done 2026-11-07: curves arrive as true arcs (SVG arcs kept round by the transform, DXF arcs and bulges) and cubics (SVG cubics, quadratics raised exactly, ellipses and SVG rect rx/ry in eighths, off by 4e-6 of the radius; DXF B-splines up to degree 3 split exactly into their cubics; fit-point splines as smooth cubics through their points); pieces chain within 1e-3 mm. Still sampled every 0.5 mm: rational (weighted) and higher-degree DXF splines, now with their weights.
 - Laser export (src/kernel/laser.ts): every curve sampled every 0.5 mm (:19), only all-circle loops become circles (:68): no arcs in SVG or DXF; kerf on the polyline with the 0.2 miter clamp (:77); finishes left out (:49).
 - Print check: closed and manifold counted on the print mesh (src/kernel/worker.ts:57, 148), not the solid; mesh bodies left out of export, print and clash without a message (src/main.ts:572).
 - GLB and SketchUp import weld vertices at 1e-4 in metres, i.e. 0.1 mm (src/io/mesh.ts:58, 206).
