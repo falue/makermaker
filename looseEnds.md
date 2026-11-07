@@ -21,7 +21,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A section's axis shows only while it is being picked; there is no way back to its own line except a new section.
 
 ## Thread
-- Changing the size in the thread's card does not resize the hole or shaft (its panel does). A face not pulled from a circle (a revolve, a sphere, a STEP or mesh body) is not resized. A circle's Ø written as a formula becomes a plain number when resized.
+- Changing the size, or Modeled / Cosmetic, in the thread's card does not resize the hole or shaft (its panel does). A cosmetic thread is not in STEP or STL (it is not geometry). A face not pulled from a circle (a revolve, a sphere, a STEP or mesh body) is not resized. A circle's Ø written as a formula becomes a plain number when resized.
 
 ## Measuring
 - A drawing tool's snap onto a free-form body edge (a spline, say) is very close but not exact: it uses the circle through the mesh points next to it. Round edges come out exact to the view's number precision.

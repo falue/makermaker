@@ -36,6 +36,8 @@ export interface BodyMesh {
   finishes: { feature: string; mid: V3 }[];
   /** By finish: how many of its picked edges could not be found any more. */
   lostEdges: Record<string, number>;
+  /** Cosmetic threads' lines (segment pairs, xyz, body coordinates): drawn, not in the solid. */
+  cosmetic?: Float32Array;
   /** An imported mesh's texture coordinates (u, v per vertex). */
   uvs?: Float32Array;
   /** How many separate solids it is in (a mesh: 1). */
@@ -106,7 +108,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
       if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
       if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
       if (s.type === 'coat') apply(s.id, (cur) => coat(cur, s));
-      if (s.type === 'thread') apply(s.id, (cur) => thread(cur, s));
+      if (s.type === 'thread' && s.modeled) apply(s.id, (cur) => thread(cur, s)); // cosmetic: drawn only (`cosmeticOf`)
       if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
       if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
       if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
@@ -725,6 +727,25 @@ function coat(shape: Shape3D | null, s: Of<'coat'>): Shape3D {
   const skin = out.cut(shape);
   out.delete();
   return skin;
+}
+
+/**
+ * Cosmetic threads drawn as a drawing shows them: at their other Ø (a hole's major, a shaft's minor), a circle at
+ * each end and four lines along; segment pairs in body coordinates.
+ */
+export function cosmeticOf(features: BuildFeature[], steps = 48): Float32Array {
+  const out: number[] = [];
+  for (const s of features) {
+    if (s.type !== 'thread' || s.modeled) continue;
+    const r = s.inside ? s.d / 2 : s.d / 2 - 0.625 * 0.8660254 * s.pitch;
+    const n = norm(s.dir);
+    const x = norm(cross(Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0], n));
+    const y = cross(n, x);
+    const at = (a: number, h: number) => add(add(s.at, scale(n, h)), add(scale(x, r * Math.cos(a)), scale(y, r * Math.sin(a))));
+    for (const h of [0, s.length]) for (let k = 0; k < steps; k++) out.push(...at((2 * Math.PI * k) / steps, h), ...at((2 * Math.PI * (k + 1)) / steps, h));
+    for (let k = 0; k < 4; k++) out.push(...at((k * Math.PI) / 2, 0), ...at((k * Math.PI) / 2, s.length));
+  }
+  return new Float32Array(out);
 }
 
 /**

@@ -18,6 +18,15 @@ export const THREADS: ThreadSize[] = [
 /** The basic thread depth of a pitch (5/8 of the fundamental triangle's height H = 0.866 P), ISO 68-1. */
 export const threadDepth = (pitch: number) => 0.625 * 0.8660254 * pitch;
 
+/** The tap drill of a thread (ISO 2306 and the shop rule for metric and Unified alike: about 75 % thread): its Ø less one pitch. */
+export const tapDrill = (d: number, pitch: number) => d - pitch;
+
+/**
+ * The Ø a hole or shaft takes for a thread `d` by `pitch`: a shaft its major Ø; a hole its minor Ø when the thread is
+ * cut into the solid (`modeled`), else its tap drill.
+ */
+export const boreFor = (d: number, pitch: number, inside: boolean, modeled: boolean) => (!inside ? d : modeled ? d - 2 * threadDepth(pitch) : tapDrill(d, pitch));
+
 /** The size that fits a round surface of diameter `d`: a shaft by its major diameter, a hole by its minor one (tap drill). */
 export function fitting(d: number, inside: boolean, system: ThreadSize['system']): ThreadSize {
   const of = THREADS.filter((t) => t.system === system);

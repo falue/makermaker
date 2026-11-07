@@ -143,7 +143,8 @@ export type MirrorFeature = { id: string; type: 'mirror'; o: [number, number, nu
  * round surface of radius `r` (a hole's: `inside`, cut outward into its wall; a shaft's: cut inward), with the ISO
  * basic profile of major diameter `d` and `pitch` per turn; `size`: the listed size it was set from (see threads.ts).
  */
-export type ThreadFeature = { id: string; type: 'thread'; at: [number, number, number]; dir: [number, number, number]; r: number; inside: boolean; size: string; d: Expr; pitch: Expr; length: Expr };
+/** A thread on a round face (body-local axis from `at` along `dir`); `modeled`: its groove cut into the solid, else cosmetic (only drawn, the hole at tap-drill size: CNC drawings and tapping). */
+export type ThreadFeature = { id: string; type: 'thread'; at: [number, number, number]; dir: [number, number, number]; r: number; inside: boolean; size: string; d: Expr; pitch: Expr; length: Expr; modeled: boolean };
 
 /**
  * A face bulged out smoothly (or dented in), its rim kept: a flat face through body point `at` (`mid`: its middle, `half`: half its size along x / y / z, `n`: its

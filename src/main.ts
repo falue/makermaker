@@ -8,7 +8,7 @@ import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm,
 import { History } from './doc/history';
 import { alignment, area, beside, bounds, movedLine, outlineLength, segments, segPoints, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
-import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
+import { boreFor, fitting, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, deleteButton, icon } from './ui/icons';
 import { contextMenu, type MenuItem } from './ui/menu';
 import { axisHtml, sizeHtml } from './ui/axes';
@@ -27,7 +27,7 @@ import { faceAt, pushed, sideFrame } from './doc/pull';
 import { carrierOf, contents, freed, listedAfter, onFaceOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { CoatFeature } from './doc/types';
-import type { Area, Backdrop, Body, BulgeFeature, CameraState, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, RenderTo, Sketch, SketchPlacement, SplitFeature, Unit } from './doc/types';
+import type { Area, Backdrop, Body, BulgeFeature, CameraState, DraftFeature, FingersFeature, ImageRef, Joint, Material, PhotoSphere, WorkPlane, BooleanOp, Curve, Doc, Expr, ExtrudeSource, Feature, Group, Profile, SideSize, RenderShot, RenderTo, Sketch, SketchPlacement, SplitFeature, ThreadFeature, Unit } from './doc/types';
 import { openFile, readHandle, saveFile, type OpenedFile } from './io/access';
 import { addVersion, EXTENSION, pack, unpack, versionDate, type Version } from './io/design';
 import { pairKey, type ClashAsk, type ClashHit } from './kernel/clash';
@@ -2699,10 +2699,11 @@ function mirrorTool() {
 
 /**
  * Thread: the round face of a hole or a shaft (Alt-picked, or last clicked on a selected body, else clicked next): a
- * real thread (ISO basic profile) cut into it from its end nearest the click, all along it. A panel: the size (the one
- * of the face's Ø first: Ø 8 is M8), which fills Ø and Pitch (both editable), the length (T: to a point), Metric /
- * Imperial (as the document's units first). The hole or shaft is resized to fit it (a hole to its minor Ø, a shaft to
- * its major one) by the circle it was pulled from. Live, one undo step; Esc leaves nothing.
+ * thread (ISO basic profile) from its end nearest the click, all along it. A panel: Modeled (cut into the solid) or
+ * Cosmetic (only drawn: for CNC, the last choice kept), the size (the one of the face's Ø first: Ø 8 is M8), which
+ * fills Ø and Pitch (both editable), the length (T: to a point), Metric / Imperial (as the document's units first). The
+ * hole or shaft is resized to fit it (a shaft to its major Ø, a hole to its minor one, a cosmetic one's to its tap
+ * drill: Ø less a pitch) by the circle it was pulled from. Live, one undo step; Esc leaves nothing.
  */
 function threadTool() {
   const last = viewer.lastFaceItem();
@@ -2817,13 +2818,13 @@ function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: numb
   const i = stepsOf(doc, body);
   const pl = bodyPlace(body);
   const circle = circleOf(body, round);
-  /** `next` with the hole or shaft fitting a thread `d` by `pitch` (mm): its circle resized, the thread's radius with it. */
+  /** `next` with the hole or shaft fitting a thread `d` by `pitch` (mm; see `boreFor`): its circle resized, the thread's radius with it. */
   const fitted = (next: Doc, path: string[], d: number, pitch: number) => {
-    const r = round.shaft ? d / 2 : d / 2 - threadDepth(pitch);
+    const r = boreFor(d, pitch, !round.shaft, (getIn(next, path) as ThreadFeature).modeled) / 2;
     if (!circle || !(r > 0)) return next;
     return setIn(setIn(next, circle, len(2 * r)), [...path, 'r'], r);
   };
-  const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, start.toArray()), dir: unplaced(pl, dir.toArray(), true), r: round.r, inside: !round.shaft, size: size.name, d: len(size.d), pitch: len(size.pitch), length: len(round.length) };
+  const feature: Feature = { id: newId(), type: 'thread', at: unplaced(pl, start.toArray()), dir: unplaced(pl, dir.toArray(), true), r: round.r, inside: !round.shaft, size: size.name, d: len(size.d), pitch: len(size.pitch), length: len(round.length), modeled: threadModeled };
   [selected, shapeSel] = [[body], []];
   const added = setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, feature]);
   const path = ['bodies', String(i), 'features', String(added.bodies[i].features.length - 1)];
@@ -2831,7 +2832,7 @@ function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: numb
   creating();
   const write = ([d, p, l]: string[]) => {
     const f = getIn(history.current, path) as Feature;
-    const next = setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: doc.units }, pitch: { e: p, u: doc.units }, length: { e: l, u: doc.units } });
+    const next = setIn(history.current, path, { ...f, size: size.name, d: { e: d, u: doc.units }, pitch: { e: p, u: doc.units }, length: { e: l, u: doc.units }, modeled: threadModeled });
     history.replace(fitted(next, path, length(d) ?? size.d, length(p) ?? size.pitch));
     update();
     creating();
@@ -2858,6 +2859,17 @@ function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: numb
     systems.append(b);
   }
   options();
+  // modeled: the groove in the solid (3D printing); cosmetic: drawn only, a hole at tap-drill size (CNC, tapping)
+  const kinds = Object.assign(document.createElement('span'), { className: 'segmented' });
+  for (const on of [true, false]) {
+    const b = Object.assign(document.createElement('button'), { textContent: on ? 'Modeled' : 'Cosmetic', className: on === threadModeled ? 'on' : '', title: on ? 'Click: Cut the thread into the solid (for 3D printing)' : `Click: Only draw the thread${round.shaft ? '' : ': the hole at tap-drill size'} (for CNC and tapping)` });
+    b.onclick = () => {
+      threadModeled = on;
+      [...kinds.children].forEach((x) => x.classList.toggle('on', x === b));
+      panel.inputs[0].dispatchEvent(new Event('input'));
+    };
+    kinds.append(b);
+  }
   const panel = valuePanel(
     [
       { label: 'Ø', value: fmt(size.d / u) },
@@ -2868,9 +2880,12 @@ function threadOn(body: string, round: { at: Vector3; dir: Vector3; length: numb
     (ok) => (ok ? render() : undo()),
     `Thread ${round.shaft ? 'on a shaft' : 'in a hole'} Ø ${fmt(2 * round.r)} mm: pick its size · or type Ø and pitch · ${circle ? `the ${round.shaft ? 'shaft' : 'hole'} fits it` : `its circle is not found: the ${round.shaft ? 'shaft' : 'hole'} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] leaves nothing`,
     [],
-    [systems, pick],
+    [kinds, systems, pick],
   );
 }
+
+/** Whether a new thread is cut into the solid or only drawn (the panel's last choice, this session). */
+let threadModeled = true;
 
 /**
  * Bulge: a face bulged out smoothly, its rim kept (flat: domed; round: swelling along its axis), or closed sketch

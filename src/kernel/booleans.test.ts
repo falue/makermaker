@@ -34,7 +34,7 @@ const zoo: Record<string, BuildFeature[]> = {
   // revolved, then drafted on a flat face of it is not possible: a revolve with a flat end drafted instead
   swept: [f({ id: 'w', type: 'sweep', profile: { id: 'c', kind: 'circle', x: 0, y: 0, d: 8 }, path: { frame: ground, profile: { id: 'l', kind: 'line', pts: [[-20, 0], [10, 0], [10, 25]] } } })],
   lofted: [f({ id: 'l', type: 'loft', sections: [{ frame: at(0), profile: { id: 'a', kind: 'rect', x: 0, y: 0, w: 30, h: 30, r: 0, rot: 0 } }, { frame: at(25), profile: { id: 'b', kind: 'circle', x: 0, y: 0, d: 14 } }], ruled: false })],
-  threaded: [f({ id: 'c', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 25, mode: 'add', through: false }), f({ id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 5, inside: false, size: 'M10', d: 10, pitch: 1.5, length: 25 })],
+  threaded: [f({ id: 'c', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 25, mode: 'add', through: false }), f({ id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 5, inside: false, size: 'M10', d: 10, pitch: 1.5, length: 25, modeled: true })],
   ball: [f({ id: 'o', type: 'sphere', x: 0, y: 0, z: 10, d: 30 })],
   split: [box(), f({ id: 'p', type: 'split', cutter: { kind: 'plane', o: [0, 0, 0], x: [0, 1, 0], n: [1, 0, 0], turn: 30, axis: null, offset: 5 }, side: 1 })],
   mirrored: [box(), f({ id: 'm', type: 'mirror', o: [25, 0, 0], n: [1, 0, 0] })],

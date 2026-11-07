@@ -8,7 +8,7 @@ import type { Place } from '../doc/frames';
 import { dxfOf, laserCuts, svgOf, withKerf } from './laser';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
-import { areasOf, buildBody, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
+import { areasOf, buildBody, cosmeticOf, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
 import { solidChecks } from './exact';
 
 /**
@@ -219,7 +219,7 @@ async function handle(data: Job) {
       const finishing: Finishing = { base: null, edges: [] };
       const shape = buildBody(features, finishing);
       try {
-        const mesh = meshBody(shape, finishing, tolerance);
+        const mesh = { ...meshBody(shape, finishing, tolerance), cosmetic: cosmeticOf(features) };
         getOC().BRepTools.Clean(shape.wrapped, true);
         solids.get(id)?.delete();
         solids.set(id, new Solid(shape));

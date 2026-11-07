@@ -610,7 +610,7 @@ function editbar(ctx: UIContext): Node[] {
     tool('clash', 'Interference and clearance: where bodies overlap or come too close, also as their joints move', ctx.clashTool),
     tool('pattern', 'Pattern: copies of the selected bodies in a grid (counts, gap or overall size, a turn per copy) or around an axis (count, angle)', ctx.patternTool),
     tool('mirror', 'Mirror: selected bodies (or the ones clicked next, Enter) across a face clicked next (empty space: the base plane facing you): mirrored copies', ctx.mirrorTool),
-    tool('thread', 'Thread: a round face of a hole or a shaft (Alt-picked, or clicked next): a real thread cut into it, its size by the face\'s Ø first; the hole or shaft is resized to fit it', ctx.threadTool),
+    tool('thread', 'Thread: a round face of a hole or a shaft (Alt-picked, or clicked next): a thread cut into it (Modeled) or only drawn (Cosmetic, the hole at tap-drill size), its size by the face\'s Ø first; the hole or shaft is resized to fit it', ctx.threadTool),
     h('hr'),
     tool('move', 'Move (M): type distances along X, Y and Z (Tab: the next); the selection, or what is clicked next', ctx.moveTool, on('move')),
     tool('rotate', 'Rotate (W): turn the selection (or what is clicked next) around an axis clicked next: an edge, line, circle or point', ctx.rotateTool),
@@ -1803,7 +1803,8 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
         const t = fitting(feature.r * 2, feature.inside, v);
         setFeature({ ...feature, size: t.name, d: { e: fmt(t.d / UNITS[ctx.doc.units]), u: ctx.doc.units }, pitch: { e: fmt(t.pitch / UNITS[ctx.doc.units]), u: ctx.doc.units } });
       });
-      return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, units, size), h('div', { className: 'row' }, f('d', 'Ø'), f('pitch', 'Pitch'), f('length', 'Length')), h('p', { className: 'hint' }, `On a round face Ø ${fmt(feature.r * 2)} mm`));
+      const modeled = select(feature.modeled ? 'modeled' : 'cosmetic', { modeled: 'Modeled', cosmetic: 'Cosmetic' }, (v) => setFeature({ ...feature, modeled: v === 'modeled' }));
+      return h('section', {}, h('h4', {}, kind, remove), h('div', { className: 'row' }, modeled, units, size), h('div', { className: 'row' }, f('d', 'Ø'), f('pitch', 'Pitch'), f('length', 'Length')), h('p', { className: 'hint' }, `On a round face Ø ${fmt(feature.r * 2)} mm · Modeled: cut into the solid; Cosmetic: only drawn (its panel sets the hole to tap-drill size)`));
     }
     case 'bulge': {
       const where = feature.on.kind === 'sketch' ? 'sketch shapes' : feature.on.kind === 'round' ? (feature.on.shaft ? 'a round shaft' : 'a round hole') : 'a flat face';

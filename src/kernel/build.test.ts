@@ -96,15 +96,37 @@ describe('buildBody', () => {
   it('cuts a real thread into a shaft and into a hole', () => {
     const shaft = { id: 'c', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 10 }], depth: 20, mode: 'add', through: false } as BuildFeature;
     const plain = built([shaft]);
-    const m10 = built([shaft, { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 5, inside: false, size: 'M10', d: 10, pitch: 1.5, length: 20 } as BuildFeature]);
+    const m10 = built([shaft, { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 5, inside: false, size: 'M10', d: 10, pitch: 1.5, length: 20, modeled: true } as BuildFeature]);
     expect(m10.faces).toBeGreaterThan(plain.faces); // the groove's flanks
     expect(m10.box.width).toBeCloseTo(10, 1);
     plain.done();
     m10.done();
-    const nut = built([base(30, 8), { id: 'h', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 8.4 }], depth: 8, mode: 'cut', through: true } as BuildFeature, { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 4.2, inside: true, size: 'M10', d: 10, pitch: 1.25, length: 8 } as BuildFeature]);
+    const nut = built([base(30, 8), { id: 'h', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: 8.4 }], depth: 8, mode: 'cut', through: true } as BuildFeature, { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 4.2, inside: true, size: 'M10', d: 10, pitch: 1.25, length: 8, modeled: true } as BuildFeature]);
     expect(nut.faces).toBeGreaterThan(8);
     nut.done();
   }, 60000);
+
+  it('a cosmetic thread leaves the solid as it is and is drawn at its other Ø; a hole for one takes the tap drill', async () => {
+    const { cosmeticOf } = await import('./build');
+    const { boreFor } = await import('../doc/threads');
+    const hole = { id: 'h', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'circle', x: 0, y: 0, d: boreFor(10, 1.5, true, false) }], depth: 8, mode: 'cut', through: true } as BuildFeature;
+    const thread = { id: 't', type: 'thread', at: [0, 0, 0], dir: [0, 0, 1], r: 4.25, inside: true, size: 'M10', d: 10, pitch: 1.5, length: 8, modeled: false } as BuildFeature;
+    expect(boreFor(10, 1.5, true, false)).toBeCloseTo(8.5, 9); // M10: the 8.5 drill
+    expect(boreFor(10, 1.5, true, true)).toBeCloseTo(10 - 2 * 0.625 * 0.8660254 * 1.5, 9);
+    const plain = built([base(30, 8), hole]);
+    const cosmetic = built([base(30, 8), hole, thread]);
+    expect(cosmetic.faces).toBe(plain.faces);
+    plain.done();
+    cosmetic.done();
+    // its lines on the major Ø (a hole's), from 0 to 8 along z
+    const lines = cosmeticOf([thread]);
+    expect(lines.length).toBe((2 * 48 + 4) * 6);
+    for (let i = 0; i < lines.length; i += 3) {
+      expect(Math.hypot(lines[i], lines[i + 1])).toBeCloseTo(5, 6);
+      expect([0, 8].some((z) => Math.abs(lines[i + 2] - z) < 1e-9)).toBe(true);
+    }
+    expect(cosmeticOf([{ ...thread, modeled: true } as BuildFeature])).toHaveLength(0);
+  });
 
   it('bulges a flat face, a shaft and sketch shapes', () => {
     const bulge = (on: object, peak: number[], fullness = 1) => ({ id: 'b', type: 'bulge', on, fullness, peak }) as unknown as BuildFeature;

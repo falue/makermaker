@@ -2001,6 +2001,9 @@ export class Viewer implements ToolView {
     return this.camera === this.orthographic;
   }
 
+  /** Cosmetic threads' lines: dashed, near black like the edges. */
+  private cosmeticMaterial = new THREE.LineDashedMaterial({ color: 0x2a2a2a, dashSize: 0.6, gapSize: 0.4 });
+
   setBody(id: string, mesh: BodyMesh) {
     const group = this.group(id);
     this.disposeChildren(group);
@@ -2023,6 +2026,13 @@ export class Viewer implements ToolView {
     lines.userData.edgeGroups = mesh.edgeGroups;
     lines.userData.exact = mesh.exact; // its edges' curves, by edge group
     group.add(solid, lines);
+    if (mesh.cosmetic?.length) {
+      // cosmetic threads: dashed, not picked
+      const thread = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(mesh.cosmetic, 3)), this.cosmeticMaterial);
+      thread.computeLineDistances();
+      thread.raycast = () => {};
+      group.add(thread);
+    }
     this.dress(id);
     if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
     if (this.stepSel?.body === id) this.setStepMark(this.stepSel);
