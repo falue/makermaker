@@ -91,15 +91,15 @@ body {
   grid-area: top;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px; /* as the edit bar's, so its buttons line up with those below */
   padding: 0 10px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-/* the logo and name take the list's width: New after them stands above the toolbar's buttons (34 px, centred) */
+/* the logo and name: New after them stands right over Extrude (8 px into the edit bar) */
 #topbar strong {
   flex: none;
-  width: calc(var(--list) + (var(--tools) - 34px) / 2 - 10px - 6px); /* less the bar's padding and gap */
+  width: calc(var(--list) + var(--tools) + 8px - 10px - 4px); /* less the bar's padding and gap */
   display: flex;
   align-items: center;
   gap: 6px;
@@ -976,10 +976,6 @@ canvas.drawing,
   stroke-linejoin: round;
   stroke-linecap: round;
 }
-#topbar .tool {
-  width: 30px;
-  height: 30px;
-}
 #toolbar {
   grid-area: tools;
   display: flex;
@@ -1005,7 +1001,7 @@ canvas.drawing,
   width: 0;
   border: none;
   border-left: 1px solid var(--line);
-  margin: 0 4px;
+  margin: 0 16.5px; /* a button's width (34 px) in all: the buttons after it stay in step with the top bar's */
 }
 #editbar .flyout {
   left: 0;
