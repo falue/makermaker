@@ -2087,8 +2087,7 @@ const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360
 /** A size label in the view; `t`: T and D reach for it; `op`: what pulling on a body does, with the key that switches it. */
 export function sizeLabel(text: string, active: boolean, t = false, op?: PullOp) {
   const el = Object.assign(document.createElement('div'), { className: `size-label${active ? ' active' : ''}`, innerHTML: sizeHtml(caretHtml(text), true) });
-  const key = op && MODIFIER_NAMES[roleKey('centre')];
-  if (op) el.append(Object.assign(document.createElement('small'), { className: `op ${op}`, innerHTML: `${icon(OP_ICONS[op])}${key}`, title: `${PULL_OPS[op]} · tap ${key}: join / cut / new body` }));
+  if (op) el.append(Object.assign(document.createElement('small'), { className: `op ${op}`, innerHTML: icon(OP_ICONS[op]), title: `${PULL_OPS[op]} · tap ${MODIFIER_NAMES[roleKey('centre')]}: join / cut / new body` }));
   if (t) el.append(Object.assign(document.createElement('small'), { innerHTML: `${icon('target')}T`, title: 'T: to object' }), Object.assign(document.createElement('small'), { innerHTML: `${icon('measure')}D`, title: 'D: Distance measure' }));
   return el;
 }
