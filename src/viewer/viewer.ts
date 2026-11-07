@@ -1882,10 +1882,11 @@ export class Viewer implements ToolView {
     }
     // a kernel face: its area, and flat by its surface with its exact normal; else by the triangles'
     const exact = (f.mesh.userData.exact as Exact | null | undefined)?.faces[f.index];
-    if (exact?.area !== undefined) area = exact.area;
-    if (exact && exact.kind !== 'plane') return { area };
+    if (exact?.area !== undefined) area = exact.area; // see `areaExact` below
+    const areaExact = exact?.area !== undefined;
+    if (exact && exact.kind !== 'plane') return { area, areaExact };
     const n = exact?.kind === 'plane' ? new THREE.Vector3(...exact.n).transformDirection(f.mesh.matrixWorld) : normals[0];
-    if (!n || (!exact && normals.some((m) => m.dot(n) < 0.9999))) return { area };
+    if (!n || (!exact && normals.some((m) => m.dot(n) < 0.9999))) return { area, areaExact };
     let best: { u: THREE.Vector3; v: THREE.Vector3; lo: [number, number]; hi: [number, number] } | null = null;
     const size = (b: NonNullable<typeof best>) => (b.hi[0] - b.lo[0]) * (b.hi[1] - b.lo[1]);
     for (let i = 0; i + 1 < pts.length && i < 600; i++) {
@@ -1897,12 +1898,12 @@ export class Viewer implements ToolView {
       const box = { u, v, lo: [Math.min(...us), Math.min(...vs)] as [number, number], hi: [Math.max(...us), Math.max(...vs)] as [number, number] };
       if (!best || size(box) < size(best) - 1e-9) best = box;
     }
-    if (!best) return { area };
+    if (!best) return { area, areaExact };
     const { u, v, lo, hi } = best;
     const depth = exact?.kind === 'plane' ? new THREE.Vector3(...exact.at).applyMatrix4(f.mesh.matrixWorld).dot(n) : pts[0].dot(n);
     const corners = [[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]]].map(([a, b]) => u.clone().multiplyScalar(a).addScaledVector(v, b).addScaledVector(n, depth));
     const long = hi[0] - lo[0] >= hi[1] - lo[1];
-    return { area, sides: [Math.max(hi[0] - lo[0], hi[1] - lo[1]), Math.min(hi[0] - lo[0], hi[1] - lo[1])] as [number, number], corners, x: long ? u : v, n };
+    return { area, areaExact, sides: [Math.max(hi[0] - lo[0], hi[1] - lo[1]), Math.min(hi[0] - lo[0], hi[1] - lo[1])] as [number, number], corners, x: long ? u : v, n };
   }
 
   /** An axis drawn dashed in the cut's red (dashes kept on screen at any zoom), `half` mm both ways from the point on it nearest `mid` (null: gone). */
@@ -3201,6 +3202,11 @@ export class Viewer implements ToolView {
       return Array.from({ length: steps + 1 }, (_, k) => c.clone().addScaledVector(x, e.r * Math.cos((end * k) / steps)).addScaledVector(y, e.r * Math.sin((end * k) / steps)));
     }
     return pts;
+  }
+
+  /** Body edge `index`'s true length, from the kernel's data with its mesh (null: a mesh body, none). */
+  edgeLength(body: string, index: number) {
+    return this.exactEdge(body, index)?.edge.length ?? null;
   }
 
   /** Body edge `index` (its edge group) as the kernel has it, and how its body is placed (null: a mesh body, none). */

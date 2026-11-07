@@ -3811,6 +3811,9 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
   /** Asks the solid for a part just picked, then shows the true values. */
   const askEdge = async (segs: [Vector3, Vector3][], ref?: PartRef) => {
     if (!ref) return;
+    // the length the kernel sent with the mesh; else asked
+    const known = viewer.edgeLength(ref.body, ref.edge!);
+    if (known !== null) return void edgeLengths.set(segs, known);
     const [length] = await kernel.measure([{ of: 'edge', body: ref.body, edge: ref.edge! }]);
     const mesh = segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
     if (typeof length === 'number' && Math.abs(length - mesh) < 1 + mesh * 0.05) edgeLengths.set(segs, length);
@@ -3818,6 +3821,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
   };
   const askFace = async (f: FaceItem) => {
     const mesh = viewer.faceSize(f);
+    if (mesh.areaExact) faceAreas.set(faceKey(f), mesh.area); // the kernel's, with the mesh
     const asks: MeasureAsk[] = [{ of: 'face', body: f.body, face: f.index }];
     if (mesh.sides) asks.push({ of: 'sides', body: f.body, face: f.index, u: viewer.dirToBody(f.body, mesh.x!).toArray(), n: viewer.dirToBody(f.body, mesh.n!).toArray() });
     const [area, sides] = await kernel.measure(asks);
@@ -3903,7 +3907,12 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           if (edges.length || faces.length) showParts();
           else show([], 'Click a point, or Alt-click an edge or face');
           // one edge for a waiting field: no doubt what goes in
-          if (use && 'edge' in part && edges.length === 1) return void askEdge(part.edge, part.ref).then(() => (close(), use(long(edges[0]))));
+          if (use && 'edge' in part && edges.length === 1)
+            return void askEdge(part.edge, part.ref).then(() => {
+              if (!edgeLengths.has(part.edge)) notify(`The edge's length from its mesh, about ${toolHost.lengthText(long(edges[0]))}`); // not silently
+              close();
+              use(long(edges[0]));
+            });
           void ('edge' in part ? askEdge(part.edge, part.ref) : askFace(part.face)).then(refreshParts);
         } else if (face.snap) {
           const point = { at: face.snap, about: !!face.about };
@@ -3920,7 +3929,12 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
             // a click on an edge (along it or at a split point, not a corner), for a waiting field: its length goes in
             const ref = face.edge.ref;
             const mesh = face.edge.length;
-            return void (ref ? kernel.measure([{ of: 'edge', body: ref.body, edge: ref.edge! }]) : Promise.resolve([undefined])).then(([length]) => (close(), use(typeof length === 'number' ? length : mesh)));
+            const known = ref && viewer.edgeLength(ref.body, ref.edge!);
+            return void (known != null ? Promise.resolve([known]) : ref ? kernel.measure([{ of: 'edge', body: ref.body, edge: ref.edge! }]) : Promise.resolve([undefined])).then(([length]) => {
+              if (typeof length !== 'number') notify(`The edge's length from its mesh, about ${toolHost.lengthText(mesh)}`); // not silently
+              close();
+              use(typeof length === 'number' ? length : mesh);
+            });
           } else {
             viewer.showMeasureLine(point.at);
             show(face.edge ? [['Edge', face.edge.length, false, true]] : [], 'Click the next point');
