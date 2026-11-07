@@ -627,7 +627,7 @@ function editbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout menu align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
-    tool('attach', 'Attach: objects move and turn as one, whichever of them moves; click one, then the others, then an anchor', ctx.attachTool),
+    tool('attach', 'Attach: the selected objects (two or more) move and turn as one, at once; nothing selected: click them, then Enter', ctx.attachTool),
     tool('measure', 'Distance measure (D): click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
   ];
 }

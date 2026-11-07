@@ -4730,19 +4730,57 @@ function alignObjects(how: ObjectAlign) {
 /** The corners of a 2D box (x0, y0, x1, y1). */
 const corners2 = ([x0, y0, x1, y1]: number[]): [number, number][] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 
+const isObject = (id: string) => history.current.bodies.some((b) => b.id === id) || history.current.groups.some((g) => g.id === id);
+
+/**
+ * Attach: the selected objects (bodies or groups, two or more) move as one at once, its anchor where the first meets
+ * the others (else the first's middle); fewer selected: click them (again: not), Enter attaches them.
+ */
+function attachTool() {
+  const ids = selected.filter(isObject);
+  if (ids.length >= 2) return attachNow(ids);
+  const picked = [...ids];
+  pending = {
+    tool: 'joint',
+    pick(id) {
+      picked.splice(0, picked.length, ...(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]));
+      selected = [...picked];
+      showSelection();
+    },
+    apply() {
+      cancelPending();
+      if (picked.length >= 2) attachNow(picked);
+      else render();
+    },
+  };
+  toolHint = 'Attach: click the objects that move as one · again: not · [Enter] attaches them · [Esc] cancels';
+  render();
+}
+
+/** Attaches `ids` (the first holds the attach; its anchor where the first's box meets the others', else the first's middle). */
+function attachNow(ids: string[]) {
+  const doc = history.current;
+  const boxOf = (id: string) => contents(doc, [id]).reduce((box, b) => box.union((doc.bodies.some((x) => x.id === b) && viewer.measure(b)?.box) || new Box3()), new Box3());
+  const [first, ...rest] = ids;
+  const own = boxOf(first);
+  const meet = own.clone().intersect(rest.reduce((box, id) => box.union(boxOf(id)), new Box3()));
+  const at = (meet.isEmpty() ? own : meet).getCenter(new Vector3()).applyMatrix4((bodyPlaces.get(first) ?? groupPlace(first)).clone().invert());
+  const made = runCommand(doc, 'attach', { id: first, ids: rest, at: at.toArray() });
+  selected = ids;
+  commit(made.doc);
+  cheer(`Attached: ${ids.map((id) => [...doc.bodies, ...doc.groups].find((o) => o.id === id)!.name).join(', ')} move as one`);
+}
+
 /**
  * Joint (J): the parent that stays (the first selected body or group, or the one clicked), then what moves (the other
  * selected ones, or those clicked; Enter), then the axis (an edge or line, or a circle's or round edge's centre, square
- * to it): the joint is made (a hinge, 0–180°) and its edit panel opens. `attach`: Attach, the same but what moves goes
- * along with the parent, and instead of an axis a point clicked anchors it (`attachPanel`).
+ * to it): the joint is made (a hinge, 0–180°) and its edit panel opens.
  */
-function jointTool(attaching = false) {
-  const isObject = (id: string) => history.current.bodies.some((b) => b.id === id) || history.current.groups.some((g) => g.id === id);
+function jointTool() {
   const [parent, ...children] = selected.filter(isObject);
-  const what = attaching ? 'Attach' : 'Joint';
   if (!parent) {
-    pending = { tool: 'joint', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), jointTool(attaching)) };
-    toolHint = `${what}: click the object ${attaching ? 'the others go along with' : 'that stays'} · a body or group · [Esc] cancels`;
+    pending = { tool: 'joint', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), jointTool()) };
+    toolHint = 'Joint: click the object that stays · a body or group · [Esc] cancels';
     return render();
   }
   if (!children.length) {
@@ -4757,30 +4795,12 @@ function jointTool(attaching = false) {
       },
       apply() {
         cancelPending();
-        if (moving.length) jointTool(attaching);
+        if (moving.length) jointTool();
         else render();
       },
     };
-    toolHint = `${what}: click the objects that ${attaching ? 'go along' : 'move'} · again: not · then [Enter] · [Esc] cancels`;
+    toolHint = 'Joint: click the objects that move · again: not · then [Enter] · [Esc] cancels';
     return render();
-  }
-  if (attaching) {
-    toolHint = 'Attach: click its anchor · a corner, centre or point on a face: where it shows · [Esc] cancels';
-    render();
-    viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the anchor` : null);
-    return viewer.pickFace((face) => {
-      viewer.aiming = null;
-      viewer.aimAt(null);
-      tips.cursorTip(null);
-      toolHint = null;
-      if (!face?.snap) return render();
-      const doc = history.current;
-      const back = (bodyPlaces.get(parent) ?? groupPlace(parent)).clone().invert();
-      const made = runCommand(doc, 'attach', { id: parent, ids: children, at: face.snap.clone().applyMatrix4(back).toArray() });
-      selected = [parent];
-      commit(made.doc);
-      attachPanel(made.result as string, true);
-    }, true);
   }
   toolHint = 'Joint: click its axis · an edge or line, or a circle or round edge (through its centre, square to it) · [Esc] cancels';
   render();
@@ -5032,11 +5052,11 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
 }
 
 /**
- * An attach's panel at the top middle of the view (`fresh`: just made; Esc then removes it): Anchor (click a point:
- * where it shows, orange while the panel is open). Enter or ✓ keeps it, Esc drops the changes.
+ * An attach's panel at the top middle of the view: Anchor (click a point: where it shows, orange while the panel is
+ * open). Enter or ✓ keeps it, Esc drops the changes.
  */
-function attachPanel(id: string, fresh: boolean) {
-  let changed = fresh;
+function attachPanel(id: string) {
+  let changed = false;
   const now = () => history.current.joints.find((j) => j.id === id)!;
   const anchor = () => new Vector3(...now().axis.at).applyMatrix4(bodyPlaces.get(now().parent) ?? groupPlace(now().parent));
   const write = (next: Partial<Joint>) => {
@@ -5077,7 +5097,7 @@ function attachPanel(id: string, fresh: boolean) {
   document.body.append(box);
   atTop(box);
   viewer.showMeasureLine(anchor());
-  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name}, moving as one · its anchor · [Enter] keeps it · [Esc] ${fresh ? 'removes it' : 'drops the changes'}`;
+  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name}, moving as one · its anchor · [Enter] keeps it · [Esc] drops the changes`;
   render();
   addEventListener('keydown', keys, { capture: true });
 }
@@ -6624,13 +6644,13 @@ function render() {
     alignObjects,
     previewAlign,
     jointTool: () => jointTool(),
-    attachTool: () => jointTool(true),
+    attachTool,
     breakAttach: (id) => {
       const j = history.current.joints.find((x) => x.id === id);
       commit(runCommand(history.current, 'detach', { id }).doc);
       notify(`${j?.name ?? 'The attach'} broken: its objects move on their own (Undo brings it back)`);
     },
-    editJoint: (id) => (history.current.joints.find((j) => j.id === id)?.kind === 'attach' ? attachPanel(id, false) : jointPanel(id, false)),
+    editJoint: (id) => (history.current.joints.find((j) => j.id === id)?.kind === 'attach' ? attachPanel(id) : jointPanel(id, false)),
     moveJointEnd(id, from, to) {
       const doc = history.current;
       const k = doc.joints.findIndex((x) => x.id === id);
