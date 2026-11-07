@@ -2016,8 +2016,12 @@ button.primary.wide {
   font-weight: 600;
   color: var(--text);
 }
-/* a tool without a panel: the hint alone, as wide as it needs */
+/* a tool without a panel: the hint alone, as wide as it needs, its × before it */
+.axis-move.hint-only {
+  flex-wrap: nowrap;
+}
 .axis-move.hint-only .tool-hint {
+  flex: 1 1 auto;
   contain: none;
 }
 

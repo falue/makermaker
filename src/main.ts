@@ -7768,6 +7768,14 @@ function notify(message: string, error = false, action: (() => void) | null = nu
 
 const hintRow = Object.assign(document.createElement('div'), { className: 'tool-hint' });
 const hintPanel = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel hint-only' });
+// its ×: the Cancel key (Esc unless set otherwise), sent from the page itself: every tool ends as on that key
+hintPanel.append(
+  closeButton('Close: as Esc, the tool ends', () => {
+    const c = keysOf('cancel')[0];
+    const key = c.key === 'escape' ? 'Escape' : c.key;
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: !!c.mod, altKey: !!c.alt, shiftKey: !!c.shift, bubbles: true, cancelable: true }));
+  }),
+);
 
 const noteHtml = (t: string) => axisHtml(t).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
 
