@@ -158,3 +158,6 @@ Answers assumed where a request left a question open.
 
 ## Tool hints
 - The hint-only panel (tools without a panel of their own) has no close button: Esc is handled by each tool on its own (no shared cancel to call), so Esc it is.
+
+## View modes
+- Lines and All lines: a section shows its cut copies shaded, and the extra views beside the main one draw Lines as classic hidden lines (each body hiding the others too).

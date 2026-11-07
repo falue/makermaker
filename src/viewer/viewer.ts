@@ -287,6 +287,15 @@ interface ShapeEdit {
  * sets the distance; the step follows the zoom: Shift coarse, Ctrl precise). Clicking a cut face picks its body. Drag the background to orbit, right-drag pans, wheel zooms. The view cube top right turns the camera; clicking a side switches
  * to orthographic until the next rotation. Top left: Ortho / Persp and Fit. A sketch tool takes the pointer while active.
  */
+/** How bodies are drawn: shaded (their materials), grey, lines (each body hides only its own back edges), every line. */
+export type ViewMode = 'shaded' | 'grey' | 'lines' | 'wire';
+const VIEW_MODES: [ViewMode, string, string][] = [
+  ['shaded', 'Shaded', 'Shaded: the bodies in their colours and materials'],
+  ['grey', 'Grey', 'Grey: every body plain grey, the shapes alone'],
+  ['lines', 'Lines', 'Lines: edges only; each body hides its own back edges, bodies behind others show through'],
+  ['wire', 'All lines', 'All lines: every edge, also those behind'],
+];
+
 export class Viewer implements ToolView {
   /** The smallest step anything moves in (mm; Settings → General): precise moves (Ctrl) use it. */
   minStep = 0.01;
@@ -454,6 +463,8 @@ export class Viewer implements ToolView {
   private tool: Tool | null = null;
   private toolPress = false;
   private projection = document.createElement('span');
+  /** Shaded, Grey, Lines, All lines: how bodies are drawn. */
+  private viewModes = document.createElement('div');
   private wheel = axisWheel();
   private wheelPx = 70; // spoke length on screen
   /**
@@ -521,6 +532,13 @@ export class Viewer implements ToolView {
   private looksHidden = new Set<string>();
   /** Body edges: their colours per point (see `setBody`). */
   private edgeMaterial = new THREE.LineBasicMaterial({ vertexColors: true });
+  /** How bodies are drawn (remembered per browser): their materials, all grey, lines (each body hides only its own back edges), or every line. */
+  viewMode: ViewMode = VIEW_MODES.some(([m]) => m === localStorage.getItem('makermaker.viewMode')) ? (localStorage.getItem('makermaker.viewMode') as ViewMode) : 'shaded';
+  private greyFill = new THREE.MeshStandardMaterial({ color: 0xc8c8c8, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  /** Lines and every line: no fill (lines: its depth only), the edges in the theme's line colour (every line: through everything). */
+  private noFill = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  private lineEdges = new THREE.LineBasicMaterial({ color: 0x2a2a2a });
+  private allEdges = new THREE.LineBasicMaterial({ color: 0x2a2a2a, depthTest: false });
   /** Cutters (tool bodies of cuts): red outlines seen through everything, no fill (still picked by their faces). */
   private cutters = new Set<string>();
   private cutterEdge = new THREE.LineBasicMaterial({ color: 0xe5484d, depthTest: false, transparent: true });
@@ -2149,8 +2167,10 @@ export class Viewer implements ToolView {
     const around = this.focus ? this.surroundings.sketch : this.surroundings.group;
     const outside = !cutter && around !== 'none' && (this.focus ? !this.focus.solid.has(id) : !!this.kept && !this.kept.has(id));
     const faded = dropped || missed || outside;
-    (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : this.materialOf(id);
-    (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
+    const mode = this.viewMode;
+    const fill = mode === 'lines' ? this.depthOnly : mode === 'wire' ? this.noFill : mode === 'grey' ? this.greyFill : this.materialOf(id);
+    (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : fill;
+    (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : mode === 'lines' ? this.lineEdges : mode === 'wire' ? this.allEdges : this.edgeMaterial; // selected: a red silhouette
     // reduced opacity (and the cut tool): see-through bodies hide each other, their depth drawn before the see-through
     // colours (sections and picking skip it); x-ray shows what lies inside
     const hides = faded && (dropped || missed || around === 'dim');
@@ -2681,8 +2701,15 @@ export class Viewer implements ToolView {
       this.pointTo(this.arrowAt());
       for (const v of this.views) this.renderView(v);
       if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
-      if (this.ao.on) this.renderAO();
+      this.drawContours();
+      // lines: the bodies' own edges and contours drawn after the rest (`ownLines`)
+      const own = this.viewMode === 'lines' ? [...this.bodies.values()].filter((g) => g.visible && (g.children[1] as THREE.LineSegments | undefined)?.material === this.lineEdges) : [];
+      const lines = own.map((g) => g.children.filter((c) => c.userData.edgeGroups || (c.userData.contour && c.visible)));
+      for (const l of lines.flat()) l.visible = false;
+      if (this.ao.on && this.viewMode !== 'lines' && this.viewMode !== 'wire') this.renderAO();
       else this.renderer.render(this.scene, this.camera);
+      for (const l of lines.flat()) l.visible = true;
+      if (own.length) this.ownLines(own.map((g, k) => [g.children[0], ...lines[k]]));
       this.drawSilhouette();
       // picked edges and measures stay over the outline
       const autoClear = this.renderer.autoClear;
@@ -2694,6 +2721,108 @@ export class Viewer implements ToolView {
       this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
     });
   };
+
+  /**
+   * Lines mode: each body's edges hidden only by its own surfaces (depth cleared before each body), so bodies behind
+   * others show through while their own back edges stay hidden; then all bodies' depth again for what is drawn after.
+   */
+  private ownLines(bodies: THREE.Object3D[][]) {
+    const r = this.renderer;
+    const autoClear = r.autoClear;
+    r.autoClear = false;
+    const clearDepth = () => (r.state.buffers.depth.setMask(true), r.clearDepth()); // a last material may have left depth writes off
+    // each: its solid (depth only) first, then its edges and contour
+    for (const parts of bodies) {
+      clearDepth();
+      for (const o of parts) r.render(o, this.camera);
+    }
+    clearDepth();
+    for (const [solid] of bodies) r.render(solid, this.camera);
+    r.autoClear = autoClear;
+  }
+
+  /** Per mesh for its contour: neighbouring triangles (the shared side's two points, the two triangles) and the triangles' normals, body coordinates. */
+  private neighbours = new WeakMap<THREE.BufferGeometry, { pairs: Uint32Array; normals: Float32Array }>();
+
+  private neighboursOf(geo: THREE.BufferGeometry) {
+    let n = this.neighbours.get(geo);
+    if (n) return n;
+    const idx = geo.index!.array;
+    const pos = geo.attributes.position.array;
+    const normals = new Float32Array(idx.length);
+    const open = new Map<number, number>();
+    const pairs: number[] = [];
+    const count = geo.attributes.position.count;
+    for (let t = 0; t < idx.length / 3; t++) {
+      const [a, b, c] = [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]];
+      const [ux, uy, uz] = [pos[b * 3] - pos[a * 3], pos[b * 3 + 1] - pos[a * 3 + 1], pos[b * 3 + 2] - pos[a * 3 + 2]];
+      const [vx, vy, vz] = [pos[c * 3] - pos[a * 3], pos[c * 3 + 1] - pos[a * 3 + 1], pos[c * 3 + 2] - pos[a * 3 + 2]];
+      normals.set([uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx], t * 3);
+      for (const [p, q] of [[a, b], [b, c], [c, a]]) {
+        const key = Math.min(p, q) * count + Math.max(p, q);
+        const other = open.get(key);
+        if (other === undefined) open.set(key, t);
+        else (pairs.push(p, q, other, t), open.delete(key));
+      }
+    }
+    n = { pairs: new Uint32Array(pairs), normals };
+    this.neighbours.set(geo, n);
+    return n;
+  }
+
+  /**
+   * Lines modes: each shown body's contour, where its curved faces turn away from the camera (between a triangle facing
+   * it and one facing away), as lines in the body (`userData.contour`); worked out anew when the camera or body moved.
+   */
+  private drawContours() {
+    const lined = this.viewMode === 'lines' || this.viewMode === 'wire';
+    if (lined) this.scene.updateMatrixWorld();
+    const cam = this.camera;
+    const persp = cam === this.perspective;
+    const view = cam.matrixWorld.elements.join();
+    for (const [id, g] of this.bodies) {
+      let line = g.children.find((c) => c.userData.contour) as THREE.LineSegments | undefined;
+      const solid = g.children[0] as THREE.Mesh | undefined;
+      if (!lined || !g.visible || !solid || this.cutters.has(id)) {
+        if (line) line.visible = false;
+        continue;
+      }
+      const key = `${persp} ${view} ${solid.matrixWorld.elements.join()}`;
+      if (!line) {
+        line = Object.assign(new THREE.LineSegments(new THREE.BufferGeometry()), { raycast: () => {} });
+        line.userData.contour = '';
+        g.add(line);
+      }
+      line.visible = true;
+      line.material = this.viewMode === 'lines' ? this.lineEdges : this.allEdges;
+      if (line.userData.contour === key) continue;
+      line.userData.contour = key;
+      // the camera in body coordinates: where it is (perspective) or which way it looks (orthographic)
+      const back = solid.matrixWorld.clone().invert();
+      const eye = cam.getWorldPosition(new THREE.Vector3()).applyMatrix4(back);
+      const look = cam.getWorldDirection(new THREE.Vector3()).transformDirection(back);
+      const { pairs, normals } = this.neighboursOf(solid.geometry);
+      const pos = solid.geometry.attributes.position.array;
+      const faces = (t: number, a: number) =>
+        persp ? normals[t * 3] * (eye.x - pos[a * 3]) + normals[t * 3 + 1] * (eye.y - pos[a * 3 + 1]) + normals[t * 3 + 2] * (eye.z - pos[a * 3 + 2]) > 0 : normals[t * 3] * look.x + normals[t * 3 + 1] * look.y + normals[t * 3 + 2] * look.z < 0;
+      const out: number[] = [];
+      for (let k = 0; k < pairs.length; k += 4) {
+        const [a, b] = [pairs[k], pairs[k + 1]];
+        if (faces(pairs[k + 2], a) !== faces(pairs[k + 3], a)) out.push(pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2], pos[b * 3], pos[b * 3 + 1], pos[b * 3 + 2]);
+      }
+      line.geometry.dispose(); // a new one: a replaced attribute would keep its buffer until then
+      line.geometry = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+    }
+  }
+
+  /** Draws the bodies as `mode` has it (see `viewMode`). */
+  setViewMode(mode: ViewMode) {
+    this.viewMode = mode;
+    localStorage.setItem('makermaker.viewMode', mode);
+    this.viewModes.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+    for (const id of this.bodies.keys()) this.dress(id);
+    this.render();
+  }
 
   /** Bodies hovered in the list: outlined orange (a temporary mark). */
   private hovered: string[] = [];
@@ -2930,6 +3059,7 @@ export class Viewer implements ToolView {
       this.scene.background = new THREE.Color(backdrop.stops[0].color);
     }
     this.gridLook = { major: dark ? 0x45474d : 0xbbbbbb, minor: dark ? 0x2c2e32 : 0xd6d6d4, key: '' };
+    for (const m of [this.lineEdges, this.allEdges]) m.color.set(dark ? 0xdcdcdc : 0x2a2a2a);
     this.render();
   };
 
@@ -4182,7 +4312,14 @@ export class Viewer implements ToolView {
       return b;
     };
     const more = button('+ View', 'Another view beside this one: its own camera (Top, Front, … or 3D), the same model; right-click a face: a view looking at it', () => this.addView('3d'));
-    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes), more);
+    this.viewModes.className = 'segmented';
+    for (const [mode, text, title] of VIEW_MODES) {
+      const b = button(text, title, () => this.setViewMode(mode));
+      b.dataset.mode = mode;
+      b.classList.toggle('on', mode === this.viewMode);
+      this.viewModes.append(b);
+    }
+    bar.append(this.projection, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes), this.viewModes, more);
     return bar;
   }
 
