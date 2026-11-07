@@ -4,7 +4,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 
 ## Real geometry
 - The survey and what is done: STATUS.md, "PARAMOUNT, solve ASAP" at its top (steps 1–6 built 2026-11-07). Left open there: a body turned off the axes with spheres, fillets or free-form faces takes the mesh's box; rational DXF splines are sampled; the orthographic camera keeps ±50 m.
-- Kept on purpose, with reasons in STATUS: the thread stays faceted (an exact helix cut fails in this OpenCascade build); bulges are free-form (a moved peak is not reported yet); a cut moving along a joint is stamped in steps.
+- Kept on purpose, with reasons in STATUS: the thread stays faceted (an exact helix cut fails in this OpenCascade build); a cut moving along a joint is stamped in steps.
 - Corners rounded beside a curved side are cut where `cornerCuts` puts them (along the tangents) in `segments`, area and snapping; the kernel's fillet touches the curve slightly elsewhere.
 
 ## Lines and polygons
