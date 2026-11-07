@@ -3164,6 +3164,39 @@ export class Viewer implements ToolView {
     return out;
   }
 
+  /**
+   * A picked edge's polyline (world) on the kernel's true curve, found by its ends and middle: a line its two ends, a
+   * circle or arc points on the true circle `sag` mm apart from it at most; else its own points, its ends exact. A mesh
+   * body's, or one not found: as given.
+   */
+  truePolyline(body: string, pts: THREE.Vector3[], sag = 0.001): THREE.Vector3[] {
+    const g = this.bodies.get(body);
+    const exact = g?.children.find((c) => c.userData.exact)?.userData.exact as Exact | undefined;
+    if (!g || !exact || pts.length < 2) return pts;
+    const at = (v: number[]) => new THREE.Vector3(...v).applyMatrix4(g.matrix);
+    const [first, last, mid] = [pts[0], pts[pts.length - 1], pts[pts.length >> 1]];
+    const near = (a: THREE.Vector3, b: THREE.Vector3) => a.distanceTo(b) < 1e-3;
+    for (const e of exact.edges) {
+      const [a, b] = [at(e.a), at(e.b)];
+      const flip = near(a, last) && near(b, first) && !(near(a, first) && near(b, last));
+      if (!flip && !(near(a, first) && near(b, last))) continue;
+      if (e.kind === 'line') return flip ? [b, a] : [a, b];
+      if (e.kind !== 'circle') return [flip ? b : a, ...pts.slice(1, -1), flip ? a : b];
+      const [c, n] = [at(e.c), new THREE.Vector3(...e.n).transformDirection(g.matrix)];
+      if (Math.abs(mid.distanceTo(c) - e.r) > 0.1) continue; // a full circle through the same point, but not this one
+      // from the first point round to the last, the way the polyline's middle lies
+      const x = first.clone().sub(c).projectOnPlane(n).normalize();
+      const y = n.clone().cross(x);
+      const angle = (p: THREE.Vector3) => Math.atan2(p.clone().sub(c).dot(y), p.clone().sub(c).dot(x));
+      const turn = (t: number) => ((t % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      let end = first.distanceTo(last) < 1e-6 ? 2 * Math.PI : turn(angle(last)); // closed: all the way round
+      if (turn(angle(mid)) > end) end -= 2 * Math.PI; // the middle lies the other way round
+      const steps = Math.max(2, Math.ceil(Math.abs(end) / (2 * Math.acos(Math.max(-1, 1 - sag / e.r)))));
+      return Array.from({ length: steps + 1 }, (_, k) => c.clone().addScaledVector(x, e.r * Math.cos((end * k) / steps)).addScaledVector(y, e.r * Math.sin((end * k) / steps)));
+    }
+    return pts;
+  }
+
   /** Body edge `index` (its edge group) as the kernel has it, and how its body is placed (null: a mesh body, none). */
   private exactEdge(body: string, index: number) {
     const g = this.bodies.get(body);

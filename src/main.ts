@@ -337,9 +337,9 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     const before = history.current;
     const i = stepsOf(before, body);
     if (i < 0) return;
-    // the edges in body coordinates (the finish runs there), as polylines
+    // the edges in body coordinates (the finish runs there), as polylines on the kernel's true curves
     const pl = bodyPlace(body);
-    const pts = edges.map((segs) => [segs[0][0], ...segs.map((s) => s[1])].map((v) => unplaced(pl, v.toArray()).map((x) => +x.toFixed(4)) as [number, number, number]));
+    const pts = edges.map((segs) => viewer.truePolyline(body, [segs[0][0], ...segs.map((s) => s[1])]).map((v) => unplaced(pl, v.toArray()).map((x) => +x.toFixed(6)) as [number, number, number]));
     const normals = edges.map((segs) => {
       const [a, b] = segs[segs.length >> 1];
       return viewer.facesAt(body, a.clone().lerp(b, 0.5)).map((n) => unplaced(pl, n.toArray(), true).map((x) => +x.toFixed(4)) as [number, number, number]);
