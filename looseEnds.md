@@ -155,3 +155,4 @@ Answers assumed where a request left a question open.
 **Expected:** The operation is refused with an explanatory hint, and polygon drawing remains active so another point can be added.
 
 **Related checklist item:** “Out and straight back with two points: refused with a hint, drawing goes on” — **failed; leave unchecked**.
+- Pull on a body: Cut is offered when the pulled solid shares volume with the body (mesh test, shrunk a hair along the pull). A solid that only touches the body sideways (its wall on the body's wall, drawn beside the face) still counts as overlapping.
