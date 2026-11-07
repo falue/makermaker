@@ -21,7 +21,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A section's axis shows only while it is being picked; there is no way back to its own line except a new section.
 
 ## Thread
-- Changing the size, or Modeled / Cosmetic, in the thread's card does not resize the hole or shaft (its panel does). A cosmetic thread is not in STEP or STL (it is not geometry). A face not pulled from a circle (a revolve, a sphere, a STEP or mesh body) is not resized. A circle's Ø written as a formula becomes a plain number when resized.
+- A cosmetic thread is not in STEP or STL (it is not geometry). A linked copy's own thread steps still show the old card (its fields do not resize the hole). A face not pulled from a circle (a revolve, a sphere, a STEP or mesh body) is not resized. A circle's Ø written as a formula becomes a plain number when resized.
 
 ## Measuring
 - A drawing tool's snap onto a free-form body edge (a spline, say) is very close but not exact: it uses the circle through the mesh points next to it. Round edges come out exact to the view's number precision.
@@ -48,6 +48,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
 ## Combining shapes
+- History rows should all open their step's tool (user, 2026-11-07: no editing in the right column but the main L W H / X Y Z fields). Done for Thread, Bulge, Draft and Box joint; Extrude, Cut / Join, Push, Shell, Coat, Revolve, Loft, Sweep, Mirror, Split, Piece, Sphere and Fillets still show their card below the row: their tools have no edit mode for an existing step yet.
 - Not built yet: a face pulled on a body offers no New body (its Push step joins or cuts by the direction).
 - Not built yet: clicking a face selects only extrusion and boolean steps; Push, revolve and the other steps only from Object history.
 - Not built yet: the laser and SVG / DXF outlines leave fillets out, so a body rounded by fillets cuts with sharp corners (they should take the upright edges' fillets along).
