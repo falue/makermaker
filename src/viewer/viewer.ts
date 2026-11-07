@@ -2678,7 +2678,7 @@ export class Viewer implements ToolView {
       this.drawRefs();
       this.pointTo(this.arrowAt());
       for (const v of this.views) this.renderView(v);
-      if (this.camera === this.perspective && fitDepth(this.perspective, this.controls.target)) this.dropComposer();
+      if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
       if (this.ao.on) this.renderAO();
       else this.renderer.render(this.scene, this.camera);
       this.drawSilhouette();
@@ -3479,6 +3479,20 @@ export class Viewer implements ToolView {
     const out = { key, box, volume: exact?.volume ?? got?.volume ?? Math.abs(volume), area: exact?.area ?? got?.area ?? area, exact: !!exact || !!got, boxExact, faces: (solid.userData.faces as Uint32Array | undefined)?.length ?? 0 };
     this.measured.set(id, out);
     return out;
+  }
+
+  /** The box of everything drawn (world): what an orthographic camera's depth must take in. */
+  private shownBox() {
+    const box = new THREE.Box3();
+    const part = new THREE.Box3();
+    this.scene.updateMatrixWorld();
+    this.scene.traverseVisible((o) => {
+      const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+      if (!g?.attributes?.position && !g?.boundingBox) return;
+      if (!g.boundingBox) g.computeBoundingBox();
+      if (g.boundingBox && !g.boundingBox.isEmpty()) box.union(part.copy(g.boundingBox).applyMatrix4(o.matrixWorld));
+    });
+    return box;
   }
 
   /** The kernel's tight boxes, volumes and surfaces of placed bodies (see `measure`), by body: for which shape and place; none while asked. */
@@ -4478,6 +4492,7 @@ export class Viewer implements ToolView {
     view.ortho.updateProjectionMatrix();
     view.persp.aspect = aspect;
     fitDepth(view.persp, view.controls.target);
+    fitOrthoDepth(view.ortho, this.shownBox());
     view.persp.updateProjectionMatrix();
     // a view has a renderer of its own: the photo's picture is the main view's, and from its camera
     const background = this.scene.background;
@@ -5069,6 +5084,24 @@ export class Viewer implements ToolView {
     };
     requestAnimationFrame(animate);
   }
+}
+
+/**
+ * An orthographic camera's near and far around what is drawn (`box`): from its nearest to its farthest point along the
+ * view, in steps of an eighth of a power of 2 of its size (so they seldom change); fixed at ±50 m, big scenes were cut
+ * off and small ones had depth steps of 6 µm. True: they changed.
+ */
+function fitOrthoDepth(camera: THREE.OrthographicCamera, box: THREE.Box3) {
+  if (box.isEmpty()) return false;
+  const look = camera.getWorldDirection(new THREE.Vector3());
+  const along = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => new THREE.Vector3(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z).sub(camera.position).dot(look));
+  const step = 2 ** Math.ceil(Math.log2(Math.max(1, Math.max(...along) - Math.min(...along)))) / 8;
+  const near = Math.floor(Math.min(...along) / step - 1) * step;
+  const far = Math.ceil(Math.max(...along) / step + 1) * step;
+  if (near === camera.near && far === camera.far) return false;
+  Object.assign(camera, { near, far });
+  camera.updateProjectionMatrix();
+  return true;
 }
 
 /**

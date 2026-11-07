@@ -3,7 +3,7 @@
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
 ## Real geometry
-- The survey and what is done: STATUS.md, "PARAMOUNT, solve ASAP" at its top (steps 1–6 built 2026-11-07). Left open there: the orthographic camera keeps ±50 m.
+- The survey and what is done: STATUS.md, "PARAMOUNT, solve ASAP" at its top (steps 1–6 built 2026-11-07). Nothing of it left open but what lies in the input: imported meshes have no solid; bodies over 20000 faces keep their faces' and edges' values from the mesh.
 - Kept on purpose, with reasons in STATUS: the thread stays faceted (an exact helix cut fails in this OpenCascade build); a cut moving along a joint is stamped in steps.
 
 ## Lines and polygons

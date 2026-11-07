@@ -57,7 +57,7 @@ describe('measuring the real solid', () => {
   });
   it('a turned body with fillets (tori, spheres) gets its tight box', () => {
     // a 20 mm cube, every edge rounded R5, turned 45° about z: x reaches (10 − 5)·√2 + 5
-    const s = new Solid(drawRoundedRectangle(20, 20).sketchOnPlane().extrude(20).fillet(5) as Shape3D);
+    const s = new Solid((drawRoundedRectangle(20, 20).sketchOnPlane().extrude(20) as Shape3D).fillet(5));
     const m = answer(s, { of: 'solid', body: 'b', place: { angle: 45, axis: [0, 0, 1], offset: [0, 0, 0] } }) as SolidMeasure;
     expect(m.max[0]).toBeCloseTo(5 * Math.SQRT2 + 5, 6);
     expect(m.max[2] - m.min[2]).toBeCloseTo(20, 6);
