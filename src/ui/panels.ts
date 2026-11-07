@@ -570,7 +570,7 @@ function toolbar(ctx: UIContext): Node[] {
     h('hr'), // making above, organizing below
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? "Ungroup (⇧⌘G): the contents move to the group's parent, staying where they are" : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),
     tool('duplicate', 'Duplicate (⌘D): the selection, or the body clicked next', ctx.duplicate, on('duplicate')),
-    Object.assign(tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')), { className: `tool danger${on('delete') ? ' on' : ''}` }),
+    tool('delete', 'Delete (Del): the selection, or the body clicked next', ctx.remove, on('delete')),
     rocket(ctx.cheer),
   ];
 }
