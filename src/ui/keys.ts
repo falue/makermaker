@@ -35,6 +35,7 @@ export const KEYS = {
   terminal: { chapter: 'View', name: 'Python terminal', order: 29, default: [{ key: 'i' }], hint: 'Open or close the Python terminal and its scripts' },
   fit: { chapter: 'View', name: 'Fit', order: 30, default: [{ key: 'f' }], hint: 'Move the camera back or forth, as it looks now, until everything is in view' },
   home: { chapter: 'View', name: 'Home', order: 30.5, default: [{ key: 'h' }], hint: 'Everything framed from the front-right corner' },
+  lookAtFace: { chapter: 'View', name: 'Look at face', order: 30.7, default: [], hint: 'The camera looks straight at the face last clicked on a selected body, else at the face clicked next (no key by default)' },
   cycle: { chapter: 'View', name: 'Next body under the pointer', order: 31, default: [{ key: 'tab', shift: false }], hint: 'Select the next body under the pointer (typing a size: Tab switches the side instead)' },
   cycleBack: { chapter: 'View', name: 'Previous body under the pointer', order: 32, default: [{ key: 'tab', shift: true }], hint: 'Select the previous body under the pointer' },
   rect: { chapter: 'Draw', name: 'Rectangle', order: 40, default: [{ key: 'r' }], hint: 'Draw a rectangle (and pull it up, or keep it flat)' },

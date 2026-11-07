@@ -4706,12 +4706,7 @@ export class Viewer implements ToolView {
       className: 'tool',
       title: 'Look at a face: click this, then a face, or a face first, then this (Esc cancels)',
       innerHTML: icon('look'),
-      onclick: () => {
-        const face = this.lastFace;
-        const show = (f: PickedFace | null) => f && this.lookAlong(f.normal.clone().negate(), f.point);
-        if (face?.body && this.selection.includes(face.body)) show(face);
-        else this.pickFace(show);
-      },
+      onclick: () => this.lookAtFace(),
     });
     const fit = Object.assign(document.createElement('button'), { className: 'tool fit', title: 'Fit (F): move the camera back or forth, as it looks now, until everything is in view', innerHTML: icon('fit'), onclick: () => this.fit() });
     const home = Object.assign(document.createElement('button'), { className: 'tool', title: 'Home (H): everything framed from the front-right corner', innerHTML: icon('home'), onclick: () => this.home() });
@@ -4720,6 +4715,14 @@ export class Viewer implements ToolView {
     this.cubeWrap.className = 'viewcube';
     this.cubeWrap.append(this.cube, ...arrows, below);
     return this.cubeWrap;
+  }
+
+  /** Looks straight at the last clicked face if its body is selected, else at the face clicked next. */
+  lookAtFace() {
+    const face = this.lastFace;
+    const show = (f: PickedFace | null) => f && this.lookAlong(f.normal.clone().negate(), f.point);
+    if (face?.body && this.selection.includes(face.body)) show(face);
+    else this.pickFace(show);
   }
 
   /** Looks at the neighbouring side: the one to the right / left / above / below on screen. */
