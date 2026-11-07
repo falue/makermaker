@@ -3093,7 +3093,7 @@ export class Viewer implements ToolView {
       this.dropPhoto();
       this.scene.background = new THREE.Color(backdrop.stops[0].color);
     }
-    this.gridLook = { major: dark ? 0x45474d : 0xbbbbbb, minor: dark ? 0x2c2e32 : 0xd6d6d4, key: '' };
+    this.gridLook = { major: dark ? 0x45474d : 0xbbbbbb, minor: dark ? 0x2c2e32 : 0xd6d6d4, zero: dark ? 0x60636b : 0xa2a2a2, key: '' }; // through 0: a tad stronger
     for (const m of [this.lineEdges, this.allEdges]) m.color.set(dark ? 0xdcdcdc : 0x2a2a2a);
     this.render();
   };
@@ -3109,8 +3109,8 @@ export class Viewer implements ToolView {
     this.render();
   }
 
-  /** The ground grid's colours, and what it was drawn for (step and middle). */
-  private gridLook = { major: 0xbbbbbb, minor: 0xd6d6d4, key: '' };
+  /** The ground grid's colours (the step's lines, every 5th, those through 0), and what it was drawn for (step and middle). */
+  private gridLook = { major: 0xbbbbbb, minor: 0xd6d6d4, zero: 0xa2a2a2, key: '' };
 
   /**
    * The ground grid: a faint line every drag step there (1-2-5, by the zoom: finer zooming in, coarser out), every 5th
@@ -3118,27 +3118,35 @@ export class Viewer implements ToolView {
    * the step changes or the view moves far.
    */
   private drawGrid(cells = 250) {
-    const step = this.step(this.controls.target);
-    const t = this.controls.target.clone().applyMatrix4(this.groupFrame.clone().invert()); // in the grid's own coordinates
+    // around where the middle of the view meets the ground (zoomed in towards the pointer, the point orbited round
+    // can lie far off), else the point looked at
+    const toGrid = this.groupFrame.clone().invert();
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+    const ground = new THREE.Plane(new THREE.Vector3(0, 0, 1).applyQuaternion(this.frameTurn), 0).translate(new THREE.Vector3().setFromMatrixPosition(this.groupFrame));
+    const world = ray.ray.intersectPlane(ground, new THREE.Vector3()) ?? this.controls.target.clone();
+    const step = this.step(world);
+    const t = world.clone().applyMatrix4(toGrid); // in the grid's own coordinates
     const every = Math.round(step / 10 ** Math.floor(Math.log10(step))) === 5 ? 10 : 5;
     const far = step * every * 10;
     const [cx, cy] = [Math.round(t.x / far) * far, Math.round(t.y / far) * far];
-    const key = `${step} ${cx} ${cy} ${this.gridLook.major} ${this.gridLook.minor}`;
-    if (key === this.gridLook.key) return;
-    this.gridLook.key = key;
-    const lines: [number[], number[]] = [[], []]; // minor, major
+    const look = this.gridLook;
+    const key = `${step} ${cx} ${cy} ${look.major} ${look.minor} ${look.zero}`;
+    if (key === look.key) return;
+    look.key = key;
+    const lines: [number[], number[], number[]] = [[], [], []]; // the step's, every 5th (or 10th), through 0
     const reach = cells * step;
+    const kind = (v: number) => (Math.abs(v) < step / 2 ? 2 : Math.round(v / step) % every === 0 ? 1 : 0);
     for (let i = -cells; i <= cells; i++) {
       const [x, y] = [cx + i * step, cy + i * step];
-      const major = Math.round(x / step) % every === 0;
-      lines[+major].push(x, cy - reach, 0, x, cy + reach, 0);
-      lines[+(Math.round(y / step) % every === 0)].push(cx - reach, y, 0, cx + reach, y, 0);
+      lines[kind(x)].push(x, cy - reach, 0, x, cy + reach, 0);
+      lines[kind(y)].push(cx - reach, y, 0, cx + reach, y, 0);
     }
     for (const o of this.grid.children as THREE.LineSegments[]) (o.geometry.dispose(), (o.material as THREE.Material).dispose());
     this.grid.clear();
     lines.forEach((pts, k) => {
       const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: k ? this.gridLook.major : this.gridLook.minor, depthWrite: false, transparent: !k, opacity: k ? 1 : 0.5 })); // the step's lines faint
+      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: [look.minor, look.major, look.zero][k], depthWrite: false, transparent: !k, opacity: k ? 1 : 0.5 })); // the step's lines faint
       line.renderOrder = -2;
       this.grid.add(line);
     });
