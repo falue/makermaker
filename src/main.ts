@@ -3989,13 +3989,14 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     viewer.lightMeasureLeg(key);
     for (const [k, b] of buttons) b.classList.toggle('lit', k === key);
   };
-  // [label, mm (an area: mm²), an area?, about only?]
-  const show = (items: [string, number, boolean?, boolean?][], note = '') => {
+  // [label, mm (an area: mm², a volume: mm³), an area (true) or volume (3)?, about only?]
+  const show = (items: [string, number, (boolean | 3)?, boolean?][], note = '') => {
     buttons.clear();
     box.replaceChildren(
       ...(note ? [Object.assign(document.createElement('span'), { className: 'hint', textContent: note })] : []),
       ...items.map(([label, mm, area, about]) => {
-        const text = area ? `${fmt(+(mm / UNITS[u] ** 2).toFixed(4))} ${u}²` : `${fmt(+(mm / UNITS[u]).toFixed(4))} ${u}`;
+        const power = area === 3 ? 3 : area ? 2 : 1;
+        const text = `${fmt(+(mm / UNITS[u] ** power).toFixed(4))} ${u}${['', '', '²', '³'][power]}`;
         const shownText = `${about ? '~' : ''}${text}`;
         const shown = axisHtml(`${label} ${shownText}`);
         // waiting field: the value goes straight in; else copied: the button says so for a moment (the panel's last row shows the tool's hint)
@@ -4182,7 +4183,31 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     );
   toolHint = `Distance measure: click points (each from the one before) · [Alt]-click an edge or face, [Shift] [Alt] adds more (their total) · ${use ? 'click a value or its line in the view: it goes in, back to where you were' : 'click a value or its line in the view: copy'} · [Esc] ${use ? 'goes back' : 'stops'}`;
   viewer.aiming = (a) => tips.cursorTip(a?.what ?? null);
-  show([], 'Click a point, or Alt-click an edge or face');
+  // what was selected first is measured at once: Alt-picked edges or faces, a sketch's selected shapes, bodies
+  const first = () => {
+    const doc = history.current;
+    const [parts, picked] = [viewer.pickedEdgeParts(), viewer.pickedFaceItems()];
+    if (parts.length || picked.length) {
+      viewer.dropPicked();
+      [edges, faces] = [parts.map((x) => x.segs), parts.length ? [] : picked];
+      viewer.showMeasured(edges, faces);
+      showParts();
+      void Promise.all([...parts.map((x) => askEdge(x.segs, x.refs)), ...faces.map(askFace)]).then(refreshParts);
+      return true;
+    }
+    const sk = viewer.sketches.find((v) => v.id === activeSketch());
+    const shapes = sk?.shapes.filter((q) => shapeSel.includes(q.id)) ?? [];
+    if (shapes.length === 1 && shapes[0].kind === 'circle') return show([['Ø', shapes[0].d], ['Circumference', Math.PI * shapes[0].d]]), true;
+    if (shapes.length) return show([[shapes.length > 1 ? `${shapes.length} outlines` : shapes[0].kind === 'line' ? 'Length' : 'Perimeter', shapes.reduce((n, q) => n + outlineLength(q), 0)]]), true;
+    const bodies = contents(doc, selected).flatMap((id) => (doc.bodies.some((b) => b.id === id) && viewer.measure(id)) || []);
+    if (!bodies.length) return false;
+    const all = bodies.reduce((b, m) => b.union(m.box), new Box3());
+    const size = all.getSize(new Vector3());
+    const about = bodies.some((m) => !m.boxExact);
+    show([['L', size.x, false, about], ['W', size.y, false, about], ['H', size.z, false, about], ['Volume', bodies.reduce((n, m) => n + m.volume, 0), 3, bodies.some((m) => !m.exact)]]);
+    return true;
+  };
+  if (use || !first()) show([], 'Click a point, or Alt-click an edge or face');
   document.body.append(box);
   place();
   render();

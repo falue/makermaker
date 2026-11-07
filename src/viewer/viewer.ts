@@ -1251,6 +1251,19 @@ export class Viewer implements ToolView {
   }
 
   /** The edge picked with Alt-click (its first), as a line from its start to its end (world); null: none. */
+  /** The edges picked with Alt-click, each with the kernel's edges it is (a round rim whole), for measuring. */
+  pickedEdgeParts() {
+    const p = this.pickedEdge;
+    if (!p) return [];
+    const all = this.bodyEdges().filter((x) => x.body === p.body);
+    const parts = p.edges.map((segs) => {
+      const e = all.find((x) => x.segs.length === segs.length && x.segs[0][0].distanceTo(segs[0][0]) < 1e-6);
+      return e ? this.wholeCircle(e) : { segs, refs: [] as PartRef[] };
+    });
+    // both halves of a rim picked: once
+    return parts.filter((x, i) => !x.refs.length || parts.findIndex((y) => y.refs.some((r) => x.refs.some((q) => q.edge === r.edge))) === i);
+  }
+
   /** The points along the first edge picked with Alt-click (world, in order); none: none picked. */
   pickedEdgePoints() {
     const segs = this.pickedEdge?.edges[0] ?? [];
