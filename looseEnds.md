@@ -48,10 +48,15 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Not built yet: clicking a face selects only extrusion and boolean steps; Push, revolve and the other steps only from Object history.
 - Not built yet: the laser and SVG / DXF outlines leave fillets out, so a body rounded by fillets cuts with sharp corners (they should take the upright edges' fillets along).
 - Not built yet: a body's own shape from an older file or an unlinked sketch can keep an R the card does not show as its own (it shows under Fillets or Chamfers only when the body has one shape).
-- Join / Cut only for a sketch on an extrusion's end or side face; on another face (a sphere's, an imported body's) or a free plane a pull always makes a new body.
-- The operation shows in the pull's size label and P switches it: no clickable switch, as the pointer is locked while pulling.
-- A step's faces are found by asking one point of each face (`stepAt`): a face made partly by two steps lights for the later one. Not tried by hand yet: the whole Join / Cut / History / Fold flow.
-- Folded tool bodies are still bodies of the document: Interference, measuring and the exports were not checked for them.
+- Decided 2026-11-07, to do: a right-click menu in the object list and the 3D view: a tool body Fold, its body Unfold (each folded one) and Fold all; the buttons stay. A tool body listed in another group folds too (no longer refused).
+- Decided, to do: a pulled Join or Cut makes a folded tool body and its boolean (not an extrude step), so any of them unfolds into an object; one kind of step.
+- Decided, to do: Join / Cut from a sketch on any face of a body (a sphere's, an imported body's, a free plane): the step's plane in that body's coordinates.
+- Decided, to do: folded tool bodies count as hidden tool bodies everywhere (Interference, measuring, STEP / print / laser exports: skipped, their cuts count).
+- Decided, to do: a selected step's and a selected fillet's faces light blue (selection), not orange.
+- Decided, to do: a linked copy's step selected lights its faces on that copy, not on its source.
+- Decided, to do: the sketch draws rounding and chamfers beside curved sides too, and snapping follows the rounded outline (arc middles snap).
+- Decided, to do: corner values given as formulas count for R / C and the Fillet / Chamfer title; hovering the one-for-all R marks every corner.
+- Not tried by hand yet: the whole Join / Cut / Object history / Fold flow.
 
 ## View
 - After the view cube was dragged over the top or bottom, the camera stays upside down until a cube side, a corner or Home: orbiting the view itself meanwhile feels the other way round sideways, and the view's own orbit still stops at the poles.
