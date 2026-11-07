@@ -117,21 +117,21 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     [
       'General',
       () => {
-        // a positive number setting: its heading, what it does, its field
+        // a setting in two columns: its heading and what it does on the left, its field on the right
+        const pair = (title: string, hint: string, field: HTMLElement) => make('div', { className: 'pair' }, make('div', {}, make('h3', {}, title), make('p', { className: 'hint' }, hint)), field);
+        // a positive number setting
         const number = (key: 'minStep' | 'minAngle' | 'guideMs' | 'jointSeconds', title: string, hint: string) => {
           const field = input({ type: 'number', min: '0', step: 'any', value: String(s[key]), className: 'number' });
           field.onchange = () => +field.value > 0 && set({ ...s, [key]: +field.value }, false);
-          return [make('h3', {}, title), make('p', { className: 'hint' }, hint), make('div', { className: 'row' }, field)];
+          return pair(title, hint, field);
         };
         const units = make('select', { onchange: () => (doc.setUnits(units.value as Unit), draw()) }, ...Object.keys(UNITS).map((u) => make('option', { value: u, selected: u === doc.units(), textContent: u }))) as HTMLSelectElement;
         return [
-          make('h3', {}, 'Units'),
-          make('p', { className: 'hint' }, "Of this document (saved in its file): how lengths show, and what plain numbers you type mean. Values keep the unit they were typed in."),
-          make('div', { className: 'row' }, units),
-          ...number('minStep', 'Minimum step', 'The smallest step a drag moves in while Ctrl is held (precise), in mm. Without Ctrl the step follows the zoom.'),
-          ...number('minAngle', 'Minimum angle', 'The smallest step a drawn line turns in while Ctrl is held, in degrees. Without a key it turns in 1° steps.'),
-          ...number('guideMs', 'Guide delay', 'How long the pointer rests on a line or a point while drawing before guide lines show, in milliseconds.'),
-          ...number('jointSeconds', 'Joint play time', "How long a joint plays from its min to its max, in seconds; each joint's Speed (in its edit panel) makes it faster or slower."),
+          pair('Units', "Of this document (saved in its file): how lengths show, and what plain numbers you type mean. Values keep the unit they were typed in.", units),
+          number('minStep', 'Minimum step', 'The smallest step a drag moves in while Ctrl is held (precise), in mm. Without Ctrl the step follows the zoom.'),
+          number('minAngle', 'Minimum angle', 'The smallest step a drawn line turns in while Ctrl is held, in degrees. Without a key it turns in 1° steps.'),
+          number('guideMs', 'Guide delay', 'How long the pointer rests on a line or a point while drawing before guide lines show, in milliseconds.'),
+          number('jointSeconds', 'Joint play time', "How long a joint plays from its min to its max, in seconds; each joint's Speed (in its edit panel) makes it faster or slower."),
         ];
       },
     ],
