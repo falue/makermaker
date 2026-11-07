@@ -572,6 +572,7 @@ export class Viewer implements ToolView {
   viewMode: ViewMode = VIEW_MODES.some(([m]) => m === localStorage.getItem('makermaker.viewMode')) ? (localStorage.getItem('makermaker.viewMode') as ViewMode) : 'shaded';
   /** Grey: shaded by a grey matcap (light from the upper left), not by the scene's coloured lights, so it stays grey. */
   private greyFill = new THREE.MeshMatcapMaterial({ matcap: greyMatcap(), polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  private fadedGrey = new THREE.MeshMatcapMaterial({ matcap: this.greyFill.matcap, transparent: true, opacity: 0.35, depthWrite: false });
   /**
    * Lines and every line: no fill (lines: its depth only), the edges and contours as wide lines (`fat`, px) in the
    * theme's line colour (every line: through everything); a plain line is 1 px whatever is asked.
@@ -2251,7 +2252,9 @@ export class Viewer implements ToolView {
     const faded = dropped || missed || outside;
     const mode = this.viewMode;
     const fill = mode === 'lines' ? this.depthOnly : mode === 'wire' ? this.noFill : mode === 'grey' ? this.greyFill : this.materialOf(id);
-    (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? this.fadedOf(id) : fill;
+    // faded (a group's or sketch's surroundings) in the visual style too: grey faded grey, the line modes no fill (faint edges only)
+    const fadedFill = mode === 'lines' || mode === 'wire' ? this.noFill : mode === 'grey' ? this.fadedGrey : this.fadedOf(id);
+    (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? fadedFill : fill;
     (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
     lines.visible = cutter || faded || (mode !== 'lines' && mode !== 'wire'); // line modes: its wide copy instead (`drawContours`)
     // reduced opacity (and the cut tool): see-through bodies hide each other, their depth drawn before the see-through
