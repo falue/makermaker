@@ -2508,7 +2508,7 @@ export class Viewer implements ToolView {
     const size = this.renderer.getSize(new THREE.Vector2());
     const ratio = this.renderer.getPixelRatio();
     const cutters = [...this.cutters].flatMap((id) => this.bodies.get(id) ?? []);
-    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, ...this.pickedMarks, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.finishMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
+    const helpers = [this.grid, this.axes, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.faceMark, ...this.pickedMarks, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.finishMark, this.workMark, this.crossMark, ...cutters].filter((o) => o?.visible) as THREE.Object3D[];
     const selection = this.selection;
     helpers.forEach((o) => (o.visible = false));
     this.select([]);
