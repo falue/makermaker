@@ -733,6 +733,7 @@ function update() {
   }
   viewer.listOrder = tree(doc, new Set()).flatMap((r) => (r.kind === 'body' ? [r.id] : []));
   kernel.build(builds);
+  if (builds.length) slowBuild();
   viewer.liveChanged();
   scheduleAutosave();
   offerAutosave();
@@ -2822,6 +2823,13 @@ function circleOf(body: string, round: { at: Vector3; dir: Vector3; r: number })
   return null;
 }
 
+/** A build still running after `ms`: the loader (a big fillet sized edge by edge, a thread, …) until the worker is done. */
+function slowBuild(ms = 400) {
+  let done = false;
+  void kernel.idle().then(() => (done = true));
+  setTimeout(() => !done && creating(), ms);
+}
+
 /** The top bar's loader until what was just sent to the worker is built (a thread takes a while). */
 function creating() {
   const label = 'Creating geometry…';
@@ -2942,8 +2950,7 @@ function threadPanel(body: string, id: string, fresh = false) {
     const next = fitted(setIn(history.current, path, { ...f, size: custom ? CUSTOM : size.name, d: { e: d, u: units }, pitch: { e: p, u: units }, length: { e: l, u: units }, modeled }), length(d) ?? size.d, length(p) ?? size.pitch);
     if (fresh || history.current !== doc0) history.replace(next);
     else history.push(next);
-    update();
-    creating();
+    update(); // slow: its loader shows (`slowBuild`)
   };
   // the size list (of the chosen system) fills Ø and Pitch
   const pick = Object.assign(document.createElement('select'), { title: 'The thread size: fills Ø and Pitch, the hole or shaft fits it' });
