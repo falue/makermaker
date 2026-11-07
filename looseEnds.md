@@ -44,6 +44,10 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
 ## Combining shapes
+- Not built yet: a face pulled on a body offers no New body (its Push step joins or cuts by the direction).
+- Not built yet: clicking a face selects only extrusion and boolean steps; Push, revolve and the other steps only from Object history.
+- Not built yet: the laser and SVG / DXF outlines leave fillets out, so a body rounded by fillets cuts with sharp corners (they should take the upright edges' fillets along).
+- Not built yet: a body's own shape from an older file or an unlinked sketch can keep an R the card does not show as its own (it shows under Fillets or Chamfers only when the body has one shape).
 - Join / Cut only for a sketch on an extrusion's end or side face; on another face (a sphere's, an imported body's) or a free plane a pull always makes a new body.
 - The operation shows in the pull's size label and P switches it: no clickable switch, as the pointer is locked while pulling.
 - A step's faces are found by asking one point of each face (`stepAt`): a face made partly by two steps lights for the later one. Not tried by hand yet: the whole Join / Cut / History / Fold flow.
