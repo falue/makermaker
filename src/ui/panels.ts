@@ -1106,7 +1106,7 @@ function turnSlider(ctx: UIContext, i: number, turn: number) {
  * The material of the selected bodies or groups: a list to pick from (`inherited`: what they get without one), New and
  * Edit open the materials dialog; looks are edited only there.
  */
-function materialRows(ctx: UIContext, ids: string[], inherited: string): Node[] {
+function materialRows(ctx: UIContext, ids: string[], inherited: string, lead: HTMLElement[] = [], heading = true): Node[] {
   const { doc } = ctx;
   const objects = [...doc.bodies, ...doc.groups].filter((x) => ids.includes(x.id));
   const same = objects.every((x) => x.material === objects[0]?.material) ? objects[0]?.material : undefined;
@@ -1115,7 +1115,7 @@ function materialRows(ctx: UIContext, ids: string[], inherited: string): Node[] 
   // the same chapters, in the same order, as the materials dialog
   const list = h('select', { title: 'Its material' }, option('', inherited), ...chapter('In this file', doc.materials), ...STANDARD_SECTIONS.flatMap(([name, materials]) => chapter(name, materials)), option('new', '+ New…'));
   list.onchange = () => (list.value === 'new' ? ctx.openMaterials(true) : ctx.setMaterialOf(ids, list.value || undefined));
-  return [h('h3', {}, 'Material'), h('div', { className: 'row material' }, list, tool('material', 'Edit material…', () => ctx.openMaterials()))];
+  return [...(heading ? [h('h3', {}, 'Material')] : []), h('div', { className: 'row material' }, ...lead, list, tool('material', 'Edit material…', () => ctx.openMaterials()))];
 }
 
 /** An image's card: name, Delete; width (mm), opacity, a colour shown transparent (and how far off still counts), Calibrate. */
@@ -1206,57 +1206,92 @@ function selectionPanel(ctx: UIContext): Node[] {
       ]
     : [];
 
+  // a linked copy's steps are its source's: editing them edits all copies
+  const si = ctx.doc.bodies.findIndex((b) => b.id === (body.link ?? body.id));
+  const steps = ctx.doc.bodies[si];
+  const setSteps = (next: Body) => ctx.commit(setIn(ctx.doc, ['bodies', String(si)], next));
+  // a body with a material has that material's colour
+  const colour = setLook(ctx.doc, body)
+    ? []
+    : [
+        h('input', {
+          type: 'color',
+          value: body.color,
+          title: 'Colour',
+          className: 'color',
+          // the panel is not rebuilt while picking: that would close the picker
+          oninput: (e) => ctx.previewColor(body.id, (e.target as HTMLInputElement).value),
+          onchange: (e) => setBody({ ...body, color: (e.target as HTMLInputElement).value }),
+        }),
+      ];
+  const shape = dimensions(ctx, steps, si);
+  const card = (feature: Feature, j: number) => featureCard(ctx, steps, feature, `bodies.${si}.features.${j}`, setSteps);
   return [
-    h(
-      'div',
-      { className: 'head' },
-      input(`${at}.name`, body.name, (name) => setBody({ ...body, name })),
-      // a body with a material has that material's colour
-      ...(setLook(ctx.doc, body)
-        ? []
-        : [
-            h('input', {
-              type: 'color',
-              value: body.color,
-              title: 'Colour',
-              className: 'color',
-              // the panel is not rebuilt while picking: that would close the picker
-              oninput: (e) => ctx.previewColor(body.id, (e.target as HTMLInputElement).value),
-              onchange: (e) => setBody({ ...body, color: (e.target as HTMLInputElement).value }),
-            }),
-          ]),
-      button('Delete', ctx.remove, 'Delete the body (with its cutters)'),
-    ),
+    h('div', { className: 'head' }, input(`${at}.name`, body.name, (name) => setBody({ ...body, name })), button('Delete', ctx.remove, 'Delete the body (with its cutters)')),
     ...freeing,
     ...linkedNote(ctx, body),
-    ...materialRows(ctx, [body.id], inheritedLabel(ctx, body)),
     placing(ctx, at),
-    ...sharedCards(ctx, body),
-    ...stepCards(ctx, body, at, setBody, failure),
-    h(
-      'div',
-      { className: 'row' },
-      // a linked copy's fillet goes to its source's steps: all copies get it
-      button('+ Fillet', () => {
-        const k = ctx.doc.bodies.findIndex((b) => b.id === (body.link ?? body.id));
-        ctx.commit(setIn(ctx.doc, ['bodies', String(k), 'features'], [...ctx.doc.bodies[k].features, newFinish(ctx.doc.units)]));
-      }),
-    ),
+    // its first step as Dimensions (else its card)
+    shape ?? card(steps.features[0], 0),
+    ...(failure ? [h('p', { className: 'error', title: COPY_TIP }, `${stepName(steps, steps.features.find((f) => f.id === failure.featureId) ?? steps.features[0])}: ${failure.error}`)] : []),
+    ...finishRows(ctx, steps, si, setSteps),
+    ...materialRows(ctx, [body.id], inheritedLabel(ctx, body), colour, false),
+    history(ctx, steps, setSteps, card),
+    // a linked copy's own steps after its source's (a mirror)
+    ...(body.link ? body.features.map((f, j) => featureCard(ctx, body, f, `${at}.features.${j}`, setBody)) : []),
     ...jointCards(ctx, body.id),
   ];
 }
 
-/** Steps that build the shape: past the first, only in History; the others (finishes, coats and the like) show in the card too. */
-const BUILDING: Feature['type'][] = ['extrude', 'sphere', 'step', 'boolean', 'split', 'revolve', 'loft', 'sweep', 'push', 'fingers', 'piece', 'mesh'];
+/**
+ * The size fields of shape `p` at `path`, as its card edits them: a rectangle's L and W as stored, a polygon's
+ * measured, a circle's or regular polygon's Ø.
+ */
+function sizeFields(ctx: UIContext, path: string, p: Profile): HTMLElement[] {
+  const keys = path.split('.');
+  const u = ctx.doc.units;
+  const mm = (v: number): Expr => ({ e: fmt(v / UNITS[u]), u });
+  const tf = (field: 'w' | 'h' | 'd', label: string, value: Expr) =>
+    sizeHover(ctx, exprField(ctx, `${path}.@${field}`, label, false, { value, set: (x, live) => ctx.transformShape(keys, field, x, live), error: ctx.exprErrors.get(`${path}.${field}`) }), path, field);
+  if (p.kind === 'circle' || p.kind === 'ngon') return [tf('d', 'Ø', p.d)];
+  if (p.kind === 'rect') return [tf('w', 'L', p.w), tf('h', 'W', p.h)];
+  const m = ctx.measure(keys);
+  return [tf('w', 'L', mm(m.w)), tf('h', 'W', mm(m.h))];
+}
 
-/** A body's shape (its first step) and finishes as cards, then its History. */
-function stepCards(ctx: UIContext, body: Body, at: string, setBody: (b: Body) => void, failure?: { featureId: string; error: string }): Node[] {
-  const card = (feature: Feature, j: number) => {
-    const c = featureCard(ctx, body, feature, `${at}.features.${j}`, setBody);
-    if (failure && (failure.featureId === feature.id || (!failure.featureId && j === 0))) c.append(h('p', { className: 'error', title: COPY_TIP }, failure.error));
-    return c;
-  };
-  return [...body.features.flatMap((f, j) => (j === 0 || !BUILDING.includes(f.type) ? [card(f, j)] : [])), history(ctx, body, setBody, card)];
+/** A body's Dimensions from its first step: its one shape's L and W (or Ø) and H; null: it has none such (its card shows instead). */
+function dimensions(ctx: UIContext, steps: Body, k: number): HTMLElement | null {
+  const f = steps.features[0];
+  const at = `bodies.${k}.features.0`;
+  const row = (...fields: HTMLElement[]) => h('div', { className: 'placing dimensions' }, h('span', {}, 'Dimensions'), ...fields);
+  if (f?.type === 'sphere') return row(exprField(ctx, `${at}.d`, 'Ø'));
+  if (f?.type !== 'extrude') return null;
+  const src = f.source;
+  let shape: { path: string; p: Profile } | null = null;
+  if (src.kind === 'own' && src.profiles.length === 1) shape = { path: `${at}.source.profiles.0`, p: src.profiles[0] };
+  if (src.kind === 'sketch' && src.shapes.length === 1 && !src.areas) {
+    const si = ctx.doc.sketches.findIndex((x) => x.id === src.sketch);
+    const j = ctx.doc.sketches[si]?.shapes.findIndex((q) => q.id === src.shapes[0]) ?? -1;
+    if (j >= 0) shape = { path: `sketches.${si}.shapes.${j}`, p: ctx.doc.sketches[si].shapes[j] };
+  }
+  if (!shape || shape.p.kind === 'line') return null;
+  return row(...sizeFields(ctx, shape.path, shape.p), sizeHover(ctx, exprField(ctx, `${at}.depth`, 'H'), at, 'depth'));
+}
+
+/** Its fillets and chamfers: a title (Fillet, Chamfer or both) with +, then one row each. */
+function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) => void): Node[] {
+  const list = steps.features.flatMap((f, j) => (f.type === 'finish' ? [{ f, j }] : []));
+  const kinds = new Set(list.map(({ f }) => f.mode));
+  const title = kinds.size === 2 ? 'Fillet | Chamfer' : kinds.has('chamfer') ? 'Chamfer' : 'Fillet';
+  const add = button('+', () => setSteps({ ...steps, features: [...steps.features, newFinish(ctx.doc.units)] }), 'Click: Add a fillet (a size below 0 makes it a chamfer)');
+  return [
+    h('div', { className: 'row finish-head' }, h('span', {}, title), add),
+    ...list.flatMap(({ f, j }) => {
+      const setFeature = (next: Feature) => setSteps({ ...steps, features: steps.features.map((x) => (x === f ? next : x)) });
+      const remove = button('×', () => setSteps({ ...steps, features: steps.features.filter((x) => x !== f) }), 'Click: Remove it');
+      return finishParts(ctx, steps, f, `bodies.${k}.features.${j}`, setFeature, remove);
+    }),
+  ];
 }
 
 /**
@@ -1280,8 +1315,9 @@ function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (
     const name = h('button', { className: `item${on ? ' on' : ''}`, title: on ? 'Click: Close it' : 'Click: Select it: its faces lit, its fields below', onclick: () => ctx.selectStep(body.id, on ? null : f.id) }, stepName(body, f));
     const tool = f.type === 'boolean' ? ctx.doc.bodies.find((b) => b.id === f.body) : undefined;
     const fold = tool ? [button(tool.folded ? 'Unfold' : 'Fold', () => ctx.foldTool(tool.id, !tool.folded), tool.folded ? 'Click: List its tool body again, as an object of its own' : 'Click: Fold its tool body into this step: it leaves the list, nothing is lost')] : [];
-    const drop = button('×', () => ctx.removeStep(body.id, f.id), 'Click: Delete this step');
-    const row = h('div', { className: 'history-row', draggable: j > 0, ondragstart: () => (dragged = j), ondragover: (e) => j > 0 && e.preventDefault(), ondrop: () => dragged > 0 && j > 0 && dragged !== j && move(dragged, j) }, name, ...fold, drop);
+    // the first step is the shape itself: it stays, and stays first
+    const drop = j ? [button('×', () => ctx.removeStep(body.id, f.id), 'Click: Delete this step')] : [];
+    const row = h('div', { className: 'history-row', draggable: j > 0, ondragstart: () => (dragged = j), ondragover: (e) => j > 0 && e.preventDefault(), ondrop: () => dragged > 0 && j > 0 && dragged !== j && move(dragged, j) }, name, ...fold, ...drop);
     return on ? h('div', {}, row, card(f, j)) : row;
   });
   return h('section', { className: 'history' }, head, ...rows);
@@ -1296,15 +1332,6 @@ function linkedNote(ctx: UIContext, body: Body): Node[] {
   const copies = ctx.doc.bodies.filter((b) => b.link === source.id).length;
   const unlink = button('Unlink', () => ctx.unlinkCopy(body.id), 'Its own copy of the steps: editing it no longer changes the others');
   return [h('div', { className: 'row linked' }, h('span', { className: 'hint' }, `Linked copy of ${source.name} (${copies + 1} alike): editing its steps edits all of them`), unlink)];
-}
-
-/** A linked copy's shared steps: its source's cards (edits go to the source, so to all copies). */
-function sharedCards(ctx: UIContext, body: Body): Node[] {
-  const k = ctx.doc.bodies.findIndex((b) => b.id === body.link);
-  if (k < 0) return [];
-  const source = ctx.doc.bodies[k];
-  const setSource = (next: Body) => ctx.commit(setIn(ctx.doc, ['bodies', String(k)], next));
-  return source.features.map((feature, j) => featureCard(ctx, source, feature, `bodies.${k}.features.${j}`, setSource));
 }
 
 /** The joints `id` stays in or moves by: name, range, what moves; Edit opens the panel it was made in. */
@@ -1542,6 +1569,36 @@ function backInto(f: Extract<Feature, { type: 'extrude' }>): Extract<Feature, { 
   return { ...f, back: undefined, depth: sum(depth, s * Number(back.e)), source: { ...source, plane: { ...source.plane, offset: sum(off, -s * Number(back.e)) } } };
 }
 
+/**
+ * A fillet's or chamfer's row: its size (below 0 it turns into the other kind), which edges, Bake, remove; then the
+ * edges left out and picked edges lost. Switched off (older files): a box to switch it on again.
+ */
+function finishParts(ctx: UIContext, body: Body, feature: Extract<Feature, { type: 'finish' }>, at: string, setFeature: (f: Feature) => void, remove: HTMLElement): HTMLElement[] {
+  const rules = { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' };
+  const picked = typeof feature.edges === 'object' ? feature.edges.pts.length : 0;
+  const lost = ctx.lostEdges(body.id, feature.id);
+  // picked edges (dragged on the body) keep their pick; a rule can replace it
+  const edges =
+    typeof feature.edges === 'object'
+      ? select<keyof typeof rules | 'picked'>('picked', { picked: `Picked edges (${picked})`, ...rules }, (r) => r !== 'picked' && setFeature({ ...feature, edges: r }))
+      : select<keyof typeof rules>(feature.edges, rules, (r) => setFeature({ ...feature, edges: r }));
+  const bake = h(
+    'button',
+    {
+      className: `bake${feature.baked ? ' on' : ''}`,
+      title: feature.baked ? 'Baked: stays where it is, so later cuts go through it. Click: Unbake it (it finishes later cuts again)' : 'Click: Bake it: later cuts go through it instead of being finished too',
+      onclick: () => setFeature({ ...feature, baked: !feature.baked }),
+    },
+    feature.baked ? 'Baked' : 'Bake',
+  );
+  const on = feature.enabled ? [] : [h('input', { type: 'checkbox', checked: false, title: 'Click: Switch it on again', onchange: () => setFeature({ ...feature, enabled: true }) })];
+  return [
+    h('div', { className: 'row finish' }, ...on, exprField(ctx, `${at}.size`, feature.mode === 'fillet' ? 'Radius' : 'Chamfer'), edges, bake, remove),
+    ...(feature.skip.length ? [h('div', { className: 'listed' }, h('span', { className: 'hint' }, `${feature.skip.length} edge${feature.skip.length > 1 ? 's' : ''} left out`), button('Restore', () => setFeature({ ...feature, skip: [] }), 'Click: Finish the left-out edges again'))] : []),
+    ...(lost ? [h('p', { className: 'error', title: COPY_TIP }, `${lost} of ${picked} picked edges ${lost > 1 ? 'are' : 'is'} gone: an edit changed ${lost > 1 ? 'them' : 'it'} too much. Pick ${lost > 1 ? 'them' : 'it'} again.`)] : []),
+  ];
+}
+
 /** A step's name as History lists it: the first extrusion Extrude, later ones Join or Cut (numbered), the rest by kind. */
 function stepName(body: Body, f: Feature): string {
   const n = body.features.indexOf(f) + 1;
@@ -1715,40 +1772,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
     }
     case 'sphere':
       return h('section', {}, h('h4', {}, 'Sphere', remove), h('div', { className: 'row' }, f('x', 'X'), f('y', 'Y'), f('z', 'Z'), f('d', 'Ø')));
-    case 'finish': {
-      const enabled = h('input', { type: 'checkbox', checked: feature.enabled, title: 'Enabled' });
-      enabled.onchange = () => setFeature({ ...feature, enabled: enabled.checked });
-      const mode = select(feature.mode, { fillet: 'Fillet', chamfer: 'Chamfer' }, (m) => setFeature({ ...feature, mode: m }));
-      // picked edges (dragged on the body) keep their pick; a rule can replace it
-      const rules = { all: 'All edges', top: 'Top edges', bottom: 'Bottom edges', vertical: 'Vertical edges' };
-      const picked = typeof feature.edges === 'object' ? feature.edges.pts.length : 0;
-      const lost = ctx.lostEdges(body.id, feature.id);
-      const edges =
-        typeof feature.edges === 'object'
-          ? select<keyof typeof rules | 'picked'>('picked', { picked: `Picked edges (${picked})`, ...rules }, (r) => r !== 'picked' && setFeature({ ...feature, edges: r }))
-          : select<keyof typeof rules>(feature.edges, rules, (r) => setFeature({ ...feature, edges: r }));
-      const bake = h(
-        'button',
-        {
-          className: `bake${feature.baked ? ' on' : ''}`,
-          title: feature.baked
-            ? 'Baked: stays where it is, so later cuts go through it. Click to unbake (it finishes later cuts again)'
-            : 'Bake: later cuts go through it instead of being finished too',
-          onclick: () => setFeature({ ...feature, baked: !feature.baked }),
-        },
-        feature.baked ? 'Baked' : 'Bake',
-      );
-      const skipped = feature.skip.length
-        ? [h('div', { className: 'listed' }, h('span', { className: 'hint' }, `${feature.skip.length} edge${feature.skip.length > 1 ? 's' : ''} left out`), button('Restore', () => setFeature({ ...feature, skip: [] }), 'Finish the left-out edges again'))]
-        : [];
-      return h(
-        'section',
-        { className: `${feature.enabled ? '' : 'disabled'}${feature.baked ? ' baked' : ''}` },
-        h('h4', {}, enabled, mode, bake, remove),
-        h('div', { className: 'row' }, f('size', feature.mode === 'fillet' ? 'Radius' : 'Distance'), edges),
-        ...skipped,
-        ...(lost ? [h('p', { className: 'error', title: COPY_TIP }, `${lost} of ${picked} picked edges ${lost > 1 ? 'are' : 'is'} gone: an edit changed ${lost > 1 ? 'them' : 'it'} too much. Pick ${lost > 1 ? 'them' : 'it'} again.`)] : []),
-      );
-    }
+    case 'finish':
+      return h('section', { className: `${feature.enabled ? '' : 'disabled'}${feature.baked ? ' baked' : ''}` }, ...finishParts(ctx, body, feature, at, setFeature, remove));
   }
 }

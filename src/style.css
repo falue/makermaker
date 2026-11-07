@@ -2468,10 +2468,14 @@ input + .set-axis {
 /* the side panel's values: aligned columns, one height */
 .placing {
   display: grid;
-  grid-template-columns: 50px repeat(3, minmax(0, 1fr));
+  grid-template-columns: 64px repeat(3, minmax(0, 1fr));
   gap: 6px;
   align-items: center;
   margin-top: 14px;
+}
+/* right under Position and Rotation */
+.placing.dimensions {
+  margin-top: 6px;
 }
 .placing > span {
   font-size: 11px;
@@ -2933,6 +2937,13 @@ section > h4 .segmented button {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+/* a body's fillets and chamfers: their title with +, a row each */
+.finish-head span {
+  flex: 1;
+  color: var(--muted);
+  font-weight: 600;
 }
 
 /* a body's steps in order (History), folded first */
