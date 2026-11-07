@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignment, bounds, closedLoop, cornerCuts, cornerLimits, cornerRadii, inside, roundedOutline } from './profiles';
+import { alignment, bounds, closedLoop, cornerCuts, cornerLimits, cornerRadii, inside, segments } from './profiles';
 
 describe('profiles', () => {
   it('finds the loop lines close, either way round', () => {
@@ -54,15 +54,13 @@ describe('cornerRadii', () => {
 });
 
 
-describe('roundedOutline', () => {
-  it('rounds each corner as the kernel does: a square of 10 with R 2 keeps its box, its corner points lie 2 in', () => {
-    const pts = roundedOutline({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, r: 2, rot: 0 }, 4);
-    expect(pts).toHaveLength(20);
-    const xs = pts.map((p) => p[0]);
-    expect(Math.min(...xs)).toBeCloseTo(-5, 9);
-    expect(Math.max(...xs)).toBeCloseTo(5, 9);
-    // the arc's middle at the corner: on the circle of 2 round (3, 3)
-    const mid = pts[2];
+describe('segments', () => {
+  it('rounds each corner as the kernel does: a square of 10 with R 2 keeps its box, its corner arcs lie 2 in', () => {
+    const segs = segments({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, r: 2, rot: 0 });
+    expect(segs).toHaveLength(8); // four arcs, four sides
+    expect(bounds({ kind: 'rect', x: 0, y: 0, w: 10, h: 10, r: 2, rot: 0 })).toEqual([-5, -5, 5, 5]);
+    // the arc's middle at the corner: on the circle of 2 round (-3, -3)
+    const mid = (segs[0].c as { mid: [number, number] }).mid;
     expect(Math.hypot(mid[0] + 3, mid[1] + 3)).toBeCloseTo(2, 9);
   });
 });
@@ -76,9 +74,9 @@ describe('chamfered corners', () => {
     expect(cornerLimits(rect)[0].round).toBeCloseTo(10, 9);
     expect(cornerLimits(rect)[0].bevel).toBeCloseTo(10, 9);
     // the chamfered corner (bottom left) cut straight across: 3 up its left side, 3 along its bottom
-    expect(roundedOutline(rect, 4).slice(0, 2)).toEqual([[-20, -7], [-17, -10]]);
+    expect(segments(rect)[0]).toEqual({ a: [-20, -7], b: [-17, -10] });
     // only chamfers: drawn too
-    expect(roundedOutline({ ...rect, rs: undefined, r: -2 })).toHaveLength(8);
+    expect(segments({ ...rect, rs: undefined, r: -2 })).toHaveLength(8);
   });
 });
 
@@ -91,16 +89,16 @@ describe('cornerCuts', () => {
     expect(cut!.pts[0][0]).toBeCloseTo(-5, 9); // on the left side, 2 up from the corner
     expect(cut!.pts[0][1]).toBeCloseTo(-3, 9);
   });
-  it('beside a curved side the outline leaves out its points the rounding takes', () => {
+  it('beside a curved side the outline takes the arc only from where the rounding ends', () => {
     // a square whose top is an arc bulging up; its bottom left corner (between two straight sides) and top corners rounded
     const shape = { kind: 'polygon' as const, pts: [[0, 0], [10, 0], [10, 10], [0, 10]] as [number, number][], curves: [null, null, { mid: [5, 12] as [number, number] }, null], r: 1, rot: 0 };
     const cuts = cornerCuts(shape);
     expect(cuts.every(Boolean)).toBe(true);
-    const out = roundedOutline(shape);
-    // after the top right corner's rounding, the arc goes on only farther from that corner than the rounding reaches
+    // after the top right corner's rounding, the arc starts where it ends, its middle still on the arc's circle
     const end = cuts[2]!.pts.at(-1)!;
-    const k = out.findIndex((q) => q[0] === end[0] && q[1] === end[1]);
-    expect(Math.hypot(out[k + 1][0] - 10, out[k + 1][1] - 10)).toBeGreaterThan(cuts[2]!.t);
+    const arc = segments(shape).find((g) => g.a[0] === end[0] && g.a[1] === end[1])!;
+    const mid = (arc.c as { mid: [number, number] }).mid;
+    expect(Math.hypot(mid[0] - 5, mid[1] - (12 - (5 * 5 + 2 * 2) / 4))).toBeCloseTo((5 * 5 + 2 * 2) / 4, 6);
   });
 });
 

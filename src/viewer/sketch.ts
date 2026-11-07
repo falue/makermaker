@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BASE, extent, toWorld, type Frame, type V3 } from '../doc/frames';
-import { arcOf, area, centre, corners, curved, flattened, inside, nesting, ontoArcThrough, cornerCuts, roundedOutline, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
+import { arcOf, area, centre, corners, curved, inside, nesting, ontoArcThrough, cornerCuts, pointAlong, segCrossings, segLength, segments, segPoints, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, Curve, ShapeGroup, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
@@ -1163,8 +1163,8 @@ export class SketchTool implements Tool {
   }
 
   /**
-   * A point near line `l` (world) on what it really is: a sketch's curve exactly; a curved body edge on the circle through
-   * the points next to it, which lie on the real edge; a straight line where it is.
+   * A point near line `l` (world) on what it really is: a sketch outline on its exact sides; a curved body edge on the
+   * kernel's curve (a mesh body's: on the circle through the points next to it); a straight line where it is.
    */
   private onTrueLine(l: SnapLine, at: THREE.Vector3, t: Target): THREE.Vector3 {
     const nearest = l.segs.reduce<[number, number]>((best, [a, b], i) => {
@@ -1172,8 +1172,8 @@ export class SketchTool implements Tool {
       return d < best[1] ? [i, d] : best;
     }, [0, Infinity])[0];
     const [a, b] = l.segs[nearest];
-    if (l.shape?.p.kind === 'circle' || (l.shape && curved(l.shape.p))) return this.view.onSketchCurve(at, a.distanceTo(b) + 0.1, l.shape.p.id) ?? at;
-    if (l.shape || l.guide || l.segs.length === 1) return new THREE.Line3(a, b).closestPointToPoint(at, false, new THREE.Vector3());
+    if (l.shape) return this.view.onSketchCurve(at, a.distanceTo(b) + 0.1, l.shape.p.id) ?? new THREE.Line3(a, b).closestPointToPoint(at, false, new THREE.Vector3());
+    if (l.guide || l.segs.length === 1) return new THREE.Line3(a, b).closestPointToPoint(at, false, new THREE.Vector3());
     // a curved body edge: on the kernel's circle; a mesh body's: on the circle through its points beside it
     const exact = this.view.onBodyEdge(at, a.distanceTo(b) + 0.1);
     if (exact) return exact;
@@ -1311,7 +1311,9 @@ export class SketchTool implements Tool {
     const cross = turn || splitting ? null : this.crossing(close, t, mx, my, px);
     if (cross) {
       // where they really cross: from one true line to the next until they meet (straight lines cross as they are)
-      if (cross.lines.some((i) => lines[i].shape?.p.kind === 'circle' || (lines[i].shape ? curved(lines[i].shape!.p) : lines[i].segs.length > 1))) {
+      const exact = crossed(cross.lines.map((i) => lines[i]), cross.at, t.frame);
+      if (exact) cross.at = exact;
+      else if (cross.lines.some((i) => lines[i].shape?.p.kind === 'circle' || (lines[i].shape ? curved(lines[i].shape!.p) : lines[i].segs.length > 1))) {
         let at = v3(toWorld(t.frame, ...cross.at));
         for (let k = 0; k < 12; k++) for (const i of cross.lines) at = this.onTrueLine(lines[i], at, t);
         cross.at = uvOf(t.frame, at);
@@ -2165,17 +2167,13 @@ export function linePoints(lines: SnapLine[]): (Omit<SnapPoint, 'at'> & { at: TH
       const [from, to] = [cuts[i], cuts[(i + 1) % cuts.length]];
       if ((!bent || bent[i].length === 2) && (from || to)) return divide(world([from ? from.pts[from.pts.length - 1] : x[0], to ? to.pts[0] : x[1]]));
       if (!bent || bent[i].length === 2) return divide(pieces(i)[0]);
-      // along the curve, evenly by length
+      // along the curve, evenly by its true length
       const segs = pieces(i);
       const key = `curve:${sideKey(...world(x))}`;
       const m = SketchTool.divisions.get(key) ?? 1;
-      const len = segs.reduce((n, [a, b]) => n + a.distanceTo(b), 0);
-      for (let k = 1; k <= m; k++) {
-        let left = (len * k) / (m + 1);
-        const seg = segs.find(([a, b]) => (left -= a.distanceTo(b)) <= 0) ?? segs[segs.length - 1];
-        const point = seg[1].clone().lerp(seg[0], -left / (seg[0].distanceTo(seg[1]) || 1));
-        pts.push({ at: point, what: fraction(k, m + 1), line: segs, key, parts: [(len * k) / (m + 1), len - (len * k) / (m + 1)] });
-      }
+      const side = { a: x[0], b: x[1], c: turnedCurves?.[i] };
+      const len = segLength(side);
+      for (let k = 1; k <= m; k++) pts.push({ at: at(pointAlong(side, (len * k) / (m + 1))), what: fraction(k, m + 1), line: segs, key, parts: [(len * k) / (m + 1), len - (len * k) / (m + 1)] });
       const c = turnedCurves?.[i];
       const arc = c && 'mid' in c ? arcOf(x[0], c.mid, x[1]) : null;
       if (arc) pts.push({ at: at(arc.c), what: 'arc centre', line: segs });
@@ -2201,18 +2199,43 @@ export function divideMore(key: string, more: boolean) {
 /** Drawn on a face, in front of it: a depth offset towards the viewer, the same at any zoom (bodies sit 1 / 1 behind theirs). */
 export const FRONT = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 } as const;
 
+/** How far (mm) a drawn or snapped outline lies off the true curve at most. */
+const DRAWN = 0.01;
+
+/** A shape's outline as points (plane coordinates), each side within `DRAWN` of its true curve; a closed one's last point repeats its first. */
+const outlinePts = (p: DrawnProfile): UV[] => segments(p).flatMap((g, i) => segPoints(g, DRAWN).slice(i ? 1 : 0));
+
 /** A shape's outline as segments (world), its corners rounded or chamfered as drawn; a line stays open. */
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {
-  const pts = (p.kind === 'circle' ? shape2d(p).getPoints(48).map((q): UV => [q.x, q.y]) : roundedOutline(p)).map((q) => v3(toWorld(f, ...q)));
-  return (p.kind === 'line' ? pts.slice(0, -1) : pts).map((a, i): Segment => [a, pts[(i + 1) % pts.length]]);
+  const pts = outlinePts(p).map((q) => v3(toWorld(f, ...q)));
+  return pts.slice(1).map((b, i): Segment => [pts[i], b]);
 }
 
 /** Per segment of `outlineSegs` the key of the curved side it is part of (null: a straight side); none: no curves. */
 function curveKeys(p: ViewSketch['shapes'][number], f: Frame): (string | null)[] | undefined {
-  // rounded corners change the segments: no keys then
+  // rounded corners change the sides: no keys then
   if (!curved(p) || (p.kind !== 'polygon' && p.kind !== 'line') || cornerCuts(p).some(Boolean)) return undefined;
   const at = (q: UV) => v3(toWorld(f, ...q));
-  return sidesOf(bakeTurn(p)).flatMap((s) => Array<string | null>(s.length - 1).fill(s.length > 2 ? `curve:${sideKey(at(s[0]), at(s[s.length - 1]))}` : null));
+  return segments(p).flatMap((g) => Array<string | null>(segPoints(g, DRAWN).length - 1).fill(g.c ? `curve:${sideKey(at(g.a), at(g.b))}` : null));
+}
+
+/** Where sketch outlines `ls` (two) really cross nearest plane point `near` (frame `f`); null: one is no sketch shape or a bezier takes part. */
+function crossed(ls: SnapLine[], near: UV, f: Frame): UV | null {
+  if (!ls.every((l) => l.shape)) return null;
+  const into = (l: SnapLine) => {
+    const { frame } = l.shape!.sketch;
+    const m = (q: UV) => uvOf(f, v3(toWorld(frame, ...q)));
+    return segments(l.shape!.p).map(({ a, b, c }) => ({ a: m(a), b: m(b), c: !c ? c : 'mid' in c ? { mid: m(c.mid) } : { c1: m(c.c1), c2: m(c.c2) } }));
+  };
+  const [g, h] = ls.map(into);
+  let best: UV | null = null;
+  for (const x of g)
+    for (const y of h) {
+      const found = segCrossings(x, y);
+      if (!found) return null;
+      for (const q of found) if (!best || Math.hypot(q[0] - near[0], q[1] - near[1]) < Math.hypot(best[0] - near[0], best[1] - near[1])) best = q;
+    }
+  return best;
 }
 
 /** Whether a point (world) lies in the frame's plane. */
@@ -2229,8 +2252,7 @@ export function uvOf(f: Frame, p: THREE.Vector3): UV {
 }
 
 export function shape2d(p: DrawnProfile): THREE.Shape {
-  if (p.kind === 'circle') return new THREE.Shape().absarc(p.x, p.y, p.d / 2, 0, Math.PI * 2, false);
-  return new THREE.Shape(roundedOutline(p).map(([x, y]) => new THREE.Vector2(x, y)));
+  return new THREE.Shape(outlinePts(p).slice(0, -1).map(([x, y]) => new THREE.Vector2(x, y)));
 }
 
 /**
@@ -2239,8 +2261,7 @@ export function shape2d(p: DrawnProfile): THREE.Shape {
  * lines dashed; `opacity` below 1: faint.
  */
 export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, onFace = false, dashMm = 1.5, width = 2, opacity = 1) {
-  const pts = (p.kind === 'line' ? flattened(p).map(([x, y]) => ({ x, y })) : shape2d(p).getPoints(48)).map((q) => v3(toWorld(f, q.x, q.y)));
-  if (p.kind !== 'line') pts.push(pts[0]); // closed by its own last segment
+  const pts = outlinePts(p).map((q) => v3(toWorld(f, ...q)));
   const material = new LineMaterial({ color, linewidth: width, depthTest: onFace, ...(onFace ? FRONT : {}), dashed: !!p.construction, dashSize: dashMm, gapSize: dashMm, transparent: opacity < 1, opacity });
   return new Line2(new LineGeometry().setPositions(pts.flatMap((v) => v.toArray())), material).computeLineDistances();
 }

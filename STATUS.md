@@ -58,7 +58,7 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 
 **C. Sketch**
 - Done 2026-11-07 (step 4): areas closed by lines, corner radii where areas are found, `pieces`, `area`, `nesting`, `inside` / `edgeDistance` / `bounds` / the shape box, stored points.
-- Snapping: circles as 96 pieces (sketch.ts:2155), rounded corners 8 pieces and snapped on the chord (`onTrueLine`, :1139; R100: 0.5 mm); a curved polygon with corner R treats its curves as chords (:2162); crossings found on chords and refined by 12 alternating projections, slow at shallow angles (:1090, 1271); points along a curve spaced by chord, shown lengths sums of chords (:2116; R50 half circle 157.054 vs 157.080); half along a curved side dragged on the chord (viewer.ts:4534).
+- Snapping: done 2026-11-07: sketch outlines snap on their exact sides, rounded corners too (`onSketchCurve`); two sketch lines or arcs cross where they really do (`segCrossings`; with a bezier or a body edge still by alternating projections); points along a curved side spaced by its true length, its parts' lengths true; an axis picked on a sketch arc is its centre. Outlines are drawn and snapped within 0.01 mm of the true curve (`DRAWN`).
 - Offsets: miter clamped at 0.2 in `grown` / `beside` (profiles.ts:350, 460): corners under ~23° under-offset (Offset tool, split, kerf); bezier offset by its legs; an arc offset past its radius clamped to 0.01 (:396); an offset curved split line becomes a 32-piece polyline (build.ts:1058).
 - Tangents found by 96 brackets (shapes.ts:478): two within one bracket missed. "Smooth" means within ~0.5° (shapes.ts:146, build.ts:385).
 
@@ -79,7 +79,7 @@ Survey of 2026-11-07. The solid itself (OpenCascade) is exact for most features,
 
 **F. Display only**
 - Done: sketch outlines, area fills and section lines were shifted towards the viewer by fixed mm (0.05, 0.08, 0.02): at close zoom they stood off the face. Now on their plane with a depth offset (`FRONT`), bodies keeping theirs (`polygonOffset` 1/1).
-- Circles drawn as 96 pieces whatever their size (sketch.ts:2155, 2191): Ø 1000 misses the body edge by ~1 mm.
+- Done: circles and curves were drawn as 96 / 32 pieces whatever their size (Ø 1000 missed the body edge by ~1 mm); now within 0.01 mm.
 - Camera near 1 / far 50000 (viewer.ts:431); the section cap plane 1e4 mm (:3702); clash meshes at a fixed 0.05 (src/kernel/clash.ts:44); crossing snaps skipped above 300k triangles (viewer.ts:2952).
 - Tolerances fixed at 0.05 / 0.02 mm that do not follow Settings → mesh detail fail at 0.12: `faceAt`, `axisAt`, edge matching, `edgeLoop` (viewer.ts:3207).
 

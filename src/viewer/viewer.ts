@@ -11,7 +11,7 @@ import type { Backdrop, BasePlane, CameraState, Light, Views } from '../doc/type
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { arcOf, area, bounds, centre, curved, edgeDistance, flattened, inside, bakeTurn, nearestOnSide, type DrawnProfile } from '../doc/profiles';
+import { arcOf, area, bounds, centre, edgeDistance, inside, bakeTurn, nearestOnSide, segments, segPoints, type DrawnProfile, type Seg } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
 import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, pointHandles, pointMoved, resized, rotated, simpleLine, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
@@ -1728,8 +1728,13 @@ export class Viewer implements ToolView {
     if (!sketch || !q) return point ? { at: point.at, dir: z, what: 'point: Z through it' } : null;
     const f = sketch.frame;
     if (q.kind === 'circle') return { at: new THREE.Vector3(...toWorld(f, q.x, q.y)), dir: new THREE.Vector3(...f.n), what: 'circle: its centre' };
-    const pts = (q.kind === 'line' ? flattened(q) : [...flattened(q), flattened(q)[0]]).map(([u, v]) => new THREE.Vector3(...toWorld(f, u, v)));
-    return line(nearest(pts.slice(1).map((p, k): [THREE.Vector3, THREE.Vector3] => [pts[k], p])), q.kind === 'line' ? 'line' : 'side');
+    // the side nearest: an arc's centre, else the side (a bezier's piece) as a line
+    const w = ([u, v]: [number, number]) => new THREE.Vector3(...toWorld(f, u, v));
+    const sides = segments(q).flatMap((g) => segPoints(g, 0.01).slice(1).map((b, k, all): [[THREE.Vector3, THREE.Vector3], Seg] => [[w(k ? all[k - 1] : g.a), w(b)], g]));
+    const [piece, g] = sides.reduce((best, x) => (ray.distanceSqToSegment(...x[0]) < ray.distanceSqToSegment(...best[0]) ? x : best));
+    const arc = g.c && 'mid' in g.c ? arcOf(g.a, g.c.mid, g.b) : null;
+    if (arc) return { at: w(arc.c), dir: new THREE.Vector3(...f.n), what: 'arc: its centre', d: 2 * arc.r };
+    return line(g.c ? piece : [w(g.a), w(g.b)], q.kind === 'line' ? 'line' : 'side');
   }
 
   private axisMark = new THREE.Group();
@@ -3468,6 +3473,7 @@ export class Viewer implements ToolView {
     return best?.[1] ?? null;
   }
 
+  /** The nearest point on a sketch outline within `reach` mm of `at` (world), on its exact sides (`only`: that shape alone). */
   onSketchCurve(at: THREE.Vector3, reach = 0.2, only?: string) {
     let best: { d: number; p: THREE.Vector3 } | null = null;
     const found = (frame: ViewSketch['frame'], on: [number, number], q: [number, number]) => {
@@ -3480,12 +3486,14 @@ export class Viewer implements ToolView {
       const q = uvOf(s.frame, at);
       for (const p of s.shapes) {
         if (only && p.id !== only) continue;
-        if (p.kind === 'circle') {
-          const r = Math.hypot(q[0] - p.x, q[1] - p.y);
-          if (r > 1e-9) found(s.frame, [p.x + ((q[0] - p.x) * p.d) / 2 / r, p.y + ((q[1] - p.y) * p.d) / 2 / r], q);
-        } else if ((p.kind === 'polygon' || p.kind === 'line') && curved(p)) {
-          const b = bakeTurn(p);
-          for (const [i, c] of (b.curves ?? []).entries()) if (c) found(s.frame, nearestOnSide(b.pts[i], c, b.pts[(i + 1) % b.pts.length], q), q);
+        for (const { a, b, c } of segments(p)) {
+          if (c) {
+            found(s.frame, nearestOnSide(a, c, b, q), q);
+            continue;
+          }
+          const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+          const t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+          found(s.frame, [a[0] + t * dx, a[1] + t * dy], q);
         }
       }
     }

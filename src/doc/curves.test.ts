@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arcOf, area, bakeTurn, bounds, closedLoop, edgeDistance, flattened, inside, mapPoints, nesting, ontoArcThrough, outlineLength, segPoints, segments, sideDirs, sidesOf, offsetPath } from './profiles';
+import { arcOf, area, bakeTurn, bounds, closedLoop, edgeDistance, flattened, inside, mapPoints, nesting, ontoArcThrough, outlineLength, pointAlong, segCrossings, segLength, segPoints, segments, sideDirs, sidesOf, offsetPath } from './profiles';
 import { centreMoved, controlMoved, isSmooth, pointHandles, pointMoved, smoothToggled } from '../viewer/shapes';
 import { followSizes, sized } from './sizes';
 import type { Curve, Doc } from './types';
@@ -284,6 +284,8 @@ describe('onto the true curve', () => {
   });
 });
 
+const hillLine = { kind: 'line' as const, pts: [[0, 0], [30, 0]] as UV[], curves: [{ c1: [0, -20], c2: [30, -20] } as Curve] };
+
 describe('exact outlines', () => {
   const rounded = { kind: 'rect' as const, x: 0, y: 0, w: 40, h: 20, r: 5, rot: 0 };
   const hill = { kind: 'polygon' as const, pts: [[0, 0], [30, 0]] as UV[], curves: [{ c1: [0, -20], c2: [30, -20] } as Curve, null], r: 0, rot: 0 };
@@ -319,4 +321,18 @@ describe('exact outlines', () => {
     expect(nesting([{ kind: 'rect', x: 0, y: 0, w: 40, h: 40, r: 0, rot: 0 }, { ...halfDisc, pts: [[-10, 0], [10, 0]] }])).toEqual([0, 1]);
     expect(nesting([{ kind: 'rect', x: 0, y: 20, w: 40, h: 40, r: 0, rot: 0 }, halfDisc])).toEqual([0, 1]);
   });
+
+  it('crossings of lines and arcs found exactly; points along a side by its true length', () => {
+    const circle = segments({ kind: 'circle', x: 0, y: 0, d: 20 });
+    const tangent = { a: [-20, 10] as UV, b: [20, 10] as UV };
+    expect(circle.flatMap((g) => segCrossings(g, tangent)!)).toEqual([[0, 10]]);
+    const other = segments({ kind: 'circle', x: 10, y: 0, d: 20 });
+    const ys = circle.flatMap((g) => other.flatMap((h) => segCrossings(g, h)!)).map((q) => +q[1].toFixed(9)).sort((a, b) => a - b);
+    expect(ys).toEqual([-8.660254038, 8.660254038]);
+    const half = segments(halfDisc)[1];
+    const q = pointAlong(half, segLength(half) / 3);
+    expect(Math.atan2(q[1], q[0])).toBeCloseTo(Math.PI / 3, 9); // from (10, 0) round to (-10, 0)
+    expect(segCrossings(segments(hillLine)[0], tangent)).toBeNull();
+  });
 });
+

@@ -205,23 +205,6 @@ export function cornerCuts(p: P, steps = 8): ({ t: number; pts: UV[]; centre?: U
   });
 }
 
-/**
- * The outline as drawn, its corners rounded or chamfered (`cornerCuts`); a curved side as points, left out where a
- * corner's rounding takes its place. Without any: `flattened`.
- */
-export function roundedOutline(p: P, steps = 8): UV[] {
-  const q = roundable(p);
-  const cuts = cornerCuts(p, steps);
-  if (!q || !cuts.some(Boolean)) return flattened(p);
-  const n = q.pts.length;
-  const far = (a: UV, b: UV, t: number) => Math.hypot(a[0] - b[0], a[1] - b[1]) > t;
-  return q.pts.flatMap((c, i) => {
-    const next = q.pts[(i + 1) % n];
-    const inner = q.curves?.[i] ? sidePoints(c, q.curves[i], next).slice(1, -1).filter((pt) => far(pt, c, cuts[i]?.t ?? 0) && far(pt, next, cuts[(i + 1) % n]?.t ?? 0)) : [];
-    return [...(cuts[i]?.pts ?? [c]), ...inner];
-  });
-}
-
 /** A side of an outline, exact: straight, an arc through `mid`, or a cubic bezier. */
 export type Seg = { a: UV; b: UV; c?: Curve | null };
 
@@ -307,17 +290,90 @@ export function segPoints({ a, b, c }: Seg, tol = 1e-3): UV[] {
   return flat(a, c.c1, c.c2, b);
 }
 
-/** A side's length: exact for lines and arcs, a bezier's by 16-point Gauss–Legendre on its pieces. */
+/** A side's length: exact for lines and arcs, a bezier's by Gauss–Legendre (see `bezierLength`). */
 export function segLength({ a, b, c }: Seg): number {
   if (!c) return Math.hypot(b[0] - a[0], b[1] - a[1]);
   if ('mid' in c) {
     const arc = arcOf(a, c.mid, b);
     return arc ? arc.r * Math.abs(arc.a1 - arc.a0) : Math.hypot(b[0] - a[0], b[1] - a[1]);
   }
-  const speed = (t: number) => Math.hypot(...([0, 1].map((k) => 3 * ((1 - t) ** 2 * (c.c1[k] - a[k]) + 2 * (1 - t) * t * (c.c2[k] - c.c1[k]) + t ** 2 * (b[k] - c.c2[k]))) as UV));
+  return bezierLength(a, c.c1, c.c2, b, 1);
+}
+
+/** A bezier's speed (length per parameter) at `t`. */
+const bezierSpeed = (a: UV, c1: UV, c2: UV, b: UV, t: number) => Math.hypot(...([0, 1].map((k) => 3 * ((1 - t) ** 2 * (c1[k] - a[k]) + 2 * (1 - t) * t * (c2[k] - c1[k]) + t ** 2 * (b[k] - c2[k]))) as UV));
+
+/** A bezier's length from its start to parameter `t`: 16-point Gauss–Legendre on 8 pieces. */
+function bezierLength(a: UV, c1: UV, c2: UV, b: UV, t: number): number {
   let sum = 0;
-  for (let piece = 0; piece < 8; piece++) for (const [x, w] of GAUSS) sum += (w * speed((piece + (x + 1) / 2) / 8)) / 16;
-  return sum;
+  for (let piece = 0; piece < 8; piece++) for (const [x, w] of GAUSS) sum += (w * bezierSpeed(a, c1, c2, b, (t * (piece + (x + 1) / 2)) / 8)) / 16;
+  return sum * t;
+}
+
+/** The point `s` mm along a side from its start (clamped to its ends). */
+export function pointAlong(g: Seg, s: number): UV {
+  const { a, b, c } = g;
+  const f = Math.max(0, Math.min(1, s / (segLength(g) || 1)));
+  if (c && 'mid' in c) {
+    const arc = arcOf(a, c.mid, b);
+    if (arc) {
+      const t = arc.a0 + (arc.a1 - arc.a0) * f;
+      return [arc.c[0] + arc.r * Math.cos(t), arc.c[1] + arc.r * Math.sin(t)];
+    }
+  }
+  if (!c || 'mid' in c) return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  // Newton on the length from the start
+  const goal = f * segLength(g);
+  let t = f;
+  for (let k = 0; k < 8; k++) t = Math.max(0, Math.min(1, t - (bezierLength(a, c.c1, c.c2, b, t) - goal) / (bezierSpeed(a, c.c1, c.c2, b, t) || 1)));
+  return bez(a, c.c1, c.c2, b, t);
+}
+
+/** Where two sides cross (lines and arcs exactly; null: a bezier takes part, ask the caller to find it). */
+export function segCrossings(g: Seg, h: Seg): UV[] | null {
+  if ((g.c && 'c1' in g.c) || (h.c && 'c1' in h.c)) return null;
+  type Circ = { c: UV; r: number; a0: number; a1: number };
+  const circ = (s: Seg): Circ | null => (s.c && 'mid' in s.c ? arcOf(s.a, s.c.mid, s.b) : null);
+  const onArc = (k: Circ, q: UV) => {
+    const d = Math.sign(k.a1 - k.a0) || 1;
+    const t = ((((Math.atan2(q[1] - k.c[1], q[0] - k.c[0]) - k.a0) * d) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    return t <= Math.abs(k.a1 - k.a0) + 1e-9 || t >= 2 * Math.PI - 1e-9;
+  };
+  const onLine = (s: Seg, q: UV) => {
+    const [dx, dy] = [s.b[0] - s.a[0], s.b[1] - s.a[1]];
+    const t = ((q[0] - s.a[0]) * dx + (q[1] - s.a[1]) * dy) / (dx * dx + dy * dy || 1);
+    return t >= -1e-9 && t <= 1 + 1e-9;
+  };
+  const [cg, ch] = [circ(g), circ(h)];
+  // on both, each once (touching: one point)
+  const on = (q: UV, i: number, all: UV[]) => (cg ? onArc(cg, q) : onLine(g, q)) && (ch ? onArc(ch, q) : onLine(h, q)) && !all.slice(0, i).some((p) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-9);
+  if (!cg && !ch) {
+    const [r, t] = [[g.b[0] - g.a[0], g.b[1] - g.a[1]], [h.b[0] - h.a[0], h.b[1] - h.a[1]]];
+    const den = r[0] * t[1] - r[1] * t[0];
+    if (Math.abs(den) < 1e-12) return [];
+    const k = ((h.a[0] - g.a[0]) * t[1] - (h.a[1] - g.a[1]) * t[0]) / den;
+    return [[g.a[0] + k * r[0], g.a[1] + k * r[1]] as UV].filter(on);
+  }
+  if (cg && ch) {
+    const [dx, dy] = [ch.c[0] - cg.c[0], ch.c[1] - cg.c[1]];
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-12 || d > cg.r + ch.r + 1e-9 || d < Math.abs(cg.r - ch.r) - 1e-9) return [];
+    const x = (d * d + cg.r * cg.r - ch.r * ch.r) / (2 * d);
+    const y = Math.sqrt(Math.max(0, cg.r * cg.r - x * x));
+    const m: UV = [cg.c[0] + (x * dx) / d, cg.c[1] + (x * dy) / d];
+    return ([[m[0] - (y * dy) / d, m[1] + (y * dx) / d], [m[0] + (y * dy) / d, m[1] - (y * dx) / d]] as UV[]).filter(on);
+  }
+  // a line and a circle
+  const [k, l] = cg ? [cg, h] : [ch!, g];
+  const [dx, dy] = [l.b[0] - l.a[0], l.b[1] - l.a[1]];
+  const [fx, fy] = [l.a[0] - k.c[0], l.a[1] - k.c[1]];
+  const [qa, qb, qc] = [dx * dx + dy * dy, 2 * (fx * dx + fy * dy), fx * fx + fy * fy - k.r * k.r];
+  const disc = qb * qb - 4 * qa * qc;
+  if (disc < 0 || qa < 1e-24) return [];
+  return [-1, 1].map((sg): UV => {
+    const t = (-qb + sg * Math.sqrt(disc)) / (2 * qa);
+    return [l.a[0] + t * dx, l.a[1] + t * dy];
+  }).filter(on);
 }
 
 const GAUSS = [0.0950125098, 0.2816035508, 0.4580167777, 0.6178762444, 0.7554044084, 0.8656312024, 0.9445750231, 0.9894009350]
