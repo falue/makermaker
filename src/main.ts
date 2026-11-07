@@ -6,7 +6,7 @@ import { followSizes, sideNow, sized } from './doc/sizes';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, flattened, grown, mapPoints, offsetPath, type Align } from './doc/profiles';
+import { alignment, area, beside, bounds, centre, bakeTurn, closedLoop, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { fitting, threadDepth, THREADS, type ThreadSize } from './doc/threads';
 import { closeButton, icon } from './ui/icons';
@@ -2737,6 +2737,15 @@ function creating() {
  * Hovering a size field: that size drawn on its shape or body, as the Info panel's; `keys`: the shape's path
  * (a sketch's or an extrude's own) or the extrude's (its H); `what`: L (w), W (h), Ø (d) or H (depth). Null: none.
  */
+/** A sketch shape's corner `i` (`keys`: its path) marked in the view, as its R field is hovered or typed in; null: none. */
+function showCorner(keys: string[] | null, i: number) {
+  const doc = history.current;
+  const frame = keys && viewer.sketches.find((v) => v.id === doc.sketches[+keys[1]]?.id)?.frame;
+  const shape = keys && frame && (resolve(getIn(doc, keys.slice(0, 4)) as Profile, paramLookup(doc.params), '', new Map()) as DrawnProfile);
+  const at = shape && roundable(shape)?.pts[i];
+  viewer.showPoint(at && frame ? new Vector3(...toWorld(frame, ...at)) : null);
+}
+
 function showSize(keys: string[] | null, what?: 'w' | 'h' | 'd' | 'depth') {
   viewer.showSize(null);
   if (!keys || !what) return;
@@ -6326,6 +6335,7 @@ function render() {
     info,
     minStep: settings.minStep,
     showSize,
+    showCorner,
     showMeasure: (what) => (what === 'at' ? viewer.showPoint(info?.at ? new Vector3(...info.at) : null) : viewer.showMeasure(what === null ? null : (info?.box ?? null), what ?? 0)),
     solid,
     grouped: groupOf(history.current),

@@ -3,7 +3,7 @@ import { fitting, THREADS } from '../doc/threads';
 import { getIn, setIn } from '../doc/resolve';
 import { lookOf, setLook, STANDARD_SECTIONS } from '../doc/materials';
 import { ex, newFinish } from '../doc/sample';
-import { freed, ownerOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
+import { freed, ownerOf, ownersOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
 import { ASPECTS, shotCamera } from '../viewer/render';
@@ -51,6 +51,8 @@ export interface UIContext {
   info: { title: string; rows: [string, string, Measure?][] } | null;
   /** Shows a measure of the selection in the view: one box side (axis 0 / 1 / 2) or its position ('at'); null: none. */
   showMeasure(what: Measure | null): void;
+  /** A sketch shape's corner `i` marked in the view (its R field hovered or typed in); null: none. */
+  showCorner(path: string[] | null, i: number): void;
   /** Hovering a size field: that size drawn on its shape or body (see main's showSize); null: none. */
   showSize(keys: string[] | null, what?: 'w' | 'h' | 'd' | 'depth'): void;
   /** In sketch mode or while a group's objects are selected: bodies shown fully (their eye switched them back); the others are see-through. */
@@ -1307,7 +1309,7 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
 function history(ctx: UIContext, body: Body, setBody: (b: Body) => void, card: (f: Feature, j: number) => HTMLElement): HTMLElement {
   const key = `history:${body.id}`; // in `folded`: open
   const open = ctx.folded.has(key) || body.features.some((f) => f.id === ctx.selectedStep);
-  const head = h('button', { className: `history-head${open ? ' open' : ''}`, title: open ? 'Click: Fold its steps away' : 'Click: Show its steps in order', onclick: () => ctx.toggleFold(key), innerHTML: icon('chevron') }, `History (${body.features.length} steps)`);
+  const head = h('button', { className: `history-head${open ? ' open' : ''}`, title: open ? 'Click: Fold its steps away' : 'Click: Show its steps in order', onclick: () => ctx.toggleFold(key), innerHTML: icon('chevron') }, `Object history (${body.features.length} steps)`);
   if (!open) return h('section', { className: 'history' }, head);
   let dragged = -1;
   const move = (from: number, to: number) => {
@@ -1375,8 +1377,27 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
           h('p', { className: 'hint' }, 'Its contents count from this point and turn with it (degrees around X, then Y, then Z); inside, they are edited unturned.'),
         ]
       : [h('p', { className: 'hint' }, "Its contents count from the parent's origin.")]),
+    ...groupContents(ctx, g.id),
     ...jointCards(ctx, g.id),
   ];
+}
+
+/** Everything in a group, its sub-groups' contents indented under them: a row selects it. */
+function groupContents(ctx: UIContext, id: string): Node[] {
+  const { doc } = ctx;
+  const tools = ownersOf(doc); // tool bodies show under their body, not here
+  const rows = (parent: string, depth: number): HTMLElement[] =>
+    [
+      ...doc.groups.filter((g) => g.parent === parent).map((g) => ({ id: g.id, name: g.name, kind: 'group', inner: true })),
+      ...doc.bodies.filter((b) => b.group === parent && !tools.has(b.id)).map((b) => ({ id: b.id, name: b.name, kind: 'body', inner: false })),
+      ...doc.sketches.filter((s) => s.group === parent).map((s) => ({ id: s.id, name: s.name, kind: 'sketch', inner: false })),
+    ].flatMap((o) => {
+      const row = h('div', { className: 'listed' }, listItem(o.id, 'item', (how) => ctx.select(o.id, how), h('span', { className: 'kind', innerHTML: icon(o.kind) }), o.name));
+      row.style.paddingLeft = `${depth * 22}px`;
+      return [row, ...(o.inner ? rows(o.id, depth + 1) : [])];
+    });
+  const list = rows(id, 0);
+  return [h('h3', {}, `Contents (${list.length})`), ...(list.length ? list : [h('p', { className: 'hint' }, 'Nothing in it yet.')])];
 }
 
 const SKETCH_HINT =
@@ -1404,8 +1425,6 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       ? [select(p.axis, { xy: 'Ground (XY)', xz: 'Front (XZ)', yz: 'Right (YZ)' }, (axis) => set({ plane: { ...p, axis } })), exprField(ctx, `${at}.plane.offset`, 'Offset')]
       : [h('span', { className: 'hint' }, p.kind === 'plane' ? 'On a fixed plane (where a face was)' : p.kind === 'work' ? `On the work plane ${doc.planes.find((w) => w.id === p.plane)?.name ?? '(deleted)'}` : `On a face of ${doc.bodies.find((q) => q.id === p.body)?.name ?? 'a deleted body'}`)];
   const kinds = { rect: 'Rectangle', circle: 'Circle', ngon: 'Regular polygon', polygon: 'Polygon', line: 'Line' };
-  // in sketch mode with shapes selected, only those show
-  const only = ctx.sketching === s.id && ctx.shapes.length > 0;
   const shapeRow = (q: (typeof s.shapes)[number], depth: number) => {
     const j = s.shapes.indexOf(q);
     const name = listItem(q.id, `item${ctx.shapes.includes(q.id) ? ' selected' : ''}`, (how) => ctx.pickShape(s.id, q.id, how), kinds[q.kind]);
@@ -1434,8 +1453,8 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       }),
     ...s.shapes.filter((q) => (q.group ?? null) === parent).map((q) => shapeRow(q, depth)),
   ];
-  // in sketch mode with shapes selected, only those show
-  const shapes = only ? s.shapes.filter((q) => ctx.shapes.includes(q.id)).map((q) => shapeRow(q, 0)) : level(null, 0);
+  // all of them, sub-groups open as folded; the selected ones with their fields
+  const shapes = level(null, 0);
   return [
     h(
       'div',
@@ -1456,7 +1475,7 @@ function sketchPanel(ctx: UIContext, k: number): Node[] {
       tool('extrude', 'Extrude (E): the selected shapes, or all', ctx.extrude),
     ),
     ...(ctx.shapes.length > 1 ? [alignRow(ctx)] : []),
-    h('h3', {}, only ? `Selected shapes (${shapes.length} of ${s.shapes.length})` : `Shapes (${s.shapes.length})`),
+    h('h3', {}, ctx.shapes.length ? `Shapes (${ctx.shapes.length} of ${s.shapes.length} selected)` : `Shapes (${s.shapes.length})`),
     ...shapes,
   ];
 }
@@ -1528,7 +1547,12 @@ function cornerFields(ctx: UIContext, path: string, p: Extract<Profile, { kind: 
   const chain = tool('link', p.rs ? 'Each corner its own R: click to give all one R' : 'One R for all corners: click to give each its own', () => ctx.setValue([...keys, 'rs'], p.rs ? undefined : Array.from({ length: n }, () => all)), !p.rs);
   const field = (key: string, label: string, value: Expr) => exprField(ctx, `${path}.${key}`, label, false, { value, set: (x, live) => ctx.setValue([...keys, ...key.split('.')], x, live), error: ctx.exprErrors.get(`${path}.${key}`) });
   if (!p.rs) return [h('div', { className: 'trio' }, field('r', 'R', all), chain)];
-  const one = (i: number) => field(`rs.${i}`, `R${i + 1}`, p.rs![i] ?? all);
+  // hovered or typed in: its corner marked in the view
+  const one = (i: number) => {
+    const el = field(`rs.${i}`, `R${i + 1}`, p.rs![i] ?? all);
+    const show = (on: boolean) => ctx.showCorner(on ? keys : null, i);
+    return Object.assign(el, { onmouseenter: () => show(true), onmouseleave: () => !el.contains(document.activeElement) && show(false), onfocusin: () => show(true), onfocusout: () => show(false) });
+  };
   // corners run bottom left, bottom right, top right, top left
   const cells = p.kind === 'rect' ? [3, 2, 0, 1].map(one) : Array.from({ length: n }, (_, i) => one(i));
   const rows = Array.from({ length: Math.ceil(cells.length / (p.kind === 'rect' ? 2 : 3)) }, (_, k) => (p.kind === 'rect' ? cells.slice(k * 2, k * 2 + 2) : cells.slice(k * 3, k * 3 + 3)));
