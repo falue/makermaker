@@ -2751,41 +2751,59 @@ export class Viewer implements ToolView {
     Object.assign(this.ao, { composer: null, gtao: null, gbuffer: null, external: false });
   }
 
+  /** The view as it is now, drawn at once and copied into `into` (2D, its size kept): a frame's picture is gone after it. */
+  pictureInto(into: HTMLCanvasElement) {
+    cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    this.paint();
+    const src = this.renderer.domElement;
+    const g = into.getContext('2d')!;
+    // the middle of the view, at the canvas' shape
+    const k = Math.min(src.width / into.width, src.height / into.height);
+    const [w, h] = [into.width * k, into.height * k];
+    g.drawImage(src, (src.width - w) / 2, (src.height - h) / 2, w, h, 0, 0, into.width, into.height);
+  }
+
   render = () => {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
-      this.placeWheel();
-      this.drawSky();
-      if (this.lightNow.followCamera || this.lightNow.cameraOn) this.aimLights();
-      this.scaleDashes();
-      this.drawCrossings();
-      this.drawGrips();
-      this.drawRefs();
-      this.drawGrid();
-      this.pointTo(this.arrowAt());
-      for (const v of this.views) this.renderView(v);
-      if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
-      this.drawContours();
-      // lines: the bodies' own edges and contours drawn after the rest (`ownLines`)
-      const wide = (c: THREE.Object3D) => (c.userData.wide || c.userData.contour !== undefined) && c.visible;
-      const own = this.viewMode === 'lines' ? [...this.bodies.values()].filter((g) => g.visible && g.children.some(wide)) : [];
-      const lines = own.map((g) => g.children.filter(wide));
-      for (const l of lines.flat()) l.visible = false;
-      if (this.ao.on && this.viewMode !== 'lines' && this.viewMode !== 'wire') this.renderAO();
-      else this.renderer.render(this.scene, this.camera);
-      for (const l of lines.flat()) l.visible = true;
-      if (own.length) this.ownLines(own.map((g, k) => [g.children[0], ...lines[k]]));
-      this.drawSilhouette();
-      // picked edges and measures stay over the outline
-      const autoClear = this.renderer.autoClear;
-      this.renderer.autoClear = false;
-      for (const mark of [this.pickedEdgeMark, this.edgeMark, this.measureMark]) if (mark.children.length) this.renderer.render(mark, this.camera); // the measure last
-      this.renderer.autoClear = autoClear;
-      // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
-      const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.frameTurn.clone().invert()).multiply(this.camera.quaternion)).invert().elements; // inside a turned group: as turned from it
-      this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
+      this.paint();
     });
   };
+
+  /** One frame of the view: everything that follows the camera, then the picture. */
+  private paint() {
+    this.placeWheel();
+    this.drawSky();
+    if (this.lightNow.followCamera || this.lightNow.cameraOn) this.aimLights();
+    this.scaleDashes();
+    this.drawCrossings();
+    this.drawGrips();
+    this.drawRefs();
+    this.drawGrid();
+    this.pointTo(this.arrowAt());
+    for (const v of this.views) this.renderView(v);
+    if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
+    this.drawContours();
+    // lines: the bodies' own edges and contours drawn after the rest (`ownLines`)
+    const wide = (c: THREE.Object3D) => (c.userData.wide || c.userData.contour !== undefined) && c.visible;
+    const own = this.viewMode === 'lines' ? [...this.bodies.values()].filter((g) => g.visible && g.children.some(wide)) : [];
+    const lines = own.map((g) => g.children.filter(wide));
+    for (const l of lines.flat()) l.visible = false;
+    if (this.ao.on && this.viewMode !== 'lines' && this.viewMode !== 'wire') this.renderAO();
+    else this.renderer.render(this.scene, this.camera);
+    for (const l of lines.flat()) l.visible = true;
+    if (own.length) this.ownLines(own.map((g, k) => [g.children[0], ...lines[k]]));
+    this.drawSilhouette();
+    // picked edges and measures stay over the outline
+    const autoClear = this.renderer.autoClear;
+    this.renderer.autoClear = false;
+    for (const mark of [this.pickedEdgeMark, this.edgeMark, this.measureMark]) if (mark.children.length) this.renderer.render(mark, this.camera); // the measure last
+    this.renderer.autoClear = autoClear;
+    // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
+    const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.frameTurn.clone().invert()).multiply(this.camera.quaternion)).invert().elements; // inside a turned group: as turned from it
+    this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
+  }
 
   /**
    * Lines mode: each body's edges hidden only by its own surfaces (depth cleared before each body), so bodies behind
