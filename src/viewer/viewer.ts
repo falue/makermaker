@@ -514,6 +514,23 @@ export class Viewer implements ToolView {
   /** Inside a group of its own origin: that origin (world), which grid, origin axes and view cube follow; else none. */
   private groupFrame = new THREE.Matrix4();
   private frameTurn = new THREE.Quaternion();
+
+  /** Move axis `k` (world): X, Y or Z, inside a turned group its own. */
+  private axisDir(k: number) {
+    return unit(k).applyQuaternion(this.frameTurn);
+  }
+
+  /** The move axis (world) closest to the viewing direction: a free drag's plane stands square to it. */
+  private facingMove() {
+    const look = this.inAxes(this.camera.getWorldDirection(new THREE.Vector3()));
+    const k = [look.x, look.y, look.z].map(Math.abs).reduce((best, c, i, all) => (c > all[best] ? i : best), 0);
+    return this.axisDir(k);
+  }
+
+  /** A world vector in the move axes (inside a turned group: its X / Y / Z). */
+  private inAxes(v: THREE.Vector3) {
+    return v.clone().applyQuaternion(this.frameTurn.clone().invert());
+  }
   /** Points to snap to besides body corners (sphere centres, with their body); selected ones get a mark. */
   private balls: { center: THREE.Vector3; r: number; body: string }[] = [];
   private centres = new THREE.Group();
@@ -3182,9 +3199,10 @@ export class Viewer implements ToolView {
     this.wheel.visible = !!at;
     if (!at) return;
     this.wheel.position.copy(at);
+    this.wheel.quaternion.copy(this.frameTurn); // its spokes along the move axes
     this.wheel.scale.setScalar(this.wheelPx / this.pixelsPerMm(at));
     const ring = this.wheel.getObjectByName('dead')!;
-    ring.quaternion.copy(this.camera.quaternion);
+    ring.quaternion.copy(this.frameTurn.clone().invert().multiply(this.camera.quaternion)); // facing the camera inside the turned wheel
     ring.scale.setScalar(this.deadPx / this.wheelPx);
     for (const spoke of this.wheel.children) if (spoke.userData.axis !== undefined) spoke.visible = !d || d.axes.includes(spoke.userData.axis);
     if (!d) choose(this.wheel, this.gizmo!.axis);
@@ -3212,9 +3230,9 @@ export class Viewer implements ToolView {
     this.startDrag(e, this.ray(e), g.at.clone(), {
       axes: [0, 1, 2],
       lead: new THREE.Vector3(), // the distance lands on the step
-      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(unit(this.facingAxis()), g.at),
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(this.facingMove(), g.at),
       only: null,
-      apply: (by) => from.forEach((v, k) => g.set(k, v + by.getComponent(k))),
+      apply: (by) => from.forEach((v, k) => g.set(k, v + this.inAxes(by).getComponent(k))),
       end: () => {},
     });
   }
@@ -3223,7 +3241,7 @@ export class Viewer implements ToolView {
   private wheelAxis(e: PointerEvent, start: THREE.Vector3, short = 0.25) {
     const [x0, y0] = this.toScreen(start);
     const spokes = [0, 1, 2].map((k) => {
-      const [x1, y1] = this.toScreen(start.clone().addScaledVector(unit(k), this.wheel.scale.x));
+      const [x1, y1] = this.toScreen(start.clone().addScaledVector(this.axisDir(k), this.wheel.scale.x));
       return [x1 - x0, y1 - y0];
     });
     const longest = Math.max(...spokes.map(([x, y]) => Math.hypot(x, y)));
@@ -4981,7 +4999,7 @@ export class Viewer implements ToolView {
       axes: [0, 1, 2],
       lead: this.group(this.withOwned(this.selection)[0]).position.clone(),
       // the base plane facing the camera most (top view: XY, front: XZ, side: YZ)
-      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(unit(this.facingAxis()), start),
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(this.facingMove(), start),
       only: member && this.selection.length > 1 ? id : null,
       apply: (by) => this.dragIntoFields(by),
       end: () => {},
@@ -4993,7 +5011,7 @@ export class Viewer implements ToolView {
     const close = this.host.dragMove();
     const d = this.drag!;
     d.apply = (b) => {
-      const v = n ? b.clone().projectOnPlane(n) : b;
+      const v = this.inAxes(n ? b.clone().projectOnPlane(n) : b);
       [0, 1, 2].forEach((k) => this.gizmo?.set(k, v.getComponent(k)));
     };
     d.end = (b) => void (!b?.lengthSq() && close()); // let go where it started: no move
@@ -5038,7 +5056,7 @@ export class Viewer implements ToolView {
 
   private startDrag(e: PointerEvent, ray: THREE.Ray, start: THREE.Vector3, o: Pick<Drag, 'axes' | 'lead' | 'plane' | 'only' | 'apply' | 'end'>) {
     this.controls.enabled = false;
-    this.drag = { ...o, start, t0: [0, 1, 2].map((k) => along(ray, start, unit(k))), axis: null, typed: undefined, last: null, moved: false, by: new THREE.Vector3() };
+    this.drag = { ...o, start, t0: [0, 1, 2].map((k) => along(ray, start, this.axisDir(k))), axis: null, typed: undefined, last: null, moved: false, by: new THREE.Vector3() };
     this.renderer.domElement.setPointerCapture(e.pointerId);
   }
 
@@ -5076,18 +5094,19 @@ export class Viewer implements ToolView {
       text = 'pick a direction';
     } else {
       d.axis ??= this.wheelAxis(e, d.start);
-      const pulled = along(ray, d.start, unit(d.axis)) - d.t0[d.axis];
-      delta = unit(d.axis).multiplyScalar(typed === null ? pulled : typed * (Math.sign(pulled) || 1));
+      const pulled = along(ray, d.start, this.axisDir(d.axis)) - d.t0[d.axis];
+      delta = this.axisDir(d.axis).multiplyScalar(typed === null ? pulled : typed * (Math.sign(pulled) || 1));
       text = 'XYZ'[d.axis];
     }
     choose(this.wheel, d.axis);
     if (delta) {
       const step = this.step(d.start, e);
-      const lead = d.lead;
+      // on the step in the move axes (inside a turned group: its own)
+      const [lead, dl] = [this.inAxes(d.lead), this.inAxes(delta)];
       d.by =
         (typed !== null && d.axis !== null) || !delta.lengthSq()
           ? delta
-          : new THREE.Vector3(round(lead.x + delta.x, step) - lead.x, round(lead.y + delta.y, step) - lead.y, round(lead.z + delta.z, step) - lead.z);
+          : new THREE.Vector3(round(lead.x + dl.x, step) - lead.x, round(lead.y + dl.y, step) - lead.y, round(lead.z + dl.z, step) - lead.z).applyQuaternion(this.frameTurn);
       d.apply(d.by);
       if (d.axis !== null) text += ` ${d.typed === undefined ? this.host.format(d.by.getComponent(d.axis)) : caret(d.typed)}`;
     }

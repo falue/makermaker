@@ -1384,10 +1384,14 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   // at the top of the view as the other panels (again whenever the fields grow)
   const inView = new ResizeObserver(() => atTop(box));
   inView.observe(box);
-  /** The move so far (null: a value is not a distance); empty axes stay. */
+  // inside a turned group its X / Y / Z, as the grid and the wheel show them
+  const turn = new Quaternion();
+  const inGroup = selectedGroup(history.current);
+  if (inGroup) groupPlace(inGroup).decompose(new Vector3(), turn, new Vector3());
+  /** The move so far (world; null: a value is not a distance); empty axes stay. */
   const by = () => {
     const mm = fields.map((f) => (f?.value.trim() ? length(f.value) : 0));
-    return mm.includes(null) ? null : new Vector3(...(mm as number[]));
+    return mm.includes(null) ? null : new Vector3(...(mm as number[])).applyQuaternion(turn);
   };
   const show = () => {
     for (const f of fields) f?.classList.toggle('invalid', !!f.value.trim() && length(f.value) === null);
@@ -1410,7 +1414,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
         },
       });
   };
-  const spans = [0, 1, 2].map(extentAlong);
+  const spans = [0, 1, 2].map((k) => extentAlong(k));
   const middle = spans.every(Boolean) ? new Vector3(...spans.map((s) => (s![0] + s![1]) / 2)) : null;
   let closed = false; // removing the box fires focusout: close once
   let last: HTMLInputElement | null = null; // the field typed in last
@@ -1445,7 +1449,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
     points!.push(p);
     viewer.showMeasureLine(points![0], points![1] ?? null);
     if (points!.length < 2) return void (viewer.aiming = (s) => tips.cursorTip([s?.what, 'Click: where that point goes'].filter(Boolean).join('\n')));
-    const d = points![1].clone().sub(points![0]);
+    const d = points![1].clone().sub(points![0]).applyQuaternion(turn.clone().invert()); // in the move axes
     points = null;
     viewer.aiming = null;
     viewer.aimAt(null);
@@ -1464,9 +1468,9 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   let before = '';
   const reachTo = (p?: Vector3) => {
     const k = Math.max(0, fields.indexOf(last));
-    const span = extentAlong(k);
+    const span = extentAlong(k, turn);
     if (!fields[k]) return;
-    const t = p?.getComponent(k);
+    const t = p?.dot(new Vector3().setComponent(k, 1).applyQuaternion(turn));
     const side = t === undefined || !span ? null : t >= span[1] ? span[1] : t <= span[0] ? span[0] : Math.abs(t - span[0]) < Math.abs(t - span[1]) ? span[0] : span[1];
     fields[k]!.value = t === undefined || side === null ? before : fmt((t - side) / UNITS[history.current.units]);
     show();
@@ -1566,23 +1570,25 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
 /** How far a point lies from the nearest side of the selection's box (mm). */
 const nearestSide = (p: Vector3) => Math.min(...[0, 1, 2].flatMap((k) => (extentAlong(k) ?? []).map((v) => Math.abs(p.getComponent(k) - v))));
 
-function extentAlong(axis: number): [number, number] | null {
+function extentAlong(axis: number, turn = new Quaternion()): [number, number] | null {
   const doc = history.current;
+  const dir = new Vector3().setComponent(axis, 1).applyQuaternion(turn); // `turn`: a turned group's axes
   const s = doc.sketches.find((x) => x.id === activeSketch());
   const f = viewer.sketches.find((v) => v.id === s?.id)?.frame;
   if (s && f) {
     const shapes = resolve(s, paramLookup(doc.params), '', new Map()).shapes.filter((q) => !shapeSel.length || shapeSel.includes(q.id));
     const at = shapes.flatMap((q) => {
       const [x0, y0, x1, y1] = bounds(q);
-      return [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([u, v]) => toWorld(f, u, v)[axis]);
+      return [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([u, v]) => new Vector3(...toWorld(f, u, v)).dot(dir));
     });
     return at.length ? [Math.min(...at), Math.max(...at)] : null;
   }
   const boxes = contents(doc, selected).flatMap((id) => viewer.measure(id)?.box ?? []);
   if (!boxes.length) return null;
-  const box = boxes.reduce((a, b) => a.clone().union(b));
-  const shift = viewer.moved().getComponent(axis); // the preview's offset
-  return [box.min.getComponent(axis) - shift, box.max.getComponent(axis) - shift];
+  // each box's corners along the axis
+  const along = boxes.flatMap((b) => [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new Vector3(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).dot(dir)));
+  const shift = viewer.moved().dot(dir); // the preview's offset
+  return [Math.min(...along) - shift, Math.max(...along) - shift];
 }
 
 /**
@@ -4512,7 +4518,7 @@ function rotateTool() {
   const doc0 = history.current;
   const sketch = activeSketch();
   const frame = viewer.sketches.find((v) => v.id === sketch)?.frame;
-  const spans = [0, 1, 2].map(extentAlong);
+  const spans = [0, 1, 2].map((k) => extentAlong(k));
   const middle = spans.every(Boolean) ? new Vector3(...spans.map((r) => (r![0] + r![1]) / 2)) : new Vector3();
   // none until clicked: nothing turns before
   let pivot: Vector3 | null = null;
