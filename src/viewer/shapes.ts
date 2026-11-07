@@ -459,9 +459,9 @@ export function ballsInCorner(planes: { at: Vector3; n: Vector3 }[]) {
 
 /**
  * A curve a line can be drawn tangent to: its point and direction (any length, either way) at `t`, 0..1; `from` /
- * `along`: its exact tangent points from a point or in a direction (radians), where it has them (else searched).
+ * `along`: the `t`s of its exact tangent points from a point or in a direction (radians).
  */
-export type TangentCurve = { at(t: number): [number, number]; dir(t: number): [number, number]; from?(to: [number, number]): number[]; along?(dir: number): number[] };
+export type TangentCurve = { at(t: number): [number, number]; dir(t: number): [number, number]; from(to: [number, number]): number[]; along(dir: number): number[] };
 
 export function circleCurve([x, y]: [number, number], r: number, a0 = 0, a1 = 2 * Math.PI): TangentCurve {
   const angle = (t: number) => a0 + (a1 - a0) * t;
@@ -485,34 +485,47 @@ export function circleCurve([x, y]: [number, number], r: number, a0 = 0, a1 = 2 
 }
 
 export function bezierCurve(a: [number, number], c1: [number, number], c2: [number, number], b: [number, number]): TangentCurve {
+  // per axis in powers of t (lowest first), and its direction's
+  const pos = [0, 1].map((k) => [a[k], 3 * (c1[k] - a[k]), 3 * (c2[k] - 2 * c1[k] + a[k]), b[k] - 3 * c2[k] + 3 * c1[k] - a[k]]);
+  const vel = pos.map((p) => [p[1], 2 * p[2], 3 * p[3]]);
   return {
     at: (t) => [0, 1].map((k) => (1 - t) ** 3 * a[k] + 3 * (1 - t) ** 2 * t * c1[k] + 3 * (1 - t) * t ** 2 * c2[k] + t ** 3 * b[k]) as [number, number],
     dir: (t) => [0, 1].map((k) => 3 * (1 - t) ** 2 * (c1[k] - a[k]) + 6 * (1 - t) * t * (c2[k] - c1[k]) + 3 * t ** 2 * (b[k] - c2[k])) as [number, number],
-    along: (dir) => {
-      // its direction × dir = 0: a quadratic in t
-      const cr = (p: [number, number], q: [number, number]) => (q[0] - p[0]) * Math.sin(dir) - (q[1] - p[1]) * Math.cos(dir);
-      const [p0, p1, p2] = [cr(a, c1), cr(c1, c2), cr(c2, b)];
-      const [qa, qb, qc] = [p0 - 2 * p1 + p2, 2 * (p1 - p0), p0];
-      const roots = Math.abs(qa) < 1e-12 ? (Math.abs(qb) < 1e-12 ? [] : [-qc / qb]) : qb * qb - 4 * qa * qc < 0 ? [] : [-1, 1].map((k) => (-qb + k * Math.sqrt(qb * qb - 4 * qa * qc)) / (2 * qa));
-      return roots.filter((t) => t >= 0 && t <= 1);
-    },
+    // (its point − to) × its direction = 0: a quintic
+    from: (to) => polyRoots(sub(mul([pos[0][0] - to[0], ...pos[0].slice(1)], vel[1]), mul([pos[1][0] - to[1], ...pos[1].slice(1)], vel[0]))),
+    // its direction × dir = 0: a quadratic
+    along: (dir) => polyRoots(vel[0].map((x, i) => x * Math.sin(dir) - vel[1][i] * Math.cos(dir))),
   };
 }
 
-/** Where `f` crosses 0 on 0..1. */
-function zeros(f: (t: number) => number, steps = 96) {
-  const out: number[] = [];
-  for (let i = 0; i < steps; i++) {
-    let [lo, hi] = [i / steps, (i + 1) / steps];
-    if (f(lo) * f(hi) > 0) continue;
-    for (let k = 0; k < 50; k++) {
-      const m = (lo + hi) / 2;
-      if (f(lo) * f(m) <= 0) hi = m;
-      else lo = m;
+/** Polynomials in powers of t (lowest first): product and difference. */
+const mul = (p: number[], q: number[]) => p.flatMap((x, i) => q.map((y, j) => [i + j, x * y] as const)).reduce((out, [k, v]) => ((out[k] = (out[k] ?? 0) + v), out), [] as number[]);
+const sub = (p: number[], q: number[]) => Array.from({ length: Math.max(p.length, q.length) }, (_, i) => (p[i] ?? 0) - (q[i] ?? 0));
+
+/**
+ * The roots of polynomial `p` (powers of t, lowest first) on `lo`..`hi`, all of them: between its derivative's roots it
+ * runs one way, so each stretch holds at most one (bisected); a root it only touches is one of the derivative's.
+ */
+export function polyRoots(p: number[], lo = 0, hi = 1): number[] {
+  while (p.length > 1 && Math.abs(p[p.length - 1]) < 1e-14 * Math.max(...p.map(Math.abs))) p = p.slice(0, -1);
+  const f = (t: number) => p.reduceRight((s, c) => s * t + c, 0);
+  if (p.length < 2) return [];
+  if (p.length === 2) return [-p[0] / p[1]].filter((t) => t >= lo && t <= hi);
+  const scale = Math.max(...p.map(Math.abs));
+  const turns = polyRoots(p.slice(1).map((c, i) => c * (i + 1)), lo, hi);
+  const marks = [lo, ...turns, hi];
+  const out: number[] = turns.filter((t) => Math.abs(f(t)) < 1e-12 * scale);
+  for (let i = 0; i + 1 < marks.length; i++) {
+    let [a, b] = [marks[i], marks[i + 1]];
+    if (f(a) * f(b) > 0 || out.some((t) => t === a || t === b)) continue;
+    for (let k = 0; k < 60 && b - a > 1e-15; k++) {
+      const m = (a + b) / 2;
+      if (f(a) * f(m) <= 0) b = m;
+      else a = m;
     }
-    out.push((lo + hi) / 2);
+    out.push((a + b) / 2);
   }
-  return out;
+  return [...new Set(out)].sort((x, y) => x - y);
 }
 
 /** The `t` of those that lies nearest `near`; null: none where the curve has a direction. */
@@ -529,10 +542,7 @@ export const tangentStart = (c: TangentCurve, q: [number, number]) => nearestOf(
  * an arc's end): it stays at `from`, running along the curve there. `dir`: radians, the way `to` lies.
  */
 export function tangentFrom(c: TangentCurve, near: [number, number], from: number, to: [number, number]) {
-  const t = nearestOf(c, c.from?.(to) ?? zeros((u) => {
-    const [p, d] = [c.at(u), c.dir(u)];
-    return (p[0] - to[0]) * d[1] - (p[1] - to[1]) * d[0];
-  }), near) ?? from;
+  const t = nearestOf(c, c.from(to), near) ?? from;
   const [at, d] = [c.at(t), c.dir(t)];
   const k = (to[0] - at[0]) * d[0] + (to[1] - at[1]) * d[1] < 0 ? -1 : 1;
   return { t, at, dir: Math.atan2(k * d[1], k * d[0]) };
@@ -540,8 +550,5 @@ export function tangentFrom(c: TangentCurve, near: [number, number], from: numbe
 
 /** The `t` where curve `c` runs in direction `dir` (radians, either way), the one nearest `near`; null: nowhere. */
 export function tangentAlong(c: TangentCurve, dir: number, near: [number, number]) {
-  return nearestOf(c, c.along?.(dir) ?? zeros((u) => {
-    const d = c.dir(u);
-    return d[0] * Math.sin(dir) - d[1] * Math.cos(dir);
-  }), near);
+  return nearestOf(c, c.along(dir), near);
 }

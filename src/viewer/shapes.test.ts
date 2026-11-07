@@ -82,6 +82,21 @@ describe('tangent from a curve', () => {
     expect(Math.atan2(25 - t.at[1], 60 - t.at[0])).toBeCloseTo(t.dir, 7);
   });
 
+  it('a bezier: every tangent point from a point, even two within a hair', () => {
+    // an S turning at t = 29/51: from a point far along its tangent there, just off it, two tangents touch within a
+    // hair of it, inside one 96th (a search for sign changes in 96ths found none)
+    const s = bezierCurve([0, 0], [10, 12], [20, -5], [30, 0]);
+    const [m, d0] = [s.at(29 / 51), s.dir(29 / 51)];
+    const to: [number, number] = [m[0] + d0[0] * 50 - d0[1] * 1e-4, m[1] + d0[1] * 50 + d0[0] * 1e-4];
+    const ts = s.from(to);
+    expect(ts).toHaveLength(2);
+    expect(ts[1] - ts[0]).toBeLessThan(1 / 96);
+    for (const t of ts) {
+      const [p, d] = [s.at(t), s.dir(t)];
+      expect(Math.abs((p[0] - to[0]) * d[1] - (p[1] - to[1]) * d[0]) / (Math.hypot(...d) * Math.hypot(p[0] - to[0], p[1] - to[1]))).toBeLessThan(1e-12);
+    }
+  });
+
   it('a direction set: where it runs that way, the nearest; none on a short arc', () => {
     const top = circle.at(tangentAlong(circle, 0.5, [10, 9])!);
     expect(off(top, 0.5)).toBeCloseTo(4, 9);
