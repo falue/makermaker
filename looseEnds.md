@@ -54,7 +54,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Decided, to do: folded tool bodies count as hidden tool bodies everywhere (Interference, measuring, STEP / print / laser exports: skipped, their cuts count).
 - Decided, to do: a linked copy's step selected lights its faces on that copy, not on its source.
 - Decided, to do: the sketch draws rounding and chamfers beside curved sides too, and snapping follows the rounded outline (arc middles snap).
-- Decided, to do: corner values given as formulas count for R / C and the Fillet / Chamfer title; hovering the one-for-all R marks every corner.
 - Not tried by hand yet: the whole Join / Cut / Object history / Fold flow.
 
 ## View

@@ -3134,12 +3134,15 @@ export class Viewer implements ToolView {
   }
 
   /** A point (world) marked over everything, with a small cross along the axes (null: none). */
-  showPoint(at: THREE.Vector3 | null, px = 14) {
+  showPoint(at: THREE.Vector3 | THREE.Vector3[] | null, px = 14) {
     this.showMeasure(null, 0);
-    if (at) {
-      const r = px / this.pixelsPerMm(at);
-      const cross = [0, 1, 2].flatMap((k) => [at.clone().addScaledVector(unit(k), -r), at.clone().addScaledVector(unit(k), r)]);
-      this.measureMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(cross.flatMap((v) => v.toArray())), new LineMaterial({ color: 0xff8c1a, linewidth: 2, depthTest: false })), { renderOrder: 1e6 }), marks([at], 0xff8c1a, 10));
+    const all = !at ? [] : Array.isArray(at) ? at : [at];
+    if (all.length) {
+      const cross = all.flatMap((p) => {
+        const r = px / this.pixelsPerMm(p);
+        return [0, 1, 2].flatMap((k) => [p.clone().addScaledVector(unit(k), -r), p.clone().addScaledVector(unit(k), r)]);
+      });
+      this.measureMark.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions(cross.flatMap((v) => v.toArray())), new LineMaterial({ color: 0xff8c1a, linewidth: 2, depthTest: false })), { renderOrder: 1e6 }), marks(all, 0xff8c1a, 10));
       this.measureMark.traverse((o) => (o.renderOrder = 1e6));
     }
     this.render();

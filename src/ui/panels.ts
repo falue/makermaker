@@ -51,8 +51,10 @@ export interface UIContext {
   info: { title: string; rows: [string, string, Measure?][] } | null;
   /** Shows a measure of the selection in the view: one box side (axis 0 / 1 / 2) or its position ('at'); null: none. */
   showMeasure(what: Measure | null): void;
-  /** A sketch shape's corner `i` marked in the view (its R field hovered or typed in); null: none. */
+  /** A sketch shape's corner `i` (below 0: all) marked in the view (its R field hovered or typed in); null: none. */
   showCorner(path: string[] | null, i: number): void;
+  /** What a length (an expression too) comes to, mm; null: it cannot be worked out. */
+  lengthOf(x: Expr): number | null;
   /** Hovering a size field: that size drawn on its shape or body (see main's showSize); null: none. */
   showSize(keys: string[] | null, what?: 'w' | 'h' | 'd' | 'depth'): void;
   /** In sketch mode or while a group's objects are selected: bodies shown fully (their eye switched them back); the others are see-through. */
@@ -1292,7 +1294,7 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
   // its shape's rounded or chamfered corners (in its sketch, or its own): its upright edges' finish, edited here too
   const shape = mainShape(ctx, steps, k);
   const corners = shape && (shape.p.kind === 'rect' || shape.p.kind === 'ngon' || shape.p.kind === 'polygon') ? shape.p : null;
-  const signs = corners ? [corners.r, ...(corners.rs ?? [])].flatMap((x) => (x && Number(x.e) ? [Number(x.e) < 0 ? 'chamfer' : 'fillet'] : [])) : [];
+  const signs = corners ? [corners.r, ...(corners.rs ?? [])].flatMap((x) => (x && ctx.lengthOf(x) ? [ctx.lengthOf(x)! < 0 ? 'chamfer' : 'fillet'] : [])) : [];
   const kinds = new Set([...list.map(({ f }) => f.mode), ...signs]);
   const title = !kinds.size ? 'Fillets or Chamfers' : kinds.size === 2 ? 'Fillet | Chamfer' : kinds.has('chamfer') ? 'Chamfer' : 'Fillet';
   // a new one takes edges no other has yet (top, vertical, bottom, then all)
@@ -1557,7 +1559,7 @@ function cornerFields(ctx: UIContext, path: string, p: Extract<Profile, { kind: 
   const chain = tool('link', p.rs ? 'Each corner its own R: click to give all one R' : 'One R for all corners: click to give each its own', () => ctx.setValue([...keys, 'rs'], p.rs ? undefined : Array.from({ length: n }, () => all)), !p.rs);
   // R a radius; stored below 0, C: a chamfer that long along each side, shown positive (typed below 0: the other kind;
   // a drag through 0 goes on into it, as it counts from the kind the field showed)
-  const kind = (x: Expr) => (x.e.trim().startsWith('-') ? 'C' : 'R');
+  const kind = (x: Expr) => ((ctx.lengthOf(x) ?? 0) < 0 ? 'C' : 'R'); // a formula by its value
   const field = (key: string, label: string, value: Expr) => {
     const c = kind(value) === 'C';
     const flip = (x: Expr): Expr => (c ? { ...x, e: negated(x.e) } : x);
@@ -1565,13 +1567,13 @@ function cornerFields(ctx: UIContext, path: string, p: Extract<Profile, { kind: 
     el.title = 'R: the corner rounded by this radius · C: chamfered, this long along each side · below 0: the other kind';
     return el;
   };
-  if (!p.rs) return [h('div', { className: 'trio' }, field('r', kind(all), all), chain)];
-  // hovered or typed in: its corner marked in the view
-  const one = (i: number) => {
-    const el = field(`rs.${i}`, `${kind(p.rs![i] ?? all)}${i + 1}`, p.rs![i] ?? all);
+  // hovered or typed in: its corner (the one-for-all R: every corner) marked in the view
+  const marked = (el: HTMLElement, i: number) => {
     const show = (on: boolean) => ctx.showCorner(on ? keys : null, i);
     return Object.assign(el, { onmouseenter: () => show(true), onmouseleave: () => !el.contains(document.activeElement) && show(false), onfocusin: () => show(true), onfocusout: () => show(false) });
   };
+  if (!p.rs) return [h('div', { className: 'trio' }, marked(field('r', kind(all), all), -1), chain)];
+  const one = (i: number) => marked(field(`rs.${i}`, `${kind(p.rs![i] ?? all)}${i + 1}`, p.rs![i] ?? all), i);
   // corners run bottom left, bottom right, top right, top left
   const cells = p.kind === 'rect' ? [3, 2, 0, 1].map(one) : Array.from({ length: n }, (_, i) => one(i));
   const rows = Array.from({ length: Math.ceil(cells.length / (p.kind === 'rect' ? 2 : 3)) }, (_, k) => (p.kind === 'rect' ? cells.slice(k * 2, k * 2 + 2) : cells.slice(k * 3, k * 3 + 3)));

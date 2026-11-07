@@ -2758,13 +2758,13 @@ function creating() {
  * Hovering a size field: that size drawn on its shape or body, as the Info panel's; `keys`: the shape's path
  * (a sketch's or an extrude's own) or the extrude's (its H); `what`: L (w), W (h), Ø (d) or H (depth). Null: none.
  */
-/** A sketch shape's corner `i` (`keys`: its path) marked in the view, as its R field is hovered or typed in; null: none. */
+/** A sketch shape's corner `i` (below 0: all of them; `keys`: its path) marked in the view, as its R field is hovered or typed in; null: none. */
 function showCorner(keys: string[] | null, i: number) {
   const doc = history.current;
   const frame = keys && viewer.sketches.find((v) => v.id === doc.sketches[+keys[1]]?.id)?.frame;
   const shape = keys && frame && (resolve(getIn(doc, keys.slice(0, 4)) as Profile, paramLookup(doc.params), '', new Map()) as DrawnProfile);
-  const at = shape && roundable(shape)?.pts[i];
-  viewer.showPoint(at && frame ? new Vector3(...toWorld(frame, ...at)) : null);
+  const pts = (shape && roundable(shape)?.pts) ?? [];
+  viewer.showPoint(frame ? (i < 0 ? pts : pts.slice(i, i + 1)).map((at) => new Vector3(...toWorld(frame, ...at))) : null);
 }
 
 function showSize(keys: string[] | null, what?: 'w' | 'h' | 'd' | 'depth') {
@@ -6357,6 +6357,13 @@ function render() {
     minStep: settings.minStep,
     showSize,
     showCorner,
+    lengthOf(x) {
+      try {
+        return evalLength(x, paramLookup(history.current.params));
+      } catch {
+        return null;
+      }
+    },
     showMeasure: (what) => (what === 'at' ? viewer.showPoint(info?.at ? new Vector3(...info.at) : null) : viewer.showMeasure(what === null ? null : (info?.box ?? null), what ?? 0)),
     solid,
     grouped: groupOf(history.current),
