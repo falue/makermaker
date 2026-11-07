@@ -753,7 +753,7 @@ export class Viewer implements ToolView {
         if (!e.shiftKey && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
         e.preventDefault();
         e.stopImmediatePropagation();
-        const ppm = this.pixelsPerMm(this.controls.target);
+        const ppm = this.pixelsPerMm(this.controls.target) / this.speeds.pan;
         // macOS turns Shift + wheel into sideways scrolling
         const by = e.shiftKey ? this.screenDir(0, -1).multiplyScalar((e.deltaY || e.deltaX) / ppm) : this.screenDir(1, 0).multiplyScalar(e.deltaX / ppm);
         this.camera.position.add(by);
@@ -2877,6 +2877,18 @@ export class Viewer implements ToolView {
     return set ? set === 'dark' : this.dark.matches;
   }
 
+  /** How fast the views zoom, pan and turn (settings; 1: as the orbit controls come). */
+  private speeds = { zoom: 1, pan: 1, orbit: 1 };
+
+  setSpeeds(speeds: { zoom: number; pan: number; orbit: number }) {
+    this.speeds = speeds;
+    for (const c of [this.controls, ...this.views.map((v) => v.controls)]) this.sped(c);
+  }
+
+  private sped(c: OrbitControls<THREE.Camera>) {
+    Object.assign(c, { zoomSpeed: this.speeds.zoom, panSpeed: this.speeds.pan, rotateSpeed: this.speeds.orbit });
+  }
+
   /** Ambient occlusion on or off (settings). */
   setAO(on: boolean) {
     this.ao.on = on;
@@ -4194,6 +4206,7 @@ export class Viewer implements ToolView {
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
     const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on) };
     view.controls.zoomToCursor = true;
+    this.sped(view.controls);
     view.controls.addEventListener('change', () => (this.renderView(view), view.live && this.restartLive(view)));
     // while it is turned, the plain view shows through
     view.controls.addEventListener('start', () => view.live && (view.live.picture.hidden = true));

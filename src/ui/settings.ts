@@ -28,16 +28,18 @@ export interface Settings {
   meshDetail: number;
   /** How the rest looks while a group's objects are selected, and in a sketch: see-through (`xray`: seeing each other), faded (`dim`: hiding each other) or as it is. */
   surroundings: { group: Surroundings; sketch: Surroundings };
+  /** How fast the views zoom, pan and turn: factors (1: as they come). */
+  speeds: { zoom: number; pan: number; orbit: number };
 }
 
 export type Surroundings = 'xray' | 'dim' | 'none';
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, meshDetail: 0.05, surroundings: { group: 'xray', sketch: 'dim' } };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, meshDetail: 0.05, surroundings: { group: 'xray', sketch: 'dim' }, speeds: { zoom: 1, pan: 1, orbit: 1 } };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-  return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background }, light: { ...DEFAULTS.light, ...saved.light }, surroundings: { ...DEFAULTS.surroundings, ...saved.surroundings } };
+  return { ...DEFAULTS, ...saved, background: { ...DEFAULTS.background, ...saved.background }, light: { ...DEFAULTS.light, ...saved.light }, surroundings: { ...DEFAULTS.surroundings, ...saved.surroundings }, speeds: { ...DEFAULTS.speeds, ...saved.speeds } };
 }
 
 /**
@@ -71,6 +73,26 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
       make('h3', {}, 'Mesh detail'),
       make('p', { className: 'hint' }, 'How far the 3D view may stray from the real curves. Smaller: rounder, slower. Your model and its exports stay exact; renders and the Info panel use this mesh, so they follow it a little.'),
       make('div', { className: 'row light' }, slider, value),
+    ];
+  };
+  /** Zoom, pan and orbit speed: sliders from a quarter to 4 times, as they come in the middle (a factor per step of the slider). */
+  const speedRows = () => {
+    const row = (key: keyof Settings['speeds'], label: string, title: string) => {
+      const value = make('span', {}, `×${s.speeds[key].toFixed(2)}`);
+      const slider = input({ type: 'range', min: '-1', max: '1', step: '0.05', value: String(Math.log(s.speeds[key]) / Math.log(4)), title });
+      slider.oninput = () => {
+        const f = 4 ** +slider.value;
+        value.textContent = `×${f.toFixed(2)}`;
+        set({ ...s, speeds: { ...s.speeds, [key]: f } }, false);
+      };
+      return make('div', { className: 'row light' }, make('span', {}, label), slider, value);
+    };
+    return [
+      make('h3', {}, 'Camera speed'),
+      make('p', { className: 'hint' }, 'How fast the views follow the mouse; the middle is as they come.'),
+      row('zoom', 'Zoom', 'The wheel and pinching'),
+      row('pan', 'Pan', 'Right-drag, scrolling sideways, Shift + wheel'),
+      row('orbit', 'Orbit', 'Dragging to turn the view'),
     ];
   };
   /** The document's photo spheres to pick from, adding one, and how far the shown one is turned. */
@@ -160,6 +182,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
           make('p', { className: 'hint' }, 'How everything else looks while objects of a group are selected, and while drawing in a sketch.'),
           make('div', { className: 'row surround' }, make('span', { textContent: 'Group view' }), around('group')),
           make('div', { className: 'row surround' }, make('span', { textContent: 'Sketch view' }), around('sketch')),
+          ...speedRows(),
           make('h3', {}, 'Ambient occlusion'),
           make('label', { className: 'check' }, ao, 'Soft shadows in corners and creases'),
           make('h3', {}, 'Background'),
