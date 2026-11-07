@@ -1251,6 +1251,12 @@ export class Viewer implements ToolView {
   }
 
   /** The edge picked with Alt-click (its first), as a line from its start to its end (world); null: none. */
+  /** The points along the first edge picked with Alt-click (world, in order); none: none picked. */
+  pickedEdgePoints() {
+    const segs = this.pickedEdge?.edges[0] ?? [];
+    return segs.length ? [segs[0][0].clone(), ...segs.map(([, b]) => b.clone())] : [];
+  }
+
   pickedEdgeLine() {
     const segs = this.pickedEdge?.edges[0];
     return segs ? { at: segs[0][0].clone(), to: segs[segs.length - 1][1].clone() } : null;

@@ -81,6 +81,26 @@ installCompletion(
 let settings = loadSettings();
 /** By body and finish: how many picked edges its last build could not find. */
 const lostEdges = new Map<string, Record<string, number>>();
+/**
+ * The edge Alt-picked before a tool, as an axis (world): a straight one along it, a round one through its centre
+ * square to it (the circle through three of its points); null: none picked.
+ */
+function pickedAxis(): TurnAxis | null {
+  const pts = viewer.pickedEdgePoints();
+  if (pts.length < 2) return null;
+  const [a, b] = [pts[0], pts[pts.length - 1]];
+  const along = b.clone().sub(a);
+  if (along.lengthSq() > 1e-12 && pts.every((p) => p.clone().sub(a).cross(along.clone().normalize()).length() < 1e-3)) return { at: a, dir: along.normalize(), what: 'the picked edge' };
+  // round: three points spread along it (a closed rim ends where it starts)
+  const n = pts.length;
+  const [p, q, r] = [pts[0], pts[Math.floor(n / 3)], pts[Math.floor((2 * n) / 3)]];
+  const [u, v] = [q.clone().sub(p), r.clone().sub(p)];
+  const w = u.clone().cross(v);
+  if (w.lengthSq() < 1e-12) return null;
+  const c = p.clone().add(v.clone().cross(w).multiplyScalar(u.lengthSq()).add(w.clone().cross(u).multiplyScalar(v.lengthSq())).divideScalar(2 * w.lengthSq()));
+  return { at: c, dir: w.normalize(), what: "the picked edge's centre" };
+}
+
 /** New sketch: the group it goes in (on that group's base planes; see `startNewSketch`). */
 let sketchGroup: string | null = null;
 /** A coat whose faces to exclude are being picked: its real thickness (0 meanwhile, to show the body without it). */
@@ -2687,11 +2707,10 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
 function mirrorTool() {
   const sketch = activeSketch();
   const frame = viewer.sketches.find((v) => v.id === sketch)?.frame;
-  if (sketch && frame && shapeSel.length) {
-    toolHint = 'Mirror: click the line or edge to mirror across · [Esc] cancels';
-    render();
-    return viewer.pickAxis(
-      (a) => {
+  // a sketch selected alone (not drawing in it): all its shapes
+  const shapes = shapeSel.length ? shapeSel : sketching ? [] : (history.current.sketches.find((s) => s.id === sketch)?.shapes.map((q) => q.id) ?? []);
+  if (sketch && frame && shapes.length) {
+    const across = (a: TurnAxis | null) => {
         tips.cursorTip(null);
         viewer.showAxis(null);
         toolHint = null;
@@ -2709,7 +2728,7 @@ function mirrorTool() {
         const doc = history.current;
         const k = doc.sketches.findIndex((s) => s.id === sketch);
         const shown = viewer.sketches.find((v) => v.id === sketch)!.shapes;
-        const copies = doc.sketches[k].shapes.filter((q) => shapeSel.includes(q.id)).map((q): Profile => {
+        const copies = doc.sketches[k].shapes.filter((q) => shapes.includes(q.id)).map((q): Profile => {
           const p = shown.find((x) => x.id === q.id)!;
           const id = newId();
           if (p.kind === 'line' || p.kind === 'polygon') return { ...q, id, ...((q as { sizes?: (SideSize | null)[] }).sizes ? { sizes: (q as { sizes: (SideSize | null)[] }).sizes.map((z) => z && (({ deg: _d, base: _b, ...keep }) => keep)(z)) } : {}), ...(p.kind === 'polygon' ? { rot: ex(0) } : {}), ...(({ pts, curves }) => ({ pts, ...(curves ? { curves } : {}) }))(mapPoints(bakeTurn(p), flip)) } as Profile;
@@ -2719,11 +2738,16 @@ function mirrorTool() {
         });
         shapeSel = copies.map((q) => q.id);
         commit(setIn(doc, ['sketches', String(k), 'shapes'], [...doc.sketches[k].shapes, ...copies]));
-      },
-      (a) => (tips.cursorTip(a ? `${a.what}\nClick: mirror across it` : null), viewer.showAxis(a, a?.at, 60)),
-    );
+    };
+    // an edge Alt-picked first is the line
+    const line = pickedAxis();
+    if (line) return viewer.dropPicked(), across(line);
+    toolHint = 'Mirror: click the line or edge to mirror across · [Esc] cancels';
+    render();
+    return viewer.pickAxis(across, (a) => (tips.cursorTip(a ? `${a.what}\nClick: mirror across it` : null), viewer.showAxis(a, a?.at, 60)));
   }
-  const bodies = selected.filter((id) => history.current.bodies.some((b) => b.id === id));
+  // groups as their bodies
+  const bodies = contents(history.current, selected).filter((id) => history.current.bodies.some((b) => b.id === id));
   if (!bodies.length) {
     const picked: string[] = [];
     pending = {
@@ -2742,6 +2766,21 @@ function mirrorTool() {
     toolHint = 'Mirror: click the bodies to mirror (a second click drops it) · [Enter] Finalize · or select sketch shapes first · [Esc] cancels';
     return render();
   }
+  const mirrored = (point: Vector3, normal: Vector3) => {
+    const doc = history.current;
+    const sources = doc.bodies.filter((b) => bodies.includes(b.id));
+    const { bodies: copies, pairs } = copiesOf(sources, [], ' mirrored', linkedCopies);
+    const made = copies.map((c, i) => {
+      // the plane in the copy's coordinates: those of the body it was copied from
+      const pl = bodyPlace(sources[i].id);
+      return { ...c, features: [...c.features, { id: newId(), type: 'mirror' as const, o: unplaced(pl, point.toArray()), n: unplaced(pl, normal.toArray(), true) }] };
+    });
+    selected = made.map((b) => b.id);
+    commit(listedAfter({ ...doc, bodies: [...doc.bodies, ...made] }, pairs));
+  };
+  // a face Alt-picked first is the plane (with nothing else selected: its own body mirrored across it)
+  const face = viewer.pickedFaceItems()[0];
+  if (face) return viewer.dropPicked(), mirrored(face.point, face.n);
   toolHint = 'Mirror: click the face to mirror across · empty space: the base plane facing you · [Esc] cancels';
   render();
   const option = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
@@ -2752,16 +2791,7 @@ function mirrorTool() {
     option.remove();
     toolHint = null;
     if (!face) return render();
-    const doc = history.current;
-    const sources = doc.bodies.filter((b) => bodies.includes(b.id));
-    const { bodies: copies, pairs } = copiesOf(sources, [], ' mirrored', linkedCopies);
-    const made = copies.map((c, i) => {
-      // the plane in the copy's coordinates: those of the body it was copied from
-      const pl = bodyPlace(sources[i].id);
-      return { ...c, features: [...c.features, { id: newId(), type: 'mirror' as const, o: unplaced(pl, face.point.toArray()), n: unplaced(pl, face.normal.toArray(), true) }] };
-    });
-    selected = made.map((b) => b.id);
-    commit(listedAfter({ ...doc, bodies: [...doc.bodies, ...made] }, pairs));
+    mirrored(face.point, face.normal);
   });
 }
 
