@@ -1285,7 +1285,10 @@ function finishRows(ctx: UIContext, steps: Body, k: number, setSteps: (b: Body) 
   const list = steps.features.flatMap((f, j) => (f.type === 'finish' ? [{ f, j }] : []));
   const kinds = new Set(list.map(({ f }) => f.mode));
   const title = !kinds.size ? 'Fillets or Chamfers' : kinds.size === 2 ? 'Fillet | Chamfer' : kinds.has('chamfer') ? 'Chamfer' : 'Fillet';
-  const add = button('+', () => setSteps({ ...steps, features: [...steps.features, newFinish(ctx.doc.units)] }), 'Click: Add a fillet (a size below 0 makes it a chamfer)');
+  // a new one takes edges no other has yet (top, vertical, bottom, then all)
+  const taken = new Set(list.map(({ f }) => f.edges));
+  const edges = (['top', 'vertical', 'bottom', 'all'] as const).find((r) => !taken.has(r)) ?? 'top';
+  const add = button('+', () => setSteps({ ...steps, features: [...steps.features, { ...(newFinish(ctx.doc.units) as Extract<Feature, { type: 'finish' }>), edges }] }), 'Click: Add a fillet on edges no other has yet (a size below 0 makes it a chamfer)');
   return [
     h('div', { className: 'row finish-head' }, h('span', {}, title), add),
     ...list.flatMap(({ f, j }) => {
