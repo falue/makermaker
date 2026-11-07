@@ -4599,6 +4599,7 @@ export class Viewer implements ToolView {
       }
       const edge = this.edgeAt(e);
       if (!edge && !hit) return;
+      this.downOnPart = true; // an edge on the outline, the body itself missed: the release must not clear it
       const body = edge?.body ?? (hit!.object.userData.bodyId as string);
       // what is picked already (selecting below starts over)
       const [edges, faces] = [this.pickedEdge?.body === body ? this.pickedEdge.edges : [], this.pickedFaces];
