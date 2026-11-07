@@ -835,7 +835,7 @@ function left(ctx: UIContext): Node[] {
       const chevron = h('span', { className: `fold${r.open ? ' open' : ''}`, innerHTML: icon('chevron'), title: r.open ? 'Fold' : 'Unfold', onclick: (e) => (e.stopPropagation(), ctx.toggleFold(id)) });
       // a plain click also folds or unfolds it (not the click that starts renaming it)
       const pick = (how: Pick) => (!how && renaming !== id && ctx.toggleFold(id), ctx.select(id, how));
-      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), button('⚙', () => ctx.select(id), 'Group settings: name, origin'), ...jointMark(id), eye('objects', id, g.visible));
+      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), h('span', { className: 'fold-space' }), ...jointMark(id), eye('objects', id, g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -854,7 +854,7 @@ function left(ctx: UIContext): Node[] {
     }
     // its sketches have their own list: this button draws into the (first) one
     const own = sketchesOf(doc, p.id);
-    const bools = fold(r); // an owner of tool bodies: the red boolean button folds them, where a group has its ⚙
+    const bools = fold(r); // an owner of tool bodies: the red boolean button folds them
     const sketch = own.length
       ? [h('button', { className: 'icon', innerHTML: icon('sketch'), title: `Based on sketch: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.editSketch(own[0].id) })]
       : bools.length ? [] : [h('span', { className: 'fold-space' })];
