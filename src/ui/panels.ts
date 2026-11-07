@@ -1,6 +1,6 @@
 import { displayText, fmt, inName, isPlain, negated, UNITS } from '../doc/expr';
 import { fitting, THREADS } from '../doc/threads';
-import { getIn, setIn } from '../doc/resolve';
+import { getIn, paramLookup, resolve, setIn } from '../doc/resolve';
 import { lookOf, setLook, STANDARD_SECTIONS } from '../doc/materials';
 import { ex, newFinish } from '../doc/sample';
 import { freed, ownerOf, ownersOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
@@ -8,7 +8,7 @@ import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
 import { ASPECTS, shotCamera } from '../viewer/render';
 import type { Body, BooleanOp, Doc, Expr, Feature, Group, Joint, Material, PhotoSphere, Profile, RenderTo, Unit } from '../doc/types';
-import { arcOf, type Align } from '../doc/profiles';
+import { arcOf, bounds, type Align, type DrawnProfile } from '../doc/profiles';
 import type { ToolKind } from '../viewer/sketch';
 import { axisHtml, sizeHtml } from './axes';
 import { BUILT_IN_PHOTOS } from './photospheres';
@@ -1313,11 +1313,22 @@ function mainShape(ctx: UIContext, steps: Body, k: number): { path: string; p: P
   const f = steps.features[0];
   if (f?.type !== 'extrude') return null;
   const src = f.source;
-  if (src.kind === 'own') return src.profiles.length === 1 ? { path: `bodies.${k}.features.0.source.profiles.0`, p: src.profiles[0] } : null;
-  if (src.shapes.length !== 1 || src.areas) return null;
+  if (src.kind === 'own') {
+    const i = outerOf(ctx, src.profiles);
+    return i >= 0 ? { path: `bodies.${k}.features.0.source.profiles.${i}`, p: src.profiles[i] } : null;
+  }
+  if (src.areas) return null;
   const si = ctx.doc.sketches.findIndex((x) => x.id === src.sketch);
-  const j = ctx.doc.sketches[si]?.shapes.findIndex((q) => q.id === src.shapes[0]) ?? -1;
-  return j >= 0 ? { path: `sketches.${si}.shapes.${j}`, p: ctx.doc.sketches[si].shapes[j] } : null;
+  const shapes = src.shapes.map((id) => ctx.doc.sketches[si]?.shapes.find((q) => q.id === id)).filter((q): q is Profile => !!q);
+  const i = shapes.length === src.shapes.length ? outerOf(ctx, shapes) : -1;
+  return i >= 0 ? { path: `sketches.${si}.shapes.${ctx.doc.sketches[si].shapes.indexOf(shapes[i])}`, p: shapes[i] } : null;
+}
+
+/** The one shape the others lie in (holes in a plate), by their boxes; -1: none such. One shape alone is it. */
+function outerOf(ctx: UIContext, ps: Profile[]): number {
+  if (ps.length === 1) return 0;
+  const boxes = ps.map((p) => (p.kind === 'line' ? null : bounds(resolve(p, paramLookup(ctx.doc.params), '', new Map()) as DrawnProfile)));
+  return boxes.findIndex((b, i) => b && boxes.every((o, j) => j === i || (o && o[0] > b[0] && o[1] > b[1] && o[2] < b[2] && o[3] < b[3])));
 }
 
 /** A body's Dimensions from its first step: its one shape's L and W (or Ø) and H; null: it has none such (its card shows instead). */
