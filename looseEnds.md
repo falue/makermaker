@@ -51,7 +51,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The right-click menu offers only Fold, Unfold and Fold all so far (bodies without tool bodies get none).
 - Join / Cut from a pull: not on a linked copy (a new body there: a copy's booleans sit by its source); a sketch left on a fixed plane (drawn on a sphere's or imported body's face) and pulled later with Extrude no longer knows its body, so it makes a new body.
 - Folded tool bodies count as tool bodies wherever those are told apart (`ownersOf`): Interference, Select all, the exports and the view skip them; `cad.measure` gives every body, tool bodies and folded ones too (as before).
-- Decided, to do: the sketch draws rounding and chamfers beside curved sides too, and snapping follows the rounded outline (arc middles snap).
+- Beside a curved side a corner's rounding is drawn along the curve's tangent at the corner, a little off the kernel's true one for strongly bent curves; a rounded curved polygon loses its curve keys (A / Shift A split its curved sides no more).
 - Not tried by hand yet: the whole Join / Cut / Object history / Fold flow.
 
 ## View

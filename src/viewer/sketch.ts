@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BASE, extent, toWorld, type Frame, type V3 } from '../doc/frames';
-import { arcOf, area, centre, corners, curved, flattened, inside, nesting, ontoArcThrough, roundedOutline, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
+import { arcOf, area, centre, corners, curved, flattened, inside, nesting, ontoArcThrough, cornerCuts, roundedOutline, sideDirs, sidesOf, bakeTurn, type DrawnProfile } from '../doc/profiles';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BasePlane, Curve, ShapeGroup, SketchPlacement } from '../doc/types';
 import { marks } from './marks';
@@ -2104,8 +2104,18 @@ export function linePoints(lines: SnapLine[]): (Omit<SnapPoint, 'at'> & { at: TH
     const pieces = (i: number) => (bent ? bent[i].slice(1).map((b, k) => [at(bent[i][k]), at(b)] as Segment) : [world(sides[i])]);
     // centres and circle points light the whole shape, a point along a side that side, a corner the two sides meeting there
     if (p.kind !== 'line') pts.push({ at: at(centre(p)), what: 'centre', line: segs });
-    cs.forEach((q, i) => pts.push({ at: at(q), what: p.kind === 'line' ? 'end' : 'corner', line: [p.kind === 'line' ? i - 1 : (i - 1 + sides.length) % sides.length, i].filter((k) => sides[k]).flatMap(pieces) }));
+    // a rounded or chamfered corner: its middle (and an arc's centre) instead of the corner, sides between the cuts
+    const cuts = cornerCuts(p);
+    cs.forEach((q, i) => {
+      const line = [p.kind === 'line' ? i - 1 : (i - 1 + sides.length) % sides.length, i].filter((k) => sides[k]).flatMap(pieces);
+      const cut = cuts[i];
+      if (!cut) return pts.push({ at: at(q), what: p.kind === 'line' ? 'end' : 'corner', line });
+      pts.push({ at: at(cut.pts[cut.pts.length >> 1]), what: cut.centre ? 'arc middle' : 'chamfer middle', line });
+      if (cut.centre) pts.push({ at: at(cut.centre), what: 'arc centre', line });
+    });
     sides.forEach((x, i) => {
+      const [from, to] = [cuts[i], cuts[(i + 1) % cuts.length]];
+      if ((!bent || bent[i].length === 2) && (from || to)) return divide(world([from ? from.pts[from.pts.length - 1] : x[0], to ? to.pts[0] : x[1]]));
       if (!bent || bent[i].length === 2) return divide(pieces(i)[0]);
       // along the curve, evenly by length
       const segs = pieces(i);
@@ -2140,14 +2150,16 @@ export function divideMore(key: string, more: boolean) {
   SketchTool.divisions.set(key, Math.max(circle ? 2 : 1, (SketchTool.divisions.get(key) ?? (circle ? 4 : 1)) + (more ? 1 : -1)));
 }
 
+/** A shape's outline as segments (world), its corners rounded or chamfered as drawn; a line stays open. */
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {
-  const pts = (p.kind === 'circle' ? shape2d(p).getPoints(48).map((q): UV => [q.x, q.y]) : flattened(p)).map((q) => v3(toWorld(f, ...q)));
+  const pts = (p.kind === 'circle' ? shape2d(p).getPoints(48).map((q): UV => [q.x, q.y]) : roundedOutline(p)).map((q) => v3(toWorld(f, ...q)));
   return (p.kind === 'line' ? pts.slice(0, -1) : pts).map((a, i): Segment => [a, pts[(i + 1) % pts.length]]);
 }
 
 /** Per segment of `outlineSegs` the key of the curved side it is part of (null: a straight side); none: no curves. */
 function curveKeys(p: ViewSketch['shapes'][number], f: Frame): (string | null)[] | undefined {
-  if (!curved(p) || (p.kind !== 'polygon' && p.kind !== 'line')) return undefined;
+  // rounded corners change the segments: no keys then
+  if (!curved(p) || (p.kind !== 'polygon' && p.kind !== 'line') || cornerCuts(p).some(Boolean)) return undefined;
   const at = (q: UV) => v3(toWorld(f, ...q));
   return sidesOf(bakeTurn(p)).flatMap((s) => Array<string | null>(s.length - 1).fill(s.length > 2 ? `curve:${sideKey(at(s[0]), at(s[s.length - 1]))}` : null));
 }
