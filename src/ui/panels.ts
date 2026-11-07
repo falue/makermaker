@@ -764,7 +764,9 @@ function left(ctx: UIContext): Node[] {
     el.ondragover = (e) => {
       e.preventDefault();
       clear();
-      el.classList.add(where(e) === 'into' ? 'drop' : `drop-${where(e)}`);
+      // a joint's or attach's end goes onto this object (all of it lit), objects between rows or into a group
+      const onto = e.dataTransfer!.types.includes('application/x-joint') || where(e) === 'into';
+      el.classList.add(onto ? 'drop' : `drop-${where(e)}`);
     };
     el.ondragleave = clear;
     el.ondrop = (e) => {
