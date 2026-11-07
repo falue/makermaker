@@ -5,7 +5,7 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, onBody, OP_HINT, planeHit, pullBy, pulled, pullKey, pullOp, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, onBody, OP_HINT, planeHit, pullBy, pullCuts, pulled, pullKey, pullOp, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -213,7 +213,7 @@ export class ExtrudeTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       }
-      if (!pullKey(e, p, this.onBody() ? this.depths() : undefined)) return false;
+      if (!pullKey(e, p, this.onBody() ? { depth: this.depths().depth, cuts: this.cuts() } : undefined)) return false;
       this.host.hint(this.pullHint());
       this.changed();
       return true;
@@ -325,9 +325,15 @@ export class ExtrudeTool implements Tool {
     return this.groups.some((g) => g.picked.size && onBody(g.target));
   }
 
+  /** Whether a picked sketch's pull shares volume with the body it lies on (only then it can cut). */
+  private cuts() {
+    const { depth, back } = this.depths();
+    return (!!depth || !!back) && this.groups.some((g) => g.picked.size && g.target.body && pullCuts(this.view, g.target.body, g.target.frame.n, extent(depth, back), (from, to) => prismOf(g.target.frame, [...g.picked].map((i) => g.areas[i].tris), from, to)));
+  }
+
   /** What the pull does to the body its sketch lies on (see `pullOp`). */
   private op() {
-    return pullOp(this.pull!, this.onBody(), this.depths());
+    return pullOp(this.pull!, this.onBody(), this.depths().depth, this.cuts());
   }
 
   private pullHint() {
@@ -363,31 +369,9 @@ export class ExtrudeTool implements Tool {
     this.view.overlay.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false })));
   }
 
-  /**
-   * Areas pulled from `from` to `to` along their plane's normal, translucent: their triangles at both ends, and walls
-   * along the outline (triangle edges that only one triangle has).
-   */
+  /** Areas pulled from `from` to `to` along their plane's normal, translucent (see `prismOf`). */
   private prism(f: Frame, all: Float32Array[], [from, to]: [number, number]) {
-    const at = (x: number, y: number, z: number) => v3(toWorld(f, x, y)).addScaledVector(v3(f.n), z).toArray();
-    const pts: number[] = [];
-    const edges = new Map<string, [number, number, number, number]>();
-    for (const t of all)
-      for (let k = 0; k < t.length; k += 6) {
-        const tri = [0, 2, 4].map((o) => [t[k + o], t[k + o + 1]] as const);
-        for (const z of [from, to]) for (const [x, y] of tri) pts.push(...at(x, y, z));
-        tri.forEach(([x0, y0], i) => {
-          const [x1, y1] = tri[(i + 1) % 3];
-          const key = [x0, y0, x1, y1].map((v) => v.toFixed(4));
-          const back = `${key[2]},${key[3]},${key[0]},${key[1]}`;
-          if (edges.has(back)) edges.delete(back);
-          else edges.set(key.join(), [x0, y0, x1, y1]);
-        });
-      }
-    for (const [x0, y0, x1, y1] of edges.values()) pts.push(...at(x0, y0, from), ...at(x1, y1, from), ...at(x1, y1, to), ...at(x0, y0, from), ...at(x1, y1, to), ...at(x0, y0, to));
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    geo.computeVertexNormals();
-    this.view.overlay.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })));
+    this.view.overlay.add(new THREE.Mesh(prismOf(f, all, from, to), new THREE.MeshStandardMaterial({ color: 0xff8c1a, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })));
   }
 
   /** Picked areas and faces orange, the hovered ones blue (the focused sketch's other areas faint); while pulling the areas also at the depth. */
@@ -441,4 +425,31 @@ function areaAt(areas: AreaMesh[], [u, v]: [number, number]) {
     return false;
   });
   return i < 0 ? null : i;
+}
+
+/**
+ * Areas pulled from `from` to `to` along their plane's normal, a solid in the world: their triangles at both ends (the
+ * first at `from`), and walls along the outline (triangle edges that only one triangle has).
+ */
+function prismOf(f: Frame, all: Float32Array[], from: number, to: number) {
+  const at = (x: number, y: number, z: number) => v3(toWorld(f, x, y)).addScaledVector(v3(f.n), z).toArray();
+  const pts: number[] = [];
+  const edges = new Map<string, [number, number, number, number]>();
+  for (const t of all)
+    for (let k = 0; k < t.length; k += 6) {
+      const tri = [0, 2, 4].map((o) => [t[k + o], t[k + o + 1]] as const);
+      for (const z of [from, to]) for (const [x, y] of tri) pts.push(...at(x, y, z));
+      tri.forEach(([x0, y0], i) => {
+        const [x1, y1] = tri[(i + 1) % 3];
+        const key = [x0, y0, x1, y1].map((v) => v.toFixed(4));
+        const back = `${key[2]},${key[3]},${key[0]},${key[1]}`;
+        if (edges.has(back)) edges.delete(back);
+        else edges.set(key.join(), [x0, y0, x1, y1]);
+      });
+    }
+  for (const [x0, y0, x1, y1] of edges.values()) pts.push(...at(x0, y0, from), ...at(x1, y1, from), ...at(x1, y1, to), ...at(x0, y0, from), ...at(x1, y1, to), ...at(x0, y0, to));
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  geo.computeVertexNormals();
+  return geo;
 }

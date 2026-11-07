@@ -20,6 +20,7 @@ import { closeButton, icon } from '../ui/icons';
 import { marks } from './marks';
 import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayout } from './viewlayout';
 import { fastRaycast } from './pick';
+import { MeshBVH } from 'three-mesh-bvh';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { DEFAULT_LIGHT, lightDirections, plainLook, toLook, type Look } from '../doc/materials';
 import { applyLook, boxUv, glowLight, needsUv, pictureLoaded, renderMaterial, sphereOf } from './look';
@@ -4312,6 +4313,23 @@ export class Viewer implements ToolView {
   private pickProjection(on: boolean) {
     this.autoOrtho = false;
     this.setOrthographic(on);
+  }
+
+  /**
+   * Whether `solid` (world; `inner`: a point inside it) and body `id` share volume: their surfaces cross, or one lies
+   * inside the other (a ray from a point inside crosses the other's surface an odd number of times).
+   */
+  overlaps(id: string, solid: THREE.BufferGeometry, inner: THREE.Vector3, dir = new THREE.Vector3(0.577, 0.578, 0.576).normalize()) {
+    const meshes = (this.bodies.get(id)?.children ?? []).filter((c): c is THREE.Mesh => c instanceof THREE.Mesh);
+    const within = (tree: MeshBVH, p: THREE.Vector3) => tree.raycast(new THREE.Ray(p, dir), THREE.DoubleSide).length % 2 === 1;
+    const own = new MeshBVH(solid);
+    return meshes.some((m) => {
+      const g = m.geometry;
+      const tree = (g.boundsTree ??= new MeshBVH(g, { indirect: true })) as MeshBVH; // as pick.ts builds it
+      const toLocal = m.matrixWorld.clone().invert();
+      const corner = new THREE.Vector3().fromBufferAttribute(g.attributes.position, 0).applyMatrix4(m.matrixWorld);
+      return tree.intersectsGeometry(solid, toLocal) || within(tree, inner.clone().applyMatrix4(toLocal)) || within(own, corner);
+    });
   }
 
   /** Solids of the shown bodies (also while a section draws clipped copies instead). */

@@ -127,6 +127,8 @@ export interface ToolView {
   edges(): [THREE.Vector3, THREE.Vector3][][];
   /** Spheres in the world. */
   spheres(): { center: THREE.Vector3; r: number }[];
+  /** Whether `solid` (world; `inner`: a point inside it) and body `id` share volume. */
+  overlaps(id: string, solid: THREE.BufferGeometry, inner: THREE.Vector3): boolean;
   render(): void;
 }
 
@@ -179,14 +181,24 @@ const OP_ICONS: Record<PullOp, string> = { join: 'union', cut: 'subtract', new: 
 /** Whether a pull from `t` can join or cut a body: drawn on one of its faces. */
 export const onBody = (t: Target) => !!t.body;
 
-/** Whether a pull reaches behind its plane, into the body: only then can it cut. */
-const reachesIn = ({ depth, back }: { depth: number; back: number }) => depth < 0 || back > 0;
-
-/** A pull's operation: on a body as chosen, else by the direction (into it: Cut, out of it: Join); Cut only reaching into it; elsewhere a new body. */
-export function pullOp(p: Pulling, onBody: boolean, reach: { depth: number; back: number }): PullOp {
+/** A pull's operation: on a body as chosen, else by the direction (into it: Cut, out of it: Join); Cut only where it shares volume with the body (`cuts`); elsewhere a new body. */
+export function pullOp(p: Pulling, onBody: boolean, depth: number, cuts: boolean): PullOp {
   if (!onBody) return 'new';
-  const op = p.op ?? (reach.depth < 0 ? 'cut' : 'join');
-  return op === 'cut' && !reachesIn(reach) ? 'join' : op;
+  const op = p.op ?? (depth < 0 ? 'cut' : 'join');
+  return op === 'cut' && !cuts ? 'join' : op;
+}
+
+/**
+ * Whether a pull from `from` to `to` along `n` shares volume with `body`: `build` makes its solid in the world between
+ * two depths, non-indexed, its first triangle on the first depth. Shrunk a hair along `n`, so faces only touching do not count.
+ */
+export function pullCuts(view: ToolView, body: string, n: V3, [from, to]: [number, number], build: (from: number, to: number) => THREE.BufferGeometry) {
+  const eps = Math.min(0.01, (to - from) / 4);
+  const geo = build(from + eps, to - eps);
+  const p = geo.attributes.position;
+  const corner = (i: number) => new THREE.Vector3().fromBufferAttribute(p, i);
+  const inner = corner(0).add(corner(1)).add(corner(2)).divideScalar(3).addScaledVector(v3(n), (to - from) / 2 - eps);
+  return view.overlaps(body, geo, inner);
 }
 
 /**
@@ -218,14 +230,14 @@ export function pulled(p: Pulling, length: (text: string) => number | null) {
 }
 
 /**
- * Typing while pulling: into the depth or (Tab) the back; Backspace erases; on a body (`reach`: the pull, see `pulled`)
- * P takes the next operation (Cut only reaching into it; in the middle of a name P is typed). Returns whether the key was used.
+ * Typing while pulling: into the depth or (Tab) the back; Backspace erases; on a body (`on`: its depth, whether it can
+ * cut) P takes the next operation (in the middle of a name P is typed). Returns whether the key was used.
  */
-export function pullKey(e: KeyboardEvent, p: Pulling, reach?: { depth: number; back: number }) {
+export function pullKey(e: KeyboardEvent, p: Pulling, on?: { depth: number; cuts: boolean }) {
   const k = p.side ? 'typedBack' : 'typed';
-  if (reach && pressed(e, 'operation') && !inName(p[k] ?? '')) {
-    const ops = (Object.keys(PULL_OPS) as PullOp[]).filter((o) => o !== 'cut' || reachesIn(reach));
-    p.op = ops[(ops.indexOf(pullOp(p, true, reach)) + 1) % ops.length];
+  if (on && pressed(e, 'operation') && !inName(p[k] ?? '')) {
+    const ops = (Object.keys(PULL_OPS) as PullOp[]).filter((o) => o !== 'cut' || on.cuts);
+    p.op = ops[(ops.indexOf(pullOp(p, true, on.depth, on.cuts)) + 1) % ops.length];
   }
   else if (pressed(e, 'otherSide') && restOf(p[k] ?? '')) p[k] += restOf(p[k]!); // a name showing: written out
   else if (pressed(e, 'otherSide')) p.side = p.side ? 0 : 1;
@@ -929,7 +941,7 @@ export class SketchTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       } else if (pressed(e, 'confirm')) this.commit();
-      else if (!pullKey(e, ph, onBody(ph.target) ? pulled(ph, (t) => this.host.length(t)) : undefined)) return false;
+      else if (!pullKey(e, ph, onBody(ph.target) ? { depth: pulled(ph, (t) => this.host.length(t)).depth, cuts: this.cuts(ph) } : undefined)) return false;
     } else return false;
     this.update();
     return true;
@@ -1684,7 +1696,7 @@ export class SketchTool implements Tool {
       depthTyped: flat || this.typed(ph.typed) === undefined ? undefined : ph.typed,
       back,
       backTyped: flat || this.typed(ph.typedBack) === undefined ? undefined : ph.typedBack,
-      op: pullOp(ph, onBody(ph.target), { depth, back }),
+      op: pullOp(ph, onBody(ph.target), depth, !flat && this.cuts(ph)),
     });
   }
 
@@ -1838,7 +1850,7 @@ export class SketchTool implements Tool {
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
       if (depth || back) this.solid(ph.shapes, f, depth, back);
       label('H', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
-      if (onBody(ph.target)) labels[labels.length - 1][4] = pullOp(ph, true, { depth, back }); // what it does to the body
+      if (onBody(ph.target)) labels[labels.length - 1][4] = pullOp(ph, true, depth, this.cuts(ph)); // what it does to the body
       if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side, !!ph.side && !this.reaching);
     }
     const els = labels.map(([text, , active, t, op]) => sizeLabel(text, active, t, op));
@@ -1892,23 +1904,29 @@ export class SketchTool implements Tool {
 
   /** Translucent extrusion of the shapes; shapes inside an odd number of others are holes. */
   private solid(ps: DrawnProfile[], f: Frame, depth: number, back: number) {
-    const level = nesting(ps);
-    const shapes = ps.flatMap((p, i) => {
-      if (level[i] % 2) return [];
-      const outer = shape2d(p);
-      outer.holes = ps.filter((q, j) => level[j] === level[i] + 1 && inside(p, ...centre(q))).map(shape2d);
-      return [outer];
-    });
     const [from, to] = extent(depth, back);
-    const geo = new THREE.ExtrudeGeometry(shapes, { depth: to - from, bevelEnabled: false, curveSegments: 32 });
-    const mesh = new THREE.Mesh(
-      geo,
-      new THREE.MeshStandardMaterial({ color: 0x3b6fd8, transparent: true, opacity: 0.45, depthWrite: false }),
-    );
-    mesh.matrixAutoUpdate = false;
-    mesh.matrix.makeBasis(v3(f.x), v3(f.y), v3(f.n)).setPosition(v3(f.o).addScaledVector(v3(f.n), from));
-    this.view.overlay.add(mesh);
+    this.view.overlay.add(new THREE.Mesh(extruded(ps, f, from, to), new THREE.MeshStandardMaterial({ color: 0x3b6fd8, transparent: true, opacity: 0.45, depthWrite: false })));
   }
+
+  /** Whether the pull shares volume with the body it was drawn on (only then it can cut). */
+  private cuts(ph: Extract<Phase, { kind: 'pull' }>) {
+    const { depth, back } = pulled(ph, (t) => this.host.length(t));
+    const f = ph.target.frame;
+    return !!ph.target.body && (!!depth || !!back) && pullCuts(this.view, ph.target.body, f.n, extent(depth, back), (from, to) => extruded(ph.shapes, f, from, to));
+  }
+}
+
+/** Shapes pulled from `from` to `to` along their plane's normal: a solid in the world, holes for shapes inside others. */
+function extruded(ps: DrawnProfile[], f: Frame, from: number, to: number) {
+  const level = nesting(ps);
+  const shapes = ps.flatMap((p, i) => {
+    if (level[i] % 2) return [];
+    const outer = shape2d(p);
+    outer.holes = ps.filter((q, j) => level[j] === level[i] + 1 && inside(p, ...centre(q))).map(shape2d);
+    return [outer];
+  });
+  const geo = new THREE.ExtrudeGeometry(shapes, { depth: to - from, bevelEnabled: false, curveSegments: 32 });
+  return geo.applyMatrix4(new THREE.Matrix4().makeBasis(v3(f.x), v3(f.y), v3(f.n)).setPosition(v3(f.o).addScaledVector(v3(f.n), from)));
 }
 
 /** What the pointer's note calls a tangent circle's bisector. */
