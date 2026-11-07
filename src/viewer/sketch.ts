@@ -1048,11 +1048,17 @@ export class SketchTool implements Tool {
     return pts;
   }
 
-  /** Lines to snap to, each as segments (world): outlines of every visible sketch's shapes (with the shape), and body edges. */
+  /**
+   * Lines to snap to, each as segments (world): outlines of every visible sketch's shapes (with the shape), body edges,
+   * and the sides of the line being drawn.
+   */
   private snapLines(): SnapLine[] {
     const bisect = this.bisectGuide();
+    const ph = this.phase;
+    const own = ph.kind === 'polygon' ? ph.pts.slice(1).map((b, i) => drawnSide(ph.pts[i], b, ph.curves[i] ?? null, ph.target.frame)) : [];
     return [
       ...snapLines(this.view.sketches, this.view.edges()),
+      ...own,
       ...SketchTool.guides.map((guide) => ({ segs: [guideSeg(guide)], what: 'on guide', guide })),
       ...(bisect ? [{ segs: [guideSeg(bisect)], what: BISECTOR, guide: bisect }] : []),
     ];
@@ -1151,6 +1157,7 @@ export class SketchTool implements Tool {
   /** The crossing of two of the lines near the pointer closest to it within `px` (plane coordinates, with both lines' indices), if any. */
   private crossing(near: { line: number; a: UV; b: UV }[], t: Target, mx: number, my: number, px: number) {
     let best: { at: UV; lines: [number, number]; d: number } | null = null;
+    const from = this.phase.kind === 'polygon' ? this.phase.pts.at(-1) : undefined;
     for (let i = 0; i < near.length; i++)
       for (let j = i + 1; j < near.length; j++) {
         const [p, q] = [near[i], near[j]];
@@ -1164,6 +1171,7 @@ export class SketchTool implements Tool {
         const m = (w[0] * r[1] - w[1] * r[0]) / den;
         if (k < -1e-9 || k > 1 + 1e-9 || m < -1e-9 || m > 1 + 1e-9) continue;
         const at: UV = [p.a[0] + k * r[0], p.a[1] + k * r[1]];
+        if (from && Math.hypot(at[0] - from[0], at[1] - from[1]) < 1e-9) continue; // where the line being drawn goes on from
         const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...at)));
         const d = Math.hypot(mx - x, my - y);
         if (d < px && (!best || d < best.d)) best = { at, lines: [p.line, q.line], d };
@@ -2234,6 +2242,12 @@ const outlinePts = (p: DrawnProfile): UV[] => segments(p).flatMap((g, i) => segP
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {
   const pts = outlinePts(p).map((q) => v3(toWorld(f, ...q)));
   return pts.slice(1).map((b, i): Segment => [pts[i], b]);
+}
+
+/** A side of the line being drawn (plane coordinates `a` to `b`, `curve` as its shape has it) as a line to snap to. */
+function drawnSide(a: UV, b: UV, curve: Curve | null, f: Frame): SnapLine {
+  const p = { id: '', kind: 'line' as const, pts: [a, b], curves: [curve] };
+  return { segs: outlineSegs(p, f), curves: curveKeys(p, f), what: 'on this line' };
 }
 
 /** Per segment of `outlineSegs` the key of the curved side it is part of (null: a straight side); none: no curves. */
