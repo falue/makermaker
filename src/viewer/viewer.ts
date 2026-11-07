@@ -142,7 +142,7 @@ export interface PickedFace {
   /** A work plane clicked (picks that take them, in front of any body): its id; `point` on it, `normal` its own, away from the camera. */
   plane?: string;
   /** A quiet pick taking parts, Alt-clicked: the edge (its segments, world; `ref`: its part of the solid, none for section and crossing lines) or the face there; `adds`: Shift held too. */
-  part?: { edge: [THREE.Vector3, THREE.Vector3][]; ref?: PartRef } | { face: FaceItem };
+  part?: { edge: [THREE.Vector3, THREE.Vector3][]; ref?: PartRef; refs?: PartRef[] } | { face: FaceItem };
   /** A quiet pick: `snap` could not be read from a solid or a sketch's true curve (a section or crossing line). */
   about?: boolean;
   adds?: boolean;
@@ -737,10 +737,10 @@ export class Viewer implements ToolView {
           return void this.aiming?.(a);
         }
         if (this.quietPick && this.pickParts === 'alt' && picksFace(e)) {
-          // Alt: the edge, else the face a click would take
+          // Alt: the edge (a circle whole), else the face a click would take
           const edge = this.edgeAt(e);
           this.aiming?.(this.aimAt(null));
-          this.markEdge(edge?.segs);
+          this.markEdge(edge ? this.wholeCircle(edge).segs : undefined);
           return this.markFace(edge ? undefined : this.frontHit(e));
         }
         if (this.pickParts) this.markEdge(), this.markFace();
@@ -3486,6 +3486,23 @@ export class Viewer implements ToolView {
     return this.exactEdge(body, index)?.edge.length ?? null;
   }
 
+  /**
+   * A picked edge as a whole: a circle the kernel keeps as halves (or more pieces) as all of them, their points and
+   * refs together; any other edge as it is.
+   */
+  private wholeCircle(edge: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; index?: number }) {
+    const own = { segs: edge.segs, refs: edge.index === undefined ? [] : [{ body: edge.body, edge: edge.index }] };
+    const exact = edge.index === undefined ? null : this.exactEdge(edge.body, edge.index)?.edge;
+    if (exact?.kind !== 'circle') return own;
+    const lines = this.bodies.get(edge.body)?.children.find((c) => c.userData.exact);
+    const all = ((lines?.userData.exact as Exact | null | undefined)?.edges ?? []).flatMap((x, k) =>
+      x.kind === 'circle' && Math.hypot(...x.c.map((v, i) => v - exact.c[i])) < 1e-6 && Math.abs(x.r - exact.r) < 1e-6 && Math.abs(x.n.reduce((d, v, i) => d + v * exact.n[i], 0)) > 1 - 1e-9 ? [k] : [],
+    );
+    if (all.length < 2) return own;
+    const pieces = this.bodyEdges().filter((x) => x.body === edge.body && x.index !== undefined && all.includes(x.index));
+    return { segs: pieces.flatMap((x) => x.segs), refs: pieces.map((x) => ({ body: edge.body, edge: x.index! })) };
+  }
+
   /** Body edge `index` (its edge group) as the kernel has it, and how its body is placed (null: a mesh body, none). */
   private exactEdge(body: string, index: number) {
     const g = this.bodies.get(body);
@@ -4078,7 +4095,10 @@ export class Viewer implements ToolView {
     if (this.quietPick && this.pickParts === 'alt' && picksFace(e)) {
       const edge = this.edgeAt(e);
       this.markEdge();
-      if (edge) return this.endFacePick({ point: edge.segs[0][0].clone(), normal: new THREE.Vector3(), part: { edge: edge.segs, ref: edge.index === undefined ? undefined : { body: edge.body, edge: edge.index } }, adds: role(e, 'add') });
+      if (edge) {
+        const whole = this.wholeCircle(edge);
+        return this.endFacePick({ point: edge.segs[0][0].clone(), normal: new THREE.Vector3(), part: { edge: whole.segs, ref: whole.refs[0], refs: whole.refs }, adds: role(e, 'add') });
+      }
       return this.endFacePick({ point: hit?.point.clone() ?? new THREE.Vector3(), normal: new THREE.Vector3(), ...(hit ? { part: { face: this.faceItem(hit) }, adds: role(e, 'add') } : {}) });
     }
     if (this.quietPick) {
