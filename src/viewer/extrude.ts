@@ -5,7 +5,7 @@ import { extent, toWorld, type Frame, type V3 } from '../doc/frames';
 import type { Area } from '../doc/types';
 import { area } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
-import { aimInto, planeHit, pullBy, pulled, pullKey, reachInto, sizeLabel, typeInto, uvOf, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
+import { aimInto, onBody, OP_HINT, planeHit, PULL_OPS, pullBy, pulled, pullKey, pullOp, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
@@ -30,6 +30,8 @@ export type ExtrudeResult = {
   depthTyped?: string;
   back: number;
   backTyped?: string;
+  /** Sketches on a body: what the pull does to it. */
+  op: PullOp;
 };
 
 export interface ExtrudeHost {
@@ -211,8 +213,8 @@ export class ExtrudeTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       }
-      if (!pullKey(e, p)) return false;
-      this.host.hint(PULL_HINT);
+      if (!pullKey(e, p, this.onBody() ? this.op() : undefined)) return false;
+      this.host.hint(this.pullHint());
       this.changed();
       return true;
     }
@@ -275,7 +277,7 @@ export class ExtrudeTool implements Tool {
     this.hover = null;
     this.view.unflatten(v3(this.ref().frame.n));
     this.view.lockPointer();
-    this.host.hint(PULL_HINT);
+    this.host.hint(this.pullHint());
   }
 
   /** Esc while pulling: the faces go back, nothing stays picked, picking again. */
@@ -302,7 +304,7 @@ export class ExtrudeTool implements Tool {
 
   private commit() {
     const { depth, back } = this.depths();
-    if (!depth && !back) return this.host.hint('Pull up or down first · ' + PULL_HINT);
+    if (!depth && !back) return this.host.hint('Pull up or down first · ' + this.pullHint());
     const typed = (t: string | undefined) => (t !== undefined && this.host.length(t) !== null ? t : undefined);
     this.view.unlockPointer();
     const groups = this.groups
@@ -315,7 +317,21 @@ export class ExtrudeTool implements Tool {
           areas: picked.map((a) => ({ in: a.in, out: a.out, ...(a.at ? { at: a.at } : {}) })),
         };
       });
-    this.x.done({ groups, faces: this.faces, depth, depthTyped: typed(this.pull!.typed), back, backTyped: typed(this.pull!.typedBack) });
+    this.x.done({ groups, faces: this.faces, depth, depthTyped: typed(this.pull!.typed), back, backTyped: typed(this.pull!.typedBack), op: this.op() });
+  }
+
+  /** Whether a picked sketch lies on a body (its pull can join or cut it). */
+  private onBody() {
+    return this.groups.some((g) => g.picked.size && onBody(g.target));
+  }
+
+  /** What the pull does to the body its sketch lies on (see `pullOp`). */
+  private op() {
+    return pullOp(this.pull!, this.onBody(), this.depths().depth);
+  }
+
+  private pullHint() {
+    return PULL_HINT + (this.onBody() ? OP_HINT : '');
   }
 
   /** Centre of a sketch's picked areas' corners, on its plane (world). */
@@ -402,7 +418,8 @@ export class ExtrudeTool implements Tool {
       const shown: [string, string | undefined, number, number, boolean][] = [['H', p.typed, depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
-        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed)}`, active, active && !this.reaching);
+        const op = name === 'H' && this.onBody() ? ` · ${PULL_OPS[this.op()]}` : ''; // what it does to the body
+        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed)}${op}`, active, active && !this.reaching);
         this.labels.append(el);
         keepInside(el, ...this.view.toScreen(at.clone().addScaledVector(n, along)));
       }

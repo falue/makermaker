@@ -554,11 +554,13 @@ function update() {
       };
       // a face of this body: in its coordinates; any other face or plane: in those of its group (moved by its joint),
       // so the body still moves away from it freely by its own position and turn
-      const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
-        const f = worldFrame(p);
-        return f && placeFrame((p.kind === 'cap' || p.kind === 'side') && p.body === id ? at : toPlace(parentPlace(id)), f, true);
-      };
       const built = new Map<string, BuildFeature>();
+      const faceOf = (p: Exclude<Resolved<SketchPlacement>, { kind: 'base' }>) => {
+        // a side of this body's own earlier step (a step drawn on it): from those built so far, in its coordinates
+        if (p.kind === 'side' && p.body === id) return sideFrame([...built.values()], p.feature, p.shape, p.edge, p.flip);
+        const f = worldFrame(p);
+        return f && placeFrame(p.kind === 'cap' && p.body === id ? at : toPlace(parentPlace(id)), f, true);
+      };
       for (const s of resolved) {
         if (s.type === 'boolean' || s.type === 'fingers' || s.type === 'mesh') continue; // meshes are shown as they are; booleans and box joints take other bodies (below)
         const b = toBuild(s, id, sketches, faceOf, cutterFrame);
@@ -5281,10 +5283,18 @@ function withSketched(doc: Doc, r: SketchResult): { doc: Doc; id: string; ids: s
     }
   }
   if (r.depth || r.back) {
-    // always new bodies, one per piece of shapes that do not overlap or touch: joining one to the body it was drawn on is
-    // a boolean, done explicitly later
     const back = r.back ? { back: len(r.back, r.backTyped) } : {};
     const sketch = sketches.find((s) => s.id === id)!;
+    // on a body, joining or cutting it: one step of that body (a linked copy's go to its source), all shapes in it
+    const owner = sketch.plane.kind === 'cap' || sketch.plane.kind === 'side' ? sketch.plane.body : null;
+    if (owner && (r.op === 'join' || r.op === 'cut')) {
+      const k = stepsOf({ ...doc, bodies }, owner);
+      const source: ExtrudeSource = { kind: 'sketch', sketch: id, shapes: ids, ...(r.areas ? { areas: r.areas } : {}) };
+      const step: Feature = { id: newId(), type: 'extrude', source, depth: len(r.depth, r.depthTyped), ...back, mode: r.op === 'cut' ? 'cut' : 'add', through: false };
+      bodies = bodies.map((b, i) => (i === k ? { ...b, features: [...b.features, step] } : b));
+      return { doc: { ...doc, sketches, bodies, joints }, id, ids, made: [owner] };
+    }
+    // else new bodies, one per piece of shapes that do not overlap or touch
     const lookup = paramLookup(doc.params);
     const shown = sketch.shapes.filter((q) => ids.includes(q.id) && q.kind !== 'line').map((q) => resolve(q, lookup, '', new Map()) as DrawnProfile & { id: string });
     const parts = pieces(shown);
@@ -5660,7 +5670,7 @@ async function areasOf(s: ViewSketch) {
 }
 
 /** A shown sketch as the place to draw or pull on. */
-const targetOf = (s: ViewSketch, name = 'the sketch'): Target => ({ sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' ? s.placement.body : null, name });
+const targetOf = (s: ViewSketch, name = 'the sketch'): Target => ({ sketch: s.id, placement: s.placement, frame: s.frame, body: s.placement.kind === 'cap' || s.placement.kind === 'side' ? s.placement.body : null, name });
 
 /**
  * Extrude: picks faces of extrusions and areas of the shown sketches, then pulls them all by one distance (one undo
@@ -5703,7 +5713,7 @@ async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; shapes
         undoLive(); // the faces' live step: replaced by the whole pull
         const made: string[] = [];
         for (const g of r.groups) {
-          const out = withSketched(doc, { ...g, depth: r.depth, depthTyped: r.depthTyped, back: r.back, backTyped: r.backTyped, mode: 'add' });
+          const out = withSketched(doc, { ...g, depth: r.depth, depthTyped: r.depthTyped, back: r.back, backTyped: r.backTyped, op: r.op });
           doc = out.doc;
           made.push(...(out.made ?? []));
         }

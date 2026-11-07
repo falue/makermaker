@@ -68,10 +68,11 @@ export interface SketchResult {
   sphere?: { center: V3; d: number; typed?: string };
   depth: number;
   depthTyped?: string;
+  /** Pulled on a body: what it does to it (see `pullOp`); else a new body. */
+  op?: PullOp;
   /** How far it also reaches behind the plane (mm), as typed. */
   back?: number;
   backTyped?: string;
-  mode: 'add' | 'cut';
 }
 
 /** What the tool needs from the viewport. */
@@ -166,7 +167,19 @@ export interface Pulling extends PullStart {
   typedBack?: string;
   side?: number;
   alt?: boolean;
+  /** Chosen with P; none: by the direction (see `pullOp`). */
+  op?: PullOp;
 }
+
+/** What a pull on a body does to it: joins it, cuts it, or makes a new body beside it. */
+export type PullOp = 'join' | 'cut' | 'new';
+export const PULL_OPS: Record<PullOp, string> = { join: 'Join', cut: 'Cut', new: 'New body' };
+
+/** Whether a pull from `t` can join or cut a body: drawn on an extrusion's end or side face. */
+export const onBody = (t: Target) => !!t.body && (t.placement.kind === 'cap' || t.placement.kind === 'side');
+
+/** A pull's operation: on a body as chosen, else by the direction (into it: Cut, out of it: Join); elsewhere a new body. */
+export const pullOp = (p: Pulling, onBody: boolean, depth: number): PullOp => (!onBody ? 'new' : (p.op ?? (depth < 0 ? 'cut' : 'join')));
 
 /**
  * To object in a pull: the distance from the plane to `at` along its normal (for Back: behind it) goes into what is
@@ -196,10 +209,15 @@ export function pulled(p: Pulling, length: (text: string) => number | null) {
   return { depth, back: typed(p.typedBack) ?? (p.alt ? Math.abs(depth) : 0) };
 }
 
-/** Typing while pulling: into the depth or (Tab) the back; Backspace erases. Returns whether the key was used. */
-export function pullKey(e: KeyboardEvent, p: Pulling) {
+/**
+ * Typing while pulling: into the depth or (Tab) the back; Backspace erases; on a body P takes the next operation after
+ * `now` (in the middle of a name it is typed). Returns whether the key was used.
+ */
+export function pullKey(e: KeyboardEvent, p: Pulling, now?: PullOp) {
   const k = p.side ? 'typedBack' : 'typed';
-  if (pressed(e, 'otherSide') && restOf(p[k] ?? '')) p[k] += restOf(p[k]!); // a name showing: written out
+  const ops = Object.keys(PULL_OPS) as PullOp[];
+  if (now && pressed(e, 'operation') && !inName(p[k] ?? '')) p.op = ops[(ops.indexOf(now) + 1) % ops.length];
+  else if (pressed(e, 'otherSide') && restOf(p[k] ?? '')) p[k] += restOf(p[k]!); // a name showing: written out
   else if (pressed(e, 'otherSide')) p.side = p.side ? 0 : 1;
   else if (pressed(e, 'erase')) p[k] = p[k]?.slice(0, -1) || undefined;
   else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) p[k] = (p[k] ?? '') + e.key;
@@ -414,7 +432,7 @@ export class SketchTool implements Tool {
     if (this.ballMode() && (ph.kind === 'hover' || ph.kind === 'ball')) return void this.ballPress(e), true;
     if (ph.kind === 'hover' && this.mode?.kind === 'plane') {
       const target = this.target(e);
-      if (target) this.host.done({ target, depth: 0, mode: 'add' });
+      if (target) this.host.done({ target, depth: 0 });
       return true;
     }
     if (ph.kind === 'shape' && this.reaching) {
@@ -901,7 +919,7 @@ export class SketchTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       } else if (pressed(e, 'confirm')) this.commit();
-      else if (!pullKey(e, ph)) return false;
+      else if (!pullKey(e, ph, onBody(ph.target) ? pullOp(ph, true, pulled(ph, (t) => this.host.length(t)).depth) : undefined)) return false;
     } else return false;
     this.update();
     return true;
@@ -1596,7 +1614,7 @@ export class SketchTool implements Tool {
       // drawn from its centre: the ball's centre is where dragging started, on the plane
       const center = toWorld(ph.target.frame, profile.x, profile.y);
       this.phase = { kind: 'hover' };
-      return this.host.done({ target: ph.target, sphere: { center, d: profile.d, typed: a }, depth: 0, mode: 'add' });
+      return this.host.done({ target: ph.target, sphere: { center, d: profile.d, typed: a }, depth: 0 });
     }
     // typed sizes stay as typed (a tangent circle's is its radius: its diameter is worked out)
     this.drawn(ph.target, { profile, typed: profile.kind === 'rect' ? { w: a, h: b } : this.drawMode(ph)?.id === 'tangent' ? {} : { d: a } });
@@ -1617,7 +1635,7 @@ export class SketchTool implements Tool {
     const curves = ph.curves.some(Boolean) ? { curves: ph.curves } : {};
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
-    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts: ph.pts, ...curves }, typed: {}, sides: ph.sides }, depth: 0, mode: 'add' });
+    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts: ph.pts, ...curves }, typed: {}, sides: ph.sides }, depth: 0 });
   }
 
   /** A finished shape: in sketch mode or as a construction line it stays flat and drawing goes on, else pulling starts. */
@@ -1625,14 +1643,14 @@ export class SketchTool implements Tool {
     if (this.mode?.kind !== 'draw' && !this.host.construction()) return this.enterPull(target, [drawn.profile], drawn);
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
-    this.host.done({ target, drawn, depth: 0, mode: 'add' });
+    this.host.done({ target, drawn, depth: 0 });
   }
 
   private enterPull(target: Target, shapes: DrawnProfile[], drawn: Drawn) {
     this.phase = { kind: 'pull', target, drawn, shapes, raw: 0, depth: 0, typed: undefined };
     this.view.unflatten(v3(target.frame.n));
     this.view.lockPointer();
-    this.host.hint(PULL_HINT + ' · click without pulling or [Esc]: keep it flat');
+    this.host.hint(PULL_HINT + (onBody(target) ? OP_HINT : '') + ' · click without pulling or [Esc]: keep it flat');
   }
 
   /** Centre of the pulled shapes, on the sketch plane (world). */
@@ -1656,7 +1674,7 @@ export class SketchTool implements Tool {
       depthTyped: flat || this.typed(ph.typed) === undefined ? undefined : ph.typed,
       back,
       backTyped: flat || this.typed(ph.typedBack) === undefined ? undefined : ph.typedBack,
-      mode: 'add',
+      op: pullOp(ph, onBody(ph.target), depth),
     });
   }
 
@@ -1810,6 +1828,7 @@ export class SketchTool implements Tool {
       for (const p of ph.shapes) this.view.overlay.add(outline(p, f));
       if (depth || back) this.solid(ph.shapes, f, depth, back);
       label('H', ph.typed, depth, this.middle(ph).addScaledVector(v3(f.n), depth), !ph.side, !ph.side && !this.reaching);
+      if (onBody(ph.target)) labels[labels.length - 1][0] += ` · ${PULL_OPS[pullOp(ph, true, depth)]}`; // what it does to the body
       if (back || ph.side) label('Back', ph.typedBack, back, this.middle(ph).addScaledVector(v3(f.n), -(Math.sign(depth) || 1) * back), !!ph.side, !!ph.side && !this.reaching);
     }
     const els = labels.map(([text, , active, t]) => sizeLabel(text, active, t));
@@ -2036,6 +2055,8 @@ const straightKey = (k: string) => !k.startsWith('circle:') && !k.startsWith('cu
 /** Angle steps for Shift on lines and polygon sides, coarse to fine. */
 export const ANGLE_STEPS = [90, 45, 30, 15, 10, 5, 1];
 const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [D] measure · [Alt] both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done';
+/** On a body: what P does. */
+export const OP_HINT = ' · [P] join / cut / new body';
 
 /** A shape's outline as segments (world) on the frame's plane; a line stays open. */
 /** Lines to snap to (world): outlines of the sketches' shapes (with the shape), and body edges. */
