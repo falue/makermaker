@@ -524,7 +524,6 @@ function topbar(ctx: UIContext): Node[] {
     tool('new', 'New', ctx.newDoc),
     tool('open', 'Open (⌘O, or drop a file)', ctx.open),
     tool('save', 'Save (⌘S)', ctx.save),
-    tool('autosave', `Autosave ${ctx.autosave ? 'on' : 'off'}: saves into the file a moment after each change`, ctx.toggleAutosave, ctx.autosave),
     tool('import', 'Import (or drop the file where it should go): STEP becomes solid bodies with their groups, names, colours and materials, STL, OBJ, 3MF, GLB and SketchUp (SKP) meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate', ctx.importFile),
     tool('export', 'Export STEP: one file with the selected bodies (else all shown ones) as named, coloured parts, as placed in the world (for other CAD tools)', ctx.exportStep),
     tool('versions', 'Versions: go back in time: the saved versions of this file, shown with a click, restored if you like', ctx.versions),
@@ -532,10 +531,12 @@ function topbar(ctx: UIContext): Node[] {
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
     h('span', { className: 'title' }, ctx.title + (ctx.dirty ? ' •' : '')),
+    // the switch shows what is (a click asks for it: saving first may be cancelled)
+    h('label', { className: 'autosave', title: 'Autosave: saves into the file a moment after each change' }, h('input', { type: 'checkbox', checked: ctx.autosave, onclick: (e: MouseEvent) => (e.preventDefault(), ctx.toggleAutosave()) }), 'Autosave'),
     ...(ctx.busy.length ? [h('span', { className: 'busy' }, ctx.busy.join(', '), h('span', { className: 'bar' }))] : []),
     h('span', { className: `status${ctx.statusError && ctx.status ? ' error' : ''}` }, ctx.status),
     tool('print', 'Export for 3D print: the selected bodies (else all shown ones), each checked (closed, manifold, sound, its size), as placed in the world: one STL each (several zipped) or one 3MF', ctx.exportPrint),
-    tool('laser', 'Export for the laser: the selected bodies (else all shown ones) listed, untick any; each the outline of a flat face (its biggest, or one clicked) at 1:1 without fillets and chamfers, kerf allowed for; SVG or DXF, several zipped', ctx.exportLaser),
+    tool('laser', 'Export for the laser: the selected bodies (else all shown ones) listed, switch any off; each the outline of a flat face (its biggest, or one clicked) at 1:1 without fillets and chamfers, kerf allowed for; SVG or DXF, several zipped', ctx.exportLaser),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),
     tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),
     tool('material', 'Materials: pick, change and save looks; import and export', () => ctx.openMaterials()),
@@ -827,8 +828,9 @@ function left(ctx: UIContext): Node[] {
     };
     return [el];
   };
-  /** A row's marks (sketch, joint, link …); none: a gap as wide as one, so names without marks line up with one-mark rows. */
-  const marked = (marks: HTMLElement[]) => (marks.length ? marks : [h('span', { className: 'fold-space' })]);
+  /** A row's marks (sketch, joint, link …) in a column as wide in every row as the most any row has (`--marks`): names all as wide. */
+  let most = 1;
+  const marked = (marks: HTMLElement[]) => ((most = Math.max(most, marks.length)), h('span', { className: 'marks' }, ...marks));
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
   const rows = tree(doc, ctx.folded).map((r) => {
     const { id, kind, depth } = r;
@@ -839,7 +841,7 @@ function left(ctx: UIContext): Node[] {
       const chevron = h('span', { className: `fold${r.open ? ' open' : ''}`, innerHTML: icon('chevron'), title: r.open ? 'Fold' : 'Unfold', onclick: (e) => (e.stopPropagation(), ctx.toggleFold(id)) });
       // a plain click also folds or unfolds it (not the click that starts renaming it)
       const pick = (how: Pick) => (!how && renaming !== id && ctx.toggleFold(id), ctx.select(id, how));
-      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), ...marked(jointMark(id)), eye('objects', id, g.visible));
+      return row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), marked(jointMark(id)), eye('objects', id, g.visible));
     }
     const i = doc.bodies.findIndex((q) => q.id === id);
     const p = doc.bodies[i];
@@ -881,7 +883,7 @@ function left(ctx: UIContext): Node[] {
     // a box joint: its button opens its panel
     const finger = p.features.find((f) => f.type === 'fingers');
     const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Box joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];
-    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.deselectAgain(id, how) || ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), ...marked([...linked, ...joint, ...sketch, ...bools, ...jointMark(id)]), tool, ...toolEye);
+    const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.deselectAgain(id, how) || ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), marked([...linked, ...joint, ...sketch, ...bools, ...jointMark(id)]), tool, ...toolEye);
     return el;
   });
   // sketches: their own list, each with the body it belongs to
@@ -893,9 +895,7 @@ function left(ctx: UIContext): Node[] {
     item.onmouseenter = () => ctx.lightSketch(sk.id);
     item.onmouseleave = () => ctx.lightSketch(null);
     // its body, like a body's sketch button: a click selects it
-    const body = owner
-      ? h('button', { className: 'icon', innerHTML: icon('body'), title: `Object derived: ${owner.name}`, onclick: () => ctx.select(owner.id) })
-      : h('span', { className: 'fold-space' });
+    const body = marked(owner ? [h('button', { className: 'icon', innerHTML: icon('body'), title: `Object derived: ${owner.name}`, onclick: () => ctx.select(owner.id) })] : []);
     return h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, body, eye('sketches', sk.id, sk.visible));
   });
   /** A list's title: a click folds it; objects and sketches have an eye that hides all of them for now (their eyes stay). */
@@ -958,6 +958,7 @@ function left(ctx: UIContext): Node[] {
   const section = (key: string, title: Node, open: boolean, contents: Node[]) => {
     const body = h('div', { className: 'list-body' }, ...contents);
     body.dataset.list = key;
+    body.style.setProperty('--marks', String(most));
     return h('div', { className: 'list-section' }, title, ...(open ? [body] : []));
   };
   return [

@@ -6828,8 +6828,8 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
 const exportChoice = { laser: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0' };
 
 /**
- * Laser or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each ticked (untick to
- * leave it out; hovering a row lights it). Laser: per body the face to cut (its biggest flat one, or one clicked),
+ * Laser or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each switched on (off:
+ * left out; hovering a row lights it). Laser: per body the face to cut (its biggest flat one, or one clicked),
  * the kerf, SVG or DXF. Print: per body whether it is closed, manifold and sound, its size; STL or 3MF. Export (Enter)
  * makes the files.
  */
@@ -6875,7 +6875,7 @@ async function exportPanel(kind: 'laser' | 'print') {
           toolHint = `Laser: click the face of ${b.name} to cut out · [Esc] keeps it as it was`;
           render();
           viewer.pickFace((p) => {
-            toolHint = 'Laser: untick what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels';
+            toolHint = 'Laser: switch off what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels';
             if (p?.item?.body === b.id) {
               const pl = bodyPlace(b.id);
               faces.set(b.id, { at: unplaced(pl, p.item.point.toArray()), n: unplaced(pl, p.item.n.toArray(), true) });
@@ -6904,8 +6904,8 @@ async function exportPanel(kind: 'laser' | 'print') {
       kind === 'laser'
         ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf), segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice.laser, (v) => (exportChoice.laser = v))]
         : [segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v))];
-    box.replaceChildren(Object.assign(document.createElement('div'), { className: 'export-rows' }), ...options, panelButton('Export', 'Export the ticked ones (Enter)', go));
-    // on top: all ticked or none (some: shown half)
+    box.replaceChildren(Object.assign(document.createElement('div'), { className: 'export-rows' }), ...options, panelButton('Export', 'Export the ones switched on (Enter)', go));
+    // on top: all on or none (some: shown half)
     const every = on.size === bodies.length;
     const all = Object.assign(document.createElement('input'), { type: 'checkbox', checked: every, indeterminate: !!on.size && !every, onchange: () => (bodies.forEach((b) => (every ? on.delete(b.id) : on.add(b.id))), draw()) });
     const head = Object.assign(document.createElement('label'), { className: 'export-row' });
@@ -6914,7 +6914,7 @@ async function exportPanel(kind: 'laser' | 'print') {
     showNote(); // the hint row back
     atTop(box);
   };
-  toolHint = kind === 'laser' ? 'Laser: untick what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels' : '3D print: untick what stays out · each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';
+  toolHint = kind === 'laser' ? 'Laser: switch off what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels' : '3D print: switch off what stays out · each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';
   document.body.append(box);
   draw();
   render();

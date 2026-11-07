@@ -125,6 +125,16 @@ body {
   white-space: nowrap;
   color: var(--muted);
 }
+/* Autosave: a switch after the file's name */
+#topbar .autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+  cursor: pointer;
+}
 #topbar .status {
   margin-left: auto;
   color: var(--muted);
@@ -1189,40 +1199,6 @@ input.rename {
   border-radius: 6px;
 }
 
-/* on / off switches (grid, origin): the track shows the state */
-.overlay .switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border: none;
-}
-.switch .track {
-  position: relative;
-  width: 26px;
-  height: 14px;
-  border-radius: 7px;
-  background: var(--line);
-  transition: background 0.15s;
-}
-.switch .track::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--panel);
-  box-shadow: 0 0 1px rgb(0 0 0 / 0.4);
-  transition: left 0.15s;
-}
-.switch.on .track {
-  background: var(--accent);
-}
-.switch.on .track::after {
-  left: 14px;
-}
 
 .sections > button.on,
 .axis-move > button.on {
@@ -1355,10 +1331,21 @@ h3 .fold svg {
 h3 .fold.open svg {
   transform: rotate(90deg);
 }
-.listed .fold-space {
-  display: inline-block;
-  width: 26px; /* as wide as a row's icon button */
+/* a row's marks: a column as wide in every row (`--marks`: the most any row has), each mark as wide as an icon button */
+.listed .marks {
+  display: flex;
   flex: none;
+  justify-content: flex-end;
+  gap: 2px;
+  width: calc(var(--marks, 1) * 28px - 2px);
+}
+.listed .marks > button {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  align-items: center;
+  width: 26px;
+  padding-inline: 0;
 }
 .listed > button.icon {
   flex: none;
@@ -2300,7 +2287,6 @@ input + .to-object,
 
 /* checkboxes in the panels: beside their words */
 .axis-move input[type='checkbox'] {
-  width: auto;
   margin: 0;
 }
 .axis-move label,
@@ -3054,3 +3040,61 @@ section > h4 .segmented button {
   background: var(--selected);
 }
 
+/* on / off switches: Grid and Origin (a button with a track), and every checkbox drawn as one; last, so panels' input widths do not reach it */
+.overlay .switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: none;
+}
+.switch .track,
+input[type='checkbox'] {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: var(--line);
+  transition: background 0.15s;
+}
+input[type='checkbox'] {
+  appearance: none;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.switch .track::after,
+input[type='checkbox']::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: 0 0 1px rgb(0 0 0 / 0.4);
+  transition: left 0.15s;
+}
+.switch.on .track,
+input[type='checkbox']:checked {
+  background: var(--accent);
+}
+.switch.on .track::after,
+input[type='checkbox']:checked::after {
+  left: 14px;
+}
+/* some on, some off (Select all): the knob half way */
+input[type='checkbox']:indeterminate {
+  background: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+input[type='checkbox']:indeterminate::after {
+  left: 8px;
+}
+input[type='checkbox']:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
