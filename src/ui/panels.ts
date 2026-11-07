@@ -159,6 +159,10 @@ export interface UIContext {
   moveJointEnd(joint: string, from: string, to: string): void;
   /** A joint's edit panel (the one it was made in). */
   editJoint(joint: string): void;
+  /** A group's origin as `next` has it (its fields, or Parent's origin), its contents staying where they are; `live`: a scrub's step. */
+  moveOrigin(group: string, next: Doc, live?: boolean): void;
+  /** Picks a group's origin in the view (a face: Z out of it), its contents staying where they are. */
+  pickOrigin(group: string): void;
   /** An attach ends: its objects move on their own. */
   breakAttach(joint: string): void;
   /** A joint's range in words: `0–110°`, `0–35 mm`. */
@@ -1442,19 +1446,21 @@ function jointCards(ctx: UIContext, id: string): Node[] {
 function groupPanel(ctx: UIContext, i: number): Node[] {
   const g = ctx.doc.groups[i];
   const set = (next: Partial<Group>) => ctx.commit(setIn(ctx.doc, ['groups', String(i)], { ...g, ...next }));
-  const u = ctx.doc.units;
+  // a custom origin is picked in the view; either way the contents stay where they are
   const origin = select(g.origin.kind, { parent: "Parent's origin", custom: 'Custom origin' }, (kind) =>
-    set({ origin: kind === 'custom' ? { kind, position: [ex(0, u), ex(0, u), ex(0, u)], rotation: { rx: ex(0), ry: ex(0), rz: ex(0) } } : { kind } }),
+    kind === 'custom' ? ctx.pickOrigin(g.id) : ctx.moveOrigin(g.id, setIn(ctx.doc, ['groups', String(i), 'origin'], { kind })),
   );
+  const repick = h('button', { className: 'icon', innerHTML: icon('target'), title: 'Click: pick the origin in the view (a face: Z out of it); the contents stay', onclick: () => ctx.pickOrigin(g.id) });
+  const keeping: UIContext = { ...ctx, setValue: (path, value, live) => ctx.moveOrigin(g.id, setIn(ctx.doc, path, value), live) }; // its fields move only the origin
   return [
     h('div', { className: 'head' }, input(`groups.${i}.name`, g.name, (name) => set({ name })), deleteButton('Delete the group with everything in it', ctx.remove)),
     ...materialRows(ctx, [g.id], 'None'),
     h('h3', {}, 'Origin'),
-    h('div', { className: 'row' }, origin),
+    h('div', { className: 'row' }, origin, ...(g.origin.kind === 'custom' ? [repick] : [])),
     ...(g.origin.kind === 'custom'
       ? [
-          placing(ctx, `groups.${i}.origin`),
-          h('p', { className: 'hint' }, 'Its contents count from this point and turn with it (degrees around X, then Y, then Z); inside, they are edited unturned.'),
+          placing(keeping, `groups.${i}.origin`),
+          h('p', { className: 'hint' }, 'Its contents count from this point, turned with it (degrees around X, then Y, then Z); inside, they are edited unturned. Changing it moves only the origin: the contents stay where they are.'),
         ]
       : [h('p', { className: 'hint' }, "Its contents count from the parent's origin.")]),
     ...groupContents(ctx, g.id),

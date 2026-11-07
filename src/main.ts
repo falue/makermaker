@@ -5445,6 +5445,126 @@ function movedInto(doc: Doc, ids: string[], group: string | null, target: Matrix
   return { ...doc, bodies, sketches, groups, joints };
 }
 
+/** An angle (degrees, as stored) changed by `by`: a plain number stays one, an expression gets `+ by`. */
+function turnedBy(x: Expr, deg: number, by: number): Expr {
+  if (Math.abs(by) < 1e-9) return x;
+  return isPlain(x.e) ? { e: fmt(deg + by), u: x.u } : { e: `${x.e} ${by < 0 ? '-' : '+'} ${fmt(Math.abs(by))}`, u: x.u };
+}
+
+/** A placement matrix as a position (mm) and a turn (degrees around X, then Y, then Z), as bodies and group origins store them. */
+function placementOf(m: Matrix4) {
+  const [at, q] = [new Vector3(), new Quaternion()];
+  m.decompose(at, q, new Vector3());
+  const e = new Euler().setFromQuaternion(q, 'ZYX');
+  const deg = (r: number) => (r * 180) / Math.PI;
+  return { at: at.toArray(), turn: { rx: deg(e.x), ry: deg(e.y), rz: deg(e.z) } };
+}
+
+/**
+ * `doc` with group `id`'s origin at `to` (world), its contents staying where they are in the world: its bodies and
+ * sub-groups of their own origin re-placed in it (also those of sub-groups counting from it), its joints' axes and
+ * anchors with it, its free base-plane sketches pinned where they are (a body's sketch moves with its body). `origin`:
+ * what the group stores (else `to` as numbers).
+ */
+function originTo(doc: Doc, id: string, to: Matrix4, origin?: Group['origin']): Doc {
+  const lookup = paramLookup(doc.params);
+  const by = to.clone().invert().multiply(groupPlace(id)); // from the old origin's coordinates into the new one's
+  // the groups whose contents count from this origin
+  const same = new Set([id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const g of doc.groups) if (g.origin.kind === 'parent' && g.parent && same.has(g.parent) && !same.has(g.id)) (same.add(g.id), (grew = true));
+  }
+  const moved = <T>(own: string, change: (now: ReturnType<typeof placementOf>, next: ReturnType<typeof placementOf>) => T) => {
+    const m = ownPlaces.get(own);
+    return m ? change(placementOf(m), placementOf(by.clone().multiply(m))) : null;
+  };
+  const bodies = doc.bodies.map((b) => {
+    if (!b.group || !same.has(b.group)) return b;
+    return (
+      moved(b.id, (now, next) => {
+        const local = resolve(b.position, lookup, '', new Map());
+        const turn = resolve(b.rotation, lookup, '', new Map());
+        return {
+          ...b,
+          position: b.position.map((x, k) => plus(x, local[k], next.at[k] - now.at[k])) as Body['position'],
+          rotation: { rx: turnedBy(b.rotation.rx, turn.rx, next.turn.rx - turn.rx), ry: turnedBy(b.rotation.ry, turn.ry, next.turn.ry - turn.ry), rz: turnedBy(b.rotation.rz, turn.rz, next.turn.rz - turn.rz) },
+        };
+      }) ?? b
+    );
+  });
+  const groups = doc.groups.map((g) => {
+    if (g.id === id) {
+      const { at, turn } = placementOf(parentPlace(id).clone().invert().multiply(to));
+      return { ...g, origin: origin ?? { kind: 'custom' as const, position: at.map((v) => len(v)) as [Expr, Expr, Expr], rotation: { rx: ex(fmt(turn.rx)), ry: ex(fmt(turn.ry)), rz: ex(fmt(turn.rz)) } } };
+    }
+    if (g.origin.kind !== 'custom' || !g.parent || !same.has(g.parent)) return g;
+    const o = g.origin;
+    return (
+      moved(g.id, (now, next) => ({
+        ...g,
+        origin: { ...o, position: o.position.map((x, k) => plus(x, now.at[k], next.at[k] - now.at[k])) as [Expr, Expr, Expr], rotation: { rx: turnedBy(o.rotation.rx, now.turn.rx, next.turn.rx - now.turn.rx), ry: turnedBy(o.rotation.ry, now.turn.ry, next.turn.ry - now.turn.ry), rz: turnedBy(o.rotation.rz, now.turn.rz, next.turn.rz - now.turn.rz) } },
+      })) ?? g
+    );
+  });
+  const sketches = doc.sketches.map((sk) => {
+    if (sk.plane.kind !== 'base' || !sk.group || !same.has(sk.group) || carrierOf(doc, sk.id)) return sk;
+    const base = frameOf(resolve(sk.plane, lookup, '', new Map()) as Resolved<SketchPlacement>);
+    if (!base) return sk;
+    const { o, x, y, n } = placeFrame(toPlace(groupPlace(sk.group)), base);
+    return { ...sk, plane: { kind: 'plane' as const, o, x, y, n } };
+  });
+  const joints = doc.joints.map((j) =>
+    same.has(j.parent) ? { ...j, axis: { at: new Vector3(...j.axis.at).applyMatrix4(by).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(by).toArray() } } : j,
+  );
+  return { ...doc, bodies, groups, sketches, joints };
+}
+
+/** A group's origin as typed in `next` (its fields, or Parent's origin), its contents staying where they are in the world; `live`: a scrub's step (replaced, not a new undo step). */
+function moveOrigin(id: string, next: Doc, live = false) {
+  const keep = (doc: Doc) => (live ? (history.replace(follow(history.current, doc)), update()) : commit(doc));
+  const origin = next.groups.find((g) => g.id === id)!.origin;
+  let local = new Matrix4();
+  if (origin.kind === 'custom') {
+    const lookup = paramLookup(next.params);
+    const at = resolve(origin.position, lookup, '', new Map());
+    const r = resolve(origin.rotation, lookup, '', new Map());
+    if (![...at, r.rx, r.ry, r.rz].every(Number.isFinite)) return keep(next); // not a number yet: only what is typed
+    local = new Matrix4().compose(new Vector3(...at), turnOf(r), new Vector3(1, 1, 1));
+  }
+  keep(originTo({ ...history.current, params: next.params }, id, parentPlace(id).clone().multiply(local), origin));
+}
+
+/**
+ * Picks group `id`'s origin in the view: a corner, centre or point (snapping as To object does); a point on a face also
+ * turns it, Z out of the face (X as close to the old X as the face allows). Its contents stay where they are.
+ */
+function pickOrigin(id: string) {
+  toolHint = 'Origin: click where it goes · a corner, centre or edge: there, unturned · a face: there, Z out of the face · its contents stay · [Esc] cancels';
+  render();
+  viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the origin` : null);
+  viewer.aiming(viewer.aimHere());
+  viewer.pickFace((face) => {
+    viewer.aiming = null;
+    viewer.aimAt(null);
+    tips.cursorTip(null);
+    toolHint = null;
+    const at = face?.snap;
+    if (!at) return render();
+    const old = groupPlace(id);
+    const q = new Quaternion();
+    old.decompose(new Vector3(), q, new Vector3());
+    if (face.what === 'on face') {
+      const z = face.normal.clone().normalize();
+      const x = new Vector3(1, 0, 0).applyQuaternion(q).projectOnPlane(z);
+      if (x.lengthSq() < 1e-6) x.copy(new Vector3(0, 1, 0).applyQuaternion(q).projectOnPlane(z));
+      x.normalize();
+      q.setFromRotationMatrix(new Matrix4().makeBasis(x, z.clone().cross(x), z));
+    }
+    commit(originTo(history.current, id, new Matrix4().compose(at, q, new Vector3(1, 1, 1))));
+  }, true);
+}
+
 /** Group tool: ungroups a single selected group, groups the selection (groups too), or (nothing selected) groups the objects clicked next on Enter. */
 function groupTool() {
   const doc = history.current;
@@ -6650,6 +6770,8 @@ function render() {
       commit(runCommand(history.current, 'detach', { id }).doc);
       notify(`${j?.name ?? 'The attach'} broken: its objects move on their own (Undo brings it back)`);
     },
+    moveOrigin,
+    pickOrigin,
     editJoint: (id) => (history.current.joints.find((j) => j.id === id)?.kind === 'attach' ? attachPanel(id) : jointPanel(id, false)),
     moveJointEnd(id, from, to) {
       const doc = history.current;
