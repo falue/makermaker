@@ -101,12 +101,12 @@ function coatTests(): Body[] {
   return [coated(solid('Coat: cube, sharp', '#9fd0c0', [-60, 110, 0], [rect(5, 5)], 5), 'sharp'), coated(solid('Coat: cube, round', '#9fd0c0', [-40, 110, 0], [rect(5, 5)], 5), 'round'), rounded(solid('Coat me: block with a hole', '#9fd0c0', [0, 110, 0], [rect(30, 20), circle(0, 0, 8)], 10), 3)];
 }
 
-/** Test pieces for Attach: a cap and its post, moving as one. */
+/** Test pieces for Entangle: a cap and its post, moving as one. */
 function attachTest(): { bodies: Body[]; joint: Joint } {
-  const post = solid('Attach: post', '#d6b98c', [50, 110, 0], [rect(10, 10)], 20);
-  const cap = solid('Attach: cap', '#8cb4d6', [50, 110, 20], [rect(14, 14)], 3);
+  const post = solid('Entangle: post', '#d6b98c', [50, 110, 0], [rect(10, 10)], 20);
+  const cap = solid('Entangle: cap', '#8cb4d6', [50, 110, 20], [rect(14, 14)], 3);
   const z = ex(0);
-  return { bodies: [post, cap], joint: { id: newId(), name: 'Attach 1', kind: 'attach', parent: post.id, children: [cap.id], axis: { at: [0, 0, 20], dir: [0, 0, 1] }, min: z, max: z, value: z, speed: ex(1) } };
+  return { bodies: [post, cap], joint: { id: newId(), name: 'Entanglement 1', kind: 'attach', parent: post.id, children: [cap.id], axis: { at: [0, 0, 20], dir: [0, 0, 1] }, min: z, max: z, value: z, speed: ex(1) } };
 }
 
 /**

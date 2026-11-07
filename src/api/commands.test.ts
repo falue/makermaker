@@ -105,7 +105,7 @@ describe('coat', () => {
   it('linked: only the skin, the steps shared, attached; not linked: none', () => {
     const out = runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true, linked: true });
     expect(out.doc.bodies[1]).toMatchObject({ link: made.result, features: [{ type: 'coat', skin: true }] });
-    expect(out.doc.joints).toMatchObject([{ kind: 'attach', parent: made.result, children: [out.result], name: 'Attach 1' }]);
+    expect(out.doc.joints).toMatchObject([{ kind: 'attach', parent: made.result, children: [out.result], name: 'Entanglement 1' }]);
     expect(runCommand(made.doc, 'coat', { id: made.result, thickness: 1, newBody: true }).doc.joints).toEqual([]);
   });
   it('deleting either takes the attach along', () => {

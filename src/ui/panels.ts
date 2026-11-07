@@ -636,7 +636,7 @@ function editbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout menu align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
-    tool('attach', 'Attach: the selected objects (two or more) move and turn as one, at once; nothing selected: click them, then Enter', ctx.attachTool),
+    tool('attach', 'Entangle: the selected objects (two or more) move and turn as one, at once; nothing selected: click them, then Enter', ctx.attachTool),
     tool('measure', 'Distance measure (D): click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
   ];
 }
@@ -822,7 +822,7 @@ function left(ctx: UIContext): Node[] {
     if (!j) return [];
     const parent = j.parent === id;
     // an attach's icon breaks it, as a linked copy's unlinks
-    const title = j.kind === 'attach' ? `${j.name}: moves as one with the others · hover: what goes along · click: break it (Undo brings it back) · drag onto another object: it takes this one's place` : `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it · drag onto another object: it takes this one's place`;
+    const title = j.kind === 'attach' ? `${j.name}: moves as one with the others · hover: what goes along · click: undo the entanglement (Undo brings it back) · drag onto another object: it takes this one's place` : `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it · drag onto another object: it takes this one's place`;
     const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon(j.kind === 'attach' ? 'attach' : 'joint'), title, onclick: () => (j.kind === 'attach' ? ctx.breakAttach(j.id) : ctx.editJoint(j.id)) });
     // hovered: what stays and what moves light in the list (in two colours) and in the view
     const light = (on: boolean) => {

@@ -2198,7 +2198,7 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
   box.append(cell(label, input, angles.buttons()), panelButton('✓', 'Keep it (Enter); Esc leaves nothing', () => finish(true)));
   document.body.append(box);
   atTop(box);
-  toolHint = 'Type or scrub the angle, or turn it with its button · [Enter] keeps it · [Esc] leaves nothing';
+  toolHint = 'Type or scrub the angle, or turn it with its button · [Enter] Finalize · [Esc] leaves nothing';
   render();
   angles.show();
   setTimeout(() => (input.focus(), input.select()));
@@ -2505,7 +2505,7 @@ function patternTool(mode: 'around' | 'grid' = 'grid') {
         else render();
       },
     };
-    toolHint = 'Pattern: click the bodies to repeat · again: not · then [Enter] · [Esc] cancels';
+    toolHint = 'Pattern: click the bodies to repeat (a second click drops it) · [Enter] Finalize · [Esc] cancels';
     return render();
   }
   if (mode === 'around') {
@@ -2630,7 +2630,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
           panel.inputs[3].dispatchEvent(new Event('input'));
         });
   const extra = mode === 'around' ? [checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply())), link] : [link];
-  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] keeps them · [Esc] leaves nothing' : 'Pattern grid: counts and gaps · along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] keeps them · [Esc] leaves nothing', extra, [switcher]);
+  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] Finalize · [Esc] leaves nothing' : 'Pattern grid: counts and gaps · along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] Finalize · [Esc] leaves nothing', extra, [switcher]);
   // between the fields: Overall before the distances, Set axis before the angle
   panel.inputs[mode === 'around' ? 1 : 3].parentElement!.before(overallBox ?? setAxis);
   texts = fields.map((f) => f.value);
@@ -2716,7 +2716,7 @@ function mirrorTool() {
         else render();
       },
     };
-    toolHint = 'Mirror: click the bodies to mirror · again: not · then [Enter] · or select sketch shapes first · [Esc] cancels';
+    toolHint = 'Mirror: click the bodies to mirror (a second click drops it) · [Enter] Finalize · or select sketch shapes first · [Esc] cancels';
     return render();
   }
   toolHint = 'Mirror: click the face to mirror across · empty space: the base plane facing you · [Esc] cancels';
@@ -2980,7 +2980,7 @@ function threadPanel(body: string, id: string, fresh = false) {
     ],
     write,
     (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
-    `Thread ${feature.inside ? 'in a hole: Modelled or Pilot (tap-drill hole)' : 'on a shaft: Modelled or Plain'} · pick its size · Custom: type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] keeps it · [Esc] ${fresh ? 'leaves nothing' : 'puts it back'}`,
+    `Thread ${feature.inside ? 'in a hole: Modelled or Pilot (tap-drill hole)' : 'on a shaft: Modelled or Plain'} · pick its size · Custom: type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] Finalize · [Esc] ${fresh ? 'leaves nothing' : 'puts it back'}`,
     [],
     [kinds, systems, pick],
   );
@@ -3152,7 +3152,7 @@ function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
     },
-    'Draft: drag the body up / down or type the angle (inward; negative: outward) · [Shift] angle steps, [A] / [Shift A] finer / coarser, [Ctrl] precise · Set axis: the hinge it turns about (its bottom side first) · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    'Draft: drag the body up / down or type the angle (inward; negative: outward) · [Shift] angle steps, [A] / [Shift A] finer / coarser, [Ctrl] precise · Set axis: the hinge it turns about (its bottom side first) · [Enter] Finalize · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
     [setAxis],
   );
   const angles = angleControl({ input: panel.inputs[0], axis: hinge, idle: () => !picking });
@@ -3291,7 +3291,7 @@ function bulgePanel(body: string, id: string, fresh = false) {
     ],
     write,
     (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
-    'Bulge: where its peak is · X / Y / Z from the middle; across the face: its height (negative: a dent) · T: the height to a point · Fullness: -4 pointy, 0 pillow, 1 dome, 4 flat top · [Enter] keeps it · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    'Bulge: where its peak is · X / Y / Z from the middle; across the face: its height (negative: a dent) · T: the height to a point · Fullness: -4 pointy, 0 pillow, 1 dome, 4 flat top · [Enter] Finalize · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
   );
 }
 
@@ -3335,7 +3335,7 @@ function offsetTool() {
   const walls = () => {
     stop();
     const u = history.current.units;
-    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[u]), reach: nearestSide, title: 'Wall: how thick · T: the distance from a point to the nearest side of the body' }], ([t]) => (history.replace(setIn(history.current, [...path, 'thickness'], { e: t, u })), update()), (ok) => (ok ? render() : undo()), 'Shell: the wall thickness · type or scrub it · [Enter] keeps it · [Esc] leaves nothing');
+    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[u]), reach: nearestSide, title: 'Wall: how thick · T: the distance from a point to the nearest side of the body' }], ([t]) => (history.replace(setIn(history.current, [...path, 'thickness'], { e: t, u })), update()), (ok) => (ok ? render() : undo()), 'Shell: the wall thickness · type or scrub it · [Enter] Finalize · [Esc] leaves nothing');
   };
   addEventListener('keydown', keys, { capture: true });
   next();
@@ -3691,7 +3691,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
     };
     next();
   };
-  const hint = 'Coat: how thick, live · sharp or round corners · faces to exclude · new body: a skin around it · [Enter] keeps it · [Esc] drops it';
+  const hint = 'Coat: how thick, live · sharp or round corners · faces to exclude · new body: a skin around it · [Enter] Finalize · [Esc] drops it';
   const panel = valuePanel(
     [{ label: 'Thickness', value: start.f.thickness.e, title: 'How much thicker, on all sides' }],
     ([t]) => picking || set({ thickness: { e: t, u: history.current.units } }),
@@ -3731,7 +3731,7 @@ function offsetShapes(sketch: string) {
       if (q.kind === 'line' && p.kind === 'line') return { ...q, id, pts: roundPts(beside(p.pts, d)) };
       return { ...q, id };
     });
-  const hint = 'Offset: how far outside · type or scrub it; negative: inside, a line: to its left · [Enter] keeps them · [Esc] leaves nothing';
+  const hint = 'Offset: how far outside · type or scrub it; negative: inside, a line: to its left · [Enter] Finalize · [Esc] leaves nothing';
   const apply = (d: number) => {
     const shapes = made(d);
     const kept = shapes.filter((x): x is Profile => !!x);
@@ -3768,7 +3768,7 @@ function boxJoint() {
       },
       apply: () => picked.length >= 2 && run(),
     };
-    toolHint = 'Box joint: click the two bodies that overlap or touch · Shift-click more (a whole box), then [Enter] · [Esc] cancels';
+    toolHint = 'Box joint: click the two bodies that overlap or touch · Shift-click more (a whole box) · [Enter] Finalize · [Esc] cancels';
     return render();
   }
   const pairs = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b, fingerPair(a, b)] as const));
@@ -4256,7 +4256,7 @@ function planePanel(id: string, fresh = false) {
   };
   const now = () => history.current.planes[i];
   const setPlane = (next: Partial<WorkPlane>) => change(setIn(history.current, ['planes', String(i)], { ...now(), ...next }));
-  const hint = "Work plane: its offset (T: a point's distance, type on, e.g. /2 for halfway) · the mode above picks it anew · [Enter] keeps it · [Esc] " + (fresh ? 'leaves nothing' : 'puts it back');
+  const hint = "Work plane: its offset (T: a point's distance, type on, e.g. /2 for halfway) · the mode above picks it anew · [Enter] Finalize · [Esc] " + (fresh ? 'leaves nothing' : 'puts it back');
   // one pick at a time: `take` gets each click (true: picking goes on); the snap a click takes shows while hovering (`lit`: a face or edge lit whole)
   let picking: string | null = null;
   const pick = (what: string, tip: string, take: (p: PickedFace) => boolean, lit = false) => {
@@ -4455,7 +4455,7 @@ function loftTool() {
     render();
   };
   const next = () => {
-    toolHint = `Loft: click the outlines in order · closed sketch shapes, one per sketch (${picked.length} so far) · [Enter] keeps it · [Esc] cancels`;
+    toolHint = `Loft: click the outlines in order · closed sketch shapes, one per sketch (${picked.length} so far) · [Enter] Finalize · [Esc] cancels`;
     render();
     viewer.pickFace((face) => {
       if (ended) return;
@@ -4600,7 +4600,7 @@ function rotateTool() {
     }, true);
   };
   const turnHint = () => {
-    toolHint = `Move around the axis to turn, or type degrees · ${angleKeys()}${point ? ' · click its point again: the next axis' : ''} · click or [Enter] keeps it · [Esc] puts it back`;
+    toolHint = `Move around the axis to turn, or type degrees · ${angleKeys()}${point ? ' · click its point again: the next axis' : ''} · click or [Enter] Finalize · [Esc] puts it back`;
     render();
   };
   /** To object: two clicks; their angle around the axis goes into Turn ° (to calculate on). */
@@ -4769,8 +4769,8 @@ const corners2 = ([x0, y0, x1, y1]: number[]): [number, number][] => [[x0, y0], 
 const isObject = (id: string) => history.current.bodies.some((b) => b.id === id) || history.current.groups.some((g) => g.id === id);
 
 /**
- * Attach: the selected objects (bodies or groups, two or more) move as one at once, its anchor where the first meets
- * the others (else the first's middle); fewer selected: click them (again: not), Enter attaches them.
+ * Entangle (an attach): the selected objects (bodies or groups, two or more) move as one at once, its anchor where the first meets
+ * the others (else the first's middle); fewer selected: click them (a second click drops one), Enter attaches them.
  */
 function attachTool() {
   const ids = selected.filter(isObject);
@@ -4789,7 +4789,7 @@ function attachTool() {
       else render();
     },
   };
-  toolHint = 'Attach: click the objects that move as one · again: not · [Enter] attaches them · [Esc] cancels';
+  toolHint = 'Entangle: click the objects that move as one (a second click drops it) · [Enter] Finalize · [Esc] cancels';
   render();
 }
 
@@ -4804,7 +4804,7 @@ function attachNow(ids: string[]) {
   const made = runCommand(doc, 'attach', { id: first, ids: rest, at: at.toArray() });
   selected = ids;
   commit(made.doc);
-  cheer(`Attached: ${ids.map((id) => [...doc.bodies, ...doc.groups].find((o) => o.id === id)!.name).join(', ')} move as one`);
+  cheer(`Entangled: ${ids.map((id) => [...doc.bodies, ...doc.groups].find((o) => o.id === id)!.name).join(', ')} move as one`);
 }
 
 /**
@@ -4835,7 +4835,7 @@ function jointTool() {
         else render();
       },
     };
-    toolHint = 'Joint: click the objects that move · again: not · then [Enter] · [Esc] cancels';
+    toolHint = 'Joint: click the objects that move (a second click drops it) · [Enter] Finalize · [Esc] cancels';
     return render();
   }
   toolHint = 'Joint: click its axis · an edge or line, or a circle or round edge (through its centre, square to it) · [Esc] cancels';
@@ -5081,7 +5081,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
   document.body.append(box);
   atTop(box);
   viewer.showAxis(jointAxis(now()), jointAxis(now()).at, 60);
-  toolHint = `${now().name}: set up the joint · hinge or slider, its limits (T: to a point), speed, direction · [Enter] keeps it · [Esc] ${fresh ? 'removes the joint' : 'drops the changes'}`;
+  toolHint = `${now().name}: set up the joint · hinge or slider, its limits (T: to a point), speed, direction · [Enter] Finalize · [Esc] ${fresh ? 'removes the joint' : 'drops the changes'}`;
   render();
   setTimeout(() => (maxInput.focus(), maxInput.select()));
   addEventListener('keydown', keys, { capture: true });
@@ -5104,7 +5104,7 @@ function attachPanel(id: string) {
     viewer.showMeasureLine(anchor());
   };
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
-  const pick = panelButton('Anchor', 'Click a corner, centre or point on a face: where the attach shows', () => {
+  const pick = panelButton('Anchor', 'Click a corner, centre or point on a face: where the entanglement shows', () => {
     viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: the anchor` : null);
     viewer.pickFace((face) => {
       viewer.aiming = null;
@@ -5133,7 +5133,7 @@ function attachPanel(id: string) {
   document.body.append(box);
   atTop(box);
   viewer.showMeasureLine(anchor());
-  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name}, moving as one · its anchor · [Enter] keeps it · [Esc] drops the changes`;
+  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name}, moving as one · its anchor · [Enter] Finalize · [Esc] drops the changes`;
   render();
   addEventListener('keydown', keys, { capture: true });
 }
@@ -5624,7 +5624,7 @@ function groupTool() {
       if (selected.length) groupSelection();
     },
   };
-  toolHint = 'Click the objects to group · [Enter] groups them · [Esc] cancels';
+  toolHint = 'Click the objects to group (a second click drops it) · [Enter] Finalize · [Esc] cancels';
   render();
 }
 
@@ -6806,7 +6806,7 @@ function render() {
     breakAttach: (id) => {
       const j = history.current.joints.find((x) => x.id === id);
       commit(runCommand(history.current, 'detach', { id }).doc);
-      notify(`${j?.name ?? 'The attach'} broken: its objects move on their own (Undo brings it back)`);
+      notify(`${j?.name ?? 'The entanglement'} undone: its objects move on their own (Undo brings it back)`);
     },
     moveOrigin,
     pickOrigin,
@@ -7637,7 +7637,7 @@ function calibrate(id: string) {
           update();
         },
         (ok) => (ok ? render() : history.current !== doc0 ? undo() : render()),
-        'Calibrate: the real distance between the two points · [Enter] keeps it · [Esc] leaves it as it was',
+        'Calibrate: the real distance between the two points · [Enter] Finalize · [Esc] leaves it as it was',
       );
     }, true);
   viewer.aiming = () => {
@@ -7679,7 +7679,7 @@ function moveImages(by: Vec3 = [0, 0, 0]) {
       const by = values.map((t) => length(t));
       return by.every((v) => v !== null) ? { ...im, frame: { ...im.frame, o: im.frame.o.map((v, k) => v + by[k]!) as Vec3 } } : null;
     },
-    'Move the picture: X, Y, Z · [Enter] keeps it · [Esc] puts it back · or drag it in the view',
+    'Move the picture: X, Y, Z · [Enter] Finalize · [Esc] puts it back · or drag it in the view',
   );
   if (by.some(Boolean)) panel.inputs[0].dispatchEvent(new Event('input'));
 }
@@ -7698,7 +7698,7 @@ function turnImages() {
       const turned = (v: Vec3) => new Vector3(...v).applyAxisAngle(axis, rad).toArray() as Vec3;
       return { ...im, frame: { ...im.frame, x: turned(im.frame.x), y: turned(im.frame.y) } };
     },
-    `Rotate the picture around its middle: move the pointer, or type · ${angleKeys()} · click or [Enter] keeps it · [Esc] puts it back`,
+    `Rotate the picture around its middle: move the pointer, or type · ${angleKeys()} · click or [Enter] Finalize · [Esc] puts it back`,
     () => angles.end(),
   );
   // as Rotate does for bodies: the pointer turns it at once, the same arc and steps

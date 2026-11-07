@@ -63,7 +63,7 @@ export const jointsWithout = (joints: Joint[], gone: Set<string>) =>
 /** A new attach: `parent` and `children` move as one, anchored at `at` (the parent's coordinates). */
 export const attach = (doc: Doc, id: string, parent: string, children: string[], at: [number, number, number]): Joint => ({
   id,
-  name: `Attach ${doc.joints.filter((j) => j.kind === 'attach').length + 1}`,
+  name: `Entanglement ${doc.joints.filter((j) => j.kind === 'attach').length + 1}`,
   kind: 'attach',
   parent,
   children,
