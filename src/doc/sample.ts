@@ -143,6 +143,8 @@ function shapeTests(): Sketch[] {
     sketch('Revolve me', { kind: 'base', axis: 'xz', offset: ex(-60) }, [vase, axis]),
     // a bent path 10 mm above the ground and a small circle to sweep along it (a pipe)
     sketch('Sweep path', { kind: 'base', axis: 'xy', offset: ex(10) }, [{ id: newId(), kind: 'line', pts: [[-60, -160], [-20, -160], [0, -140], [0, -120]] }]),
+    // a 3D line on the ground: along x, 30 up, along y (sweep the profile along it: a pipe through all three axes)
+    sketch('Sweep path 3D', { kind: 'base', axis: 'xy', offset: ex(0) }, [{ id: newId(), kind: 'line', pts: [[-60, -200], [-20, -200], [-20, -200], [-20, -180]], z: [0, 0, 30, 30] }]),
     // a closed line of a straight side, a bezier curve and a round arc (extrude it); a bent line with curves (sweep along it)
     sketch('Curved outline', { kind: 'base', axis: 'xy', offset: ex(0) }, [{ id: newId(), kind: 'polygon', pts: [[-200, 60], [-170, 60], [-170, 90]], curves: [null, { c1: [-160, 70], c2: [-160, 80] }, { mid: [-196, 84] }], r: ex(0), rot: ex(0) }]),
     sketch('Sweep profile', { kind: 'base', axis: 'xy', offset: ex(0) }, [circle(-80, -175, 8)]),

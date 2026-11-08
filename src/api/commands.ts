@@ -163,10 +163,12 @@ export const COMMANDS: Record<string, Command> = {
   },
   line: {
     doc: 'An open line in a sketch through its points (never extruded on its own; lines closing areas are).',
-    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'points', type: 'points2', doc: '[[x, y], …] mm, 2 or more' }, curves],
+    params: [{ name: 'sketch', type: 'id', doc: 'the sketch' }, { name: 'points', type: 'points2', doc: '[[x, y], …] mm, 2 or more; [x, y, z]: z off the sketch plane (a 3D line, straight sides only, a sweep path)' }, curves],
     run: (doc, a) => {
       if (pts2(a.points).length < 2) throw new Error('line: 2 points or more');
-      return addShape(doc, a, { id: newId(), kind: 'line', pts: pts2(a.points), ...curvesOf(a.curves) });
+      const z = (a.points as unknown[][]).map((p) => num(p[2]));
+      if (z.some(Boolean) && curvesOf(a.curves).curves) throw new Error('line: a 3D line has straight sides only');
+      return addShape(doc, a, { id: newId(), kind: 'line', pts: pts2(a.points), ...curvesOf(a.curves), ...(z.some(Boolean) ? { z } : {}) });
     },
   },
   extrude: {

@@ -2522,6 +2522,20 @@ input + .set-axis {
 }
 
 /* a drawing mode switched: its pictogram and name, top left in the view for a moment */
+/* the line tool's 3D box, below where the mode note shows */
+.space-box {
+  position: absolute;
+  top: 124px;
+  left: 10px;
+  z-index: 20;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.space-box[hidden] {
+  display: none;
+}
 .mode-note {
   position: absolute;
   top: 76px; /* below the sketch's breadcrumbs */

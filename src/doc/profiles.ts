@@ -98,6 +98,8 @@ export function ontoArcThrough(a: UV, b: UV, c: UV, q: UV): UV {
 }
 
 /** Whether a side bends. */
+/** A line with points off its plane (see `z`). */
+export const lifted = (p: { kind: string; z?: number[] }) => p.kind === 'line' && !!p.z?.some(Boolean);
 export const curved = (p: P) => (p.kind === 'polygon' || p.kind === 'line') && !!p.curves?.some(Boolean);
 
 /** Each side of a polygon or line as points, both ends in, bakeTurn. */
@@ -512,7 +514,7 @@ export function biarcs(at: (t: number) => UV, dir: (t: number) => UV, tol = 1e-3
 }
 
 /** Length of a line's or outline's sides. */
-export const outlineLength = (p: P) => segments(p).reduce((s, g) => s + segLength(g), 0);
+export const outlineLength = (p: P) => (p.kind === 'line' && lifted(p) ? p.pts.slice(1).reduce((s, [u, v], i) => s + Math.hypot(u - p.pts[i][0], v - p.pts[i][1], p.z![i + 1] - p.z![i]), 0) : segments(p).reduce((s, g) => s + segLength(g), 0));
 
 /** Bounding box in plane coordinates: [minX, minY, maxX, maxY]. */
 export function bounds(p: P): [number, number, number, number] {

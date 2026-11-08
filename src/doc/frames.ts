@@ -25,7 +25,8 @@ export const BASE: Record<BasePlane, Frame> = {
   yz: { o: [0, 0, 0], x: [0, 1, 0], y: [0, 0, 1], n: [1, 0, 0] },
 };
 
-export const toWorld = (f: Frame, u: number, v: number): V3 => add(f.o, add(scale(f.x, u), scale(f.y, v)));
+/** Plane point (u, v), `z` off the plane along its normal, in the frame's space. */
+export const toWorld = (f: Frame, u: number, v: number, z = 0): V3 => add(f.o, add(add(scale(f.x, u), scale(f.y, v)), scale(f.n, z)));
 
 export const toPlane = (f: Frame, p: V3): [number, number] => {
   const d: V3 = [p[0] - f.o[0], p[1] - f.o[1], p[2] - f.o[2]];

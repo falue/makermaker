@@ -1,7 +1,7 @@
-import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, Sketches, Transformation, type Drawing, type Edge, type Face as BRepFace, type Shape3D, type Sketch } from 'replicad';
+import { assembleWire, basicFaceExtrusion, cast, makeBox, draw, drawCircle, drawRectangle, FaceFinder, makeBSplineApproximation, makeFace, measureVolume, makeLine, revolution, getOC, importSTEP, makeCylinder, makePolygon, makeSolid, makeSphere, measureArea, Vector, Plane, Sketch, Sketches, Transformation, type Drawing, type Edge, type Face as BRepFace, type Shape3D } from 'replicad';
 import { add, cross, cutPlane, dot, extent, frames, norm, scale, sub, toWorld, type Frame, type Place } from '../doc/frames';
 import type { DrawingPen } from 'replicad';
-import { bakeTurn, bounds, centre, cornerCuts, cornerRadii, segments, curved, inside, mapPoints, movedLine, nesting, sideDirs, type DrawnProfile } from '../doc/profiles';
+import { bakeTurn, bounds, centre, cornerCuts, cornerRadii, segments, curved, inside, lifted, mapPoints, movedLine, nesting, sideDirs, type DrawnProfile } from '../doc/profiles';
 import type { TopoDS_Shape } from 'replicad-opencascadejs';
 import { lineUses } from '../doc/arrangement';
 import { exactOf, type Exact } from './exact';
@@ -643,9 +643,18 @@ function sweep(shape: Shape3D | null, s: Of<'sweep'>): Shape3D {
   // the profile centred on its own origin: the path's start
   const [cx, cy] = centre(p);
   const centred = p.kind === 'polygon' ? mapPoints(p, ([x, y]) => [x - cx, y - cy]) : { ...p, x: 0, y: 0 };
-  const spine = (path.kind === 'line' ? sidesDrawn(draw(path.pts[0]), path).done() : drawing(path)).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch;
+  const spine = path.kind === 'line' && lifted(path) ? spaceLine(f, path) : ((path.kind === 'line' ? sidesDrawn(draw(path.pts[0]), path).done() : drawing(path)).sketchOnPlane(new Plane(f.o, f.x, f.n)) as Sketch);
   const tool = spine.sweepSketch((plane) => drawing(centred).sketchOnPlane(plane) as Sketch, { transitionMode: 'right' });
   return joined(shape, tool, 'add');
+}
+
+/** A 3D line (points off its plane) as a sweep's spine: straight sides through its points. */
+function spaceLine(f: Frame, { pts, z }: { pts: [number, number][]; z?: number[] }): Sketch {
+  const at = pts.map(([u, v], i) => toWorld(f, u, v, z?.[i] ?? 0));
+  const wire = assembleWire(at.slice(1).map((b, i) => makeLine(at[i], b)));
+  // the profile's x: square to the first side (`sweepSketch` crosses it with this)
+  const first = norm(sub(at[1], at[0]));
+  return new Sketch(wire, { defaultDirection: Math.abs(dot(first, f.n)) > 0.9 ? f.x : f.n });
 }
 
 /**
@@ -1190,6 +1199,7 @@ function cutterSide(c: Of<'split'>['cutter'], far: number): Shape3D {
     return drawRectangle(2 * far, 2 * far).sketchOnPlane(new Plane(f.o, f.x, f.n)).extrude(far) as Shape3D;
   }
   const { frame: f, profile: p } = c;
+  if (lifted(p)) throw new Error('a 3D line cannot cut: only one in its plane');
   const line = p.kind === 'line' ? movedLine(p, c.offset) : null;
   return (line ? leftOf(line, far) : drawing(p)).sketchOnPlane(new Plane(add(f.o, scale(f.n, -far)), f.x, f.n)).extrude(2 * far) as Shape3D;
 }

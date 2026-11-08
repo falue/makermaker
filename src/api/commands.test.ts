@@ -17,6 +17,18 @@ function script(steps: [string, Record<string, unknown> | ((r: unknown[]) => Rec
 }
 
 describe('commands', () => {
+  it('draws a 3D line from points with z, straight only', () => {
+    const { doc } = script([
+      ['sketch', { plane: 'xy' }],
+      ['line', (r) => ({ sketch: r[0], points: [[0, 0], [10, 0, 5], [10, 10, 5]] })],
+      ['line', (r) => ({ sketch: r[0], points: [[0, 0], [10, 0]] })],
+    ]);
+    const [lifted, flat] = doc.sketches[0].shapes;
+    expect(lifted.kind === 'line' && lifted.z).toEqual([0, 5, 5]);
+    expect(flat.kind === 'line' && flat.z).toBeUndefined();
+    expect(() => runCommand(doc, 'line', { sketch: doc.sketches[0].id, points: [[0, 0], [10, 0, 5]], curves: [{ mid: [5, 2] }] })).toThrow('straight sides only');
+  });
+
   it('makes a plate from a sketch, a box cut out of it, a hole and a fillet', () => {
     const { doc, results } = script([
       ['parameter', { name: 'ply', value: '4mm' }],

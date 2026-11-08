@@ -6,7 +6,7 @@ import { followSizes, sideNow, sized } from './doc/sizes';
 import { toBuild } from './doc/expand';
 import { add, BASE, capFrame, cross, cutPlane, dot, extent, frames, moved, norm, placed as inWorld, placeFrame, scale, sub, toWorld, unplaced, type Frame, type Place, type V3 } from './doc/frames';
 import { History } from './doc/history';
-import { alignment, area, beside, bounds, movedLine, outlineLength, segments, segPoints, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
+import { alignment, area, beside, bounds, lifted, movedLine, outlineLength, segments, segPoints, centre, bakeTurn, closedLoop, cornerLimits, curved, flattened, grown, mapPoints, offsetPath, roundable, type Align } from './doc/profiles';
 import { pieces } from './doc/arrangement';
 import { boreFor, fitting, THREADS } from './doc/threads';
 import { EXACT_BOXED, EXACT_MOST } from './kernel/limits';
@@ -2191,7 +2191,7 @@ function revolveTool() {
     revolvePanel(s.id, shapes.map((q) => q.id), { at: uvOf(f, a.at), dir: [u / l, v / l] });
   };
   // selected first as the axis: a line among the selected shapes, else an Alt-picked edge
-  const line = s.shapes.find((q) => shapeSel.includes(q.id) && q.kind === 'line'); // a construction line too: drawn as an axis
+  const line = s.shapes.find((q) => shapeSel.includes(q.id) && q.kind === 'line' && !lifted(q)); // a construction line too: drawn as an axis
   if (line?.kind === 'line') {
     const [a, b] = [line.pts[0], line.pts[1]];
     const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -5908,7 +5908,7 @@ function withSketched(doc: Doc, r: SketchResult): { doc: Doc; id: string; ids: s
     ids = [profile.id];
     // a line that closes a loop with others: they become one polygon, which can be extruded
     const shapes = sketches.find((s) => s.id === id)!.shapes;
-    const loop = profile.kind === 'line' && !profile.construction && closedLoop(shapes.flatMap((q) => (q.kind === 'line' && !q.construction ? [q] : [])), profile.id);
+    const loop = profile.kind === 'line' && !profile.construction && !lifted(profile) && closedLoop(shapes.flatMap((q) => (q.kind === 'line' && !q.construction && !lifted(q) ? [q] : [])), profile.id);
     if (loop) {
       const polygon: Profile = { id: newId(), kind: 'polygon', pts: loop.pts, ...(loop.curves ? { curves: loop.curves } : {}), r: len(0), rot: ex('0'), ...(profile.group ? { group: profile.group } : {}) };
       sketches = sketches.map((s) => (s.id === id ? { ...s, shapes: [...shapes.filter((q) => !loop.ids.includes(q.id)), polygon] } : s));
@@ -5977,7 +5977,7 @@ function shapeOf({ profile: p, typed: t, sides }: Drawn): Profile {
     !c ? null : { ...(c.l !== undefined ? { l: asked(c.l) as Expr } : {}), ...(c.d !== undefined ? { d: asked(c.d) as Expr } : {}), ...(c.deg !== undefined ? { deg: ex(c.deg), base: c.base } : {}) },
   );
   const path = { pts: roundPts(p.pts), ...(p.curves ? { curves: roundCurves(p.curves) } : {}), ...(sizes?.some(Boolean) ? { sizes } : {}) };
-  return p.kind === 'line' ? { id, kind: 'line', ...path } : { id, kind: 'polygon', ...path, r: len(p.r), rot: ex(fmt(p.rot)) };
+  return p.kind === 'line' ? { id, kind: 'line', ...path, ...(lifted(p) ? { z: p.z!.map((z) => +z.toFixed(6)) } : {}) } : { id, kind: 'polygon', ...path, r: len(p.r), rot: ex(fmt(p.rot)) };
 }
 
 function stopTool() {

@@ -40,7 +40,8 @@ export type Profile = (
   | { id: string; kind: 'circle'; x: Expr; y: Expr; d: Expr }
   | { id: string; kind: 'ngon'; x: Expr; y: Expr; d: Expr; sides: Expr; rot: Expr; r?: Expr; rs?: Expr[] }
   | { id: string; kind: 'polygon'; pts: [number, number][]; curves?: (Curve | null)[]; sizes?: (SideSize | null)[]; r: Expr; rot: Expr; rs?: Expr[] }
-  | { id: string; kind: 'line'; pts: [number, number][]; curves?: (Curve | null)[]; sizes?: (SideSize | null)[] }
+  /** `z`: each point's height off the sketch plane (none: all 0); such a 3D line has straight sides only. */
+  | { id: string; kind: 'line'; pts: [number, number][]; curves?: (Curve | null)[]; sizes?: (SideSize | null)[]; z?: number[] }
 ) & {
   /** A construction line: drawn dashed, snapped to, never extruded. */
   construction?: boolean;

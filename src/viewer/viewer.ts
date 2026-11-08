@@ -11,7 +11,7 @@ import type { Backdrop, BasePlane, CameraState, Light, Views } from '../doc/type
 import type { BodyMesh } from '../kernel/build';
 import { along, axisWheel, choose } from './gizmo';
 import { toWorld, type Frame } from '../doc/frames';
-import { arcOf, area, bounds, centre, edgeDistance, inside, bakeTurn, nearestOnOutline, nearBox, segments, segPoints, type DrawnProfile, type Seg } from '../doc/profiles';
+import { arcOf, area, bounds, centre, edgeDistance, inside, bakeTurn, lifted, nearestOnOutline, nearBox, segments, segPoints, type DrawnProfile, type Seg } from '../doc/profiles';
 import { inGroup } from '../doc/shapegroups';
 import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, pointHandles, pointMoved, resized, rotated, simpleLine, sizeOf, smoothToggled, type Handle } from './shapes';
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
@@ -1379,8 +1379,8 @@ export class Viewer implements ToolView {
     const selected = this.handled();
     // a simple line selected shows its two points, hovered or not
     const help = this.helped() ?? (!this.tool && selected && simpleLine(selected.shape) ? selected : null);
-    if (help) add(pointHandles(help.shape), help); // first: they win over the box's handles
-    const h = this.boxHover ? selected : null;
+    if (help && !lifted(help.shape)) add(pointHandles(help.shape), help); // first: they win over the box's handles
+    const h = this.boxHover && selected && !lifted(selected.shape) ? selected : null; // 3D lines: no handles yet
     if (h) add(this.boxHandles(h, reachPx), h);
     return out;
   }
@@ -1542,6 +1542,18 @@ export class Viewer implements ToolView {
    */
   private shapeAt(ray: THREE.Ray, partDistance = Infinity, reachPx = 8) {
     let best: { sketch: string; shape: string; distance: number; edge: number; area: number } | null = null;
+    // 3D lines where they are in space: the nearest within reach of the ray
+    for (const s of this.sketches)
+      for (const q of s.shapes) {
+        if (q.kind !== 'line' || !lifted(q)) continue;
+        const at = q.pts.map(([u, v], i) => new THREE.Vector3(...toWorld(s.frame, u, v, q.z![i])));
+        for (const [i, b] of at.slice(1).entries()) {
+          const on = new THREE.Vector3();
+          const edge = Math.sqrt(ray.distanceSqToSegment(at[i], b, undefined, on));
+          const distance = on.distanceTo(ray.origin);
+          if (edge <= reachPx / this.pixelsPerMm(on) && distance <= partDistance + 1e-3 && (!best || edge < best.edge)) best = { sketch: s.id, shape: q.id, distance, edge, area: 0 };
+        }
+      }
     for (const s of this.sketches) {
       const p = planeHit(ray, s.frame);
       if (!p) continue;
@@ -1550,7 +1562,7 @@ export class Viewer implements ToolView {
       const [u, v] = uvOf(s.frame, p);
       const reach = reachPx / this.pixelsPerMm(p);
       for (const q of s.shapes) {
-        if (!nearBox(q, u, v, reach)) continue; // too far to be near or inside
+        if (lifted(q) || !nearBox(q, u, v, reach)) continue; // too far to be near or inside
         const d = q.kind === 'circle' ? Math.min(edgeDistance(q, u, v), Math.hypot(u - q.x, v - q.y)) : edgeDistance(q, u, v); // a circle's centre picks it too
         const edge = d <= reach ? d : Infinity; // outside the reach only the inside counts
         if (edge === Infinity && !inside(q, u, v)) continue;

@@ -1,4 +1,4 @@
-import { bounds, inside, segments, segPoints, type DrawnProfile } from './profiles';
+import { bounds, inside, lifted, segments, segPoints, type DrawnProfile } from './profiles';
 
 type UV = [number, number];
 type Box = [number, number, number, number];
@@ -10,7 +10,7 @@ const touch = (a: Box, b: Box) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] &
 /** The lines of a sketch and the closed shapes they reach (by bounding box, and on from those): what their faces need. */
 export function lineUses(ps: (DrawnProfile & { id: string })[]): string[] {
   const boxes = ps.map((p) => bounds(p));
-  const uses = new Set(ps.flatMap((p, i) => (p.kind === 'line' ? [i] : [])));
+  const uses = new Set(ps.flatMap((p, i) => (p.kind === 'line' && !lifted(p) ? [i] : [])));
   for (let grew = uses.size > 0; grew; ) {
     grew = false;
     boxes.forEach((b, i) => !uses.has(i) && [...uses].some((k) => touch(b, boxes[k])) && (uses.add(i), (grew = true)));

@@ -367,6 +367,14 @@ describe('buildBody', () => {
     expect(pipe.box.width).toBeCloseTo(43, 0); // the line's 40 plus the tube's radius beyond its corner
     expect(pipe.box.depth).toBeCloseTo(6, 1);
     pipe.done();
+    // a 3D line: along x, up 30, then along y; a pipe through all three axes
+    const space = buildBody([{ id: 'w', type: 'sweep', profile: { id: 'c', kind: 'circle', x: 0, y: 0, d: 6 }, path: { frame: ground, profile: { id: 'l', kind: 'line', pts: [[0, 0], [40, 0], [40, 0], [40, 30]], z: [0, 0, 30, 30] } } } as BuildFeature]);
+    const box = space.boundingBox;
+    expect(box.width).toBeCloseTo(43, 0);
+    expect(box.height).toBeCloseTo(33, 0); // y
+    expect(box.depth).toBeCloseTo(36, 0); // z: 30 up plus the tube's radius below its start and above its top
+    expect(Math.abs(measureVolume(space) / (Math.PI * 9 * 100) - 1)).toBeLessThan(0.05); // 100 mm of Ø 6, give or take the mitred corners
+    space.delete();
   });
 
   it('revolves shapes around a line in their plane, and lofts through shapes', () => {

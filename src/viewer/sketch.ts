@@ -115,6 +115,8 @@ export interface ToolView {
   bodyCurveTop(at: THREE.Vector3, w: THREE.Vector3, reach: number): THREE.Vector3 | null;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
+  /** Where the camera looks (world, unit). */
+  looking(): THREE.Vector3;
   toScreen(p: THREE.Vector3): [number, number];
   /** Screen pixels per mm at `at`. */
   pixelsPerMm(at: THREE.Vector3): number;
@@ -318,9 +320,11 @@ type Phase =
    * straight on is 0°), else the plane's x axis, or a line picked with B. `out`: the handle pulled from the last point;
    * `held`: a bezier point pressed, its handle being pulled (`adds`: a new point, `closes`: on the line's start);
    * `arcEnd`: a first arc's end, its bulge still to come; `arc`: the open arc's middle; `round`: a tangent from a curve,
-   * its first point sliding along it, at `t`, near `near` where it was clicked (`line`: the curve, lit).
+   * its first point sliding along it, at `t`, near `near` where it was clicked (`line`: the curve, lit). In 3D (see
+   * `space`): `z` each point's height off the plane, `curZ` the open side's end's; `lock`: the world axis (0 X, 1 Y,
+   * 2 Z) the open side runs along.
    */
-  | { kind: 'polygon'; target: Target; pts: UV[]; curves: (Curve | null)[]; sides: NonNullable<Drawn['sides']>; cur: UV; typed: (string | undefined)[]; axis: number; base: number; out: UV | null; held: { at: UV; px: [number, number]; pull: UV | null; adds: boolean; closes: boolean } | null; arcEnd: UV | null; arc: UV | null; round?: { curve: TangentCurve; near: UV; t: number; line: Segment[] } }
+  | { kind: 'polygon'; target: Target; pts: UV[]; z: number[]; curZ: number; lock: number | null; curves: (Curve | null)[]; sides: NonNullable<Drawn['sides']>; cur: UV; typed: (string | undefined)[]; axis: number; base: number; out: UV | null; held: { at: UV; px: [number, number]; pull: UV | null; adds: boolean; closes: boolean } | null; arcEnd: UV | null; arc: UV | null; round?: { curve: TangentCurve; near: UV; t: number; line: Segment[] } }
   /** A ball in space: the points clicked, or the planes it touches and its radius; `cur`: the point the pointer is on; `typed`: a diameter. */
   | { kind: 'ball'; pts: THREE.Vector3[]; planes: { at: THREE.Vector3; n: THREE.Vector3 }[]; cur: THREE.Vector3 | null; r: number; typed?: string }
   | ({ kind: 'pull'; target: Target; drawn: Drawn; shapes: DrawnProfile[] } & Pulling);
@@ -349,7 +353,9 @@ const guideSeg = (g: { at: THREE.Vector3; dir: THREE.Vector3 }, reach = 1e4): Se
 /** Whether the segment lies on the guide's line. */
 const onLine = (g: { at: THREE.Vector3; dir: THREE.Vector3 }, [a, b]: Segment) => [a, b].every((v) => v.clone().sub(g.at).cross(g.dir).length() < 1e-4);
 const sameSeg = (p: Segment | null, q: Segment | null) => p === q || (!!p && !!q && p[0].equals(q[0]) && p[1].equals(q[1]));
-const AXIS_NAME: Record<BasePlane, string> = { xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
+/** The keys that lock a 3D line's open side to the world's X, Y or Z. */
+const AXIS_KEYS = ['moveX', 'moveY', 'moveZ'] as const;
+const AXIS_NAME: Record<BasePlane, string> ={ xy: 'the ground (XY)', xz: 'the front plane (XZ)', yz: 'the right plane (YZ)' };
 const NAMES: Record<ToolKind, string> = { rect: 'a rectangle', circle: 'a circle', ngon: 'a regular polygon', line: 'a line', sphere: 'a sphere' };
 
 /**
@@ -426,6 +432,18 @@ export class SketchTool implements Tool {
     readonly mode?: ToolMode,
   ) {
     view.el.append(this.labels);
+    if (kind === 'line') {
+      const box = this.spaceBox.querySelector('input')!;
+      box.checked = SketchTool.space;
+      box.onchange = () => {
+        SketchTool.space = box.checked;
+        box.blur(); // keys go on to the tool
+        const ph = this.phase;
+        if (ph.kind === 'polygon' && this.lastPoint) ph.cur = this.sideEnd(this.lastPoint[0], ph) ?? ph.cur;
+        this.update();
+      };
+      view.el.append(this.spaceBox);
+    }
     addEventListener('keyup', this.keyUp);
     this.host.hint(this.hoverHint());
     this.update();
@@ -444,6 +462,7 @@ export class SketchTool implements Tool {
     this.litPlane(null);
     this.clearPreview();
     this.labels.remove();
+    this.spaceBox.remove();
     this.host.cursorTip(null);
     this.view.render();
   }
@@ -505,7 +524,7 @@ export class SketchTool implements Tool {
         this.host.hint('Draw on a top face, a sketch or empty space · [Esc] stops');
         return true;
       }
-      const at = this.point(e, target);
+      const at = this.spaceAt(e, target) ?? this.point(e, target);
       if (!at) return true;
       this.view.markFace();
       this.litPlane(null);
@@ -515,8 +534,9 @@ export class SketchTool implements Tool {
       if (this.drawMode()?.lines && !line) return this.host.hint('Circle tangent to two lines: click the first line · [Alt] another drawing mode'), true;
       this.phase =
         this.kind === 'line'
-          ? { kind: 'polygon', target, pts: [at], curves: [], sides: [], cur: at, typed: [], axis: 0, base: 0, out: null, held: this.drawMode()?.id === 'bezier' ? { at, px: [e.clientX, e.clientY], pull: null, adds: false, closes: false } : null, arcEnd: null, arc: null, ...(round ? { round } : {}) }
+          ? { kind: 'polygon', target, pts: [at], z: [this.atZ], curZ: this.atZ, lock: null, curves: [], sides: [], cur: at, typed: [], axis: 0, base: 0, out: null, held: this.drawMode()?.id === 'bezier' ? { at, px: [e.clientX, e.clientY], pull: null, adds: false, closes: false } : null, arcEnd: null, arc: null, ...(round ? { round } : {}) }
           : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, shift: role(e, 'constrain'), pts: [], lines: line ? [line] : [] };
+      if (this.phase.kind === 'polygon') this.trueSpace(e, this.phase, 0);
       this.host.hint(this.kind === 'line' ? lineHint(this.drawMode()?.id) : SHAPE_HINT);
     } else if (ph.kind === 'shape') {
       ph.px = [e.clientX, e.clientY]; // a drag counts from this press
@@ -525,18 +545,22 @@ export class SketchTool implements Tool {
       const at = this.sideEnd(e, ph);
       if (!at) return true;
       const r = this.view.el.getBoundingClientRect();
-      const near = (q: UV) => {
-        const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...q)));
+      const near = (i: number) => {
+        const [x, y] = this.view.toScreen(v3(toWorld(ph.target.frame, ...ph.pts[i], ph.z[i])));
         return Math.hypot(e.clientX - r.left - x, e.clientY - r.top - y) < 8;
       };
-      const closes = this.canClose(ph) && near(ph.pts[0]);
+      const closes = this.canClose(ph) && near(0);
       // straight back to the point before: a side on top of the last one (two points: no area to close)
       const mode = this.drawMode()?.id;
-      if (!closes && ph.pts.length >= 2 && mode !== 'bezier' && mode !== 'arc' && near(ph.pts[ph.pts.length - 2]))
+      if (!closes && ph.pts.length >= 2 && mode !== 'bezier' && mode !== 'arc' && near(ph.pts.length - 2))
         return this.host.hint('That runs straight back along the last side: click another point · [Esc] cancels'), true;
       // a bezier point goes in when let go: a drag first pulls its handles
       if (this.drawMode()?.id === 'bezier') ph.held = { at: closes ? ph.pts[0] : at, px: [e.clientX, e.clientY], pull: null, adds: true, closes };
-      else this.corner(ph, at, closes);
+      else {
+        const n = ph.pts.length;
+        this.corner(ph, at, closes);
+        if (ph.pts.length > n) this.trueSpace(e, ph, n);
+      }
     } else if (ph.kind === 'pull' && this.reaching) {
       // "to object": the clicked point's distance goes into the typed depth (or back)
       if (!this.view.pointAt(e)) return true;
@@ -572,7 +596,7 @@ export class SketchTool implements Tool {
       this.view.markFace(target?.body && !target.sketch ? this.view.hit(e) : undefined);
       this.litPlane(target?.placement.kind === 'work' ? target.placement.plane : null);
       this.host.hint(target ? this.hoverHint(target) : 'Only top faces of extrusions take sketches · [Esc] stops');
-      if (target) this.point(e, target); // shows a snap dot
+      if (target && !this.spaceAt(e, target)) this.point(e, target); // shows a snap dot
       return this.update();
     }
     if (ph.kind === 'shape' && this.reaching) return this.aim(this.view.aimAt(e)); // aiming: the shape stays as it is
@@ -895,6 +919,12 @@ export class SketchTool implements Tool {
       guide.fixed = !guide.fixed;
       if (!SketchTool.guides.includes(guide)) SketchTool.guides.push(guide); // the bisector, kept
     }
+    else if (free && ph.kind === 'polygon' && this.space(ph.target) && AXIS_KEYS.some((a) => pressed(e, a))) {
+      // 3D: the open side along that world axis (again: free)
+      const k = AXIS_KEYS.findIndex((a) => pressed(e, a));
+      ph.lock = ph.lock === k ? null : k;
+      if (this.lastPoint) ph.cur = this.sideEnd(this.lastPoint[0], ph) ?? ph.cur;
+    }
     else if (free && ph.kind === 'polygon' && pressed(e, 'baseline')) {
       // the hovered line, either way round: the one nearer the side's direction (again, or off a line: the x axis)
       const line = this.hoveredLine(ph.target.frame);
@@ -955,6 +985,7 @@ export class SketchTool implements Tool {
       } else if (pressed(e, 'erase') && ph.arcEnd) [ph.arcEnd, ph.arc] = [null, null];
       else if (pressed(e, 'erase') && ph.pts.length > 1) {
         ph.pts.pop();
+        ph.z.pop();
         ph.curves.pop();
         ph.sides.pop();
         ph.out = null;
@@ -1401,6 +1432,9 @@ export class SketchTool implements Tool {
    */
   private sideEnd(e: MouseEvent, ph: Extract<Phase, { kind: 'polygon' }>): UV | null {
     ph.arc = null;
+    const off = this.spaceAt(e, ph.target, ph);
+    ph.curZ = this.atZ;
+    if (off) return off;
     if (this.drawMode()?.id === 'arc' && (ph.pts.length > 1 || ph.arcEnd)) {
       const at = this.point(e, ph.target, !ph.arcEnd);
       return at && (ph.arcEnd ? this.bulge(ph, at) : this.tangentArc(ph, at, e));
@@ -1432,6 +1466,69 @@ export class SketchTool implements Tool {
   /** Straight sides, not bezier curves or arcs. */
   private straightMode() {
     return ['single', 'polygon'].includes(this.drawMode()?.id ?? '');
+  }
+
+  /** Lines may leave the sketch plane (the 3D box, on at first; it shows only while it applies). */
+  static space = true;
+  private spaceBox = Object.assign(document.createElement('label'), { className: 'check space-box', title: 'Off: lines stay on the sketch plane', innerHTML: '<input type="checkbox"> 3D line' });
+  /** The height off the plane of the point `spaceAt` found last (0: on the plane); `aimed3d`: it came from a snap there. */
+  private atZ = 0;
+  private aimed3d = false;
+
+  /** Whether a line can leave the plane here: straight sides, seen at an angle (not straight on or from the back). */
+  private angled(t: Target) {
+    return this.kind === 'line' && this.straightMode() && Math.abs(this.view.looking().dot(v3(t.frame.n))) < Math.cos((1 * Math.PI) / 180);
+  }
+
+  private space(t: Target) {
+    return SketchTool.space && this.angled(t);
+  }
+
+  /**
+   * In 3D, a point off the plane: along the locked axis from the last point (typed: that far; else to a point aimed at,
+   * or on the zoom's step), else a snap off the plane under the pointer; sets `atZ`. Null: on the plane as usual.
+   */
+  private spaceAt(e: MouseEvent, t: Target, ph?: Extract<Phase, { kind: 'polygon' }>): UV | null {
+    this.atZ = 0;
+    this.aimed3d = false;
+    if (!this.space(t)) return null;
+    this.lastPoint = [e, t];
+    const f = t.frame;
+    const lift = (p: THREE.Vector3): UV => {
+      this.atZ = p.clone().sub(v3(f.o)).dot(v3(f.n));
+      [this.snapped, this.snapLine] = [null, null]; // the view marks it
+      return uvOf(f, p);
+    };
+    const typed = ph && this.typed(ph.typed[0]);
+    if (ph && ph.lock !== null) {
+      const from = v3(toWorld(f, ...ph.pts.at(-1)!, ph.z.at(-1)!));
+      const dir = new THREE.Vector3().setComponent(ph.lock, 1);
+      const shown = typed === undefined ? this.view.aimAt(e) : null;
+      const aim = shown && shown.what !== 'on face' ? shown : this.view.aimAt(null); // to a corner, edge or line, not any face
+      const ray = this.view.ray(e);
+      const on = new THREE.Vector3();
+      new THREE.Ray(from.clone().addScaledVector(dir, -1e6), dir).distanceSqToSegment(ray.origin, ray.origin.clone().addScaledVector(ray.direction, 1e6), on);
+      const along = (aim ?? { at: on }).at.clone().sub(from).dot(dir);
+      const step = this.view.step(from, e, false);
+      this.snapWhat = `along ${'XYZ'[ph.lock]}${aim ? ` to ${aim.what}` : ''}`;
+      return lift(from.addScaledVector(dir, typed !== undefined ? Math.sign(along || 1) * typed : aim ? along : Math.round(along / step) * step));
+    }
+    const aim = ph?.typed.some((x) => x !== undefined) ? null : this.view.aimAt(e); // typed sizes: on the plane
+    if (!aim || inPlane(f, aim.at)) return this.view.aimAt(null), null;
+    this.snapWhat = aim.what;
+    this.aimed3d = true;
+    return lift(aim.at);
+  }
+
+  /** A point clicked on a snap off the plane: moved onto the real geometry once that is known. */
+  private trueSpace(e: MouseEvent, ph: Extract<Phase, { kind: 'polygon' }>, i: number) {
+    if (!this.aimed3d) return;
+    const f = ph.target.frame;
+    void this.view.truePointAt(e).then((p) => {
+      if (!p || this.phase !== ph || i >= ph.pts.length) return;
+      [ph.pts[i], ph.z[i]] = [uvOf(f, p), p.clone().sub(v3(f.o)).dot(v3(f.n))];
+      this.update();
+    });
   }
 
   /** The curve the line's first side is drawn tangent to, while it is the open side. */
@@ -1508,6 +1605,7 @@ export class SketchTool implements Tool {
   /** Whether a click on the line's start closes it: three points, or two with a curve (one on the way counts). */
   private canClose(ph: Extract<Phase, { kind: 'polygon' }>) {
     const mode = this.drawMode()?.id;
+    if (ph.z.some(Boolean)) return false; // off its plane: no flat shape
     return ph.pts.length >= 3 || (ph.pts.length === 2 && (ph.curves.some(Boolean) || mode === 'bezier' || mode === 'arc'));
   }
 
@@ -1558,7 +1656,7 @@ export class SketchTool implements Tool {
    */
   private corner(ph: Extract<Phase, { kind: 'polygon' }>, at: UV, closes: boolean) {
     const prev = ph.pts[ph.pts.length - 1];
-    if (Math.hypot(at[0] - prev[0], at[1] - prev[1]) < 0.05) return;
+    if (Math.hypot(at[0] - prev[0], at[1] - prev[1], ph.curZ - ph.z.at(-1)!) < 0.05) return;
     const mode = this.drawMode()?.id;
     if (mode === 'arc' && ph.pts.length === 1 && !ph.arcEnd) {
       [ph.arcEnd, ph.typed, ph.axis, ph.arc] = [closes ? ph.pts[0] : at, [], 0, null];
@@ -1580,7 +1678,8 @@ export class SketchTool implements Tool {
     ph.sides.push(closes || (typedSize === undefined && typedAngle === undefined) ? null : curve ? ('mid' in curve && typedSize !== undefined ? { d: typedSize } : null) : { ...(typedSize !== undefined ? { l: typedSize } : {}), ...(typedAngle !== undefined ? { deg: typedAngle, base: ph.base } : {}) });
     if (closes) return this.closeLine();
     ph.pts.push(end);
-    [ph.typed, ph.axis, ph.out, ph.arc, ph.arcEnd] = [[], 0, null, null, null];
+    ph.z.push(ph.curZ);
+    [ph.typed, ph.axis, ph.out, ph.arc, ph.arcEnd, ph.lock] = [[], 0, null, null, null, null];
     ph.base = this.dirInto(ph); // the next side counts from this one
     if (mode === 'single') this.finishLine();
     else this.host.hint(lineHint(mode));
@@ -1725,7 +1824,9 @@ export class SketchTool implements Tool {
     const curves = ph.curves.some(Boolean) ? { curves: ph.curves } : {};
     this.phase = { kind: 'hover' };
     this.host.hint(this.hoverHint());
-    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts: ph.pts, ...curves }, typed: {}, sides: ph.sides }, depth: 0 });
+    // off its plane: straight sides only, no typed sizes to work its points out from
+    const lifted = !curves.curves && ph.z.some(Boolean);
+    this.host.done({ target: ph.target, drawn: { profile: { kind: 'line', pts: ph.pts, ...curves, ...(lifted ? { z: ph.z } : {}) }, typed: {}, sides: lifted ? undefined : ph.sides }, depth: 0 });
   }
 
   /** A finished shape: in sketch mode or as a construction line it stays flat and drawing goes on, else pulling starts. */
@@ -1802,7 +1903,7 @@ export class SketchTool implements Tool {
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
       const open = ph.kind === 'polygon' ? (ph.held?.adds ? ph.held.at : ph.arcEnd ?? ph.cur) : ph.cur;
-      const drawing: DrawnProfile = ph.kind === 'shape' ? this.shape(ph) : { kind: 'line', pts: [...ph.pts, open], curves: [...this.bentSides(ph, open), ph.held && !ph.held.adds ? null : this.openCurve(ph, open, ph.held?.closes)] };
+      const drawing: DrawnProfile = ph.kind === 'shape' ? this.shape(ph) : { kind: 'line', pts: [...ph.pts, open], curves: [...this.bentSides(ph, open), ph.held && !ph.held.adds ? null : this.openCurve(ph, open, ph.held?.closes)], z: [...ph.z, ph.curZ] };
       const profile = { ...drawing, construction: this.host.construction() }; // dashed while drawing construction lines
       this.view.overlay.add(outline(profile, f));
       if (profile.kind === 'rect' && ph.kind === 'shape') {
@@ -1825,6 +1926,17 @@ export class SketchTool implements Tool {
         if (arc) {
           sideLength = `Ø ${ph.typed[0] === undefined ? fmt(arc.r * 2) : caret(ph.typed[0]!)}`;
           if (!ph.arcEnd) label('∠', ph.typed[1], (Math.abs(arc.a1 - arc.a0) * 180) / Math.PI, v3(toWorld(f, ...ph.arc)), ph.axis === 1);
+        }
+      } else if (ph.kind === 'polygon' && !ph.held && (ph.lock !== null || ph.curZ || ph.z.at(-1))) {
+        // off the plane: its length in space; locked: the axis through the last point
+        const last = ph.pts[ph.pts.length - 1];
+        sideLength = `L ${ph.typed[0] === undefined ? fmt(Math.hypot(ph.cur[0] - last[0], ph.cur[1] - last[1], ph.curZ - ph.z.at(-1)!)) : caret(ph.typed[0]!)}`;
+        if (ph.lock !== null) {
+          const at = v3(toWorld(f, ...last, ph.z.at(-1)!));
+          const dir = new THREE.Vector3().setComponent(ph.lock, 1e4);
+          const m = new LineMaterial({ color: [0xe5484d, 0x30a46c, 0x3e63dd][ph.lock], linewidth: 1.5, depthTest: false });
+          m.resolution.set(this.view.el.clientWidth, this.view.el.clientHeight);
+          this.view.overlay.add(Object.assign(new LineSegments2(new LineSegmentsGeometry().setPositions([...at.clone().sub(dir).toArray(), ...at.clone().add(dir).toArray()]), m), { renderOrder: 1e6 }));
         }
       } else if (ph.kind === 'polygon' && !ph.held) {
         // the open side: its length first in the pointer's note, its angle labelled inside the angle
@@ -1889,11 +2001,14 @@ export class SketchTool implements Tool {
     // a line split with A: into how many parts
     const split = this.showing ? `Split in ${SketchTool.divisions.get(this.showing)! + (this.showing.startsWith('circle:') ? 0 : 1)}` : null;
     const base = ph.kind === 'polygon' && this.hoveredLine(ph.target.frame) !== null ? `Press ${comboText(keysOf('baseline')[0])} to measure the angle from this line` : null;
-    const angles = ph.kind === 'polygon' && !ph.arc && !ph.held && !this.snapKey ? `Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(keysOf('moreSnaps')[0])} finer, ${comboText(keysOf('fewerSnaps')[0])} coarser` : null;
+    const axes = ph.kind === 'polygon' && this.space(ph.target) ? `${AXIS_KEYS.map((a) => comboText(keysOf(a)[0])).join(' / ')}: along that axis (again: free)` : null;
+    const t = ph.kind === 'hover' || ph.kind === 'ball' ? (this.mode?.kind === 'draw' ? this.mode.target : this.lastPoint?.[1]) : ph.target;
+    this.spaceBox.hidden = !t || !this.angled(t);
+    const angles = ph.kind === 'polygon' && !ph.arc && !ph.held && !this.snapKey ?`Angle steps ${SketchTool.angleStep}° · hold Shift to snap · ${comboText(keysOf('moreSnaps')[0])} finer, ${comboText(keysOf('fewerSnaps')[0])} coarser` : null;
     // pulling: while aiming what the pointer reaches (what T does is in the size label)
     const pulling = ph.kind === 'pull' && this.reaching && [this.aimed, 'Click: its distance goes into the size'].filter(Boolean).join('\n');
     // at the pointer what it measures and is on; other keys with the tool's hint
-    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, ph.kind === 'polygon' && this.sliding(ph) && 'Tangent', this.snapWhat, split, this.nothingToSplit && 'No line here to split: put the pointer on one'].filter(Boolean).join('\n') || null, [tangentKey, more, cycleHint, fix, base, angles].filter(Boolean).join(' · ') || null);
+    this.host.cursorTip(ph.kind === 'pull' ? pulling || null : [sideLength, ph.kind === 'polygon' && this.sliding(ph) && 'Tangent', this.snapWhat, split, this.nothingToSplit && 'No line here to split: put the pointer on one'].filter(Boolean).join('\n') || null, [tangentKey, more, cycleHint, fix, axes, base, angles].filter(Boolean).join(' · ') || null);
     if (ph.kind === 'polygon' && !ph.arc && !ph.held && (this.shiftHeld || performance.now() < this.raysUntil)) this.angleRays(ph);
     if (ph.kind === 'ball') {
       // see-through orange until made, also inside a body; what was clicked marked
@@ -2254,8 +2369,11 @@ const DRAWN = 0.01;
 const outlinePts = (p: DrawnProfile): UV[] => segments(p).flatMap((g, i) => segPoints(g, DRAWN).slice(i ? 1 : 0));
 
 /** A shape's outline as segments (world), its corners rounded or chamfered as drawn; a line stays open. */
+/** The outline's points in the world; a 3D line's at their heights. */
+const outlineWorld = (p: DrawnProfile, f: Frame) => (p.kind === 'line' && p.z && !curved(p) ?p.pts.map(([u, v], i) => v3(toWorld(f, u, v, p.z![i]))) : outlinePts(p).map((q) => v3(toWorld(f, ...q))));
+
 function outlineSegs(p: ViewSketch['shapes'][number], f: Frame): Segment[] {
-  const pts = outlinePts(p).map((q) => v3(toWorld(f, ...q)));
+  const pts = outlineWorld(p, f);
   return pts.slice(1).map((b, i): Segment => [pts[i], b]);
 }
 
@@ -2315,7 +2433,7 @@ export function shape2d(p: DrawnProfile): THREE.Shape {
  * lines dashed; `opacity` below 1: faint.
  */
 export function outline(p: DrawnProfile, f: Frame, color = 0x3b6fd8, onFace = false, dashMm = 1.5, width = 2, opacity = 1) {
-  const pts = outlinePts(p).map((q) => v3(toWorld(f, ...q)));
+  const pts = outlineWorld(p, f);
   const material = new LineMaterial({ color, linewidth: width, depthTest: onFace, ...(onFace ? FRONT : {}), dashed: !!p.construction, dashSize: dashMm, gapSize: dashMm, transparent: opacity < 1, opacity });
   return new Line2(new LineGeometry().setPositions(pts.flatMap((v) => v.toArray())), material).computeLineDistances();
 }

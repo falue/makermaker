@@ -8,6 +8,11 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A turned polygon following a parameter turns around its new middle, so it can shift a little.
 - A tangent line starts on a sketch circle, arc or bezier side, or a body's round edge: not on a rounded rectangle's corner or a body's elliptic or spline edge. No line ending tangent from a free start, none tangent to two curves. It holds while drawing, no lasting link to the curve. In the one-line and polygon modes, not bezier or arc. A typed angle no tangent of a short arc runs at is ignored.
 
+- 3D lines: no point handles to drag yet (move them as a whole). A typed length or angle without an axis lock puts the point on the plane (measured on it). A line started in 3D and switched to bezier or arc mode is kept flat. A 3D line's own points snap only on the plane while drawing it; sketch Offset, Mirror and laser / DXF export use its plane projection. A click on a snap off the plane in one-line mode keeps the mesh point (no time to move it onto the real geometry).
+
+## Wire tool (planned, decided 2026-11-08)
+- After the 3D sweep: two face clicks, a round wire between them, solved in 3D (stiffness, min bend radius, gravity always world -Z, also inside a turned group; it rests on bodies only, no floor; starts taut). Colours in turn: red, black, blue, white, yellow, green, orange, … (about 10 bright ones), then red again, shiny. Ends follow their bodies (re-solved). Plug ends: a hidden part of the wire, changed only in the wire tool; both ends plugs: the length typed includes them. Can't reach: the target as a red ghost, the closest reachable as the solid. Drag an end to move it, the middle to add a guide. No default keys; a clash-check button. A clicked wire: its centre line's length (plugs included) in the Info panel.
+
 ## Cut and sections
 - Coming apart: bodies sharing steps by a link stay whole (a piece step would go to every linked copy). A boolean's pieces keep its tool bodies, shared: moving a tool reshapes all of them. If an edit later changes how many pieces there are or their order, a Piece step can point at another piece or none (it then shows an error). The `cad.boolean` and Python cuts do not split.
 - A section's axis shows only while it is being picked; there is no way back to its own line except a new section.
