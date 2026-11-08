@@ -2602,6 +2602,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
   const [size, middle] = [box.getSize(new Vector3()), box.getCenter(new Vector3())];
   let [turnCopies, overall] = [true, false];
   let texts: string[] = [];
+  const gridGroup = newId();
   /** The copies' world placements for these values: per copy (the original left out) and source. */
   const placements = (v: number[]): Matrix4[][] => {
     const out: Matrix4[][] = [];
@@ -2638,7 +2639,13 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
       made.push(...pairs);
       return bodies.map((b, n) => ({ ...b, ...placementIn(parentPlace(sources[n]), worlds[n]) }));
     });
-    const next = listedAfter({ ...doc0, bodies: [...doc0.bodies, ...copies] }, made);
+    let next = listedAfter({ ...doc0, bodies: [...doc0.bodies, ...copies] }, made);
+    // unlinked grid: the originals and their copies in one group "Grid", where the first original was
+    if (mode === 'grid' && !linkedCopies && copies.length) {
+      const first = doc0.bodies.find((b) => b.id === sources[0])!;
+      const group: Group = { id: gridGroup, name: 'Grid', parent: first.group, visible: true, origin: { kind: 'parent' }, order: rank(doc0, first.id) };
+      next = movedInto({ ...next, groups: [...next.groups, group] }, [...sources, ...copies.map((c) => c.id)], gridGroup, groupPlace(first.group));
+    }
     if (history.current === doc0) history.push(next);
     else history.replace(next);
     update();

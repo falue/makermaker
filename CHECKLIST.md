@@ -12,6 +12,10 @@ Newest work first. Test files: `node scripts/make-test-lamp.mjs` writes testdata
 
 ## New since 2026-11-07 17:00
 
+Loose ends fixed 2026-11-08:
+
+- [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
+
 Selection first, then the tool:
 
 - [x] Mirror with a group selected (its bodies), an Alt-picked face (the plane)

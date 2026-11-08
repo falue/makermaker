@@ -119,7 +119,6 @@ Answers assumed where a request left a question open.
 - Revolve with a straight sketch line selected first: the line is not taken as the axis, Revolve asks for a profile, then an axis. Wanted: the line is the axis, the panel opens at once. (A construction line and an Alt-picked edge not tried.)
 - Wanted: Revolve takes a click inside a sketch area, not only on a closed profile's outline; open outlines too.
 - Rotate with a round edge picked first: the axis is right, but its body gets selected too, and the bodies to turn cannot be picked apart from it. Wanted: Set bodies beside Set axis (add, remove, pick again) keeping the axis.
-- Wanted: unlinked Grid pattern copies go into one group named "Grid"; linked ones stay as they are.
 - Measure and Info on an Alt-picked round rim: lit whole, called an edge, no Ø in either. Wanted: Ø and circumference.
 - A flat face: Measure says Area in mm², Info says Surface in cm²; the numbers looked different (maybe only the unit). A body's volume shows in mm³. Wanted: Area in both, and cm² / cm³ in a mm document.
 - Measure on a sketch rectangle: only the perimeter. Wanted: L and W too.
