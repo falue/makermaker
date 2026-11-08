@@ -114,6 +114,3 @@ Answers assumed where a request left a question open.
 
 ## Group origins
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
-
-## Select first, then the tool
-- Done 2026-11-08 for Mirror, Sweep, Measure, Revolve, Rotate, Pattern, Coat, Offset / Shell and Cut. Left: Revolve with several sketches selected takes the first only (each turns around an axis in its own plane, one panel each); Pattern repeats a group's bodies, not the group as a group (the copies are loose bodies); Bulge ignores a selected sketch (on purpose: user, 2026-11-08).
