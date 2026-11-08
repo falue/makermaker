@@ -6102,6 +6102,8 @@ const toolHost: ToolHost = {
     if (was === 'plane') {
       const group = sketchGroup; // stopping the tool forgets it
       stopTool();
+      // a click on a sketch (its shapes, or the plane it lies on) opens it
+      if (result.target.sketch) return enterSketch(result.target.sketch);
       return newSketch(result.target, group);
     }
     const id = sketched(result);

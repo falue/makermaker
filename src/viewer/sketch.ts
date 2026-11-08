@@ -496,7 +496,7 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     if (this.ballMode() && (ph.kind === 'hover' || ph.kind === 'ball')) return void this.ballPress(e), true;
     if (ph.kind === 'hover' && this.mode?.kind === 'plane') {
-      const target = this.target(e);
+      const target = this.planeTarget(e);
       if (target) this.host.done({ target, depth: 0 });
       return true;
     }
@@ -594,7 +594,7 @@ export class SketchTool implements Tool {
     if (this.ballMode() && (ph.kind === 'hover' || ph.kind === 'ball')) return this.ballMove(e, ph);
     if (ph.kind === 'hover') {
       if (!this.kind && this.mode?.kind !== 'plane') return;
-      const target = this.target(e);
+      const target = this.mode?.kind === 'plane' ? this.planeTarget(e) : this.target(e);
       this.view.markFace(target?.body && !target.sketch ? this.view.hit(e) : undefined);
       this.litPlane(target?.placement.kind === 'work' ? target.placement.plane : null);
       this.host.hint(target ? this.hoverHint(target) : 'Only top faces of extrusions take sketches · [Esc] stops');
@@ -1012,7 +1012,7 @@ export class SketchTool implements Tool {
 
   private hoverHint(target?: Target) {
     if (this.ballMode()) return this.ballHint();
-    if (this.mode?.kind === 'plane') return `Click ${target ? target.name : 'a top face or empty space'} to draw on it · [Esc] cancels`;
+    if (this.mode?.kind === 'plane') return `${target?.sketch ? 'Click: Open this sketch' : `Click ${target ? target.name : 'a top face or empty space'} to draw on it`} · [Esc] cancels`;
     const m = this.drawMode();
     const how = this.kind === 'line' ? ({ polygon: 'Click points', bezier: 'Click points, drag to pull handles', arc: 'Click a start and an end, then the bulge' }[m?.id ?? ''] ?? 'Click two points') : m?.lines ? 'Click a line' : m && m.clicks > 2 ? 'Click three times' : 'Drag (or click twice)';
     const modes = m ? ` · ${m.name} ([Alt], or the tool's key or button again: the next mode)` : '';
@@ -1029,16 +1029,7 @@ export class SketchTool implements Tool {
     if (this.mode?.kind === 'draw') return this.mode.target;
     const ray = this.view.ray(e);
     const hit = this.view.hit(e);
-    const r = this.view.el.getBoundingClientRect();
-    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
-    let onSketch: ViewSketch | null = null;
-    let nearest = px;
-    for (const s of this.view.sketches) {
-      const p = planeHit(ray, s.frame);
-      if (!p || (hit && p.distanceTo(ray.origin) > hit.distance + 1e-3)) continue;
-      const d = s.shapes.some((q) => inside(q, ...uvOf(s.frame, p))) ? 0 : Math.min(px, ...s.shapes.flatMap((q) => outlineSegs(q, s.frame).map(([a, b]) => this.screenDist(mx, my, a, b).d)));
-      if (d < nearest) [onSketch, nearest] = [s, d];
-    }
+    const onSketch = this.sketchUnder(e, px);
     if (onSketch) return this.sketchTarget(onSketch);
     // a work plane in front of any face: its sketch, or a new one on it
     for (const w of this.view.workPlanes) {
@@ -1072,6 +1063,31 @@ export class SketchTool implements Tool {
     const f = BASE[axis];
     const frame: Frame = m ? { o: v3(f.o).applyMatrix4(m).toArray(), x: v3(f.x).transformDirection(m).toArray(), y: v3(f.y).transformDirection(m).toArray(), n: v3(f.n).transformDirection(m).toArray() } : f;
     return base ? this.sketchTarget(base) : { sketch: null, placement: { kind: 'base', axis, offset: 0 }, frame, body: null, name: AXIS_NAME[axis] };
+  }
+
+  /** The sketch with a shape under the pointer (inside it, or its outline within `px`), in front of any body; null: none. */
+  private sketchUnder(e: MouseEvent, px = 10): ViewSketch | null {
+    const ray = this.view.ray(e);
+    const hit = this.view.hit(e);
+    const r = this.view.el.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
+    let onSketch: ViewSketch | null = null;
+    let nearest = px;
+    for (const s of this.view.sketches) {
+      const p = planeHit(ray, s.frame);
+      if (!p || (hit && p.distanceTo(ray.origin) > hit.distance + 1e-3)) continue;
+      const d = s.shapes.some((q) => inside(q, ...uvOf(s.frame, p))) ? 0 : Math.min(px, ...s.shapes.flatMap((q) => outlineSegs(q, s.frame).map(([a, b]) => this.screenDist(mx, my, a, b).d)));
+      if (d < nearest) [onSketch, nearest] = [s, d];
+    }
+    return onSketch;
+  }
+
+  /** New sketch's pick: a sketch's shape opens that sketch (`sketch` set); anywhere else a new one goes there (none). */
+  private planeTarget(e: MouseEvent): Target | null {
+    const on = this.sketchUnder(e);
+    if (on) return this.sketchTarget(on);
+    const t = this.target(e);
+    return t && { ...t, sketch: null };
   }
 
   private sketchTarget(s: ViewSketch): Target {

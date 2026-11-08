@@ -31,6 +31,7 @@ Loose ends fixed 2026-11-08:
 - [ ] Sketch mode: the bodies cut at the sketch plane (in front of it hidden, cut faces hatched, a sketch on a top face leaves that body whole); "Section at sketch" at the top left turns it off and on; leaving the sketch: the cut goes
 - [ ] With a section on: entering a sketch (faded surroundings), switching the visual style or Settings → Surroundings: the cut bodies take the new look at once
 - [ ] View top left, one under the other: breadcrumbs, the mode note (3 s), Section at sketch, 3D line; the floating panel at the top stays right of that column (narrow view: below it) and widens again when the mode note goes; nothing overlaps
+- [ ] New sketch (S) over a sketch's shape (inside or its outline): "Click: Open this sketch", a click opens that sketch, no new one; on a face, empty space or a work plane: a new sketch as before
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:
