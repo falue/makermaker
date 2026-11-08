@@ -511,6 +511,14 @@ export class Viewer implements ToolView {
   private escFreed = 0;
   /** Custom section planes; each keeps its positive side. */
   private custom: THREE.Plane[] = [];
+  /** The sections added in the Section view panel (`custom` holds them and the sketch's cut). */
+  private ownCustom: THREE.Plane[] = [];
+  /** In sketch mode: what lies in front of the sketch's plane (along its normal) cut away, while `sketchCutOn`. */
+  private sketchCut: { frame: Frame; plane: THREE.Plane } | null = null;
+  private sketchCutOn = true;
+  /** Switches at the top left of the view while they apply: the sketch's cut, a tool's (3D line). */
+  readonly toggles = Object.assign(document.createElement('div'), { className: 'view-toggles' });
+  private cutBox = Object.assign(document.createElement('label'), { className: 'check', hidden: true, title: 'On: the bodies cut at the sketch plane, what lies in front of it hidden · Off: all of them', innerHTML: '<input type="checkbox" checked> Section at sketch' });
   /** The origin: three thick lines (AxesHelper's colours), drawn over everything. */
   private axes = originLines();
   /** Inside a group of its own origin: that origin (world), which grid, origin axes and view cube follow; else none. */
@@ -651,7 +659,8 @@ export class Viewer implements ToolView {
     this.renderer.setPixelRatio(devicePixelRatio);
     this.renderer.localClippingEnabled = true;
     const canvas = this.renderer.domElement;
-    el.append(canvas, this.viewCube(), this.cameraControls(), this.crumbs, this.moveLabel);
+    el.append(canvas, this.viewCube(), this.cameraControls(), this.crumbs, this.moveLabel, this.toggles);
+    this.toggles.append(this.cutBox);
 
     this.setLight(DEFAULT_LIGHT);
     this.scene.add(this.ambient, this.sun, this.lamp, this.grid, this.axes, this.sectionView, this.sketchView, this.sketchGrid, this.overlay, this.wheel, this.centres, this.edgeMark, this.pickedEdgeMark, this.measureMark, this.sketchMark, this.sketchHover, this.aimMark, this.cutMark, this.axisMark, this.ticks, this.workMark);
@@ -1333,8 +1342,9 @@ export class Viewer implements ToolView {
     if (hover?.mesh.parent && !picked.some((f) => f.mesh === hover.mesh && f.index === hover.index)) this.faceMarks.push(this.replaceMark(null, hover.mesh, [hover.index], 0x3b6fd8)!);
   }
 
-  /** The sketch in sketch mode gets a grid on its plane (null: none). */
+  /** The sketch in sketch mode gets a grid on its plane and a cut there (null: none). */
   setSketchGrid(frame: Frame | null, size = 400, step = 10) {
+    this.setSketchCut(frame);
     for (const o of this.sketchGrid.children) (o as THREE.GridHelper).dispose();
     this.sketchGrid.clear();
     if (frame) {
@@ -2087,11 +2097,30 @@ export class Viewer implements ToolView {
   }
 
   setCustomSections(planes: { point: Vec3; normal: Vec3 }[]) {
-    this.custom = planes.map((p) => {
+    this.ownCustom = planes.map((p) => {
       const n = new THREE.Vector3(...p.normal).normalize();
       return new THREE.Plane(n, -n.dot(new THREE.Vector3(...p.point)));
     });
+    this.applyCustom();
+  }
+
+  private applyCustom() {
+    this.custom = [...this.ownCustom, ...(this.sketchCut && this.sketchCutOn ? [this.sketchCut.plane] : [])];
     this.applySection();
+  }
+
+  /**
+   * Sketch mode's cut on the sketch's plane (null: none), `gap` mm in front of it so faces lying in it stay; its switch
+   * shows meanwhile. Only a changed plane cuts anew.
+   */
+  private setSketchCut(frame: Frame | null, gap = 0.01) {
+    const box = this.cutBox.querySelector('input')!;
+    box.onchange = () => ((this.sketchCutOn = box.checked), box.blur(), this.applyCustom()); // keys go on to the tool
+    this.cutBox.hidden = !frame;
+    if (JSON.stringify(frame) === JSON.stringify(this.sketchCut?.frame ?? null)) return;
+    const n = frame && new THREE.Vector3(...frame.n).normalize();
+    this.sketchCut = frame && { frame, plane: new THREE.Plane(n!.clone().negate(), n!.dot(new THREE.Vector3(...frame.o)) + gap) };
+    this.applyCustom();
   }
 
   stopTool() {
@@ -2266,6 +2295,13 @@ export class Viewer implements ToolView {
     this.render();
   }
 
+  /** All bodies dressed anew; a section's copies (made from their materials) too. */
+  private dressAll() {
+    for (const id of this.bodies.keys()) this.dress(id);
+    if (this.boxes.length) this.applySection(false);
+    else this.render();
+  }
+
   /** Materials of a body: its colour, or a cutter's red edges. */
   private dress(id: string) {
     const [solid, lines] = this.bodies.get(id)?.children ?? [];
@@ -2316,8 +2352,7 @@ export class Viewer implements ToolView {
   /** How the rest looks around a group's objects and a sketch (see `Settings`). */
   setSurroundings(s: Settings['surroundings']) {
     this.surroundings = s;
-    for (const id of this.bodies.keys()) this.dress(id);
-    this.render();
+    this.dressAll();
   }
   private missed = new Set<string>();
   private kept: Set<string> | null = null;
@@ -2327,8 +2362,7 @@ export class Viewer implements ToolView {
   setDropped(ids: string[], missed: string[] = []) {
     this.dropped = new Set(ids);
     this.missed = new Set(missed);
-    for (const id of this.bodies.keys()) this.dress(id);
-    this.render();
+    this.dressAll();
   }
 
   /** Bodies a body takes along when it moves: a joint's parts, an attach's others (set by the host). */
@@ -2368,7 +2402,7 @@ export class Viewer implements ToolView {
         Object.assign(document.createElement('button'), { textContent: label, className: i === crumbs.length - 1 ? 'here' : '', title, onclick: () => go(i) }),
       ]),
     );
-    for (const id of this.bodies.keys()) this.dress(id);
+    this.dressAll();
     this.renderSketches();
   }
 
@@ -2984,8 +3018,7 @@ export class Viewer implements ToolView {
     this.viewMode = mode;
     localStorage.setItem('makermaker.viewMode', mode);
     this.viewModes.value = mode;
-    for (const id of this.bodies.keys()) this.dress(id);
-    this.render();
+    this.dressAll();
   }
 
   /** Bodies hovered in the list: outlined orange (a temporary mark). */

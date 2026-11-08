@@ -28,6 +28,8 @@ Loose ends fixed 2026-11-08:
 - [ ] Section view with the sample's Glowing pin shown: dragging a section slider cuts the bodies (it used to throw and stop)
 - [ ] Negative sizes, typed: H −40 at Z 0 → H 40, Z −40 (a body drawn on the ground); L or W −30 → 30 on the other side of the reference point (centre: as big, centred); one undo step each
 - [ ] Tab / Shift Tab under the pointer also goes through images and sketches (on an outline or inside a closed shape), nearest first
+- [ ] Sketch mode: the bodies cut at the sketch plane (in front of it hidden, cut faces hatched, a sketch on a top face leaves that body whole); "Section at sketch" at the top left turns it off and on, the Line tool's "3D line" stacked below it, no overlap; leaving the sketch: the cut goes
+- [ ] With a section on: entering a sketch (faded surroundings), switching the visual style or Settings → Surroundings: the cut bodies take the new look at once
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:

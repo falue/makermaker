@@ -78,6 +78,8 @@ export interface SketchResult {
 /** What the tool needs from the viewport. */
 export interface ToolView {
   el: HTMLElement;
+  /** Switches at the top left of the view (see `Viewer.toggles`). */
+  toggles: HTMLElement;
   /** A group's origin (world) new sketches on a base plane count from (its base planes, turned with it); null: the world's. */
   drawFrame: THREE.Matrix4 | null;
   /** The shown work planes (world frames, `half`: half their size in mm): drawing tools draw on them. */
@@ -442,7 +444,7 @@ export class SketchTool implements Tool {
         if (ph.kind === 'polygon' && this.lastPoint) ph.cur = this.sideEnd(this.lastPoint[0], ph) ?? ph.cur;
         this.update();
       };
-      view.el.append(this.spaceBox);
+      view.toggles.append(this.spaceBox);
     }
     addEventListener('keyup', this.keyUp);
     this.host.hint(this.hoverHint());
@@ -1483,7 +1485,7 @@ export class SketchTool implements Tool {
 
   /** Lines may leave the sketch plane (the 3D box, on at first; it shows only while it applies). */
   static space = true;
-  private spaceBox = Object.assign(document.createElement('label'), { className: 'check space-box', title: 'Off: lines stay on the sketch plane', innerHTML: '<input type="checkbox"> 3D line' });
+  private spaceBox = Object.assign(document.createElement('label'), { className: 'check', title: 'Off: lines stay on the sketch plane', innerHTML: '<input type="checkbox"> 3D line' });
   /** The height off the plane of the point `spaceAt` found last (0: on the plane); `aimed3d`: it came from a snap there. */
   private atZ = 0;
   private aimed3d = false;

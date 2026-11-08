@@ -2526,17 +2526,24 @@ input + .set-axis {
 
 /* a drawing mode switched: its pictogram and name, top left in the view for a moment */
 /* the line tool's 3D box, below where the mode note shows */
-.space-box {
+/* switches at the top left of the view, below the mode note, one under the other */
+.view-toggles {
   position: absolute;
   top: 124px;
   left: 10px;
   z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.view-toggles > label {
   padding: 4px 10px 4px 6px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
 }
-.space-box[hidden] {
+.view-toggles > label[hidden] {
   display: none;
 }
 .mode-note {
