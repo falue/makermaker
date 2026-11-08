@@ -109,7 +109,7 @@ Answers assumed where a request left a question open.
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
 
 ## Found by hand (2026-11-07 / 08, user-observed, not reproduced)
-- Closing a polygon inside sketch mode (Line tool, polygon mode, three corners, click the start) leaves sketch mode; it should stay flat and the tool go on (checklist: "Closed inside sketch mode").
+- Closing a polygon inside sketch mode (Line tool, polygon mode, three corners, click the start) leaves sketch mode; it should stay flat and the tool go on (checklist: "Closed inside sketch mode"). Not reproduced (2026-11-08, headless Chrome, sample sketch "Plate outline": it stayed in the sketch, the tool went on); the exact steps are needed.
 - Tab cycling under the pointer covers bodies and work planes (93d0730), not sketches or images.
 - Negative sizes: a body's H can be typed negative (it grows the other way and keeps showing −40); L and W refuse it. Wanted: all three take a negative value and on Enter it turns positive with the position moved, the space it fills unchanged (H −40 at Z 0 → H 40 at Z −40).
 - Long tool hints (Distance measure's) are cut short with … in the floating panel's one line (all of it only on hover).

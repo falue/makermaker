@@ -4493,7 +4493,7 @@ export class Viewer implements ToolView {
       for (const [id, g] of this.bodies)
         for (const c of this.hidden.has(id) || (around.has(id) && goneIn(around.get(id)!)) ? [] : g.children) {
           const solid = c instanceof THREE.Mesh;
-          if ((solid && this.cutters.has(id)) || c.userData.outline) continue;
+          if (!(solid || c instanceof THREE.LineSegments) || (solid && this.cutters.has(id)) || c.userData.outline) continue; // marks without a material of their own too
           const material = ((c as THREE.Mesh).material as THREE.Material).clone();
           material.clippingPlanes = planes;
           const copy = solid ? new THREE.Mesh(c.geometry, material) : new THREE.LineSegments((c as THREE.LineSegments).geometry, material);
