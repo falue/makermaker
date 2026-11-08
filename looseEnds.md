@@ -86,7 +86,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Only joint animation on the lamp has been measured against the 50-60 fps goal. Dragging bodies, editing sketches and big STEP files have not.
 
 ## Tests
-- `booleans.test.ts`: "cuts monster with every other body" runs past its 300 s limit, and "cuts threaded …" fails (threaded − ball: geometry operation failed); both already so before 2026-11-07's work (checked at 90ec31d). They need a longer limit or fewer combinations, and the threaded − ball cut a look.
 - `setPointerCapture` threw InvalidStateError in Playwright pulls, cause unknown; not seen by hand.
 - The manual checklist's "Check these first" group in CHECKLIST.md has not been run.
 

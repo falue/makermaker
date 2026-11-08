@@ -82,5 +82,5 @@ describe('booleans', () => {
         }
       }
       expect(failed).toEqual([]);
-    }, 300_000);
+    }, a === 'monster' ? 900_000 : 300_000); // monster is built anew for each of its 15 cuts (bulge, box joint, shell): about 7 minutes
 });
