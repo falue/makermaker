@@ -116,3 +116,43 @@ Answers assumed where a request left a question open.
 - Switching the document between mm and inch changes a work plane's size on screen (images and imported SVGs stay put).
 - The grey top-bar note after an import ("Imported …") stays until the next message (by design: only errors and green notes go after 5 s). Wanted: it goes after a while too.
 - Long tool hints (Distance measure's) are cut short with … in the floating panel's one line (all of it only on hover).
+
+# Loose ends — voice QA, 2026-11-08
+
+These are **user-observed** issues and requests, not independently reproduced. This is a new session-specific file because an earlier `looseEnds.md` was not supplied; merge with any existing project file rather than replacing it.
+
+## Selection-first tools
+
+- **Revolve ignores a preselected axis line.** Done: selected a straight sketch line, then activated Revolve. Seen: asked to choose a profile and subsequently an axis, not recognizing the selected line. Expected: recognize the line as the rotation axis and open the Revolve panel immediately. Construction-line and Alt-picked-edge variants have not been checked.
+- **Revolve profile picking is too restrictive.** Seen: Revolve required clicking the edge of a closed profile. Expected: accept clicking inside a sketch area as well as selecting an outline; support open or closed outlines (open outlines may produce surfaces, according to the intended tool behavior).
+- **Rotate cannot change the target bodies without losing axis selection.** Seen: a circular edge preselection sets the axis correctly but also selects its owning body, and the tester cannot separately reselect the bodies to rotate. Expected: a **Set bodies** control beside **Set axis**; support adding/removing/reselecting multiple bodies without changing the chosen axis. Straight and circular edge axes themselves passed.
+- **Pattern with a preselected axis stays in Grid.** Done: Alt-picked a straight 3D edge before activating Pattern. Seen: the edge was recognized as the axis, but mode remained **Grid**. Expected: switch directly to circular/around-axis Pattern mode.
+- **Coat with multiple selected bodies operates on only the first.** Done: selected a group containing two bodies and activated Coat; separately, preselected two individual bodies and activated Coat. Seen: only the first body was coated in both cases. Expected: coat both/all selected bodies. By contrast, Pattern correctly included both bodies of the group.
+- **Coat from a preselected face: not checked.** The test “Alt-pick a face, then Coat: coat its body leaving that face open” remains pending; no pass/fail assigned.
+
+## Pattern results / organization
+
+- **Unlinked Grid output should be grouped.** Request: with **Linked OFF**, place all Grid-generated results into one group called **Grid**, rather than leaving them as separate top-level items. With **Linked ON**, leave the existing linked-object organization unchanged. The tester explicitly corrected this distinction.
+
+## Measurements and Info panel
+
+- **Circular 3D rim: diameter missing.** Done: Alt-picked the round rim of a cylinder and pressed D. Seen: full circular edge was highlighted, but the Measure tool identified it only as an edge, and neither Measure nor the Info panel displayed its diameter. Expected: show Ø (and the whole circumference/edge length) for a circular rim, including in Info.
+- **Face area naming and units differ between Measure and Info.** Done: Alt-picked a flat face and pressed D. Seen: Measure says **Area** in **mm²**; Info says **Surface** in **cm²**. Their displayed numbers differed; tester could not tell whether that was solely due to unit conversion. Expected: say **Area** consistently and present both in a larger area unit than the document's length unit (for a document using mm, display cm²); verify numerically equal areas after conversion.
+- **Volume should use a larger cubic unit.** Done: selected a whole 3D body and pressed D. Seen: L/W/H and volume appeared correctly, but volume used mm³. Expected: in a millimeter document display volume in **cm³**. Body measurement selection itself passed.
+- **Rectangle measurement lacks two dimensions.** Done: selected a sketch rectangle and pressed D. Seen: perimeter appeared. Expected: additionally show **length and width**. Perimeter test itself passed.
+
+## Drawing and snapping
+
+- **Shift snapping uses relative rather than absolute increments for shape size.** Done: started drawing a circle from an arbitrary non-grid point, then held Shift. Seen: dimensions incremented from the initial arbitrary fractional value (e.g. 0.37, 1.37, 2.37 mm). Expected: snap the *dimension* to the next whole grid/unit value (1, 2, 3 mm), irrespective of the starting point. Tester suspects other drawing tools may behave similarly, but those have not been individually verified.
+
+## Retained / confirmed passes (for reconciliation with checklist)
+
+- **Sweep:** open profile/path pairing and two-closed selection tests passed as reported.
+- **Rotate:** straight and circular preselected edges correctly gave an immediate rotation axis (circular one through its center); the additional Set bodies request above remains open.
+- **Distance Measure:** straight edge direct length, flat face area display, body dimensions/volume display, sketch circle diameter/circumference, sketch rectangle perimeter passed at the basic behavioral level; associated omissions and unit inconsistencies remain open.
+- **Pattern:** a selected two-body group was correctly recognized as both pattern bodies.
+- **Mirror:** the tester clarified that the previously questioned edge-as-plane behavior was not a failure: a line is not itself a 3D mirror plane. Do not list that observation as a defect.
+
+## Stopping point
+
+Next untested voice QA step: **Coat with an Alt-picked flat face** → expect its body to be coated **with the picked face excluded/open**.
