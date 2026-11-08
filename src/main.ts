@@ -7951,8 +7951,9 @@ function notify(message: string, error = false, action: (() => void) | null = nu
   statusGood = false;
   statusAction = action;
   render();
-  // an error shows a while, then the tool's note again
+  // an error shows a while, a plain note a little longer, then the tool's note again; one to click stays
   if (error) setTimeout(() => status === message && statusError && ((statusError = false), (status = ''), render()), 5000);
+  else if (!action) setTimeout(() => status === message && !statusError && !statusAction && ((status = ''), render()), 8000);
 }
 
 const hintRow = Object.assign(document.createElement('div'), { className: 'tool-hint' });

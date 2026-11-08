@@ -114,6 +114,5 @@ Answers assumed where a request left a question open.
 - Negative sizes: a body's H can be typed negative (it grows the other way and keeps showing −40); L and W refuse it. Wanted: all three take a negative value and on Enter it turns positive with the position moved, the space it fills unchanged (H −40 at Z 0 → H 40 at Z −40).
 - Zoom to Fit after zooming far out moves the view somewhere arbitrary instead of framing the model (Home works). Model and camera state not recorded.
 - Switching the document between mm and inch changes a work plane's size on screen (images and imported SVGs stay put).
-- The grey top-bar note after an import ("Imported …") stays until the next message (by design: only errors and green notes go after 5 s). Wanted: it goes after a while too.
 - Long tool hints (Distance measure's) are cut short with … in the floating panel's one line (all of it only on hover).
 - Wanted: Revolve of an open outline (a surface). Not built: bodies are solids only.
