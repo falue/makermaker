@@ -2036,16 +2036,18 @@ button.primary.wide {
 .axis-move .others:empty {
   display: none;
 }
-/* the tool's hint: a quiet last row of the floating panel, one line (all of it on hover), not widening it */
+/* the tool's hint: a quiet last row of the floating panel, wrapping between its parts, not widening it */
 .axis-move .tool-hint {
   flex: 1 0 100%;
   contain: inline-size;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
   text-align: center;
   font-size: 11px;
   color: var(--muted);
+}
+/* a part breaks only when it is longer than a line itself */
+.axis-move .tool-hint > span {
+  display: inline-block;
+  max-width: 100%;
 }
 .axis-move .tool-hint b {
   font-weight: 600;
@@ -2055,9 +2057,10 @@ button.primary.wide {
 .cut-panel:has(> .tool-hint) {
   min-width: min(420px, 90vw);
 }
-/* a tool without a panel: the hint alone, as wide as it needs, its × before it */
+/* a tool without a panel: the hint alone, as wide as it needs up to a reading width, its × before it */
 .axis-move.hint-only {
   flex-wrap: nowrap;
+  max-width: min(720px, 90vw);
 }
 .axis-move.hint-only .tool-hint {
   flex: 1 1 auto;

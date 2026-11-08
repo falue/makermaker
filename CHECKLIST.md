@@ -23,6 +23,7 @@ Loose ends fixed 2026-11-08:
 - [ ] testdata/online_file.mmk (a sweep along a bezier): right after opening, a drawing tool follows the pointer fluidly, draws, Esc ends it
 - [ ] Grey top-bar notes ("Imported …", "Saved …") go after 8 s; red ones after 5 s; one to click ("Click: Open … again") stays
 - [ ] Zoom to Fit (F) after zooming far out or panning away: the model centred and framed, the view direction kept
+- [ ] Fit (F or its button) with something selected (bodies, a group, a sketch, sketch shapes): only that framed; mostly hidden behind other bodies: the camera turns to the nearest side, edge or corner it is seen from
 - [ ] Switching the document between mm and inch leaves work planes the same size
 - [ ] Section view with the sample's Glowing pin shown: dragging a section slider cuts the bodies (it used to throw and stop)
 - [ ] Negative sizes, typed: H −40 at Z 0 → H 40, Z −40 (a body drawn on the ground); L or W −30 → 30 on the other side of the reference point (centre: as big, centred); one undo step each
@@ -82,7 +83,7 @@ Left column:
 
 Tools:
 
-- [ ] Tool hints in the floating panel's last row, quiet, one line (all of it on hover); a tool without a panel: a hint-only panel whose × ends the tool as Esc; Mirror's Linked panel does not cover the hint
+- [ ] Tool hints in the floating panel's last row, quiet, a long one wrapping between its parts (· …), not in the middle of one; a tool without a panel: a hint-only panel whose × ends the tool as Esc; Mirror's Linked panel does not cover the hint
 - [ ] Hints end in "[Enter] Finalize"; pick lists say "(a second click drops it)"
 - [ ] A click on a work plane in the view selects it (in front of the body there); Tab / Shift Tab cycle bodies and work planes under the pointer, nearest first
 - [ ] Line tool: the line being drawn snaps along its own sides, their middles, A / Shift A, crossings

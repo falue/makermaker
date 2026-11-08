@@ -44,6 +44,8 @@ export type Axis = 'x' | 'y' | 'z';
 type Span = [number, number];
 
 export interface ViewerHost {
+  /** Fit (F, or its button): onto the selection, else everything (see `fit`). */
+  fit(): void;
   /** `add`: Shift- or ⌘ / Ctrl-click, adds the body to the selection or removes it. */
   select(id: string | null, add: boolean): void;
   /** A right-click on body `id` at screen (x, y): its menu, if it has one. */
@@ -2447,9 +2449,23 @@ export class Viewer implements ToolView {
     return box.isEmpty() ? box.set(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 20)) : box;
   }
 
-  /** Fit (F): the camera keeps its direction and glides to look at the middle of all bodies, back or forth (zooms, in ortho) until all are in view. */
-  fit() {
-    this.frameAll(this.allBox().getCenter(new THREE.Vector3()), this.camera.quaternion.clone());
+  /**
+   * Fit (F): the camera glides to look at the middle of `box` (none: all bodies), back or forth (zooms, in ortho) until
+   * it is in view. It keeps its direction, unless other bodies hide most of it from there (`ids`: those of the box; of
+   * its middle and points near its corners, more than half): then the nearest of 26 directions round it (sides, edges,
+   * corners) it is seen from.
+   */
+  fit(box: THREE.Box3 | null = null, ids: string[] = []) {
+    if (!box) return this.frameAll(this.allBox().getCenter(new THREE.Vector3()), this.camera.quaternion.clone());
+    const now = new THREE.Vector3(0, 0, 1).applyQuaternion(this.camera.quaternion);
+    const target = box.getCenter(new THREE.Vector3());
+    const points = [target, ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).lerp(target, 0.1))];
+    const hidden = (from: THREE.Vector3, dir: THREE.Vector3) => this.intersect(new THREE.Raycaster(from, dir)).some((h) => !ids.includes(h.object.userData.bodyId));
+    const seen = (dir: THREE.Vector3) => points.filter((p) => !hidden(p, dir)).length > points.length / 2;
+    const ways = [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => new THREE.Vector3(x, y, z).normalize()))).filter((d) => d.lengthSq() > 0 && Math.abs(d.dot(this.camera.up)) < 0.99);
+    const dir = seen(now) ? now : (ways.filter(seen).sort((a, b) => b.dot(now) - a.dot(now))[0] ?? now);
+    const turn = dir === now ? this.camera.quaternion.clone() : new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), this.camera.up));
+    this.frameAll(target, turn, 600, 1.1, box);
   }
 
   /** Home (H): all bodies framed from the front-right corner (`ms`: how long the camera glides there; 0: at once). */
@@ -5462,7 +5478,7 @@ export class Viewer implements ToolView {
       innerHTML: icon('look'),
       onclick: () => this.lookAtFace(),
     });
-    const fit = Object.assign(document.createElement('button'), { className: 'tool fit', title: 'Fit (F): move the camera back or forth, as it looks now, until everything is in view', innerHTML: icon('fit'), onclick: () => this.fit() });
+    const fit = Object.assign(document.createElement('button'), { className: 'tool fit', title: 'Fit (F): the selection (else everything) in view, the camera looking as it does (turned only if something else hides it)', innerHTML: icon('fit'), onclick: () => this.host.fit() });
     const home = Object.assign(document.createElement('button'), { className: 'tool', title: 'Home (H): everything framed from the front-right corner', innerHTML: icon('home'), onclick: () => this.home() });
     const below = Object.assign(document.createElement('div'), { className: 'below-cube' });
     below.append(look, fit, home);

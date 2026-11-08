@@ -328,6 +328,7 @@ function revealInList(id: string | null) {
 }
 
 const viewer = new Viewer(document.getElementById('viewport')!, {
+  fit: () => fit(),
   select(id, add) {
     select(id, add);
     if (id && selected.includes(id)) revealInList(id);
@@ -4903,6 +4904,27 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
   turnPick();
 }
 
+/** An object's box in the world: a body's, a group's bodies', a sketch's shapes' (`shapes`: only those); null: nothing there. */
+function worldBox(doc: Doc, id: string, shapes?: string[]) {
+  const box = new Box3();
+  const s = viewer.sketches.find((v) => v.id === id);
+  if (s) for (const q of s.shapes) if (!shapes || shapes.includes(q.id)) for (const [u, v] of corners2(bounds(q))) box.expandByPoint(new Vector3(...toWorld(s.frame, u, v)));
+  for (const b of contents(doc, [id])) {
+    const m = doc.bodies.some((x) => x.id === b) && viewer.measure(b);
+    if (m) box.union(m.box);
+  }
+  return box.isEmpty() ? null : box;
+}
+
+/** Fit (F): onto the selection (selected sketch shapes, else the selected objects), else everything. */
+function fit() {
+  const doc = history.current;
+  const sketch = activeSketch();
+  const boxes = shapeSel.length && sketch ? [worldBox(doc, sketch, shapeSel)] : selected.map((id) => worldBox(doc, id));
+  const box = boxes.reduce<Box3 | null>((all, b) => (b ? (all ?? new Box3()).union(b) : all), null);
+  viewer.fit(box, contents(doc, selected));
+}
+
 /**
  * How Align (as in incase) moves the selected bodies, groups (as one) and whole sketches, by their boxes in the world:
  * their min, middle or max along an axis onto that of all of them, equal gaps along it (the outermost stay), or their
@@ -4911,17 +4933,7 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
 function alignPlan(how: ObjectAlign) {
   const doc = history.current;
   const units = selected.filter((id) => [...doc.bodies, ...doc.groups, ...doc.sketches].some((o) => o.id === id));
-  const boxOf = (id: string) => {
-    const box = new Box3();
-    const s = viewer.sketches.find((v) => v.id === id);
-    if (s) for (const q of s.shapes) for (const [u, v] of corners2(bounds(q))) box.expandByPoint(new Vector3(...toWorld(s.frame, u, v)));
-    for (const b of contents(doc, [id])) {
-      const m = doc.bodies.some((x) => x.id === b) && viewer.measure(b);
-      if (m) box.union(m.box);
-    }
-    return box.isEmpty() ? null : box;
-  };
-  const boxes = units.map(boxOf);
+  const boxes = units.map((id) => worldBox(doc, id));
   if (units.length < 2 || boxes.some((b) => !b)) return 'Select two shown objects or more to align them';
   const all = boxes.reduce((a, b) => a!.clone().union(b!), boxes[0]!)!;
   const k = 'XYZ'.indexOf(how.at(-1)!);
@@ -7988,6 +8000,7 @@ function notify(message: string, error = false, action: (() => void) | null = nu
 }
 
 const hintRow = Object.assign(document.createElement('div'), { className: 'tool-hint' });
+let hintShown = '';
 const hintPanel = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel hint-only' });
 // its ×: the Cancel key (Esc unless set otherwise), sent from the page itself: every tool ends as on that key
 hintPanel.append(
@@ -8024,11 +8037,12 @@ function showNote() {
 function showHint(text: string) {
   const panel = [...document.querySelectorAll<HTMLElement>('.cut-panel:not(.hint-only)')].at(-1);
   if (!text) return hintRow.remove(), hintPanel.remove();
-  const changed = text !== hintRow.dataset.tip;
+  const changed = text !== hintShown;
   if (changed) {
+    // each part whole: a long hint wraps between its parts
     const [head, ...rest] = text.split(' · ');
-    hintRow.innerHTML = `<b>${noteHtml(head)}</b>${rest.length ? ` · ${noteHtml(rest.join(' · '))}` : ''}`;
-    hintRow.dataset.tip = text; // cut short when long: all of it on hover
+    hintRow.innerHTML = [`<b>${noteHtml(head)}</b>`, ...rest.map(noteHtml)].map((part) => `<span>${part}</span>`).join(' · ');
+    hintShown = text;
   }
   const host = panel ?? hintPanel;
   if (host.lastElementChild !== hintRow) {
@@ -8162,7 +8176,7 @@ addEventListener('keydown', (e) => {
   else if (pending && pressed(e, 'cancel')) cancelPending(), render();
   else if (pressed(e, 'undo')) undo();
   else if (pressed(e, 'redo')) undo(true);
-  else if (pressed(e, 'fit')) viewer.fit();
+  else if (pressed(e, 'fit')) fit();
   else if (pressed(e, 'home')) viewer.home();
   else if (pressed(e, 'lookAtFace')) viewer.lookAtFace();
   else if (tool) startTool(tool);
