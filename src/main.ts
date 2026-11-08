@@ -4649,9 +4649,9 @@ function loftTool() {
  * in a sketch the click only sets the point it turns around (in its plane). Then the pointer turns it as the line tool
  * turns a line (1° steps, Shift the angle step shown as ticks, A / Shift A finer / coarser, Ctrl the minimum angle); a
  * click keeps it. A panel at the top middle of the view: Turn ° (typed or scrubbed; typed, the pointer leaves it),
- * X / Y / Z (that world axis through the point), Set axis. Enter or ✓ keeps it (one undo step), Esc puts it back.
+ * X / Y / Z (that world axis through the point), Set axis, Set bodies (`keep`: the axis then). Enter or ✓ keeps it (one undo step), Esc puts it back.
  */
-function rotateTool() {
+function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
   if (selected.length && selectedImages().length === selected.length) return turnImages();
   if (!selected.length) {
     pending = { tool: 'move', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), rotateTool()) };
@@ -4810,6 +4810,27 @@ function rotateTool() {
       (a) => (tips.cursorTip(a ? `${a.what}\nClick: it turns around it` : null), a ? viewer.showAxis(a, a.at, 60) : marks()),
     );
   };
+  /** Other bodies to turn, the axis kept: the turn so far undone, clicks pick them (again: dropped), Enter turns those. */
+  const setBodies = () => {
+    const axis = pivot ? { pivot, dir, point } : undefined;
+    finish(false);
+    const picked = [...selected];
+    pending = {
+      tool: 'move',
+      pick(id) {
+        picked.splice(0, picked.length, ...(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]));
+        selected = [...picked];
+        showSelection();
+      },
+      apply() {
+        cancelPending();
+        if (picked.length) rotateTool(axis);
+        else render();
+      },
+    };
+    toolHint = 'Rotate: click what to turn (a second click drops it) · [Enter] Finalize · [Esc] cancels';
+    render();
+  };
   const finish = (ok: boolean) => {
     if (ended) return;
     ended = true;
@@ -4843,16 +4864,19 @@ function rotateTool() {
   box.append(
     cell(label, input, toObjectButton(aimAngle, 'Click where something is now, then where it should go: their angle goes into Turn °')),
     switcher,
+    ...(frame ? [] : [button('Set bodies', 'Click: Pick again what turns (a second click drops it); the axis stays', setBodies)]),
     button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
   );
   document.body.append(box);
   atTop(box);
   addEventListener('keydown', keys, { capture: true });
   // an edge Alt-picked first is the axis: turning at once
-  const picked = frame ? null : pickedAxis();
-  if (!picked) return setAxis();
-  viewer.dropPicked();
-  [pivot, dir] = [picked.at.clone().addScaledVector(picked.dir, middle.clone().sub(picked.at).dot(picked.dir)), picked.dir.clone()];
+  const picked = frame || keep ? null : pickedAxis();
+  if (keep) [pivot, dir, point] = [keep.pivot, keep.dir, keep.point];
+  else if (picked) {
+    viewer.dropPicked();
+    [pivot, dir] = [picked.at.clone().addScaledVector(picked.dir, middle.clone().sub(picked.at).dot(picked.dir)), picked.dir.clone()];
+  } else return setAxis();
   apply(angle);
   turnPick();
 }
@@ -6994,7 +7018,7 @@ function render() {
     mirrorTool,
     patternTool: () => patternTool(),
     threadTool,
-    rotateTool,
+    rotateTool: () => rotateTool(),
     alignObjects,
     previewAlign,
     jointTool: () => jointTool(),

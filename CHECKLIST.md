@@ -18,6 +18,7 @@ Loose ends fixed 2026-11-08:
 - [ ] Distance measure: areas in cm², volumes in cm³ in a mm document (as Info); a body's Info says Surface area (all its faces, not one face's Area)
 - [ ] Distance measure on a selected sketch rectangle: L, W and Perimeter
 - [ ] Revolve, Sweep and Loft picking a shape: a click inside a closed shape picks it too, not only its outline
+- [ ] Rotate: Set bodies (beside the axis buttons): the turn so far goes back, clicks pick what turns (again: dropped), Enter turns those around the same axis
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:
