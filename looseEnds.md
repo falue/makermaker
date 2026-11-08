@@ -111,6 +111,6 @@ Answers assumed where a request left a question open.
 ## Found by hand (2026-11-07 / 08, user-observed, not reproduced)
 - Closing a polygon inside sketch mode (Line tool, polygon mode, three corners, click the start) leaves sketch mode; it should stay flat and the tool go on (checklist: "Closed inside sketch mode"). Not reproduced (2026-11-08, headless Chrome, sample sketch "Plate outline": it stayed in the sketch, the tool went on); the exact steps are needed.
 - Tab cycling under the pointer covers bodies and work planes (93d0730), not sketches or images.
-- Negative sizes: H turns positive (the body moved) only for a body's own extrude on a base plane, not linked and not reaching back; from a sketch, a face or linked it still grows the other way and shows −40. L / W scrubbed below 0 stop at 0 (only typed ones flip).
+- Negative sizes: H turns positive (the body moved) only for a body's own extrude on a base plane, not linked and not reaching back; from a sketch, a face or linked it still grows the other way and shows −40. Scrubbing (no final step on letting go): L / W stop above 0, H goes on below 0 as before; only typed values flip.
 - Long tool hints (Distance measure's) are cut short with … in the floating panel's one line (all of it only on hover).
 - Wanted: Revolve of an open outline (a surface). Not built: bodies are solids only.
