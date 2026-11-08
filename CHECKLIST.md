@@ -21,7 +21,7 @@ Selection first, then the tool:
 - [ ] Revolve with a selected line (fails, see looseEnds), a construction line or an Alt-picked edge as the axis: the panel at once
 - [x] Rotate: an Alt-picked edge first is the axis (a round one: through its centre), turning starts at once
 - [x] Pattern with a group selected (its bodies)
-- [ ] Pattern around an Alt-picked edge as its axis (fails, see looseEnds)
+- [ ] Pattern with an Alt-picked edge: Around at once, that edge the axis
 - [ ] Coat with a group or several bodies selected: each gets a coat; the panel sets thickness and corners for all (no faces, no New body)
 - [ ] Coat with an Alt-picked face: its body, that face left out
 - [ ] Offset with a whole sketch selected: all its shapes; Shell with Alt-picked faces: those left open

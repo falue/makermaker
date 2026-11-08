@@ -2553,8 +2553,8 @@ function checkbox(label: string, title: string, on: boolean, change: (on: boolea
  * the last copy's far side at a clicked point, and a turn per copy (each further copy turns that much more around its
  * middle).
  */
-function patternTool(mode: 'around' | 'grid' = 'grid') {
-  // groups as their bodies
+function patternTool(mode: 'around' | 'grid' = pickedAxis() ? 'around' : 'grid') {
+  // an Alt-picked edge: around it; groups as their bodies
   const sources = contents(history.current, selected).filter((id) => history.current.bodies.some((b) => b.id === id));
   if (!sources.length) {
     const picked: string[] = [];
