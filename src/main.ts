@@ -1220,6 +1220,9 @@ function selectAll() {
   showSelection();
 }
 
+/** Areas and volumes one unit up (mm → cm², cm³), else the numbers get long: the unit's name and size (mm). */
+const UP: Record<Unit, [string, number]> = { mm: ['cm', 10], cm: ['dm', 100], m: ['m', 1000], in: ['ft', 304.8], ft: ['ft', 304.8] };
+
 /**
  * The info panel's rows for what is selected: a picked edge (length) or face (area); sketch shapes (size, Ø, area, a
  * line's length); bodies (box size; one body: position and turn; volume and surface area from their triangles).
@@ -1227,10 +1230,8 @@ function selectAll() {
 function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Box3; at?: Vec3; note?: string } | null {
   const doc = history.current;
   const u = doc.units;
-  // areas and volumes one unit up (mm → cm², cm³), else the numbers get long
-  const up: Record<Unit, [string, number]> = { mm: ['cm', 10], cm: ['dm', 100], m: ['m', 1000], in: ['ft', 304.8], ft: ['ft', 304.8] };
   const num = (mm: number, power = 1) => {
-    const [name, size] = power === 1 ? [u, UNITS[u]] : up[u];
+    const [name, size] = power === 1 ? [u, UNITS[u]] : UP[u];
     return `${fmt(+(mm / size ** power).toFixed(3))} ${name}${power === 2 ? '²' : power === 3 ? '³' : ''}`;
   };
   // read from the view's triangles or flattened curves: see the panel's info icon
@@ -1275,7 +1276,7 @@ function infoOf(): { title: string; rows: [string, string, Measure?][]; box?: Bo
     if (at) rows.push(['Position', at.map((v) => num(v)).join(', '), 'at']);
     rows.push(['Rotation', `${fmt(turn.rx)}°, ${fmt(turn.ry)}°, ${fmt(turn.rz)}°`]);
   }
-  rows.push(['Volume', counted(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface', counted(m.reduce((n, x) => n + x.area, 0), 2)]);
+  rows.push(['Volume', counted(m.reduce((n, x) => n + x.volume, 0), 3)], ['Surface area', counted(m.reduce((n, x) => n + x.area, 0), 2)]);
   return { title: b ? b.name : `${ids.length} bodies`, rows, box, at: b ? positions.get(b.id) : undefined, note: exactNote(ids) };
 }
 
@@ -4044,7 +4045,8 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
       ...(note ? [Object.assign(document.createElement('span'), { className: 'hint', textContent: note })] : []),
       ...items.map(([label, mm, area, about]) => {
         const power = area === 3 ? 3 : area ? 2 : 1;
-        const text = `${fmt(+(mm / UNITS[u] ** power).toFixed(4))} ${u}${['', '', '²', '³'][power]}`;
+        const [name, size] = power === 1 ? [u, UNITS[u]] : UP[u];
+        const text = `${fmt(+(mm / size ** power).toFixed(4))} ${name}${['', '', '²', '³'][power]}`;
         const shownText = `${about ? '~' : ''}${text}`;
         const shown = axisHtml(`${label} ${shownText}`);
         // waiting field: the value goes straight in; else copied: the button says so for a moment (the panel's last row shows the tool's hint)
@@ -4068,6 +4070,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
   };
   // what the solids answered, by part
   const edgeLengths = new Map<[Vector3, Vector3][], number>();
+  const edgeRefs = new Map<[Vector3, Vector3][], PartRef[]>();
   const faceAreas = new Map<string, number>();
   const faceSides = new Map<string, [number, number]>();
   const faceKey = (f: FaceItem) => `${f.body} ${f.index}`;
@@ -4075,7 +4078,10 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
   const showParts = () => {
     if (edges.length) {
       const about = edges.some((e) => !edgeLengths.has(e));
-      return show(edges.length > 1 ? [[`${edges.length} edges`, edges.reduce((n, e) => n + long(e), 0), false, about]] : [['Edge', long(edges[0]), false, about]]);
+      if (edges.length > 1) return show([[`${edges.length} edges`, edges.reduce((n, e) => n + long(e), 0), false, about]]);
+      // a round edge: its Ø and circumference
+      const round = viewer.edgeDiameter(edges[0], edgeRefs.get(edges[0]) ?? []);
+      return show(round ? [['Ø', round.d, false, !round.exact], [Math.abs(long(edges[0]) - Math.PI * round.d) < 1e-3 ? 'Circumference' : 'Arc', long(edges[0]), false, about]] : [['Edge', long(edges[0]), false, about]]);
     }
     const area = (f: FaceItem) => faceAreas.get(faceKey(f)) ?? viewer.faceSize(f).area;
     const about = faces.some((f) => !faceAreas.has(faceKey(f)) && !meshOnly(f.body));
@@ -4171,6 +4177,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
           // a part marked: the points start over; Shift adds (or drops) one of the same kind
           [last, faces] = [null, 'edge' in part ? [] : faces];
           if ('edge' in part) {
+            edgeRefs.set(part.edge, part.refs ?? []);
             const same = (x: [Vector3, Vector3][]) => x.length === part.edge.length && x[0][0].distanceTo(part.edge[0][0]) < 1e-6;
             edges = !face.adds ? [part.edge] : edges.some(same) ? edges.filter((x) => !same(x)) : [...edges, part.edge];
           } else {
@@ -4238,6 +4245,7 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     if (parts.length || picked.length) {
       viewer.dropPicked();
       [edges, faces] = [parts.map((x) => x.segs), parts.length ? [] : picked];
+      for (const x of parts) edgeRefs.set(x.segs, x.refs);
       viewer.showMeasured(edges, faces);
       showParts();
       void Promise.all([...parts.map((x) => askEdge(x.segs, x.refs)), ...faces.map(askFace)]).then(refreshParts);
@@ -4246,7 +4254,8 @@ function measureTool(use?: (mm: number) => void, done?: () => void) {
     const sk = viewer.sketches.find((v) => v.id === activeSketch());
     const shapes = sk?.shapes.filter((q) => shapeSel.includes(q.id)) ?? [];
     if (shapes.length === 1 && shapes[0].kind === 'circle') return show([['Ø', shapes[0].d], ['Circumference', Math.PI * shapes[0].d]]), true;
-    if (shapes.length) return show([[shapes.length > 1 ? `${shapes.length} outlines` : shapes[0].kind === 'line' ? 'Length' : 'Perimeter', shapes.reduce((n, q) => n + outlineLength(q), 0)]]), true;
+    const sides: [string, number][] = shapes.length === 1 && shapes[0].kind === 'rect' ? [['L', shapes[0].w], ['W', shapes[0].h]] : [];
+    if (shapes.length) return show([...sides, [shapes.length > 1 ? `${shapes.length} outlines` : shapes[0].kind === 'line' ? 'Length' : 'Perimeter', shapes.reduce((n, q) => n + outlineLength(q), 0)]]), true;
     const bodies = contents(doc, selected).flatMap((id) => (doc.bodies.some((b) => b.id === id) && viewer.measure(id)) || []);
     if (!bodies.length) return false;
     const all = bodies.reduce((b, m) => b.union(m.box), new Box3());

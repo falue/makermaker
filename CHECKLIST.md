@@ -14,6 +14,9 @@ Newest work first. Test files: `node scripts/make-test-lamp.mjs` writes testdata
 
 Loose ends fixed 2026-11-08:
 
+- [ ] Distance measure on an Alt-picked round rim (also picked first): Ø and Circumference (part of a circle: Arc); Info shows Ø for it too
+- [ ] Distance measure: areas in cm², volumes in cm³ in a mm document (as Info); a body's Info says Surface area (all its faces, not one face's Area)
+- [ ] Distance measure on a selected sketch rectangle: L, W and Perimeter
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:
@@ -93,7 +96,7 @@ Tools:
 - [ ] Thread panel: Modelled or Pilot (a shaft: Plain), last choice kept; a pilot hole at tap-drill size, the thread dashed; sizes end in Custom (only then Ø and Pitch)
 - [ ] Thread tool on a thread's groove, pilot hole or shaft opens its panel; History rows of thread, bulge, draft and box joint open their panel
 - [ ] Thread on a filleted body (Vertical edges, unbaked): builds quickly, no tiny dark fillets; a threaded cylinder cut by a ball builds
-- [ ] Info panel: picked edges' length and Ø and faces' area without ~; says why when values come from triangles; no question-mark pointer; a square box (a rim's Ø fails, see looseEnds)
+- [ ] Info panel: picked edges' length and Ø and faces' area without ~; says why when values come from triangles; no question-mark pointer; a square box
 - [ ] Offset that makes a shape vanish (inside a small arc, say): the tool says so
 - [ ] SVG and DXF import keep arcs and curves (a rounded rect, an ellipse, a spline); laser export keeps arcs (SVG arcs, DXF bulges), opens at true size in Illustrator / LightBurn
 - [ ] Renders: Save to with the real folder picker and its permission prompts (tried headless only)

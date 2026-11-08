@@ -3564,6 +3564,18 @@ export class Viewer implements ToolView {
     return this.exactEdge(body, index)?.edge.length ?? null;
   }
 
+  /** An edge's Ø (mm) when it is one circle, maybe in parts: the kernel's (`exact`), else from its points; null: not round. */
+  edgeDiameter(segs: [THREE.Vector3, THREE.Vector3][], refs: PartRef[]) {
+    const exact = refs.map((r) => (r.edge === undefined ? null : this.exactEdge(r.body, r.edge)?.edge ?? null));
+    if (exact.length && exact.every(Boolean)) {
+      const c = exact[0]!;
+      const one = c.kind === 'circle' && exact.every((e) => e!.kind === 'circle' && Math.abs(e!.r - c.r) < 1e-6 && e!.c.every((v, k) => Math.abs(v - c.c[k]) < 1e-6));
+      return one ? { d: 2 * c.r, exact: true } : null;
+    }
+    const circle = circleOf(segs.flatMap(([a, b]) => [a, a.clone().lerp(b, 0.5)]));
+    return circle ? { d: circle.d, exact: false } : null;
+  }
+
   /**
    * A picked edge as a whole: a circle the kernel keeps as halves (or more pieces) as all of them, their points and
    * refs together; any other edge as it is.
@@ -3698,7 +3710,7 @@ export class Viewer implements ToolView {
     });
     if (exact.every(Boolean)) {
       const circles = exact.filter((e) => e!.kind === 'circle') as Extract<ExactEdge, { kind: 'circle' }>[];
-      const one = circles.length === exact.length && circles.every((c) => c.r === circles[0].r && c.c.every((v, k) => Math.abs(v - circles[0].c[k]) < 1e-9));
+      const one = circles.length === exact.length && circles.every((c) => Math.abs(c.r - circles[0].r) < 1e-6 && c.c.every((v, k) => Math.abs(v - circles[0].c[k]) < 1e-6));
       return this.host.pickedPart({ kind: 'edge', body: picked.body, size: exact.reduce((n, e) => n + e!.length, 0), count: picked.edges.length, diameter: one ? 2 * circles[0].r : undefined, exact: true });
     }
     const size = picked.edges.flat().reduce((n, [a, b]) => n + a.distanceTo(b), 0);
