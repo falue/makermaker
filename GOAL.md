@@ -2,11 +2,7 @@
 
 Requirements and implementation outline · 30 October 2026 · decisions added 31 October 2026
 
-Status: Stage 0 foundation spike implemented (see STATUS.md); nothing benchmarked yet. Project name is MAKERMAKER. Core architecture decisions are recorded under "Decisions"; remaining open points are listed under "Open questions".
-
-name sugestions:
-- makerCAD (but used already by [this](https://github.com/marcuswu/makercad))
-- MAKERMAKER (WINS!)
+Project name: MAKERMAKER. What is built and planned: [STATUS.md](STATUS.md); nothing benchmarked yet. Core architecture decisions are recorded under "Decisions"; remaining open points under "Open questions".
 
 ## Purpose
 
@@ -158,35 +154,9 @@ Materials and HDRI lighting, scale references, screenshot export, turntable and 
 
 Broader direct editing; robust modifier references through more edits; relationships between parts; sketch constraint solver if needed; printable drawings; richer laser preparation; desktop wrapper; additional interchange formats and browser/platform coverage.
 
-Undo history list: pressing ⌘Z twice in a row shows a list of the latest steps; dragging a line up and down through that log moves through the history.
+Expose operations through a shared command layer so mouse, shortcuts, and potential future automation can use the same behavior.
 
-Expose operations through a shared command layer so mouse, shortcuts, and potential future automation can use the same behavior. Python/LLM integration is not an MVP deliverable.
-
-Later goals (2026-11-02):
-
-- [x] **Central CAD command API** (2026-11-03: the command table in src/api/commands.ts and `window.makermaker`; more commands and the GUI going through it still to come): all modeling actions available through one clean TypeScript API, used by both the GUI and scripting. Commands create, edit and select bodies, sketches, features, materials, transforms, booleans, bevels, holes, etc. Kept independent from the UI and the geometry kernel where possible. Wanted before rebindable hotkeys and before many more tools (they would use its command table).
-- [ ] **Cross browser:** the app works, or at least stays usable, in Firefox and Safari too; what they lack (saving in place, script folders: the File System Access API) falls back to downloads and uploads, and says so.
-- [ ] **LLM control:** an API through which an LLM can control everything.
-- [x] **Python scripting with an editor:** Monaco Editor plus Pyodide for in-browser Python. The command API exposed as a simple Python module such as `cad`, so scripts can do `cad.box(...)`, `cad.move(...)`, `cad.bevel(...)` and access the selected bodies and features. Run button, console output, errors, autocomplete, offline caching. (Both are new dependencies: approve when the time comes.)
-
-Later goals (2026-11-02, from the design talks; STATUS.md → "CAD goals" lists them in order):
-
-- [ ] **Basic CAD completeness:** dimensions with basic constraints, hole features (counterbore, countersink), 2D drawings (sketch arcs and bezier curves, revolve, loft, sweep, shell, mirror, threads, patterns, work planes, draft, measuring and STEP export are built).
-- [ ] **Flatten:** a body's whole recipe becomes one fixed solid (lossy, explicit), so booleans' tool bodies can be removed.
-- [ ] **Cut by any body:** planes, sketch shapes, balls and cylinders work; boxes, imported solids and any other body still to come.
-
-Later goals (2026-11-03):
-
-- [x] **Work planes through points** (built as three ways to make one: on a face, along an edge and a point, through three points): an angle setting like the Cut tool's, and planes built through snap points: with a plane selected, the first point clicked tilts it towards that point, the second through that one too, the third fixes it through all three (it leaves its first place); a fourth drops the first, and so on. The points can be picked again and edited; edges may help too. The panel shows only what is needed at the moment.
-- [x] **Hovering objects in the list** (both ways: the view lights list rows too): an object or group hovered in the list is outlined orange for the moment, like a hovered sketch group.
-- [x] **Off-screen hint** (it also points to the selection; a click centres it): an object, group or sketch group hovered in the list that lies outside the view gets a small orange arrow at the view's edge, pointing where it is.
-
-Later goals (2026-11-03, second round):
-
-- [ ] **Move along any direction:** objects move parallel to any edge, line or work plane, not only along X / Y / Z.
-- [x] **One way to set a plane at an angle:** the Cut tool, work planes and Draft share one control for it.
-
-Built 2026-11-03 (second round): Draft; booleans with every kind of body (a test matrix); rebindable hotkeys and modifier roles; laser export with face choice, kerf, SVG / DXF; 3D print checks and 3MF; images with calibration, SVG / DXF as sketches; extra views; the command API.
+Later goals from the design talks (cross browser, LLM control, dimensions and constraints, hole features, Flatten, any body as a cutter, move along any direction, the undo history list) are tracked in STATUS.md under "CAD goals" and "Planned, not built yet".
 
 ## Performance and sample files
 
