@@ -2465,7 +2465,7 @@ export class Viewer implements ToolView {
     const ways = [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => new THREE.Vector3(x, y, z).normalize()))).filter((d) => d.lengthSq() > 0 && Math.abs(d.dot(this.camera.up)) < 0.99);
     const dir = seen(now) ? now : (ways.filter(seen).sort((a, b) => b.dot(now) - a.dot(now))[0] ?? now);
     const turn = dir === now ? this.camera.quaternion.clone() : new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), this.camera.up));
-    this.frameAll(target, turn, 600, 1.1, box);
+    this.frameAll(target, turn, 600, 1.6, box); // room around it: it stays among what is beside it
   }
 
   /** Home (H): all bodies framed from the front-right corner (`ms`: how long the camera glides there; 0: at once). */
