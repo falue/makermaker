@@ -509,7 +509,7 @@ function boolean(shape: Shape3D | null, s: Of<'boolean'>): Shape3D {
       }
       return out;
     }
-    return s.op === 'union' ? shape.fuse(tool) : s.op === 'subtract' ? shape.cut(tool) : shape.intersect(tool);
+    return combined(shape, tool, s.op);
   } finally {
     tool.delete();
   }
@@ -1143,9 +1143,22 @@ function bulgeRound(shape: Shape3D | null, s: Of<'bulge'>, on: Extract<Of<'bulge
 function joined(shape: Shape3D | null, tool: Shape3D, mode: 'add' | 'cut'): Shape3D {
   if (!shape) return tool;
   try {
-    return mode === 'add' ? shape.fuse(tool) : shape.cut(tool);
+    return combined(shape, tool, mode === 'add' ? 'union' : 'subtract');
   } finally {
     tool.delete();
+  }
+}
+
+/**
+ * `shape` joined with, cut by or intersected with `tool`. Merging the result's faces afterwards (replicad's simplify)
+ * can fail where the operation itself worked (a modelled thread's many faces beside a ball's cut): then without it.
+ */
+function combined(shape: Shape3D, tool: Shape3D, op: 'union' | 'subtract' | 'intersect'): Shape3D {
+  const run = (simplify: boolean) => (op === 'union' ? shape.fuse(tool, { simplify }) : op === 'subtract' ? shape.cut(tool, { simplify }) : shape.intersect(tool, { simplify }));
+  try {
+    return run(true);
+  } catch {
+    return run(false);
   }
 }
 
