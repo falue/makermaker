@@ -948,7 +948,12 @@ export class Viewer implements ToolView {
       const out = hit.point.clone().sub(axis).normalize();
       return { point: axis.addScaledVector(out, face.r), n: face.shaft ? out : out.negate() };
     }
-    return { point: hit.point.clone(), n: hit.face!.normal.clone() };
+    // another curved face: the mesh's smooth normal there (its corners' normals blended), not its flat triangle's
+    const geo = (hit.object as THREE.Mesh).geometry;
+    const [pos, nor, f] = [geo.attributes.position, geo.attributes.normal, hit.face!];
+    const v = (a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, i: number) => new THREE.Vector3().fromBufferAttribute(a, i);
+    const n = nor && THREE.Triangle.getInterpolation(hit.object.worldToLocal(hit.point.clone()), v(pos, f.a), v(pos, f.b), v(pos, f.c), v(nor, f.a), v(nor, f.b), v(nor, f.c), new THREE.Vector3());
+    return { point: hit.point.clone(), n: n && n.lengthSq() > 1e-12 ? n.transformDirection(m) : f.normal.clone() };
   }
 
   /** The outward normal (world) of the body face under the pointer, if any. */
@@ -5524,11 +5529,14 @@ export class Viewer implements ToolView {
   }
 
   /** Looks straight at the last clicked face if its body is selected, else at the face clicked next. */
+  /**
+   * Look at a face: one Alt-picked first (flat), else the next face clicked (a round one: square to it where clicked);
+   * a selected object alone is no face: it waits for the click.
+   */
   lookAtFace() {
-    const face = this.lastFace;
-    const show = (f: PickedFace | null) => f && this.lookAlong(f.normal.clone().negate(), f.point);
-    if (face?.body && this.selection.includes(face.body)) show(face);
-    else this.pickFace(show);
+    const item = this.pickedFaceItems()[0];
+    if (item && (item.mesh.userData.exact as Exact | null | undefined)?.faces[item.index]?.kind === 'plane') return this.lookAlong(item.n.clone(), item.point);
+    this.pickFace((f) => f && this.lookAlong(f.normal.clone().negate(), f.point));
   }
 
   /** Looks at the neighbouring side: the one to the right / left / above / below on screen. */
