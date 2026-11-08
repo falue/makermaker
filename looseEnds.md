@@ -116,7 +116,6 @@ Answers assumed where a request left a question open.
 - Switching the document between mm and inch changes a work plane's size on screen (images and imported SVGs stay put).
 - The grey top-bar note after an import ("Imported …") stays until the next message (by design: only errors and green notes go after 5 s). Wanted: it goes after a while too.
 - Long tool hints (Distance measure's) are cut short with … in the floating panel's one line (all of it only on hover).
-- Revolve with a straight sketch line selected first: the line is not taken as the axis, Revolve asks for a profile, then an axis. Wanted: the line is the axis, the panel opens at once. (A construction line and an Alt-picked edge not tried.)
-- Wanted: Revolve takes a click inside a sketch area, not only on a closed profile's outline; open outlines too.
+- Wanted: Revolve of an open outline (a surface). Not built: bodies are solids only.
 - Rotate with a round edge picked first: the axis is right, but its body gets selected too, and the bodies to turn cannot be picked apart from it. Wanted: Set bodies beside Set axis (add, remove, pick again) keeping the axis.
 - Shift while drawing a circle from an off-grid point: the size steps from the start value (0.37, 1.37, 2.37 mm) instead of whole values (1, 2, 3 mm). Other drawing tools not tried.

@@ -492,8 +492,8 @@ export class Viewer implements ToolView {
   /** Where a picking press started (see `clicked`). */
   private clickAt: { x: number; y: number } | null = null;
   private faceMark: THREE.Mesh | null = null;
-  /** Picking a face for Extrude: closed sketch shapes count too, and what a click on one pulls is lit here. */
-  private pickOutlines = false;
+  /** Picking sketch shapes by their outline ('inside': a click inside a closed one too), in front of any face. */
+  private pickOutlines: boolean | 'inside' = false;
   /** A quiet pick's parts: 'alt': Alt previews and picks an edge or face (see `PickedFace.part`); 'lit': the face or edge a click lands on lit instead of its point (a point along an edge, its middle say, counts as the edge: see `alongEdge`). */
   private pickParts: 'alt' | 'lit' | null = null;
   /** A pick takes work planes too, as faces (see `PickedFace.plane`). */
@@ -1573,11 +1573,11 @@ export class Viewer implements ToolView {
     return best;
   }
 
-  /** Picking outlines: the sketch shape (lines too) whose outline is under the pointer, in front of any face; null: none. */
+  /** Picking outlines: the sketch shape (lines too) whose outline (or inside, see `pickOutlines`) is under the pointer, in front of any face; null: none. */
   private sketchShapeAt(e: MouseEvent, hit: THREE.Intersection | undefined): SketchHit | null {
     if (!this.pickOutlines) return null;
     const s = this.shapeAt(this.ray(e), hit?.distance);
-    const sketch = s && s.edge < Infinity ? this.sketches.find((k) => k.id === s.sketch) : undefined;
+    const sketch = s && (s.edge < Infinity || this.pickOutlines === 'inside') ? this.sketches.find((k) => k.id === s.sketch) : undefined;
     const q = sketch?.shapes.find((x) => x.id === s!.shape);
     return sketch && q ? { sketch, q } : null;
   }
@@ -1682,7 +1682,7 @@ export class Viewer implements ToolView {
 
   /** The next click on a body picks a face (null: Esc). */
   /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too; `parts`: see `pickParts`. */
-  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines = false, parts: Viewer['pickParts'] = null, planes = false) {
+  pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines: boolean | 'inside' = false, parts: Viewer['pickParts'] = null, planes = false) {
     this.facePick = done;
     this.quietPick = quiet;
     this.pickOutlines = outlines;

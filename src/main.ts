@@ -2167,9 +2167,12 @@ function revolveTool() {
   // the sketch selected (the first of several), or the one of the selected shapes
   const id = activeSketch() ?? selected.find((x) => history.current.sketches.some((k) => k.id === x));
   const s = viewer.sketches.find((v) => v.id === id);
-  const shapes = s ? (shapeSel.length ? s.shapes.filter((q) => shapeSel.includes(q.id)) : s.shapes).filter((q) => !q.construction && q.kind !== 'line') : [];
+  // the selected closed shapes; none (only the axis line, say): all of the sketch's
+  const own = s?.shapes.filter((q) => !q.construction && q.kind !== 'line') ?? [];
+  const chosen = own.filter((q) => shapeSel.includes(q.id));
+  const shapes = chosen.length ? chosen : own;
   if (!s || !shapes.length) {
-    toolHint = 'Revolve: click the outline of a closed sketch shape · [Esc] cancels';
+    toolHint = 'Revolve: click a closed sketch shape · inside or its outline · [Esc] cancels';
     render();
     return viewer.pickFace((face) => {
       toolHint = null;
@@ -2177,7 +2180,7 @@ function revolveTool() {
       [selected, shapeSel] = [[face.sketch.id], [face.sketch.shape]];
       showSelection();
       revolveTool();
-    }, false, true);
+    }, false, 'inside');
   }
   const f = s.frame;
   const around = (a: TurnAxis | null) => {
@@ -4568,10 +4571,10 @@ function sweepTool() {
       const q = face?.sketch?.shape;
       if (!face?.sketch || !q) return render();
       done({ sketch: face.sketch.id, shape: q });
-    }, false, true);
+    }, false, 'inside');
   };
   const askPath = (profile: Part) => pick('Sweep: click the path · the line or shape outline it runs along · [Esc] cancels', (path) => make(path, profile));
-  const askProfile = (path: Part) => pick('Sweep: click the profile · the outline of a closed shape to sweep along the path · [Esc] cancels', (profile) => make(path, profile));
+  const askProfile = (path: Part) => pick('Sweep: click the profile · a closed shape (inside or its outline) to sweep along the path · [Esc] cancels', (profile) => make(path, profile));
   // selected first, in that order: picked shapes, else each selected sketch's first shape; a line is open (a path)
   const doc = history.current;
   const parts = selected.flatMap((id) => {
@@ -4624,7 +4627,7 @@ function loftTool() {
     render();
   };
   const next = () => {
-    toolHint = `Loft: click the outlines in order · closed sketch shapes, one per sketch (${picked.length} so far) · [Enter] Finalize · [Esc] cancels`;
+    toolHint = `Loft: click the shapes in order · closed sketch shapes (inside or the outline), one per sketch (${picked.length} so far) · [Enter] Finalize · [Esc] cancels`;
     render();
     viewer.pickFace((face) => {
       if (ended) return;
@@ -4632,7 +4635,7 @@ function loftTool() {
       const at = face.sketch;
       if (at?.shape && !picked.some((q) => q.sketch === at.id)) picked.push({ sketch: at.id, shape: at.shape }), show();
       next();
-    }, false, true);
+    }, false, 'inside');
   };
   const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), finish(picked.length > 1));
   addEventListener('keydown', keys, { capture: true });

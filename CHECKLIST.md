@@ -17,6 +17,7 @@ Loose ends fixed 2026-11-08:
 - [ ] Distance measure on an Alt-picked round rim (also picked first): Ø and Circumference (part of a circle: Arc); Info shows Ø for it too
 - [ ] Distance measure: areas in cm², volumes in cm³ in a mm document (as Info); a body's Info says Surface area (all its faces, not one face's Area)
 - [ ] Distance measure on a selected sketch rectangle: L, W and Perimeter
+- [ ] Revolve, Sweep and Loft picking a shape: a click inside a closed shape picks it too, not only its outline
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:
@@ -25,7 +26,7 @@ Selection first, then the tool:
 - [ ] Mirror with a whole sketch selected (its shapes), an Alt-picked edge (the line); an Alt-picked face alone: its body mirrored across it
 - [x] Sweep: one open and one closed shape or sketch selected: sweeps at once (the open one the path); two closed: the first is the path
 - [x] Measure with Alt-picked edges (a rim whole) or faces, a sketch's shapes (a circle's Ø and circumference, else the perimeter), bodies (L / W / H and volume) selected: values at once
-- [ ] Revolve with a selected line (fails, see looseEnds), a construction line or an Alt-picked edge as the axis: the panel at once
+- [ ] Revolve with only a line (a construction line too) selected: it is the axis, all the sketch's closed shapes turn, the panel at once; an Alt-picked edge as the axis
 - [x] Rotate: an Alt-picked edge first is the axis (a round one: through its centre), turning starts at once
 - [x] Pattern with a group selected (its bodies)
 - [ ] Pattern with an Alt-picked edge: Around at once, that edge the axis
