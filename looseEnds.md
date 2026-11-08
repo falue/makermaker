@@ -114,3 +114,139 @@ Answers assumed where a request left a question open.
 
 ## Group origins
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
+
+# MakerMaker — Loose Ends
+
+## Bug 1 — In-progress polygon does not snap to its own segments
+
+**Status:** Reported during manual QA; not independently reproduced.
+
+**Steps to reproduce:**
+1. Activate the Line tool and start drawing a polygon point by point.
+2. Before finishing the polygon, move the cursor over a segment already drawn in that same polygon, away from its endpoints or other special snap points.
+
+**Observed:** Snapping works on other edges and on points associated with the in-progress polygon, but not at arbitrary positions along the polygon's own already-drawn line segments.
+
+**Expected:** Previously drawn segments of the still-active polygon should be eligible for on-line/segment snapping, just like other edges.
+
+**Reporter note:** “The freshly created polygon doesn't have line snapping … it snaps to edges … but it doesn't snap to its own lines … it snaps to points … but nowhere to the thing.”
+
+## Bug 2 — Closing a polygon unexpectedly exits sketch mode
+
+**Status:** Reported during manual QA; not independently reproduced.
+
+**Steps to reproduce:**
+1. Enter sketch mode.
+2. Activate the Line tool in polygon mode.
+3. Draw at least three corners and click the starting point to close the polygon.
+
+**Observed:** Closing the polygon exits sketch mode unexpectedly.
+
+**Expected:** The polygon stays flat, sketch mode remains active, and the drawing tool can continue to draw another shape.
+
+**Related checklist item:** “Closed inside sketch mode: stays flat, the tool goes on” — **failed; leave unchecked**.
+
+## Bug 3 — Two-point polygon retraces its own segment instead of refusing closure
+
+**Status:** Reported during manual QA; not independently reproduced.
+
+**Steps to reproduce:**
+1. Activate the Line tool in polygon mode.
+2. Click a first point, then a second point.
+3. Click the first point again, attempting to close a polygon with only two distinct points.
+
+**Observed:** The pointer hint says “point of this line,” and the tool draws a second line directly on top of the first rather than rejecting the invalid closure.
+
+**Expected:** The operation is refused with an explanatory hint, and polygon drawing remains active so another point can be added.
+
+**Related checklist item:** “Out and straight back with two points: refused with a hint, drawing goes on” — **failed; leave unchecked**.
+
+## Session review — 2026-11-07
+
+The three bugs above remain open in the manual QA log. The subsequent Bézier tests (smooth curve by clicks, mirrored orange handles, Shift angle stepping, Control fine movement, tangent transition from a straight line, smooth closure, drag-controlled closure, and Alt held during a handle drag) **passed**. No additional Bézier bug was reported. The exploratory “Control changes a handle tip to a diamond” scenario is **not a specified requirement and not a bug**. Arc tests remain untested.
+
+## Session additions — 2026-11-08 (voice QA)
+
+All findings below are **user-observed, not independently reproduced**. Previous reports above are preserved.
+
+### Bug 4 — Selection cycling limited to bodies/objects
+
+**Steps to reproduce:** Place or find selectable elements that overlap, including bodies/objects, sketches, panels/planes, or images; use the app's selection-cycling interaction over the overlap.
+
+**Observed:** Cycling works with objects, but not with sketches, panels/planes, or images (as reported). Specific selection-cycling key/action and the exact combination of overlapping element types were not captured.
+
+**Expected / suggestion:** Extend selection cycling consistently to other selectable element types, including sketches, planes/panels, and images. Confirm intended selection precedence and UI scope before implementation.
+
+**Status:** Partial coverage of an exploratory selection check; not a complete checklist item pass.
+
+### Improvement 5 — Normalize negative dimensions while preserving geometry
+
+**Steps to reproduce:** Set a body's Height to a negative value, for example Height = −40 while Z = 0. Also try entering negative Width and Length values.
+
+**Observed:** Negative Height is allowed and the object extends in the opposite direction while retaining the negative displayed value. Negative Width and Length are currently disallowed.
+
+**Expected / requested:** Allow negative values during manipulation or entry for all three dimensions, then normalize on commit without moving the occupied geometry: Height −40, Z 0 → Height 40, Z −40. Apply the analogous compensation to Width/X and Length/Y (respecting each field's assigned axis). The user describes this as a consistency improvement, not invalid geometry.
+
+**Status:** Enhancement request; no precise existing checklist item tested.
+
+### Bug 6 — Zoom to Fit unreliable after zooming far out
+
+**Steps to reproduce:** Zoom far out in the model view, then invoke **Zoom to Fit** / **Move Fit**.
+
+**Observed:** Instead of framing the model, the view moves unexpectedly or seemingly arbitrarily. The **Home** action behaves correctly across the zoom levels and rotations tested.
+
+**Expected:** Zoom to Fit should reliably frame the intended model/content regardless of the starting zoom level.
+
+**Status:** Failed exploratory camera check; Home passed. Specific reproducible model and camera state not recorded.
+
+### Bug 7 — Work-plane size changes when changing document units
+
+**Steps to reproduce:** Add or display a work plane, switch document units between millimetres and inches, and observe its size. Compare imported images and SVGs.
+
+**Observed:** Work planes change apparent size when switching units. Images and imported SVGs stay put / do not appear mis-scaled.
+
+**Expected:** Switching units should change units and displayed measurements, not the physical size of a work plane.
+
+**Status:** Units check partial / failed for work planes; not evidence for all unit-related functionality.
+
+### Bug 8 — SVG import feedback toast does not dismiss automatically
+
+**Steps to reproduce:** Import an SVG file and observe the grey top-bar toast naming the filename and reporting shapes imported as a sketch on the ground.
+
+**Observed:** The import feedback remains visible, apparently until another message replaces it.
+
+**Expected / suggestion:** Transient successful import feedback should disappear after a suitable delay (or use an otherwise unobtrusive persistent history mechanism).
+
+**Status:** Reported; replacement-by-next-message behaviour was an impression, not a formally timed test.
+
+### Bug 9 — Distance measure hint is clipped
+
+**Steps to reproduce:** Activate Distance measure, then hover where its help/hint is displayed.
+
+**Observed:** A long white instruction starts with “Distance measure, click points, each from the one before…” (approximate spoken wording); supplementary grey text beginning with “Alt-click…” is much longer and ends up truncated with an ellipsis. The text's layout is awkward.
+
+**Expected / suggestion:** Tooltip/help layout should accommodate both main and secondary instructions, wrapping or expanding rather than truncating important content.
+
+**Status:** UI layout issue reported; full original wording was not captured.
+
+## Other quick checks reported during the 2026-11-08 session
+
+These outcomes were reported as passing, but the broad spoken checks should **not** be treated as confirmation of every subcondition of the original, more detailed checklist entries:
+
+- Existing-file Save and Save As after a small edit.
+- Undo twice and Redo twice following two edits.
+- Pan, zoom, rotate and Home (but **not** Zoom to Fit).
+- Snapping to endpoints, midpoints, centres, and intersections during drawing or moving.
+- Editing a dimension and committing with Enter.
+- Duplicating a body and moving its copy independently.
+- Hide and restore an object.
+- Renaming an object: persisted after save/reopen; list position also preserved as reported.
+- Group two objects, move them, ungroup: positions preserved.
+- Multi-select deletion affected the expected objects.
+- Two-point measurement gave the expected result (other Distance measure behaviours not checked).
+- Escape cancels a drawing in progress cleanly (not necessarily every Esc path specified by the checklist).
+- Object material/colour persists after save and reopen.
+
+**Not tested:** STL export — no STL export option was available in the tested application. This is **not** counted as a bug or a passed checklist item. The source checklist instead specifies other export checks, including STEP, SVG and DXF.
+
+**Checklist integrity:** All original entries and existing `[x]` marks are preserved. No new `[x]` marks were added because today's broad checks did not establish an exact full original checklist item. Future guided sessions should return to the unchecked specific items.
