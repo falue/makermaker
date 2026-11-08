@@ -573,7 +573,7 @@ function update() {
       // along an edge, before its point: a square on the edge
       const [a, b] = w.mode === 'edge' && !points.length && w.hull.length === 2 ? w.hull : [];
       const square = a && b ? [1, -1].map((k) => add(scale(add(a, b), 0.5), scale(frame.y, (k * Math.hypot(...sub(b, a))) / 2))) : [];
-      workRects.set(w.id, planeRect(frame, [...w.hull, ...square, ...points], doc.units, w.rect && { rect: w.rect, keep: points }));
+      workRects.set(w.id, planeRect(frame, [...w.hull, ...square, ...points], w.rect && { rect: w.rect, keep: points }));
       return [w.id, frame] as const;
     }),
   );
@@ -4335,10 +4335,10 @@ function sketchHull(s: { frame: Frame; shapes: DrawnProfile[] }): V3[] {
 
 /**
  * A work plane's rectangle in its own coordinates (u0, v0, u1, v1): around `pts` (world, laid onto it), each side a
- * tenth of its length out, at least `margin` units; `fixed` (its sides dragged): that `rect`, grown to keep the
+ * tenth of its length out, at least `margin` mm (not the document's unit: switching it leaves the plane as it is); `fixed` (its sides dragged): that `rect`, grown to keep the
  * `keep` points on it; neither: a square `half` mm out from its origin.
  */
-function planeRect(f: Frame, pts: V3[], u: Unit, fixed: { rect: [number, number, number, number]; keep: V3[] } | null = null, margin = 5, half = 60): [number, number, number, number] {
+function planeRect(f: Frame, pts: V3[], fixed: { rect: [number, number, number, number]; keep: V3[] } | null = null, margin = 5, half = 60): [number, number, number, number] {
   const box = (q: V3[]) => {
     const [us, vs] = [q.map((p) => dot(sub(p, f.o), f.x)), q.map((p) => dot(sub(p, f.o), f.y))];
     return [Math.min(...us), Math.max(...us), Math.min(...vs), Math.max(...vs)];
@@ -4350,7 +4350,7 @@ function planeRect(f: Frame, pts: V3[], u: Unit, fixed: { rect: [number, number,
   }
   if (!pts.length) return [-half, -half, half, half];
   const [u0, u1, v0, v1] = box(pts);
-  const out = (lo: number, hi: number) => Math.max(0.1 * (hi - lo), margin * UNITS[u]);
+  const out = (lo: number, hi: number) => Math.max(0.1 * (hi - lo), margin);
   return [u0 - out(u0, u1), v0 - out(v0, v1), u1 + out(u0, u1), v1 + out(v0, v1)];
 }
 

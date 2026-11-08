@@ -23,6 +23,7 @@ Loose ends fixed 2026-11-08:
 - [ ] testdata/online_file.mmk (a sweep along a bezier): right after opening, a drawing tool follows the pointer fluidly, draws, Esc ends it
 - [ ] Grey top-bar notes ("Imported …", "Saved …") go after 8 s; red ones after 5 s; one to click ("Click: Open … again") stays
 - [ ] Zoom to Fit (F) after zooming far out or panning away: the model centred and framed, the view direction kept
+- [ ] Switching the document between mm and inch leaves work planes the same size
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:
