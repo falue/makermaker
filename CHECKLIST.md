@@ -1,45 +1,35 @@
 # Things to check by hand
-Newest work first. Test files: `node scripts/make-test-lamp.mjs` writes testdata/desk-lamp.mmk; the sample (npm run dev) has the named test bodies. Failures go to [looseEnds.md](looseEnds.md); a fully passed item is marked `[x]` and retained.
+
+Newest work first. Test files: `node scripts/make-test-lamp.mjs` writes testdata/desk-lamp.mmk; the sample (npm run dev) has the named test bodies. Failures go to [looseEnds.md](looseEnds.md); a passed item is marked `[x]` and stays where it is.
+
 ## For a guided (voice) QA session
+
 1. One small test at a time, slowly, naming the tool, the mode and exactly where to click, press, drag or type; wait for the answer. "Repeat" repeats the same test with pauses; asked for the goal, explain it.
-2. This list is the specification: do not invent behaviour or tests. An exploratory check is not a failure just because nothing changed.
-3. An item passes only when all of it was confirmed: mark it `[x]` and retain it. For a partly confirmed composite item, leave its main checkbox `[ ]`, add `[x]` for confirmed subchecks and `[ ]` for remaining checks. Obsolete (the tester says so): annotate as obsolete rather than deleting.
-4. A failure: leave the item, add to looseEnds.md what was done, seen and expected (user-observed, not reproduced).
+2. This list is the specification: do not invent behaviour or tests. An exploratory check is not a failure just because nothing changed. A request for new behaviour goes to looseEnds.md only, not here.
+3. An item passes only when all of it was confirmed: mark it `[x]` in place. Partly confirmed: split it in place into an `[x]` line for what passed and a `[ ]` line for what is open. Obsolete (the tester says so): mark it `[x]` and end it with "(obsolete)".
+4. A failure: leave the item `[ ]` with "(fails, see looseEnds)", add to looseEnds.md what was done, seen and expected (user-observed, not reproduced).
 5. Write both files about every six tests, or when asked or stopping; say so only once written. Short replies: pass / fail in one sentence, then the next test.
+
 ## New since 2026-11-07 17:00
+
 Selection first, then the tool:
-- [ ] Mirror with a whole sketch selected (its shapes), an Alt-picked edge (the line), a group (its bodies), an Alt-picked face (the plane; alone: its body mirrored across it). QA 2026-11-08: mirroring two sketch shapes was attempted; do not close the aggregate item yet. Group selection and face-mirror behavior appeared to work in the tester’s later clarification; verify any remaining cases.
-- [x] Mirror: group selected → its bodies are taken; chosen 3D face is used as mirror plane (tester confirmed).
-- [ ] Mirror: verify all remaining sketch-shape and Alt-edge/face variants in the full aggregate test.
-- [x] Sweep: one open and one closed shape or sketch selected: sweeps at once (the open one the path); two closed: the first is the path. QA 2026-11-08: both selection-first cases passed.
-- [ ] Measure with Alt-picked edges (a rim whole) or faces, a sketch's shapes (a circle's Ø and circumference, else the perimeter), bodies (L / W / H and volume) selected: values at once. QA 2026-11-08: straight edge length PASS; round edge highlight PASS but Ø missing in measure and Info; flat face area displayed but naming/units inconsistent with Info; body L/W/H and volume PASS but volume units need cm³ instead of mm³ in a mm document; sketch circle Ø/circumference PASS; sketch rectangle perimeter PASS but also needs length and width. Keep open.
-- [x] Measure: straight Alt-picked edge shows length immediately.
-- [x] Measure: circular Alt-picked rim highlights whole circle.
-- [ ] Measure/Info: circular rim shows diameter as well as circumference.
-- [x] Measure: flat Alt-picked face shows area.
-- [ ] Measure/Info: both say Area, use consistent converted cm² values for mm documents.
-- [x] Measure: selected 3D body shows length, width, height, volume.
-- [ ] Measure: show cm³ rather than mm³ for volume in mm documents.
-- [x] Measure: selected sketch circle shows diameter and circumference.
-- [x] Measure: selected rectangle shows perimeter.
-- [ ] Measure: selected rectangle also shows length and width.
-- [ ] Measure: verify other selected sketch-shape and multi-selection cases.
-- [ ] Revolve with a selected line (a construction line too) or an Alt-picked edge as the axis: the panel at once. QA 2026-11-08: selected straight sketch line was ignored as an axis; Revolve asked for a profile and then an axis. Construction line and Alt-picked edge remain untested. Support picking within sketch areas and open outlines as well as closed profile outlines (new request).
-- [ ] Revolve: selected sketch line should be used as axis without asking to pick it again; failed.
-- [ ] Revolve: selected construction line and Alt-picked edge variants remain untested.
-- [ ] Revolve: click inside sketch area, or select open/closed outline, not only the edge of a closed profile.
-- [x] Rotate: an Alt-picked edge first is the axis (a round one: through its centre), turning starts at once. QA 2026-11-08: straight and circular axes passed; separate open issue: changing the target bodies after setting an axis.
-- [ ] Pattern around an Alt-picked edge as its axis; Pattern and Coat with a group selected (its bodies); Coat with an Alt-picked face: its body, that face left out. QA 2026-11-08: Pattern recognized a preselected edge as an axis but stayed in Grid rather than switching to circular; Pattern with a two-body group PASS (both selected); Coat with the group FAIL (only first body coated), also FAIL with two individually selected bodies; Coat with preselected face NOT TESTED (session stopped before this check).
-- [x] Pattern: preselected straight edge is recognized as axis.
-- [ ] Pattern: preselected axis should switch to circular mode; currently remains Grid.
-- [x] Pattern: selecting a group with two bodies includes both.
-- [ ] Coat: selecting a group containing two bodies coats only first.
-- [ ] Coat: selecting two individual bodies coats only first.
-- [ ] Coat: Alt-pick a face and activate Coat; face excluded/open (not tested).
+
+- [x] Mirror with a group selected (its bodies), an Alt-picked face (the plane)
+- [ ] Mirror with a whole sketch selected (its shapes), an Alt-picked edge (the line); an Alt-picked face alone: its body mirrored across it
+- [x] Sweep: one open and one closed shape or sketch selected: sweeps at once (the open one the path); two closed: the first is the path
+- [x] Measure with Alt-picked edges (a rim whole) or faces, a sketch's shapes (a circle's Ø and circumference, else the perimeter), bodies (L / W / H and volume) selected: values at once
+- [ ] Revolve with a selected line (fails, see looseEnds), a construction line or an Alt-picked edge as the axis: the panel at once
+- [x] Rotate: an Alt-picked edge first is the axis (a round one: through its centre), turning starts at once
+- [x] Pattern with a group selected (its bodies)
+- [ ] Pattern around an Alt-picked edge as its axis (fails, see looseEnds)
+- [ ] Coat with a group selected: its bodies (fails, see looseEnds)
+- [ ] Coat with an Alt-picked face: its body, that face left out
 - [ ] Offset with a whole sketch selected: all its shapes; Shell with Alt-picked faces: those left open
 - [ ] Cut with a selected sketch, a work plane or an Alt-picked face: that is the cutter, the panel at once; groups count as their bodies
 - [ ] Loft: two or more sketches selected, K: made at once, in the order selected
+
 Groups, origins, view:
+
 - [ ] Custom group origin picked in the view: orange axes where a click would put it, a face turns Z out of it; the contents stay where they are (also typed, also back to the parent's origin)
 - [ ] A group selected or entered: grid, origin axes and view cube follow its origin; the camera rolls to it smoothly
 - [ ] Sample "Turned group": inside it the view stands upright to it and orbits around its Z; cube sides, turn arrows and cube drags in its axes
@@ -54,13 +44,17 @@ Groups, origins, view:
 - [ ] An inch document: grid and drag steps in inches (down to 1/64"), then feet
 - [ ] Perspective zoomed right onto a small part: nothing cut off; orthographic on a big scene: nothing cut off
 - [ ] A sketch on a cube's edge, zoomed right in: its outlines lie on the face, not off it
+
 Settings:
+
 - [ ] Zoom, pan and orbit speed sliders: 0.1 to 8, snap to 1 near it, a reset each; they work in every view and for sideways scrolling
 - [ ] General in two columns; Settings, Materials and Versions open a fixed distance from the top, no jump between chapters; titles in the text colour
 - [ ] Light → 3D view tab: the preview is the 3D view itself in its visual style; light rows in aligned columns
 - [ ] Section sliders: reset with the undo icon; invert with the two-arrow icon, both centred
 - [ ] Every checkbox is a switch; Autosave a switch after the file name; dropdown chevrons set in from the edge
+
 Left column:
+
 - [ ] Three tabs (Objects, Aids, Parameters): icon and count centred on one line, the name on hover; a click in the view opens the right tab, a hover dots it
 - [ ] Objects: a body's sketches fold out under it; Aids: free sketches, work planes, images
 - [ ] The filter over each tab takes typing and narrows at once; Esc clears it
@@ -68,7 +62,9 @@ Left column:
 - [ ] A click on an open group's row does not fold it; its arrow does
 - [ ] Dragging a joint's or Entangle's mark onto a row lights the whole row
 - [ ] Parameter rows: field, value and delete centred on one line; "Tool bodies" and "Fold all" on one line
+
 Tools:
+
 - [ ] Tool hints in the floating panel's last row, quiet, one line (all of it on hover); a tool without a panel: a hint-only panel whose × ends the tool as Esc; Mirror's Linked panel does not cover the hint
 - [ ] Hints end in "[Enter] Finalize"; pick lists say "(a second click drops it)"
 - [ ] A click on a work plane in the view selects it (in front of the body there); Tab / Shift Tab cycle bodies and work planes under the pointer, nearest first
@@ -93,13 +89,16 @@ Tools:
 - [ ] Thread panel: Modelled or Pilot (a shaft: Plain), last choice kept; a pilot hole at tap-drill size, the thread dashed; sizes end in Custom (only then Ø and Pitch)
 - [ ] Thread tool on a thread's groove, pilot hole or shaft opens its panel; History rows of thread, bulge, draft and box joint open their panel
 - [ ] Thread on a filleted body (Vertical edges, unbaked): builds quickly, no tiny dark fillets; a threaded cylinder cut by a ball builds
-- [ ] Info panel: picked edges' length and Ø and faces' area without \~; says why when values come from triangles; no question-mark pointer; a square box QA 2026-11-08: picked circular rim is highlighted but diameter is not shown; face area uses “Surface” in cm² while Measure uses “Area” in mm². Other clauses remain untested.
+- [ ] Info panel: picked edges' length and Ø and faces' area without ~; says why when values come from triangles; no question-mark pointer; a square box (a rim's Ø fails, see looseEnds)
 - [ ] Offset that makes a shape vanish (inside a small arc, say): the tool says so
 - [ ] SVG and DXF import keep arcs and curves (a rounded rect, an ellipse, a spline); laser export keeps arcs (SVG arcs, DXF bulges), opens at true size in Illustrator / LightBurn
 - [ ] Renders: Save to with the real folder picker and its permission prompts (tried headless only)
 - [ ] Live render view (tried headless only)
+
 ## Check these first: never run in a browser
+
 Only typechecked or tested at kernel level, or impossible for a test browser.
+
 - [ ] Top bar: Export STEP right after Import, an arrow going out; terminal right after Autosave
 - [ ] Selected shape: box handles only while the pointer is over its box
 - [ ] Import a .3mf and a .glb: size right, units dialog
@@ -117,8 +116,8 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Drop a .txt or .zip on the view; a broken .mmk; a broken .3mf: each note names the file and the reason
 - [ ] Click a red note in the top bar, a card's error, a terminal error: the full text is in the clipboard
 - [ ] Distance measure: Alt-click a round edge of a Ø50 cylinder: the whole rim, 157.0796, lit whole while hovering; a round face's area
-- [ ] Distance measure: points on a round edge and a round face, a curved sketch line: L as expected; section and crossing lines show \~
-- [ ] Info panel: \~ on measured values, none on position and turn; the info icon's tooltip; no icon on a rectangle sketch
+- [ ] Distance measure: points on a round edge and a round face, a curved sketch line: L as expected; section and crossing lines show ~
+- [ ] Info panel: ~ on measured values, none on position and turn; the info icon's tooltip; no icon on a rectangle sketch
 - [ ] T on a round edge or face, in: a position field, drawing a circle, a pull, a move field: the value lands on the true curve
 - [ ] Draw on a sketch circle or an arc, and from a round body edge on its plane: the point lies on the curve; a line crossing a circle snaps to the true crossing
 - [ ] Open or drop a big file: the loader bar shows until it is built
@@ -189,8 +188,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Violet handles readable in the light theme
 - [ ] Distance measure: axis lines in colour, as thin as the orange line; thicker on hover
 - [ ] Typed labels: no gap between what is typed and the grey rest; axis letter in colour; the caret sits right
-- [ ] Shift size snapping while drawing a circle/other shape from an arbitrary starting point: snap to absolute full grid/unit multiples (1 mm, 2 mm, 3 mm…), not starting-value-plus-step (e.g., 0.37, 1.37, 2.37 mm). Observed 2026-11-08.
+
 ## Line tool
+
 - [ ] No Polygon button, P does nothing; ⌘ no longer continues a line
 - [ ] One-line mode in the middle of a line: draws the last side and ends it
 - [ ] Backspace: after taking a point back, the next angle counts from the side before it
@@ -206,7 +206,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] D while drawing a line: Distance measure, its Use goes into the length or diameter; Esc goes back to the line
 - [ ] Mixed line (polygon, bezier, arc) closes into one area, pulls into one solid
 - [ ] Construction lines (Q) with curves: dashed, never extruded
+
 ## Lines meeting and snapping
+
 - [ ] Start a line on another's end: it snaps
 - [ ] Two lines ending on each other's ends, curves included: one closed shape, pulls exactly
 - [ ] One drawn the other way round: joined with its curve right
@@ -218,7 +220,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Hovering a curve gives no straight guide; a straight side does
 - [ ] Tangent circle: curved sides are not offered as lines
 - [ ] Info panel of a curved line: Length along the curve; of a closed one: Area
+
 ## Editing points, handles, arc centres
+
 - [ ] Pointer tool, in the sketch: hover a line: its points and handles appear in violet, leaving it: gone
 - [ ] A line tool on: none show
 - [ ] Moving from the outline to a far handle: they stay while you reach it
@@ -236,16 +240,18 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Arc after a line: centre moves only along the normal, stays tangent, the end and what follows move
 - [ ] Arc before a tangent side only: the same from its end
 - [ ] Arc tangent to nothing: square to its chord, both ends stay
-- [ ] Line tool: type `$d\*3` as a side's length, `$d` as an arc's diameter; change $d: the points follow; L / Ø fields show the formula
+- [ ] Line tool: type `$d*3` as a side's length, `$d` as an arc's diameter; change $d: the points follow; L / Ø fields show the formula
 - [ ] Selected line or polygon with arcs: Ø in the side panel, typed and scrubbed, one undo step; several arcs: Ø 1, Ø 2 …
 - [ ] Click the centre: it follows, type a diameter, Enter; or click to end; Esc puts it back
 - [ ] Drag the centre: radius on the zoom's step, Ø label; undo is one step
 - [ ] Polygon with Turn °: points edit right, Turn goes to 0, nothing jumps
 - [ ] Corner radius field hidden on a curved polygon, shown on a straight one
 - [ ] Rectangular polygon: corner handles are points now; edge handles still resize
+
 ## Parameters with $
+
 - [ ] Default document: `$ply` listed, bodies using it build
-- [ ] New parameter `thick = 12mm`: becomes `$thick`; `$depth = 2\*$thick` works; placeholder `$name = expression`
+- [ ] New parameter `thick = 12mm`: becomes `$thick`; `$depth = 2*$thick` works; placeholder `$name = expression`
 - [ ] Names starting with any letter, d and t too, type normally there
 - [ ] An existing name again: refused with a note
 - [ ] A value with bare `ply`: red, tooltip says parameters start with $
@@ -263,7 +269,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Revolve angle, joint position, import Size fields, laser Kerf: grey completion
 - [ ] Python: `cad.parameter("ply2", "4mm")` makes `$ply2`; `cad.box("$ply2", 10, 10)`
 - [ ] Desk lamp: change `$base_d` and `$plinth_w`
+
 ## Distance measure
+
 - [ ] Named Distance measure on its button and in hints
 - [ ] D opens it anywhere; D again closes; Esc closes
 - [ ] D in a value field: opens for that field; Use puts the value in
@@ -277,7 +285,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Pointer becomes a hand over a line, normal again after it
 - [ ] Alt-click an edge or face over a line: still picks those; totals with Shift Alt
 - [ ] Measure a value while drawing a rectangle: the size takes it, typing goes on
+
 ## Python terminal and scripts
+
 - [ ] Tab next to Joint animation (or alone if no joints); I and the top bar button open it too
 - [ ] Open: across the view, Section view and Joint animation ride up on top; Esc closes, all back down
 - [ ] Top edge drags the height, the others follow; limits at both ends
@@ -291,7 +301,7 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Letters typed here never trigger tools
 - [ ] First open: "Choose a folder"; an empty folder gets two .py starters; the list shows what is in it
 - [ ] A folder with .py files and other files or sub-folders: only the .py files listed
-- [ ] Reload: same folder; if the browser asks: one click on "Open \<name>" and they are back
+- [ ] Reload: same folder; if the browser asks: one click on "Open <name>" and they are back
 - [ ] Folder button: another folder; the list changes, the editor closes
 - [ ] Edit a .py in another editor, come back: the list and the open editor show it
 - [ ] Add and delete a .py in Finder, come back: the list follows
@@ -308,10 +318,12 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Rename by double-click and by pencil; Enter, Esc, click away; a taken name gets a number; characters like / : ? become -
 - [ ] A picked .py file renames on disk too (Chromium with `move`; else the terminal says it cannot)
 - [ ] Delete: Undo in its place brings it back; deleting the open one closes its editor
-- [ ] Download: a `\<name>.py` with the text
+- [ ] Download: a `<name>.py` with the text
 - [ ] Upload button: several .py at once, a taken name gets a number, the last opens
 - [ ] Drop .py files on the list: scripts, not an import or a design load; drop elsewhere still imports
+
 ## Speed
+
 - [ ] Lamp: play a joint: fluid; Repeat on for a while
 - [ ] Lamp with its section on: fluid; the caps and outlines follow the moving parts
 - [ ] Lamp with the work plane: its green lines follow a body moving through it
@@ -319,7 +331,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Autosave on: playing on Repeat writes nothing; a single play saves once after it stops
 - [ ] Big model: loading in lots, one redraw per lot; hover and selection outline stay quick
 - [ ] Settings: Mesh detail 0.02 to 0.12 mm changes the mesh
+
 ## Angle control, panels, edge references
+
 - [ ] Rotate, Cut Turn °, Work plane, Draft, Revolve, Pattern Angle and Turn: same orange arc and value at the part
 - [ ] Turn button in those fields: pointer turns; click keeps, Esc puts back
 - [ ] Cut and Work plane: picking an axis starts turning at once
@@ -331,25 +345,33 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] A curved picked edge after a notch splits it: found again
 - [ ] Shell a loft whose outlines were picked top down
 - [ ] Desk lamp: 25 bodies, no errors; drawer slide, arm hinge, head tilt play
+
 ## Bug fixes from the last list
+
 - [ ] Measure tooltips say "Click: Copy"
 - [ ] Image opacity and transparent key sliders drag, not clipped
 - [ ] ⌘V: a copied picture, copied file, copied objects: each does its own thing
 - [ ] Shell Wall: T and D; every length field in tool panels has the D button
 - [ ] Light tabs (3D view, Rendering): teapot in metal preview; follow camera, camera light, standard light, haze, fog
+
 ## Images
+
 - [ ] Selected image: drag on its plane, letting go opens X / Y / Z with the distance (Enter keeps, Esc puts it back); corner handles keep proportions
 - [ ] Drag selected sketch shapes: the move fields open and follow the drag, Enter moves, a slanted sketch's shapes stay in its plane
 - [ ] Move and Rotate open their fields, arrows nudge
 - [ ] Enter skips calibrating; first point gets dashed guides, the second snaps to them
 - [ ] ⌘V imports a picture at the pointer; images in nice renders
+
 ## Materials dialog
+
 - [ ] List with teapot pictures, sections, search; In this file on top
 - [ ] Slider between 3D view and render picture
-- [ ] First slider move on a standard one makes "\<name> copy"; a file's material changes everywhere
+- [ ] First slider move on a standard one makes "<name> copy"; a file's material changes everywhere
 - [ ] Steel, Bronze, Brass, POM-C black there; MaterialX import
 - [ ] STEP import: materials smooth unless the name says rough; acrylic clear
+
 ## Views and layout
+
 - [ ] Section view and Joint animation drawers: titles low, Section view open at first, remembered
 - [ ] View borders drag in all directions; four views a 2 x 2 grid; saved per browser
 - [ ] View header: Ortho | Persp left, side, swap, close in the middle; read only note right, in italics
@@ -358,24 +380,32 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Settings remember the chapter open and how far each is scrolled
 - [ ] Drawing mode note below the breadcrumbs, 3 s
 - [ ] Photo spheres: built-in ones listed, reverse order, 70° height same in view and render
+
 ## Drawing aids and small tools
+
 - [ ] Tangent circle: dashed bisector, snaps like a guide, G keeps it; clicks not refused early
 - [ ] Drawing tools and the section pick light a hovered work plane
 - [ ] Draft: drag its body for the angle, angle snaps; off while Set axis picks; icon shows one side drafted
 - [ ] Sample: a slanted work plane
 - [ ] Selected body in a group shows through the rest; sections only touch what they cut
+
 ## Files
+
 - [ ] STEP import: groups per product, named bodies per solid, colours, materials
 - [ ] Closing or reloading with unsaved changes asks first
 - [ ] Long texts once in blobs/ across versions: file stays small with many versions
+
 ## Materials, light, photo spheres
+
 - [ ] Body: Material list → + New material; colour, Bumpy, See-through, Glow, Thickness apply at once
 - [ ] Group material: bodies inside take it, a body's own beats it; several selected: one material for all
 - [ ] Thickness differing: the red note on the card; Delete a material: bodies go back
 - [ ] Settings → 3D view: sun and ambient sliders change the view live
 - [ ] Photo sphere: + adds one, Turn spins it, orbit follows, ortho and persp both right; render shows the same photo
 - [ ] Render card: Light and photo saved with that render, Render again uses them; save, reopen, still there
+
 ## Cut tool
+
 - [ ] Turn ° plus Set axis: an edge, a sketch line, a circle (its centre) as the axis
 - [ ] Set axis, then Esc: only the pick ends, the panel stays
 - [ ] The chunk to be deleted shows red and see-through
@@ -385,9 +415,11 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Cut with a cylinder (click "Pin" after picking the body)
 - [ ] Offset scrubbed by its label; T to a point (plane, line, ball, cylinder)
 - [ ] Esc leaves the body as it was; ⌘Z after a kept cut
+
 ## Rotate (W)
+
 - [ ] Tool first: W with nothing selected, click a body, then the axis
-- [ ] Selection first: select, W, then the axis. QA 2026-11-08 additional request: while Rotate is active, provide “Set bodies” alongside “Set axis” so one or multiple bodies can be reselected, added, or removed without losing the chosen axis.
+- [ ] Selection first: select, W, then the axis
 - [ ] Nothing turns before the axis is clicked
 - [ ] Axis on an edge, a sketch line, a circle or round edge, a corner (Z)
 - [ ] Clicking the corner again: X, then Y
@@ -400,7 +432,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] In a sketch: shapes turn around the clicked point
 - [ ] Enter / ✓ / click keeps it; Esc puts it back; ⌘Z
 - [ ] Sketch shape selected: the blue rotate handle's line reaches to its centre dot
+
 ## Joints (J)
+
 - [ ] Tool first: J, click the parent, click the moving objects, Enter, click the axis
 - [ ] Selection first: select parent, ⌘-click the moving ones, J, click the axis
 - [ ] Axis on an edge, a line, a circle, a corner
@@ -425,7 +459,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Sample: Hinge 1 (box and lid), Slider 1 (cabinet and drawer)
 - [ ] A body in two joints: reported in the joints box
 - [ ] Save, reopen: joints and their poses are back
+
 ## To object (T)
+
 - [ ] Same icon and words on every To object button and in the pointer's note
 - [ ] Pull a drawn shape: T, click, type `/2`, Enter
 - [ ] Pull after Tab (Back): T goes into the back
@@ -435,34 +471,46 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Group origin (custom) X / Y / Z, section offset, sketch plane offset
 - [ ] T in the middle of a parameter name stays a letter
 - [ ] Esc while aiming ends only the aiming
+
 ## Pulls and drawing
+
 - [ ] The pull's label reads H on the ground, L on a face facing X, W facing Y, Depth on a slanted face (also Extrude on a face)
 - [ ] Two separate rectangles pulled together: two bodies; a plate with holes: one
+
 ## Left column
+
 - [ ] The eye beside the filter on Objects and Aids hides all; again: the same pattern comes back
 - [ ] Hidden list rows go grey
+
 ## Move
+
 - [ ] Copy checkbox: the original stays whole, the copy moves, one undo step
 - [ ] Copy of a body with a hole on its own face keeps the hole
 - [ ] Linked checkbox (see Linked copies)
+
 ## Making solids
+
 - [ ] Revolve (U): tool first (click shape outline) and selection first; axis a sketch line or body edge; angle scrubbed; "Revolve me" sample
 - [ ] Loft (K): click "Loft base" then "Loft top", Enter; Ruled in the card
 - [ ] Sweep: click the path ("Sweep path") first, then the profile ("Sweep profile")
 - [ ] Editing the sketch shapes changes revolve, loft and sweep bodies
+
 ## Editing
+
 - [ ] Align: two or more bodies, X / Y / Z min, middle, max; distribute with three; middle on first
 - [ ] Align whole sketches and groups
 - [ ] Offset in a sketch: shapes get outlines outside (negative: inside); lines move to their left
 - [ ] Shell: click faces to leave open, Enter, wall thickness live
 - [ ] Mirror shapes in a sketch across a line or edge
 - [ ] Mirror bodies across a face; a chamfered body keeps its chamfer
-- [ ] Pattern grid: counts, gap, Overall, turn per copy. QA 2026-11-08 additional request: when Linked is OFF, put generated grid objects into a group named “Grid”; with Linked ON, keep the current linked-object structure.
+- [ ] Pattern grid: counts, gap, Overall, turn per copy
 - [ ] Pattern around: axis, count, angle, Turn copies
 - [ ] Thread: click a shaft's round edge (Pin): M16 × 2 suggested, length through
 - [ ] Thread in a hole (guessed as hole; switch in the card)
 - [ ] Thread pitch and length edited in the card afterwards
+
 ## Linked copies
+
 - [ ] Duplicate with Linked ticked: editing the copy's steps changes the source too
 - [ ] Untick Linked during Duplicate: the copies become independent at once
 - [ ] Copy-move, Mirror and Pattern with Linked
@@ -470,23 +518,33 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Unlink in the copy's card
 - [ ] Delete the source: the first copy keeps the steps, the others follow it
 - [ ] A linked copy of a body with a boolean cut: cut the same way
+
 ## Work planes
+
 - [ ] Plane on a face; on empty space (the base plane facing you)
 - [ ] Offset with T, then `/2`: a plane halfway
 - [ ] Drawing tools draw on it directly; Draw on it opens a sketch there
 - [ ] Changing its offset moves sketches on it and their bodies
 - [ ] Eye, rename, delete in the list and panel
+
 ## Export
+
 - [ ] Export STEP: selected bodies (else all shown) as named, coloured parts; opens in another CAD tool
+
 ## Toolbars and grouping
+
 - [ ] Left: sketch, shapes, sphere, plane, group, duplicate, delete; top: everything that edits
 - [ ] In sketch mode: shapes left, Extrude / Mirror / Offset / Leave on top
 - [ ] Menus (Boolean, Align) open below the top bar
 - [ ] Two groups selected, Group: grouped, not ungrouped; one group: Ungroup
+
 ## Small things
+
 - [ ] Sideways trackpad swipe does not go back in Chrome
 - [ ] Range sliders show no blue outline when dragged or focused
+
 ## Extrude rework (5729d80)
+
 - [ ] Nothing selected, E, plain click on a face: pulls at once
 - [ ] Nothing selected, E, plain click inside a sketch shape (or on its outline): pulls at once
 - [ ] E, Shift / ⌘-click several faces and areas (different sketches too), Enter: all pull by one distance
@@ -500,7 +558,9 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Flat view: turns angled only when the pull starts (outside sketch mode)
 - [ ] Esc while pulling: faces back, picking again; Esc again stops
 - [ ] One Cmd+Z undoes a whole mixed pull
+
 ## Batch c9d956c + Bulge
+
 - [ ] E with a sketch selected / in sketch mode: its shapes picked (inner ones holes), Enter pulls
 - [ ] E with faces Alt-picked first: picked, Enter pulls; Shift-click in the tool: waits for Enter
 - [ ] Alt-click a face, Shift-Alt-click faces on other bodies: all picked (blue), E pulls them together
