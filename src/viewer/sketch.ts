@@ -606,8 +606,9 @@ export class SketchTool implements Tool {
         if (at) ph.held.pull = this.handleTo(ph.held.at, at, e);
       }
     } else if (ph.kind === 'shape' || ph.kind === 'polygon') {
+      const anchor = ph.kind === 'shape' ? ph.anchor : null; // sizes from it on whole steps
       const riding = this.riding(ph);
-      const at = ph.kind === 'polygon' ? this.sideEnd(e, ph) : this.point(e, ph.target, !riding);
+      const at = ph.kind === 'polygon' ? this.sideEnd(e, ph) : this.point(e, ph.target, !riding && (anchor ?? true));
       if (at) ph.cur = riding ? this.ride(e, ph, at) : at;
       this.shiftHeld = role(e, 'constrain');
       if (ph.kind === 'shape') {
@@ -1228,9 +1229,10 @@ export class SketchTool implements Tool {
   /**
    * Pointer on the target plane, in plane coordinates: on the nearest snap point within `px` pixels, else on a crossing of lines
    * within `px`, else on the nearest line within `linePx` (sketch outlines, body edges in the plane), else
-   * on the step for the zoom (Ctrl: the minimum step; `grid` false: where it is). Sets `snapWhat`.
+   * on the step for the zoom (Ctrl: the minimum step; `grid` false: where it is; a point: the steps counted from it, so
+   * sizes from there come out whole). Sets `snapWhat`.
    */
-  private point(e: MouseEvent, t: Target, grid = true): UV | null {
+  private point(e: MouseEvent, t: Target, grid: boolean | UV = true): UV | null {
     this.lastPoint = [e, t];
     this.nothingToSplit = false;
     const lines = this.snapLines();
@@ -1285,7 +1287,7 @@ export class SketchTool implements Tool {
     }
   }
 
-  private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], grid: boolean, px = 10, linePx = 8): UV | null {
+  private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], grid: boolean | UV, px = 10, linePx = 8): UV | null {
     this.cycle.count = 0;
     this.tangentOn = null;
     this.tangentNear = false;
@@ -1422,7 +1424,8 @@ export class SketchTool implements Tool {
     const [u, v] = uvOf(t.frame, p);
     if (!grid) return [u, v];
     const step = this.view.step(p, e, false); // Shift squares shapes here, it does not coarsen
-    return [Math.round(u / step) * step, Math.round(v / step) * step];
+    const [ou, ov] = grid === true ? [0, 0] : grid;
+    return [ou + Math.round((u - ou) / step) * step, ov + Math.round((v - ov) / step) * step];
   }
 
   /**
