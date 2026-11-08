@@ -120,7 +120,6 @@ Answers assumed where a request left a question open.
 - Wanted: Revolve takes a click inside a sketch area, not only on a closed profile's outline; open outlines too.
 - Rotate with a round edge picked first: the axis is right, but its body gets selected too, and the bodies to turn cannot be picked apart from it. Wanted: Set bodies beside Set axis (add, remove, pick again) keeping the axis.
 - Pattern with an Alt-picked straight edge first: taken as the axis, but the mode stays Grid. Wanted: Around.
-- Coat with a group of two bodies selected, or two bodies: only the first is coated.
 - Wanted: unlinked Grid pattern copies go into one group named "Grid"; linked ones stay as they are.
 - Measure and Info on an Alt-picked round rim: lit whole, called an edge, no Ø in either. Wanted: Ø and circumference.
 - A flat face: Measure says Area in mm², Info says Surface in cm²; the numbers looked different (maybe only the unit). A body's volume shows in mm³. Wanted: Area in both, and cm² / cm³ in a mm document.

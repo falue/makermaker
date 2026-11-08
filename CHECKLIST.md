@@ -22,7 +22,7 @@ Selection first, then the tool:
 - [x] Rotate: an Alt-picked edge first is the axis (a round one: through its centre), turning starts at once
 - [x] Pattern with a group selected (its bodies)
 - [ ] Pattern around an Alt-picked edge as its axis (fails, see looseEnds)
-- [ ] Coat with a group selected: its bodies (fails, see looseEnds)
+- [ ] Coat with a group or several bodies selected: each gets a coat; the panel sets thickness and corners for all (no faces, no New body)
 - [ ] Coat with an Alt-picked face: its body, that face left out
 - [ ] Offset with a whole sketch selected: all its shapes; Shell with Alt-picked faces: those left open
 - [ ] Cut with a selected sketch, a work plane or an Alt-picked face: that is the cutter, the panel at once; groups count as their bodies

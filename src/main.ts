@@ -3654,43 +3654,46 @@ function clashTool() {
   soon();
 }
 
-/** Coat: the body (selected, or clicked next) gets a coat, 1 mm at first, shown at once; its panel has the rest. */
+/** Coat: the bodies (selected, or one clicked next) each get a coat, 1 mm at first, shown at once; its panel has the rest. */
 function coatTool() {
-  // an Alt-picked face's body (that face left out, if flat), else the first selected body (a group's: its first)
+  // an Alt-picked face's body (that face left out, if flat), else every selected body (a group's: its bodies); shared steps once
   const face = viewer.pickedFaceItems()[0];
-  const body = face?.body ?? contents(history.current, selected).find((id) => history.current.bodies.some((b) => b.id === id));
-  if (!body) {
+  const doc = history.current;
+  const owners = [...new Set((face ? [face.body] : contents(doc, selected)).map((id) => stepsOf(doc, id)))].filter((i) => i >= 0);
+  if (!owners.length) {
     pending = { tool: 'shell', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), coatTool()) };
     toolHint = 'Coat: click a body · [Esc] cancels';
     return render();
   }
-  const doc = history.current;
-  const i = stepsOf(doc, body);
-  const id = newId();
   const flat = face && (face.mesh.userData.exact as Exact | null | undefined)?.faces[face.index]?.kind === 'plane';
-  const pl = bodyPlace(body);
-  const exclude = flat ? [{ at: unplaced(pl, face.point.toArray()), n: unplaced(pl, face.n.toArray(), true) }] : [];
+  const pl = face && bodyPlace(face.body);
+  const exclude = flat ? [{ at: unplaced(pl!, face.point.toArray()), n: unplaced(pl!, face.n.toArray(), true) }] : [];
   if (face) viewer.dropPicked();
-  commit(setIn(doc, ['bodies', String(i), 'features'], [...doc.bodies[i].features, { id, type: 'coat' as const, thickness: len(1), corners: 'sharp' as const, exclude }]));
-  coatPanel(body, id, true);
+  const coats = owners.map((i, k) => ({ body: doc.bodies[i].id, feature: newId(), exclude: k ? [] : exclude }));
+  commit(coats.reduce((d, c, k) => setIn(d, ['bodies', String(owners[k]), 'features'], [...d.bodies[owners[k]].features, { id: c.feature, type: 'coat' as const, thickness: len(1), corners: 'sharp' as const, exclude: c.exclude }]), doc));
+  coatPanel(coats[0].body, coats[0].feature, true, coats.slice(1));
 }
 
-/** A coat's floating panel, live, one undo step: thickness, corners, the flat faces it leaves where they are. Esc: as before. */
-function coatPanel(body: string, feature: string, isNew = false) {
+/** A coat's floating panel, live, one undo step: thickness, corners, the flat faces it leaves where they are. Esc: as before. `also`: more bodies' coats taking the same thickness and corners (then no faces or new body). */
+function coatPanel(body: string, feature: string, isNew = false, also: { body: string; feature: string }[] = []) {
   /** The body it coats when it is a new body of its own, made here (reopened later: none). */
   let source: string | null = null;
   let linked = false;
-  const now = () => {
-    const i = history.current.bodies.findIndex((b) => b.id === body);
-    const k = history.current.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
-    const f = history.current.bodies[i]?.features[k];
+  const find = (doc: Doc, body: string, feature: string) => {
+    const i = doc.bodies.findIndex((b) => b.id === body);
+    const k = doc.bodies[i]?.features.findIndex((f) => f.id === feature) ?? -1;
+    const f = doc.bodies[i]?.features[k];
     return f?.type === 'coat' ? { i, k, f } : null;
   };
+  const now = () => find(history.current, body, feature);
   let changed = isNew;
   const set = (patch: Partial<CoatFeature>) => {
-    const c = now();
-    if (!c) return;
-    const next = setIn(history.current, ['bodies', String(c.i), 'features', String(c.k)], { ...c.f, ...patch });
+    let next = history.current;
+    for (const t of [{ body, feature }, ...also]) {
+      const c = find(next, t.body, t.feature);
+      if (c) next = setIn(next, ['bodies', String(c.i), 'features', String(c.k)], { ...c.f, ...patch });
+    }
+    if (next === history.current) return;
     if (changed) history.replace(next);
     else history.push(next);
     changed = true;
@@ -3790,7 +3793,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
     };
     next();
   };
-  const hint = 'Coat: how thick, live · sharp or round corners · faces to exclude · new body: a skin around it · [Enter] Finalize · [Esc] drops it';
+  const hint = `Coat${also.length ? ` ${also.length + 1} bodies` : ''}: how thick, live · sharp or round corners${also.length ? '' : ' · faces to exclude · new body: a skin around it'} · [Enter] Finalize · [Esc] drops it`;
   const panel = valuePanel(
     [{ label: 'Thickness', value: start.f.thickness.e, title: 'How much thicker, on all sides' }],
     ([t]) => picking || set({ thickness: { e: t, u: history.current.units } }),
@@ -3800,7 +3803,7 @@ function coatPanel(body: string, feature: string, isNew = false) {
       else undo();
     },
     hint,
-    [corners, facesButton, asBody, link],
+    also.length ? [corners] : [corners, facesButton, asBody, link],
   );
 }
 
