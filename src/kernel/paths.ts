@@ -10,12 +10,24 @@ export function hermite(p: V3, dp: V3, q: V3, dq: V3, t: number): V3 {
   return [0, 1, 2].map((k) => (1 - t) ** 3 * p[k] + 3 * (1 - t) ** 2 * t * c1[k] + 3 * (1 - t) * t ** 2 * c2[k] + t ** 3 * q[k]) as V3;
 }
 
-/** The point of a path nearest `q`: the nearest of its pieces' (each its cubic, searched then narrowed). */
-export function nearestOnPath({ pts, dirs }: EdgePath, q: V3): V3 {
+/**
+ * The point of a path nearest `q`: the nearest of its pieces' (each its cubic, searched then narrowed). Pieces whose
+ * control points' box lies farther than the best so far, or than `reach` (then the result is no nearer), are skipped.
+ */
+export function nearestOnPath({ pts, dirs }: EdgePath, q: V3, reach = Infinity): V3 {
   const far = (p: V3) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
   let best: V3 = pts[0];
+  let bestD = far(best);
   for (let i = 0; i + 1 < pts.length; i++) {
-    const at = (t: number) => hermite(pts[i], dirs[i], pts[i + 1], dirs[i + 1], t);
+    // the cubic stays inside the box of its control points
+    const [p, dp, r, dr] = [pts[i], dirs[i], pts[i + 1], dirs[i + 1]];
+    const l = Math.hypot(r[0] - p[0], r[1] - p[1], r[2] - p[2]) / 3;
+    const out = [0, 1, 2].map((k) => {
+      const c = [p[k], p[k] + dp[k] * l, r[k] - dr[k] * l, r[k]];
+      return Math.max(0, Math.min(...c) - q[k], q[k] - Math.max(...c));
+    });
+    if (Math.hypot(...out) > Math.min(bestD, reach)) continue;
+    const at = (t: number) => hermite(p, dp, r, dr, t);
     let k = 0;
     for (let j = 1; j <= 8; j++) if (far(at(j / 8)) < far(at(k / 8))) k = j;
     let [lo, hi] = [Math.max(0, k - 1) / 8, Math.min(8, k + 1) / 8];
@@ -24,18 +36,22 @@ export function nearestOnPath({ pts, dirs }: EdgePath, q: V3): V3 {
       if (far(at(m1)) < far(at(m2))) hi = m2;
       else lo = m1;
     }
-    const p = at((lo + hi) / 2);
-    if (far(p) < far(best)) best = p;
+    const c = at((lo + hi) / 2);
+    if (far(c) < bestD) [best, bestD] = [c, far(c)];
   }
   return best;
 }
 
-/** The point of a path farthest along `w` (a top of it), its pieces searched then narrowed. */
+/** The point of a path farthest along `w` (a top of it), its pieces searched then narrowed (those whose control points reach no farther skipped). */
 export function farthestOnPath({ pts, dirs }: EdgePath, w: V3): V3 {
   const along = (p: V3) => p[0] * w[0] + p[1] * w[1] + p[2] * w[2];
   let best: V3 = pts[0];
   for (let i = 0; i + 1 < pts.length; i++) {
-    const at = (t: number) => hermite(pts[i], dirs[i], pts[i + 1], dirs[i + 1], t);
+    const [p, dp, r, dr] = [pts[i], dirs[i], pts[i + 1], dirs[i + 1]];
+    const l = Math.hypot(r[0] - p[0], r[1] - p[1], r[2] - p[2]) / 3;
+    const reach = Math.max(along(p), along(r), along(p) + along(dp) * l, along(r) - along(dr) * l);
+    if (reach <= along(best)) continue;
+    const at = (t: number) => hermite(p, dp, r, dr, t);
     let [lo, hi] = [0, 1];
     for (let n = 0; n < 50; n++) {
       const [m1, m2] = [lo + (hi - lo) / 3, hi - (hi - lo) / 3];

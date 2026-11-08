@@ -1136,13 +1136,20 @@ export class SketchTool implements Tool {
       } else if (!l.shape && !l.guide && l.segs.length > 1) {
         // a curved body edge: on the kernel's circle or path, where its points' outermost one lies near it (else that point: an end)
         const pts = [l.segs[0][0], ...l.segs.map((g) => g[1])];
-        const reach = Math.max(...l.segs.map(([a, b]) => a.distanceTo(b)));
-        for (const [w, along] of sides) {
-          const far = pts.reduce((a, b) => (b.dot(w) > a.dot(w) ? b : a));
-          const k = this.view.bodyCircleAt(far, reach);
-          const top = k ? topOf(k.c, k.n, k.r, w) : this.view.bodyCurveTop(far, w, reach);
-          tops.push([top && top.distanceTo(far) <= reach ? top : far, along]);
+        const key = [t.frame.x, t.frame.y, pts[0].toArray(), pts[pts.length - 1].toArray(), pts.length].join();
+        let got = this.roundTops.get(key);
+        if (!got) {
+          const reach = Math.max(...l.segs.map(([a, b]) => a.distanceTo(b)));
+          got = sides.map(([w]) => {
+            const far = pts.reduce((a, b) => (b.dot(w) > a.dot(w) ? b : a));
+            const k = this.view.bodyCircleAt(far, reach);
+            const top = k ? topOf(k.c, k.n, k.r, w) : this.view.bodyCurveTop(far, w, reach);
+            return top && top.distanceTo(far) <= reach ? top : far;
+          });
+          if (this.roundTops.size > 5000) this.roundTops.clear();
+          this.roundTops.set(key, got);
         }
+        got.forEach((top, i) => tops.push([top, sides[i][1]]));
       }
     }
     for (const s of this.view.spheres()) for (const [w, along] of sides) tops.push([s.center.clone().addScaledVector(w, s.r), along]);
@@ -1269,6 +1276,9 @@ export class SketchTool implements Tool {
   private nothingToSplit = false;
   /** Where the pointer was at the last A or Shift A: the line split stays the line until it moves. */
   private splitAt: [number, number] | null = null;
+
+  /** Each curved body edge's tops along the plane's four side directions (see `roundSeg`), by its end points and the plane: they do not follow the pointer. */
+  private roundTops = new Map<string, THREE.Vector3[]>();
 
   /** The curve under the pointer that a click of the line tool starts a tangent from (see `tangentHeld`). */
   private tangentOn: { curve: TangentCurve; line: Segment[] } | null = null;

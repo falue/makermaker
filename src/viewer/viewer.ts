@@ -27,7 +27,7 @@ import { applyLook, boxUv, glowLight, needsUv, pictureLoaded, renderMaterial, sp
 import { loadImage, photoPass, photoTexture } from './photo';
 import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import type { Exact, ExactEdge } from '../kernel/exact';
-import { farthestOnPath, nearestOnPath } from '../kernel/paths';
+import { farthestOnPath, nearestOnPath, type EdgePath } from '../kernel/paths';
 import { turnedBox } from './turnedBox';
 import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
@@ -3914,7 +3914,7 @@ export class Viewer implements ToolView {
           if (out.lengthSq() > 1e-18) q = c.addScaledVector(out.normalize(), e.r);
         }
         // an ellipse or free curve: on its path (the cubics between its exact points)
-        if ((e.kind === 'ellipse' || e.kind === 'curve') && e.path.pts.length > 1) q = new THREE.Vector3(...nearestOnPath(e.path, p.toArray()));
+        if ((e.kind === 'ellipse' || e.kind === 'curve') && e.path.pts.length > 1) q = new THREE.Vector3(...nearestOnPath(e.path, p.toArray(), reach));
         const d = q ? q.distanceTo(p) : Infinity;
         if (q && d < reach && (!best || d < best[0])) best = [d, q.applyMatrix4(g.matrix)];
       }
@@ -3924,19 +3924,19 @@ export class Viewer implements ToolView {
 
   /** The top along world direction `w` of the ellipse or free body edge nearest `at` within `reach` mm (on its path); null: none there. */
   bodyCurveTop(at: THREE.Vector3, w: THREE.Vector3, reach: number): THREE.Vector3 | null {
-    let best: [number, THREE.Vector3] | null = null;
+    let [bestD, best] = [reach, null as { path: EdgePath; g: THREE.Object3D } | null];
     for (const [id, g] of this.bodies) {
       const exact = g.children.find((c) => c.userData.exact)?.userData.exact as Exact | undefined;
       if (!exact || this.hidden.has(id)) continue;
       const p = at.clone().applyMatrix4(g.matrix.clone().invert()).toArray();
-      const local = w.clone().transformDirection(g.matrix.clone().invert()).toArray();
       for (const e of exact.edges) {
         if ((e.kind !== 'ellipse' && e.kind !== 'curve') || e.path.pts.length < 2) continue;
-        const d = new THREE.Vector3(...nearestOnPath(e.path, p)).distanceTo(new THREE.Vector3(...p));
-        if (d < reach && (!best || d < best[0])) best = [d, new THREE.Vector3(...farthestOnPath(e.path, local)).applyMatrix4(g.matrix)];
+        const d = new THREE.Vector3(...nearestOnPath(e.path, p, bestD)).distanceTo(new THREE.Vector3(...p));
+        if (d < bestD) [bestD, best] = [d, { path: e.path, g }];
       }
     }
-    return best?.[1] ?? null;
+    // its top, of the nearest edge only
+    return best && new THREE.Vector3(...farthestOnPath(best.path, w.clone().transformDirection(best.g.matrix.clone().invert()).toArray())).applyMatrix4(best.g.matrix);
   }
 
   /** The kernel's circle (world) of the round body edge nearest `at` within `reach` mm; null: none there. */

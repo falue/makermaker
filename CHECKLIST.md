@@ -20,6 +20,7 @@ Loose ends fixed 2026-11-08:
 - [ ] Revolve, Sweep and Loft picking a shape: a click inside a closed shape picks it too, not only its outline
 - [ ] Rotate: Set bodies (beside the axis buttons): the turn so far goes back, clicks pick what turns (again: dropped), Enter turns those around the same axis
 - [ ] A circle, rectangle or polygon started on an off-grid point (a body corner, say): its size grows in whole steps (1, 2, 3 mm), not 0.37, 1.37 …; snaps still win
+- [ ] testdata/online_file.mmk (a sweep along a bezier): right after opening, a drawing tool follows the pointer fluidly, draws, Esc ends it
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:
