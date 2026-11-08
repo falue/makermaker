@@ -22,6 +22,7 @@ Loose ends fixed 2026-11-08:
 - [ ] A circle, rectangle or polygon started on an off-grid point (a body corner, say): its size grows in whole steps (1, 2, 3 mm), not 0.37, 1.37 …; snaps still win
 - [ ] testdata/online_file.mmk (a sweep along a bezier): right after opening, a drawing tool follows the pointer fluidly, draws, Esc ends it
 - [ ] Grey top-bar notes ("Imported …", "Saved …") go after 8 s; red ones after 5 s; one to click ("Click: Open … again") stays
+- [ ] Zoom to Fit (F) after zooming far out or panning away: the model centred and framed, the view direction kept
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:

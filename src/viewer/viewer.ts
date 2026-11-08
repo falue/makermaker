@@ -2432,9 +2432,9 @@ export class Viewer implements ToolView {
     return box.isEmpty() ? box.set(new THREE.Vector3(-50, -50, 0), new THREE.Vector3(50, 50, 20)) : box;
   }
 
-  /** Fit (F): the camera keeps its direction and the point it looks at, and glides back or forth (zooms, in ortho) until all bodies are in view. */
+  /** Fit (F): the camera keeps its direction and glides to look at the middle of all bodies, back or forth (zooms, in ortho) until all are in view. */
   fit() {
-    this.frameAll(this.controls.target.clone(), this.camera.quaternion.clone());
+    this.frameAll(this.allBox().getCenter(new THREE.Vector3()), this.camera.quaternion.clone());
   }
 
   /** Home (H): all bodies framed from the front-right corner (`ms`: how long the camera glides there; 0: at once). */
