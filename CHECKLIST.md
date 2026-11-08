@@ -25,6 +25,7 @@ Loose ends fixed 2026-11-08:
 - [ ] Zoom to Fit (F) after zooming far out or panning away: the model centred and framed, the view direction kept
 - [ ] Switching the document between mm and inch leaves work planes the same size
 - [ ] Section view with the sample's Glowing pin shown: dragging a section slider cuts the bodies (it used to throw and stop)
+- [ ] Negative sizes, typed: H −40 at Z 0 → H 40, Z −40 (a body drawn on the ground); L or W −30 → 30 on the other side of the reference point (centre: as big, centred); one undo step each
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:

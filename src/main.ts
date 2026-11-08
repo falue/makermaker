@@ -1316,10 +1316,32 @@ function clampFinish(body: string, feature: string, max: number) {
 /** A value set at `path` (`live`: replacing the step before, while dragging); a finish's size goes through `finishSize`. */
 function setValue(path: string[], value: unknown, live = false) {
   const doc = setIn(history.current, path, value);
-  const next = follow(history.current, value && typeof value === 'object' && 'e' in value ? cornerSize(finishSize(doc, path, value as Expr), path, value as Expr) : doc);
+  const expr = value && typeof value === 'object' && 'e' in value ? (value as Expr) : null;
+  const next = follow(history.current, expr ? cornerSize(finishSize(live ? doc : flippedDepth(doc, path, expr), path, expr), path, expr) : doc);
   if (live) history.replace(next);
   else history.push(next);
   update();
+}
+
+/**
+ * A body's first extrude on its own base plane set below 0 (`path` ends in its depth): as deep but positive, the body
+ * moved that far the other way, so it fills the same space (H −40 at Z 0: H 40 at Z −40). Not for linked steps or a
+ * step reaching back too: there it keeps growing the other way.
+ */
+function flippedDepth(doc: Doc, path: string[], value: Expr): Doc {
+  if (path.length !== 5 || path[0] !== 'bodies' || path[2] !== 'features' || path[3] !== '0' || path[4] !== 'depth') return doc;
+  const b = doc.bodies[+path[1]];
+  const f = b?.features[0];
+  if (f?.type !== 'extrude' || f.source.kind !== 'own' || f.source.plane.kind !== 'base' || f.back || b.link || doc.bodies.some((o) => o.link === b.id)) return doc;
+  const lookup = paramLookup(doc.params);
+  const d = length(value.e);
+  if (d === null || d >= 0) return doc;
+  // the shift along its normal, in its parent's coordinates
+  const [world, inverse] = [bodyPlaces.get(b.id) ?? new Matrix4(), parentPlace(b.id).invert()];
+  const [p0, p1] = [new Vector3(), new Vector3(...BASE[f.source.plane.axis].n).multiplyScalar(d)].map((q) => q.applyMatrix4(world).applyMatrix4(inverse));
+  const local = resolve(b.position, lookup, '', new Map());
+  const moved = setIn(doc, ['bodies', path[1], 'position'], b.position.map((x, k) => plus(x, local[k], p1.getComponent(k) - p0.getComponent(k))));
+  return setIn(moved, path, { ...value, e: negated(value.e) });
 }
 
 /**
@@ -6188,8 +6210,17 @@ function transformShape(path: string[], field: ShapeField, value: Expr, live: bo
     if (!centred(old, ref)) delete keep[field]; // the stored centre is not what was typed
   } else if (field === 'rot') next = turnedTo(old, ref, v);
   else {
-    const size: [number, number] = field === 'd' ? [v, v] : field === 'w' ? [v, linkSize && w ? (h * v) / w : h] : [linkSize && h ? (w * v) / h : w, v];
+    // L or W below 0, typed: as big, the other way from the reference point (stored positive); meanwhile (scrubbing) not at all
+    const flip = (field === 'w' || field === 'h') && v < 0;
+    if (flip && live) return;
+    const a = Math.abs(v);
+    const size: [number, number] = field === 'd' ? [v, v] : field === 'w' ? [a, linkSize && w ? (h * a) / w : h] : [linkSize && h ? (w * a) / h : w, a];
     next = sizedTo(old, ref, size);
+    if (flip) {
+      const other: [number, number] = field === 'w' ? [-ref[0], ref[1]] : [ref[0], -ref[1]];
+      next = placed(next, other, anchorAt(old, ref));
+      keep[field] = { ...value, e: negated(value.e) };
+    }
   }
   const changed = setIn(doc, path, rewrite(shape, old, next, keep));
   if (live) history.replace(changed);
