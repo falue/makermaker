@@ -403,7 +403,10 @@ export function renderUI(ctx: UIContext) {
   for (const b of $('left').querySelectorAll<HTMLElement>('.list-body')) b.scrollTop = scrolled.get(b.dataset.list) ?? 0;
   paintPair();
   $('right').replaceChildren(...right(ctx));
-  $('hint-text').innerHTML = axisHtml(ctx.hint ?? (ctx.sketching ? SKETCH_HINT : hint(ctx.selected.length, ctx.shapes.length))).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
+  // the footer: the hints for what is selected (`base`: a running tool's own keys stand there meanwhile, see main's showHint)
+  const foot = $('hint-text');
+  foot.dataset.base = axisHtml(ctx.hint ?? (ctx.sketching ? SKETCH_HINT : hint(ctx.selected.length, ctx.shapes.length))).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
+  foot.innerHTML = foot.dataset.base;
   rendering = false;
   const el = path && document.querySelector<HTMLInputElement>(`input[data-path="${CSS.escape(path)}"]`);
   if (!el) return;

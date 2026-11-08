@@ -8041,17 +8041,19 @@ function showNote() {
 }
 
 /**
- * The tool's hint (what to do, its keys, the pointer's other keys) as the last row of the floating panel open at the
- * top; a tool without one gets a panel holding only the hint.
+ * The tool's hint (what to do, its keys, the pointer's other keys): its first part as the last row of the floating
+ * panel open at the top (a tool without one gets a panel holding only that), the rest in the footer instead of the
+ * selection's hints.
  */
 function showHint(text: string) {
   const panel = [...document.querySelectorAll<HTMLElement>('.cut-panel:not(.hint-only)')].at(-1);
+  const [head, ...rest] = text ? text.split(' · ') : [];
+  const foot = document.getElementById('hint-text')!;
+  foot.innerHTML = text ? noteHtml(rest.join(' · ')) : (foot.dataset.base ?? '');
   if (!text) return hintRow.remove(), hintPanel.remove();
   const changed = text !== hintShown;
   if (changed) {
-    // each part whole: a long hint wraps between its parts
-    const [head, ...rest] = text.split(' · ');
-    hintRow.innerHTML = [`<b>${noteHtml(head)}</b>`, ...rest.map(noteHtml)].map((part) => `<span>${part}</span>`).join(' · ');
+    hintRow.innerHTML = `<b>${noteHtml(head)}</b>`;
     hintShown = text;
   }
   const host = panel ?? hintPanel;

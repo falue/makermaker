@@ -88,7 +88,7 @@ Left column:
 
 Tools:
 
-- [ ] Tool hints in the floating panel's last row, quiet, a long one wrapping between its parts (· …), not in the middle of one; a tool without a panel: a hint-only panel whose × ends the tool as Esc; Mirror's Linked panel does not cover the hint
+- [ ] Tool hints: only the first part (what to do, bold) in the floating panel's last row, the rest (keys) in the footer, formatted as before; no tool: the footer's hints for the selection (nothing selected: moving, panning, turning the view); a tool without a panel: a hint-only panel whose × ends the tool as Esc; Mirror's Linked panel does not cover the hint
 - [ ] Hints end in "[Enter] Finalize"; pick lists say "(a second click drops it)"
 - [ ] A click on a work plane in the view selects it (in front of the body there); Tab / Shift Tab cycle bodies and work planes under the pointer, nearest first
 - [ ] Line tool: the line being drawn snaps along its own sides, their middles, A / Shift A, crossings
