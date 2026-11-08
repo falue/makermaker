@@ -3289,14 +3289,16 @@ export class Viewer implements ToolView {
    * stronger (on a 5 step every 10th: 10, 50, 100 …), `cells` steps each way from the point looked at; drawn anew when
    * the step changes or the view moves far.
    */
-  private drawGrid(cells = 250) {
+  private drawGrid(cells = 250, grazing = 0.1) {
     // around where the middle of the view meets the ground (zoomed in towards the pointer, the point orbited round
-    // can lie far off), else the point looked at
+    // can lie far off), else the point looked at; also when the view runs almost along the ground (a front view a hair
+    // off level met it some 1e17 mm away: the grid there stretched the ortho camera's depth range and broke it)
     const toGrid = this.groupFrame.clone().invert();
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2(0, 0), this.camera);
     const ground = new THREE.Plane(new THREE.Vector3(0, 0, 1).applyQuaternion(this.frameTurn), 0).translate(new THREE.Vector3().setFromMatrixPosition(this.groupFrame));
-    const world = ray.ray.intersectPlane(ground, new THREE.Vector3()) ?? this.controls.target.clone();
+    const steep = Math.abs(ray.ray.direction.dot(ground.normal)) > grazing;
+    const world = (steep && ray.ray.intersectPlane(ground, new THREE.Vector3())) || this.controls.target.clone();
     const step = this.step(world);
     const t = world.clone().applyMatrix4(toGrid); // in the grid's own coordinates
     const every = this.every(step);

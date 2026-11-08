@@ -33,6 +33,7 @@ Loose ends fixed 2026-11-08:
 - [ ] View top left, one under the other: breadcrumbs, the mode note (3 s), Section at sketch, 3D line; the floating panel at the top stays right of that column (narrow view: below it) and widens again when the mode note goes; nothing overlaps
 - [ ] New sketch (S) over a sketch's shape (inside or its outline): "Click: Open this sketch", a click opens that sketch, no new one; on a face, empty space or a work plane: a new sketch as before
 - [ ] Look at face with a body selected (no face): waits for a face click; after orbiting, panning or a view cube side: still waits, then looks straight at the clicked face; an Alt-picked flat face first: at once; a round face (fillet, hole wall, ball): the view square to it where clicked
+- [ ] Front, Back, Look at face on an upright face, a turned view near level: bodies hide what is behind them (no edges or colours shining through), no flicker while the view cube turns
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:
