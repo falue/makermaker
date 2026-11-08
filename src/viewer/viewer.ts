@@ -516,7 +516,9 @@ export class Viewer implements ToolView {
   /** In sketch mode: what lies in front of the sketch's plane (along its normal) cut away, while `sketchCutOn`. */
   private sketchCut: { frame: Frame; plane: THREE.Plane } | null = null;
   private sketchCutOn = true;
-  /** Switches at the top left of the view while they apply: the sketch's cut, a tool's (3D line). */
+  /** The view's top left, one under the other: the sketch's breadcrumbs, a drawing tool's mode note, the switches. */
+  readonly corner = Object.assign(document.createElement('div'), { className: 'view-corner' });
+  /** Switches while they apply: the sketch's cut, a tool's (3D line). */
   readonly toggles = Object.assign(document.createElement('div'), { className: 'view-toggles' });
   private cutBox = Object.assign(document.createElement('label'), { className: 'check', hidden: true, title: 'On: the bodies cut at the sketch plane, what lies in front of it hidden · Off: all of them', innerHTML: '<input type="checkbox" checked> Section at sketch' });
   /** The origin: three thick lines (AxesHelper's colours), drawn over everything. */
@@ -659,7 +661,8 @@ export class Viewer implements ToolView {
     this.renderer.setPixelRatio(devicePixelRatio);
     this.renderer.localClippingEnabled = true;
     const canvas = this.renderer.domElement;
-    el.append(canvas, this.viewCube(), this.cameraControls(), this.crumbs, this.moveLabel, this.toggles);
+    el.append(canvas, this.viewCube(), this.cameraControls(), this.corner, this.moveLabel);
+    this.corner.append(this.crumbs, this.toggles);
     this.toggles.append(this.cutBox);
 
     this.setLight(DEFAULT_LIGHT);

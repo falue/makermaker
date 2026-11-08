@@ -2544,13 +2544,21 @@ function placementIn(parent: Matrix4, world: Matrix4) {
 }
 
 /** A panel (cut, rotate, joint, values, move) at the top of the view, below its switches, centred left of the view cube (`cube` px); its contents wrap rather than reach under it. */
-function atTop(box: HTMLElement, cube = 120) {
+function atTop(box: HTMLElement, cube = 120, least = 360) {
   const r = viewer.el.getBoundingClientRect();
-  // between the view's left edge and the view cube; too wide, its contents wrap
-  const [from, to] = [r.left + 8, r.right - cube];
+  // between the view's top-left column (breadcrumbs, mode note, switches) and the view cube, too wide its contents
+  // wrap; no room for `least` px beside the column: below it
+  const c = viewer.corner.getBoundingClientRect();
+  const beside = !c.width || r.right - cube - (c.right + 8) >= least;
+  const [from, to, top] = [beside && c.width ? c.right + 8 : r.left + 8, r.right - cube, beside ? r.top + 44 : c.bottom + 6];
   box.style.maxWidth = `${to - from}px`;
-  keepInside(box, from + (to - from - box.offsetWidth) / 2, r.top + 44, false, [r.left, r.top, r.right, r.bottom]);
+  keepInside(box, from + (to - from - box.offsetWidth) / 2, top, false, [r.left, r.top, r.right, r.bottom]);
 }
+
+// the top-left column (a mode note, a switch) or the view changes size: the panels at the top placed again
+const topPanels = new ResizeObserver(() => document.querySelectorAll<HTMLElement>('.axis-move:not(.measure)').forEach((box) => atTop(box)));
+topPanels.observe(viewer.corner);
+topPanels.observe(viewer.el);
 
 /** A panel field's parts (label, input, To object button) as one box: the label inside, the button joined. */
 function cell(...parts: HTMLElement[]) {

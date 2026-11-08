@@ -2220,8 +2220,7 @@ button.icon.tool-op {
 
 /* where in the open sketch group the view is: under the projection buttons */
 .overlay.crumbs {
-  top: 44px;
-  left: 8px;
+  position: static;
   gap: 4px;
 }
 .overlay.crumbs[hidden] {
@@ -2526,16 +2525,29 @@ input + .set-axis {
 
 /* a drawing mode switched: its pictogram and name, top left in the view for a moment */
 /* the line tool's 3D box, below where the mode note shows */
-/* switches at the top left of the view, below the mode note, one under the other */
-.view-toggles {
+/* the view's top left: breadcrumbs, mode note, switches, one under the other as they come and go */
+.view-corner {
   position: absolute;
-  top: 124px;
-  left: 10px;
+  top: 44px;
+  left: 8px;
   z-index: 20;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+  pointer-events: none;
+}
+.view-corner > :not(.mode-note) {
+  pointer-events: auto;
+}
+.view-toggles {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.view-toggles:not(:has(> label:not([hidden]))) {
+  display: none;
 }
 .view-toggles > label {
   padding: 4px 10px 4px 6px;
@@ -2547,10 +2559,6 @@ input + .set-axis {
   display: none;
 }
 .mode-note {
-  position: absolute;
-  top: 76px; /* below the sketch's breadcrumbs */
-  left: 10px;
-  z-index: 20;
   display: flex;
   align-items: center;
   gap: 8px;

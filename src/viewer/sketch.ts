@@ -450,7 +450,7 @@ export class SketchTool implements Tool {
     this.host.hint(this.hoverHint());
     this.update();
     const m = this.drawMode();
-    if (m) showMode(view.el, kind!, m);
+    if (m) showMode(view.toggles, kind!, m);
   }
 
   dispose() {
@@ -673,7 +673,7 @@ export class SketchTool implements Tool {
       SketchTool.modes.set(this.kind, next.id);
       if (ph.kind === 'ball' && BALL_POINTS[next.id] && !ph.planes.length) ph.pts = ph.pts.slice(0, BALL_POINTS[next.id] - 1);
       else this.phase = { kind: 'hover' };
-      showMode(this.view.el, this.kind, next);
+      showMode(this.view.toggles, this.kind, next);
       return this.host.hint(this.hoverHint());
     }
     if (ph.kind === 'polygon') {
@@ -683,7 +683,7 @@ export class SketchTool implements Tool {
     } else if (ph.kind !== 'shape') SketchTool.modes.set(this.kind!, next.id);
     else if (next.lines) (SketchTool.modes.set(this.kind!, next.id), (this.phase = { kind: 'hover' }));
     else Object.assign(ph, { mode: next.id, pts: [], lines: [] });
-    showMode(this.view.el, this.kind!, next);
+    showMode(this.view.toggles, this.kind!, next);
     this.host.hint(this.phase.kind === 'shape' ? SHAPE_HINT : this.phase.kind === 'polygon' ? lineHint(next.id) : this.hoverHint());
   }
 
@@ -2172,10 +2172,10 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
 const BALL_POINTS: Record<string, number> = { diameter: 2, three: 3, four: 4 };
 
 /** The drawing mode's pictogram, name and how to change it, top left in the view for a moment. */
-function showMode(el: HTMLElement, kind: ToolKind, m: Mode, ms = 3000) {
-  el.querySelector('.mode-note')?.remove();
+function showMode(toggles: HTMLElement, kind: ToolKind, m: Mode, ms = 3000) {
+  toggles.parentElement?.querySelector('.mode-note')?.remove();
   const note = Object.assign(document.createElement('div'), { className: 'mode-note', innerHTML: `${icon(`${kind}-${m.id}`)}<span>${m.name}<small>Change with ${comboText(keysOf(kind as Action)[0])} or Alt</small></span>` });
-  el.append(note);
+  toggles.before(note); // above the switches
   setTimeout(() => note.remove(), ms);
 }
 
