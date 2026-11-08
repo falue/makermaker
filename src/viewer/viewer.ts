@@ -1163,16 +1163,31 @@ export class Viewer implements ToolView {
 
   /** The nearest image under the pointer, in front of any body (`hit`: the body face there); null: none. */
   private imageAt(e: MouseEvent, hit = this.frontHit(e)) {
-    const ray = this.ray(e);
-    let best: { id: string; d: number } | null = null;
-    for (const im of this.images) {
-      const p = planeHit(ray, im.frame);
-      const d = p?.distanceTo(ray.origin) ?? Infinity;
-      if (!p || (hit && d > hit.distance) || (best && d >= best.d)) continue;
-      const [u, v] = uvOf(im.frame, p);
-      if (Math.abs(u) <= im.w / 2 && Math.abs(v) <= im.h / 2) best = { id: im.id, d };
-    }
-    return best;
+    const im = this.imagesOn(this.ray(e))[0];
+    return im && !(hit && im.d > hit.distance) ? im : null;
+  }
+
+  /** The images `ray` passes through, nearest first (`d`: the distance). */
+  private imagesOn(ray: THREE.Ray) {
+    return this.images
+      .flatMap((im) => {
+        const p = planeHit(ray, im.frame);
+        if (!p) return [];
+        const [u, v] = uvOf(im.frame, p);
+        return Math.abs(u) <= im.w / 2 && Math.abs(v) <= im.h / 2 ? [{ id: im.id, d: p.distanceTo(ray.origin) }] : [];
+      })
+      .sort((a, b) => a.d - b.d);
+  }
+
+  /** The sketches `ray` meets on (within `reachPx`) or inside one of their flat shapes (`d`: the distance). */
+  private sketchesOn(ray: THREE.Ray, reachPx = 8) {
+    return this.sketches.flatMap((s) => {
+      const p = planeHit(ray, s.frame);
+      if (!p) return [];
+      const [u, v] = uvOf(s.frame, p);
+      const reach = reachPx / this.pixelsPerMm(p);
+      return s.shapes.some((q) => !lifted(q) && nearBox(q, u, v, reach) && (edgeDistance(q, u, v) <= reach || inside(q, u, v))) ? [{ id: s.id, d: p.distanceTo(ray.origin) }] : [];
+    });
   }
 
   /** Where shapes go on the face last clicked on a selected body (a face first, then the sketch tool). */
@@ -2376,12 +2391,12 @@ export class Viewer implements ToolView {
     this.fitted = false;
   }
 
-  /** Tab: selects the next (`step` 1) or previous body or work plane under the pointer (outside the view: along the last click). */
+  /** Tab: selects the next (`step` 1) or previous body, work plane, image or sketch under the pointer (outside the view: along the last click). */
   cycle(step: number) {
     const ray = this.hover ? this.ray(this.hover) : this.pick;
     if (!ray) return;
     const bodies = this.intersect(new THREE.Raycaster(ray.origin, ray.direction)).map((h) => ({ id: h.object.userData.bodyId as string, d: h.distance }));
-    const ids = [...new Set([...bodies, ...this.planesOn(ray)].sort((a, b) => a.d - b.d).map((h) => h.id))];
+    const ids = [...new Set([...bodies, ...this.planesOn(ray), ...this.imagesOn(ray), ...this.sketchesOn(ray)].sort((a, b) => a.d - b.d).map((h) => h.id))];
     if (!ids.length) return;
     let i = ids.findIndex((id) => this.selection.includes(id));
     if (i < 0) i = -step; // none of them selected: start at the nearest
