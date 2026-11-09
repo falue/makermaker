@@ -359,6 +359,10 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 - [ ] Autosave on: playing on Repeat writes nothing; a single play saves once after it stops
 - [ ] Big model: loading in lots, one redraw per lot; hover and selection outline stay quick
 - [ ] Settings: Mesh detail 0.02 to 0.12 mm changes the mesh
+- [ ] blowout.mmk: dragging a chamfer on the candle holder follows within a fraction of a second; the Info panel's numbers lose their ~ a moment after it stops
+- [ ] LIO test with lights.mmk (live render off): orbit fluid in Shaded, Lines and with Soft shadows, also with a second view open; that view stays as it was while the main one turns
+- [ ] LIO: a click selects at once; Esc and the next clicks have no hitch either
+- [ ] Soft shadows on: turning the view keeps the shadows right (no flicker, no missing corners)
 
 ## Angle control, panels, edge references
 

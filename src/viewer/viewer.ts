@@ -3020,7 +3020,9 @@ export class Viewer implements ToolView {
     this.placeTags();
     if (this.viewsStale) for (const v of this.views) this.renderView(v);
     this.viewsStale = false;
-    if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
+    // the AO pass takes the camera's near and far anew each frame: no new composer for them
+    if (this.camera === this.perspective) fitDepth(this.perspective, this.controls.target);
+    else fitOrthoDepth(this.orthographic, this.shownBox());
     this.drawContours();
     // lines: the bodies' own edges and contours drawn after the rest (`ownLines`)
     const wide = (c: THREE.Object3D) => (c.userData.wide || c.userData.contour !== undefined) && c.visible;
@@ -3060,7 +3062,10 @@ export class Viewer implements ToolView {
     r.autoClear = autoClear;
   }
 
-  /** Per mesh for its contour: neighbouring triangles (the shared side's two points, the two triangles) and the triangles' normals, body coordinates. */
+  /**
+   * Per mesh for its contour: neighbouring triangles not in one plane (the shared side's two points, the two triangles;
+   * two in a plane both face the camera or both not) and the triangles' normals, body coordinates.
+   */
   private neighbours = new WeakMap<THREE.BufferGeometry, { pairs: Uint32Array; normals: Float32Array }>();
 
   private neighboursOf(geo: THREE.BufferGeometry) {
@@ -3072,6 +3077,12 @@ export class Viewer implements ToolView {
     const open = new Map<number, number>();
     const pairs: number[] = [];
     const count = geo.attributes.position.count;
+    // not in one plane (to float precision: 1e-6 is some 0.06°, far below how much a meshed curve turns)
+    const bent = (o: number, t: number) => {
+      const [x, y, z, X, Y, Z] = [normals[o * 3], normals[o * 3 + 1], normals[o * 3 + 2], normals[t * 3], normals[t * 3 + 1], normals[t * 3 + 2]];
+      const d = x * X + y * Y + z * Z;
+      return d < 0 || d * d < (1 - 1e-6) * (x * x + y * y + z * z) * (X * X + Y * Y + Z * Z);
+    };
     for (let t = 0; t < idx.length / 3; t++) {
       const [a, b, c] = [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]];
       const [ux, uy, uz] = [pos[b * 3] - pos[a * 3], pos[b * 3 + 1] - pos[a * 3 + 1], pos[b * 3 + 2] - pos[a * 3 + 2]];
@@ -3081,7 +3092,7 @@ export class Viewer implements ToolView {
         const key = Math.min(p, q) * count + Math.max(p, q);
         const other = open.get(key);
         if (other === undefined) open.set(key, t);
-        else (pairs.push(p, q, other, t), open.delete(key));
+        else (open.delete(key), bent(other, t) && pairs.push(p, q, other, t));
       }
     }
     n = { pairs: new Uint32Array(pairs), normals };
@@ -3138,6 +3149,8 @@ export class Viewer implements ToolView {
         const [a, b] = [pairs[k], pairs[k + 1]];
         if (faces(pairs[k + 2], a) !== faces(pairs[k + 3], a)) out.push(pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2], pos[b * 3], pos[b * 3 + 1], pos[b * 3 + 2]);
       }
+      if (!out.length && line.userData.empty) continue; // none before either
+      line.userData.empty = !out.length;
       line.geometry.dispose(); // a new one: a replaced one would keep its buffers until then
       line.geometry = new LineSegmentsGeometry().setPositions(out);
     }
