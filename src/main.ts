@@ -8182,7 +8182,7 @@ function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   isolated = null;
   stopTool();
   viewer.setSketchGrid(null);
-  if (!viewer.setViews(doc.views)) viewer.fitNext();
+  viewer.fitNext(viewer.setViews(doc.views)); // fitted into view, a saved view keeps its direction
   update();
 }
 

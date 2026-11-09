@@ -2220,7 +2220,8 @@ export class Viewer implements ToolView {
   private fitWaiting() {
     if (this.fitted || this.fitHeld) return;
     this.fitted = true;
-    requestAnimationFrame(() => this.home(0)); // after the other bodies of this batch
+    // after the other bodies of this batch
+    requestAnimationFrame(() => (this.fitKeep ? this.frameAll(this.allBox().getCenter(new THREE.Vector3()), this.camera.quaternion.clone(), 0) : this.home(0)));
   }
 
   /** Where a body sits in the world: its origin and its turn (from turned groups). */
@@ -2431,9 +2432,12 @@ export class Viewer implements ToolView {
   }
 
   /** Frames everything again once the next geometry arrives (new or opened document). */
-  fitNext() {
+  /** The next bodies built get fitted into view: from the home corner, or (`keepTurn`: a file's saved view) as it looks now. */
+  fitNext(keepTurn = false) {
     this.fitted = false;
+    this.fitKeep = keepTurn;
   }
+  private fitKeep = false;
 
   /** Tab: selects the next (`step` 1) or previous body, work plane, image or sketch under the pointer (outside the view: along the last click). */
   cycle(step: number) {
