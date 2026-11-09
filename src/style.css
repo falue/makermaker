@@ -1418,13 +1418,12 @@ h3 .fold svg {
 h3 .fold.open svg {
   transform: rotate(90deg);
 }
-/* a row's marks: a column as wide in every row (`--marks`: the most any row has), each mark as wide as an icon button */
+/* a row's marks, each as wide as an icon button */
 .listed .marks {
   display: flex;
   flex: none;
   justify-content: flex-end;
   gap: 2px;
-  width: calc(var(--marks, 1) * 28px - 2px);
 }
 .listed .marks > button {
   display: inline-flex;

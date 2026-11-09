@@ -875,9 +875,8 @@ function left(ctx: UIContext): Node[] {
     };
     return [el];
   };
-  /** A row's marks (sketch, joint, link …) in a column as wide in every row as the most any row has (`--marks`): names all as wide. */
-  let most = 1;
-  const marked = (marks: HTMLElement[]) => ((most = Math.max(most, marks.length)), h('span', { className: 'marks' }, ...marks));
+  /** A row's marks (sketch, joint, link …), only as wide as they are: a row with fewer leaves its name more room. */
+  const marked = (marks: HTMLElement[]) => h('span', { className: 'marks' }, ...marks);
   const selectedClass = (id: string) => `item${ctx.selected.includes(id) ? ' selected' : ''}`;
   // filtering: everything unfolded, only what matches and what holds it (its groups; a body over its sketch)
   const filter = filters[leftTab].trim().toLowerCase();
@@ -1046,7 +1045,6 @@ function left(ctx: UIContext): Node[] {
   }
   const body = h('div', { className: 'list-body' }, ...contents[leftTab]);
   body.dataset.list = leftTab;
-  body.style.setProperty('--marks', String(most));
   return [tabs, h('div', { className: 'list-section' }, head, body)];
 }
 
