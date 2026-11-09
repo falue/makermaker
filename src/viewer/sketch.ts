@@ -1368,7 +1368,7 @@ export class SketchTool implements Tool {
     this.update();
   }
 
-  /** Drawing a line, the tangent modifier held: where a line from its last corner touches a curve, within `px` of the pointer. */
+  /** Drawing a line, the tangent modifier held: where a line from its last corner touches a curve passing within `px` of the pointer (the touch nearest the pointer). */
   private tangentTo(t: Target, lines: SnapLine[], mx: number, my: number, px: number) {
     const ph = this.phase;
     if (!this.tangentHeld || ph.kind !== 'polygon' || this.kind !== 'line' || !this.straightMode() || this.sliding(ph) || ph.z.at(-1)) return null;
@@ -1387,7 +1387,7 @@ export class SketchTool implements Tool {
         const at = round!.curve.at(k);
         const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...at)));
         const d = Math.hypot(mx - x, my - y);
-        if (d < px && (!best || d < best.d) && Math.hypot(at[0] - from[0], at[1] - from[1]) > 1e-6) best = { at, line: l.segs, name: round!.name, d };
+        if ((!best || d < best.d) && Math.hypot(at[0] - from[0], at[1] - from[1]) > 1e-6) best = { at, line: l.segs, name: round!.name, d };
       }
     }
     return best;
