@@ -16,7 +16,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## Cut and sections
 - Coming apart: bodies sharing steps by a link stay whole (a piece step would go to every linked copy). A boolean's pieces keep its tool bodies, shared: moving a tool reshapes all of them. If an edit later changes how many pieces there are or their order, a Piece step can point at another piece or none (it then shows an error). The `cad.boolean` and Python cuts do not split.
 - A section's axis shows only while it is being picked; there is no way back to its own line except a new section.
-- An extra 3D view's view cube only clicks: no dragging it to orbit, no turn arrows, no Look / Fit / Home under it, and a side does not switch it to Ortho as the main cube does.
+- An extra view's Look at a face takes a face clicked in that view, or one Alt-picked in the main view; a click there ignores the main view's section (it may land on a part cut away in the main view).
 - An extra view's section has the axis sliders only: no custom (face) sections there, since extra views pick nothing. Its drawer shares the main one's open / closed memory. Its cut outlines take the line width of the view's size when built (not redone on resize).
 
 ## Pattern

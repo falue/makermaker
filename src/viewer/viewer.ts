@@ -45,6 +45,27 @@ export type Axis = 'x' | 'y' | 'z';
 type Span = [number, number];
 /** A section's slider cuts per axis (world mm, ±Infinity: open) and which show only what lies outside. */
 type SectionCut = { sections: Record<Axis, Span>; inverted: Record<Axis, boolean> };
+/**
+ * A camera the view cube steers (the main view's or an extra view's): its two cameras and controls, the one in use, its
+ * ortho height at zoom 1, what it is drawn on; whether a cube click switched it to ortho (the next rotation switches
+ * back), its direction before the last flat view (cube side, look at a face) and whether it looks straight at one now.
+ */
+type Eye = {
+  ortho: THREE.OrthographicCamera;
+  persp: THREE.PerspectiveCamera;
+  controls: OrbitControls<THREE.Camera>;
+  camera: THREE.Camera;
+  height: number;
+  size: HTMLElement;
+  setOrtho(on: boolean): void;
+  /** The frustums at `aspect` now (an extra view sets them as it draws). */
+  frustums?(aspect: number): void;
+  cube: HTMLElement;
+  cubeWrap: HTMLElement;
+  autoOrtho: boolean;
+  flat: boolean;
+  angledView: THREE.Vector3 | null;
+};
 /** An extra view's own section: its cuts, the group it is drawn in (shown only for that view), its boxes, its sliders' range. */
 type ViewSection = SectionCut & { group: THREE.Group; boxes: Span[][]; bounds?: (box: THREE.Box3) => void };
 
@@ -570,14 +591,37 @@ export class Viewer implements ToolView {
   private sectionView = new THREE.Group();
   private hatch = hatchTexture();
 
-  /** Set when a view cube click switched to orthographic; the next rotation switches back to perspective. */
-  private autoOrtho = false;
-  /** The camera direction before the last flat view (cube side, look at a face or sketch). */
-  private angledView: THREE.Vector3 | null = null;
-  /** Looking straight at a face or a cube side (a flat view): pulling turns back to `angledView`. */
-  private flat = false;
-  private cube = document.createElement('div');
-  private cubeWrap = document.createElement('div');
+  /** The main view's camera as its view cube steers it (see `Eye`). */
+  private main: Eye = ((v: Viewer): Eye => ({
+    get ortho() {
+      return v.orthographic;
+    },
+    get persp() {
+      return v.perspective;
+    },
+    get controls() {
+      return v.controls as OrbitControls<THREE.Camera>;
+    },
+    get camera() {
+      return v.camera;
+    },
+    get height() {
+      return v.viewHeight;
+    },
+    set height(h: number) {
+      v.viewHeight = h;
+    },
+    get size() {
+      return v.el;
+    },
+    setOrtho: (on) => v.setOrthographic(on),
+    frustums: (aspect) => v.updateFrustums(aspect),
+    cube: document.createElement('div'),
+    cubeWrap: document.createElement('div'),
+    autoOrtho: false,
+    flat: false,
+    angledView: null,
+  }))(this);
 
   /** One material per body: its colour. */
   private materials = new Map<string, THREE.MeshStandardMaterial>();
@@ -1691,9 +1735,9 @@ export class Viewer implements ToolView {
 
   /** Looks straight along `n`; `at`: that point moves to the middle of the view. */
   /** Looks straight along `n` at `at`; `box`: zoomed so it fills the view (with room around it). */
-  lookAlong(n: THREE.Vector3, at?: THREE.Vector3, box?: THREE.Box3) {
+  lookAlong(n: THREE.Vector3, at?: THREE.Vector3, box?: THREE.Box3, eye = this.main) {
     // straight up/down is a pole for the orbit controls: tilt a hair towards the front
-    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone(), true, 600, at, box);
+    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone(), true, 600, at, box, eye);
   }
 
   /** Where the camera looks (world, unit). */
@@ -1704,7 +1748,7 @@ export class Viewer implements ToolView {
   /** Looking straight along `n` (a flat view), turns back to the last angled view: pulling along `n` needs depth to see. */
   unflatten(n: THREE.Vector3) {
     const look = this.camera.getWorldDirection(new THREE.Vector3());
-    if (this.angledView && this.flat && Math.abs(look.dot(n)) > 0.95) this.viewFrom(this.angledView, false);
+    if (this.main.angledView && this.main.flat && Math.abs(look.dot(n)) > 0.95) this.viewFrom(this.main.angledView, false);
   }
 
   lockPointer() {
@@ -2521,66 +2565,70 @@ export class Viewer implements ToolView {
    * corners) it is seen from.
    */
   fit(box: THREE.Box3 | null = null, ids: string[] = []) {
-    if (!box) return this.frameAll(this.allBox().getCenter(new THREE.Vector3()), this.camera.quaternion.clone());
-    const now = new THREE.Vector3(0, 0, 1).applyQuaternion(this.camera.quaternion);
+    const eye = this.fitEye ?? this.main;
+    const cam = eye.camera;
+    if (!box) return this.frameAll(this.allBox().getCenter(new THREE.Vector3()), cam.quaternion.clone(), 600, 1.1, this.allBox(), eye);
+    const now = new THREE.Vector3(0, 0, 1).applyQuaternion(cam.quaternion);
     const target = box.getCenter(new THREE.Vector3());
     const points = [target, ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).lerp(target, 0.1))];
     const hidden = (from: THREE.Vector3, dir: THREE.Vector3) => this.intersect(new THREE.Raycaster(from, dir)).some((h) => !ids.includes(h.object.userData.bodyId));
     const seen = (dir: THREE.Vector3) => points.filter((p) => !hidden(p, dir)).length > points.length / 2;
-    const ways = [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => new THREE.Vector3(x, y, z).normalize()))).filter((d) => d.lengthSq() > 0 && Math.abs(d.dot(this.camera.up)) < 0.99);
+    const ways = [-1, 0, 1].flatMap((x) => [-1, 0, 1].flatMap((y) => [-1, 0, 1].map((z) => new THREE.Vector3(x, y, z).normalize()))).filter((d) => d.lengthSq() > 0 && Math.abs(d.dot(cam.up)) < 0.99);
     const dir = seen(now) ? now : (ways.filter(seen).sort((a, b) => b.dot(now) - a.dot(now))[0] ?? now);
-    const turn = dir === now ? this.camera.quaternion.clone() : new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), this.camera.up));
-    this.frameAll(target, turn, 600, 1.6, box); // room around it: it stays among what is beside it
+    const turn = dir === now ? cam.quaternion.clone() : new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), cam.up));
+    this.frameAll(target, turn, 600, 1.6, box, eye); // room around it: it stays among what is beside it
   }
+  /** The extra view whose Fit button runs the host's fit (it picks the box): `fit` frames that view instead. */
+  private fitEye: Eye | null = null;
 
   /** Home (H): all bodies framed from the front-right corner (`ms`: how long the camera glides there; 0: at once). */
-  home(ms = 600) {
+  home(ms = 600, eye = this.main) {
     // seen from the front-right corner: 45° around the vertical axis, ~40° above the horizon
     const dir = new THREE.Vector3(1.1 * Math.SQRT1_2, -1.1 * Math.SQRT1_2, 0.9).normalize();
-    this.leaveSideView(); // a corner: the cube's arrows go, a side's own ortho too
-    this.upright();
-    const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), this.camera.up));
-    this.frameAll(this.allBox().getCenter(new THREE.Vector3()), turn, ms);
+    this.leaveSideView(eye); // a corner: the cube's arrows go, a side's own ortho too
+    this.upright(true, eye);
+    const turn = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(dir, new THREE.Vector3(), eye.camera.up));
+    this.frameAll(this.allBox().getCenter(new THREE.Vector3()), turn, ms, 1.1, this.allBox(), eye);
   }
 
   /**
    * Glides the camera (both, ortho and perspective; `ms` long, as views turn) to look at `target` turned as `turn`,
    * so far back (ortho: zoomed so) that all bodies are in view with a `margin`.
    */
-  private frameAll(target: THREE.Vector3, turn: THREE.Quaternion, ms = 600, margin = 1.1, box = this.allBox()) {
+  private frameAll(target: THREE.Vector3, turn: THREE.Quaternion, ms = 600, margin = 1.1, box = this.allBox(), eye = this.main) {
     const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(turn); // towards the camera
     const inverse = turn.clone().invert();
-    const aspect = this.el.clientHeight ? this.el.clientWidth / this.el.clientHeight : 1;
-    const tan = Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2));
+    const aspect = eye.size.clientHeight ? eye.size.clientWidth / eye.size.clientHeight : 1;
+    const tan = Math.tan(THREE.MathUtils.degToRad(eye.persp.fov / 2));
     // the box corners in the camera's axes, from the point looked at (z: towards the camera)
     const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(target).applyQuaternion(inverse));
     const height = 2 * margin * Math.max(...corners.map((v) => Math.max(Math.abs(v.y), Math.abs(v.x) / aspect)));
     // perspective: far enough back that every corner lies inside the view's cone; ortho: only clear of the box
     const dist = Math.max(...corners.map((v) => v.z + (margin * Math.max(Math.abs(v.y), Math.abs(v.x) / aspect)) / tan));
     const ends = [Math.max(dist, box.getSize(new THREE.Vector3()).length()), dist];
-    const cams = [this.orthographic, this.perspective];
-    const t0 = this.controls.target.clone();
+    const cams = [eye.ortho, eye.persp];
+    const controls = eye.controls;
+    const t0 = controls.target.clone();
     const from = cams.map((c) => ({ off: c.position.clone().sub(t0), q: c.quaternion.clone() }));
-    const h0 = this.viewHeight / this.orthographic.zoom; // the same picture at zoom 1
-    this.orthographic.zoom = 1;
+    const h0 = eye.height / eye.ortho.zoom; // the same picture at zoom 1
+    eye.ortho.zoom = 1;
     const start = performance.now();
     const step = (now: number) => {
       const t = ms ? Math.min(1, (now - start) / ms) : 1;
       const k = t * t * (3 - 2 * t);
-      this.controls.target.lerpVectors(t0, target, k);
+      controls.target.lerpVectors(t0, target, k);
       cams.forEach((c, i) => {
         // the direction turns along an arc, the distance and the turn ease over
         const u0 = from[i].off.lengthSq() > 1e-12 ? from[i].off.clone().normalize() : dir; // a camera still on its target (at load): no turn
         const u = u0.clone().applyQuaternion(new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(u0, dir), k));
-        c.position.copy(this.controls.target).addScaledVector(u, from[i].off.length() + (ends[i] - from[i].off.length()) * k);
+        c.position.copy(controls.target).addScaledVector(u, from[i].off.length() + (ends[i] - from[i].off.length()) * k);
         c.quaternion.slerpQuaternions(from[i].q, turn, k);
       });
-      this.viewHeight = h0 + (height - h0) * k;
-      this.updateFrustums(aspect);
-      if (t < 1) {
-        this.controls.dispatchEvent({ type: 'change' }); // renders, tools follow
-        requestAnimationFrame(step);
-      } else (this.controls.update(), this.render());
+      eye.height = h0 + (height - h0) * k;
+      eye.frustums?.(aspect);
+      controls.dispatchEvent({ type: 'change' }); // renders, tools follow
+      if (t < 1) requestAnimationFrame(step);
+      else controls.update();
     };
     step(start);
   }
@@ -2938,7 +2986,7 @@ export class Viewer implements ToolView {
     this.renderer.autoClear = false;
     for (const mark of [this.pickedEdgeMark, this.edgeMark, this.measureMark]) if (mark.children.length) this.renderer.render(mark, this.camera); // the measure last
     this.renderer.autoClear = autoClear;
-    this.turnCube(this.cube, this.camera); // the view cube shows the camera's rotation
+    this.turnCube(this.main.cube, this.camera); // the view cube shows the camera's rotation
   }
 
   /**
@@ -4732,7 +4780,7 @@ export class Viewer implements ToolView {
   }
 
   /** Extra views beside this one (in #stage): each its own camera and controls on the same scene; editing stays here. */
-  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; setOrtho(on: boolean): void; live: LiveRender | null; setLive(on: boolean): void; section: ViewSection; cube: HTMLElement }[] = [];
+  private views: (Eye & { el: HTMLElement; renderer: THREE.WebGLRenderer; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; live: LiveRender | null; setLive(on: boolean): void; section: ViewSection })[] = [];
 
   /** The light live renders take, and what they need from the app: whether the render queue is busy, keeping a picture. */
   liveHost: { light: Light; haze: { haze: number; fog: number }; queueBusy(): boolean; save(camera: CameraState, background: Backdrop, image: Blob, shot?: string): string } | null = null;
@@ -4760,15 +4808,17 @@ export class Viewer implements ToolView {
       boxes: [],
     };
     this.scene.add(section.group);
-    // a 3D view's own view cube: a click glides its camera to that side or corner
-    const cube = document.createElement('div');
-    this.cubeFaces(cube, (dir) => this.glideView(view, dir));
-    const cubeWrap = Object.assign(document.createElement('div'), { className: 'viewcube', hidden: kind !== '3d' });
-    cubeWrap.append(cube);
     const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
     const persp = new THREE.PerspectiveCamera(35, 1, 1, 50000);
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
-    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section, cube };
+    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section, size: renderer.domElement, cube: document.createElement('div'), cubeWrap: document.createElement('div'), autoOrtho: false, flat: false, angledView: null };
+    // a 3D view's own view cube, as the main view's
+    const cubeWrap = this.viewCube(view);
+    cubeWrap.hidden = kind !== '3d';
+    // a left drag without modifiers turns it: that leaves the side view its cube set up
+    let down: { x: number; y: number } | null = null;
+    renderer.domElement.addEventListener('pointerdown', (e) => (down = e.button === 0 && !toggles(e) ? { x: e.clientX, y: e.clientY } : null));
+    renderer.domElement.addEventListener('pointermove', (e) => down && e.buttons === 1 && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4 && ((down = null), this.leaveSideView(view)));
     view.controls.zoomToCursor = true;
     this.sped(view.controls);
     view.controls.addEventListener('change', () => (this.renderView(view), view.live && this.restartLive(view, 75))); // turning it: soon after it stops
@@ -4788,13 +4838,21 @@ export class Viewer implements ToolView {
     const pick = (on: boolean) => {
       const from = view.camera as THREE.OrthographicCamera | THREE.PerspectiveCamera;
       const to = on ? ortho : persp;
-      to.position.copy(from.position);
-      to.quaternion.copy(from.quaternion);
-      view.camera = view.controls.object = to;
+      if (to !== from) {
+        // the framing kept, as the main view's `setOrthographic`: the ortho zoom matches the perspective view height at the target
+        const target = view.controls.target;
+        const k = 2 * Math.tan(THREE.MathUtils.degToRad(persp.fov / 2));
+        to.quaternion.copy(from.quaternion);
+        if (on) to.position.copy(from.position), (ortho.zoom = view.height / (from.position.distanceTo(target) * k || 1));
+        else to.position.copy(from.position).sub(target).setLength(view.height / ortho.zoom / k).add(target);
+        to.updateProjectionMatrix();
+        view.camera = view.controls.object = to;
+      }
       projection.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 0) === on));
       this.renderView(view);
     };
-    projection.append(button('Ortho', 'Orthographic', () => pick(true)), button('Persp', 'Perspective', () => pick(false)));
+    // chosen by hand: it stays when leaving a cube side
+    projection.append(button('Ortho', 'Orthographic', () => ((view.autoOrtho = false), pick(true))), button('Persp', 'Perspective', () => ((view.autoOrtho = false), pick(false))));
     projection.firstElementChild!.classList.add('on');
     // 3D view | Live render: path traced, starting again whenever something changes
     const mode = Object.assign(document.createElement('span'), { className: 'segmented' });
@@ -5083,7 +5141,7 @@ export class Viewer implements ToolView {
     view.camera = view.controls.object = here.ortho ? view.ortho : view.persp;
     view.el.querySelectorAll('.segmented button').forEach((b, i) => b.classList.toggle('on', (i === 0) === here.ortho));
     view.el.querySelector('select')!.value = view.kind = '3d'; // the main camera: free
-    view.cube.parentElement!.hidden = false;
+    view.cubeWrap.hidden = false;
     (view.camera as THREE.Camera).position.set(...here.position);
     view.controls.target.set(...here.target);
     view.height = here.height;
@@ -5123,7 +5181,7 @@ export class Viewer implements ToolView {
 
   /** A projection chosen by hand stays when leaving a cube side. */
   private pickProjection(on: boolean) {
-    this.autoOrtho = false;
+    this.main.autoOrtho = false;
     this.setOrthographic(on);
   }
 
@@ -5536,87 +5594,68 @@ export class Viewer implements ToolView {
     return Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) > px;
   }
 
-  /** Small cube top right; clicking a face looks from that side. */
-  private viewCube(dragSpeed = 0.02 /* rad per px */) {
-    this.cubeFaces(this.cube, (dir, side) => this.viewFrom(dir, side));
+  /** A view's cube (top right) with its turn arrows, Look at a face, Fit and Home below it; clicking a face looks from that side. */
+  private viewCube(eye = this.main, dragSpeed = 0.02 /* rad per px */) {
+    const { cube, cubeWrap } = eye;
+    this.cubeFaces(cube, (dir, side) => this.viewFrom(dir, side, 600, undefined, undefined, eye));
     // dragging the cube orbits the camera without end: the pointer is hidden and locked, so the screen edge does not stop it;
     // the capture makes the release no click on a face
     let start = { x: 0, y: 0 };
     let turning = false;
-    this.cube.onpointerdown = (e) => {
+    cube.onpointerdown = (e) => {
       start = { x: e.clientX, y: e.clientY };
       turning = false;
     };
-    this.cube.onpointermove = (e) => {
+    cube.onpointermove = (e) => {
       if (e.buttons !== 1) return;
       if (!turning) {
         if (Math.hypot(e.clientX - start.x, e.clientY - start.y) <= 4) return;
         turning = true;
-        this.cube.setPointerCapture(e.pointerId);
-        Promise.resolve(this.cube.requestPointerLock()).catch(() => {}); // without the lock it still turns, up to the screen edge
-        this.leaveSideView();
+        cube.setPointerCapture(e.pointerId);
+        Promise.resolve(cube.requestPointerLock()).catch(() => {}); // without the lock it still turns, up to the screen edge
+        this.leaveSideView(eye);
       }
-      const target = this.controls.target;
+      const target = eye.controls.target;
       // in the cube's frame: inside a turned group, turned as the group
       const back = this.frameTurn.clone().invert();
-      const s = new THREE.Spherical().setFromVector3(this.camera.position.clone().sub(target).applyQuaternion(back).applyQuaternion(toCube));
+      const s = new THREE.Spherical().setFromVector3(eye.camera.position.clone().sub(target).applyQuaternion(back).applyQuaternion(toCube));
       // over a pole it goes on upside down (up flipped) instead of stopping there; phi < 0: that side
-      const flip = this.camera.up.clone().applyQuaternion(back).z < 0;
+      const flip = eye.camera.up.clone().applyQuaternion(back).z < 0;
       s.theta -= (flip ? -1 : 1) * e.movementX * dragSpeed;
       let phi = THREE.MathUtils.euclideanModulo((flip ? -s.phi : s.phi) - e.movementY * dragSpeed + Math.PI, 2 * Math.PI) - Math.PI;
       phi = Math.sign(phi || 1) * THREE.MathUtils.clamp(Math.abs(phi), 1e-6, Math.PI - 1e-6); // never on the pole itself
       if (phi < 0 !== flip) s.theta += Math.PI;
       s.phi = Math.abs(phi);
-      this.upright(phi > 0);
+      this.upright(phi > 0, eye);
       const offset = new THREE.Vector3().setFromSpherical(s).applyQuaternion(toCube.clone().invert()).applyQuaternion(this.frameTurn);
-      this.camera.position.copy(target).add(offset);
-      this.controls.update();
+      eye.camera.position.copy(target).add(offset);
+      eye.controls.update();
     };
-    this.cube.onpointerup = () => document.pointerLockElement === this.cube && document.exitPointerLock();
+    cube.onpointerup = () => document.pointerLockElement === cube && document.exitPointerLock();
     // after a side was chosen, arrows turn the view by 90° to the neighbouring side
     const arrows = (['up', 'down', 'left', 'right'] as const).map((side) =>
-      Object.assign(document.createElement('button'), { className: `turn ${side}`, onclick: () => this.turn(side) }),
+      Object.assign(document.createElement('button'), { className: `turn ${side}`, onclick: () => this.turn(side, eye) }),
     );
     // below the cube: click it, then a face, and the camera looks straight at that face
     const look = Object.assign(document.createElement('button'), {
       className: 'tool',
       title: 'Look at a face: click this, then a face, or a face first, then this (Esc cancels)',
       innerHTML: icon('look'),
-      onclick: () => this.lookAtFace(),
+      onclick: () => this.lookAtFace(eye),
     });
-    const fit = Object.assign(document.createElement('button'), { className: 'tool fit', title: 'Fit (F): the selection (else everything) in view, the camera looking as it does (turned only if something else hides it)', innerHTML: icon('fit'), onclick: () => this.host.fit() });
-    const home = Object.assign(document.createElement('button'), { className: 'tool', title: 'Home (H): everything framed from the front-right corner', innerHTML: icon('home'), onclick: () => this.home() });
+    const fit = Object.assign(document.createElement('button'), { className: 'tool fit', title: 'Fit (F): the selection (else everything) in view, the camera looking as it does (turned only if something else hides it)', innerHTML: icon('fit'), onclick: () => ((this.fitEye = eye === this.main ? null : eye), this.host.fit(), (this.fitEye = null)) });
+    const home = Object.assign(document.createElement('button'), { className: 'tool', title: 'Home (H): everything framed from the front-right corner', innerHTML: icon('home'), onclick: () => this.home(600, eye) });
     const below = Object.assign(document.createElement('div'), { className: 'below-cube' });
     below.append(look, fit, home);
-    this.cubeWrap.className = 'viewcube';
-    this.cubeWrap.append(this.cube, ...arrows, below);
-    return this.cubeWrap;
+    cubeWrap.className = 'viewcube';
+    cubeWrap.append(cube, ...arrows, below);
+    return cubeWrap;
   }
 
   /** Turns `cube` as `camera` looks (cube frame mirrored into CSS's y-down frame; inside a turned group: as turned from it). */
   private turnCube(cube: HTMLElement, camera: THREE.Camera) {
     const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.frameTurn.clone().invert()).multiply(camera.quaternion)).invert().elements;
     cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
-  }
-
-  /** An extra view's camera glides round its target to look from `dir` (world), `ms` long. */
-  private glideView(view: Viewer['views'][number], dir: THREE.Vector3, ms = 500) {
-    const cam = view.camera;
-    const target = view.controls.target;
-    const dist = cam.position.distanceTo(target);
-    const from = cam.position.clone().sub(target).normalize();
-    const turn = new THREE.Quaternion().setFromUnitVectors(from, dir.clone().normalize());
-    const [q0, q1] = [cam.quaternion.clone(), new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(target.clone().addScaledVector(dir.clone().normalize(), dist), target, cam.up))];
-    const start = performance.now();
-    const animate = (now: number) => {
-      const t = Math.min(1, (now - start) / ms);
-      const k = t * t * (3 - 2 * t);
-      cam.position.copy(target).addScaledVector(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, k)), dist);
-      cam.quaternion.slerpQuaternions(q0, q1, k);
-      if (t < 1) view.controls.dispatchEvent({ type: 'change' }), requestAnimationFrame(animate);
-      else view.controls.update();
-    };
-    requestAnimationFrame(animate);
   }
 
   /** A view cube's sides and corner spots in `cube`: a click looks from there (world direction; `side`: straight at a side). */
@@ -5680,44 +5719,70 @@ export class Viewer implements ToolView {
    * Look at a face: one Alt-picked first (flat), else the next face clicked (a round one: square to it where clicked);
    * a selected object alone is no face: it waits for the click.
    */
-  lookAtFace() {
+  lookAtFace(eye = this.main) {
     const item = this.pickedFaceItems()[0];
-    if (item && (item.mesh.userData.exact as Exact | null | undefined)?.faces[item.index]?.kind === 'plane') return this.lookAlong(item.n.clone(), item.point);
-    this.pickFace((f) => f && this.lookAlong(f.normal.clone().negate(), f.point));
+    if (item && (item.mesh.userData.exact as Exact | null | undefined)?.faces[item.index]?.kind === 'plane') return this.lookAlong(item.n.clone(), item.point, undefined, eye);
+    if (eye === this.main) this.pickFace((f) => f && this.lookAlong(f.normal.clone().negate(), f.point));
+    else this.faceInView(eye.size, eye.camera, (n, at) => this.lookAlong(n, at, undefined, eye));
+  }
+
+  /** In an extra view (drawn on `canvas`, seen by `camera`): the next click on a body (not a drag) gives its face's normal (outwards) and the point; Esc: none. */
+  private faceInView(canvas: HTMLElement, camera: THREE.Camera, done: (n: THREE.Vector3, at: THREE.Vector3) => void) {
+    canvas.classList.add('drawing');
+    let down = { x: 0, y: 0 };
+    const press = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY });
+    const release = (e: PointerEvent) => {
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return; // it turned the view
+      const r = canvas.getBoundingClientRect();
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2), camera);
+      const hit = this.intersect(ray)[0];
+      if (hit?.face) (end(), done(hit.face.normal.clone(), hit.point));
+    };
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && end();
+    const end = () => {
+      canvas.classList.remove('drawing');
+      canvas.removeEventListener('pointerdown', press);
+      canvas.removeEventListener('pointerup', release);
+      removeEventListener('keydown', key);
+    };
+    canvas.addEventListener('pointerdown', press);
+    canvas.addEventListener('pointerup', release);
+    addEventListener('keydown', key);
   }
 
   /** Looks at the neighbouring side: the one to the right / left / above / below on screen. */
-  private turn(side: 'up' | 'down' | 'left' | 'right') {
+  private turn(side: 'up' | 'down' | 'left' | 'right', eye = this.main) {
     const [x, y] = { up: [0, 1], down: [0, -1], left: [-1, 0], right: [1, 0] }[side];
     // the axis nearest that screen direction, inside a turned group its axes
     const back = this.frameTurn.clone().invert();
-    const v = this.screenDir(x, y).applyQuaternion(back);
+    const v = new THREE.Vector3(x, y, 0).applyQuaternion(eye.camera.quaternion).applyQuaternion(back);
     const i = [v.x, v.y, v.z].reduce((best, c, k, all) => (Math.abs(c) > Math.abs(all[best]) ? k : best), 0);
     const own = new THREE.Vector3().setComponent(i, Math.sign(v.getComponent(i)));
-    if (own.z) own.addScaledVector(this.camera.position.clone().sub(this.controls.target).normalize().applyQuaternion(back), 1e-3); // off the pole, towards the old view
-    this.viewFrom(own.applyQuaternion(this.frameTurn));
+    if (own.z) own.addScaledVector(eye.camera.position.clone().sub(eye.controls.target).normalize().applyQuaternion(back), 1e-3); // off the pole, towards the old view
+    this.viewFrom(own.applyQuaternion(this.frameTurn), true, 600, undefined, undefined, eye);
   }
 
   /** The user rotated away from a cube side: hide the arrows, back to perspective if the cube switched to orthographic. */
-  private leaveSideView() {
-    this.flat = false;
-    this.cubeWrap.classList.remove('aligned');
-    if (!this.autoOrtho) return;
-    this.autoOrtho = false;
-    this.setOrthographic(false);
+  private leaveSideView(eye = this.main) {
+    eye.flat = false;
+    eye.cubeWrap.classList.remove('aligned');
+    if (!eye.autoOrtho) return;
+    eye.autoOrtho = false;
+    eye.setOrtho(false);
   }
 
   /**
    * Both cameras' up: Z (inside a turned group its Z: the view orbits upright to it), or -Z after the view cube was
    * dragged over a pole. The orbit controls keep the up they were made with, so theirs is set too.
    */
-  private upright(on = true) {
-    this.setUp(new THREE.Vector3(0, 0, on ? 1 : -1).applyQuaternion(this.frameTurn));
+  private upright(on = true, eye = this.main) {
+    this.setUp(new THREE.Vector3(0, 0, on ? 1 : -1).applyQuaternion(this.frameTurn), eye);
   }
 
-  private setUp(up: THREE.Vector3) {
-    for (const c of [this.perspective, this.orthographic]) c.up.copy(up);
-    const own = this.controls as unknown as { _quat: THREE.Quaternion; _quatInverse: THREE.Quaternion };
+  private setUp(up: THREE.Vector3, eye = this.main) {
+    for (const c of [eye.persp, eye.ortho]) c.up.copy(up);
+    const own = eye.controls as unknown as { _quat: THREE.Quaternion; _quatInverse: THREE.Quaternion };
     own._quat.setFromUnitVectors(up, new THREE.Vector3(0, 1, 0));
     own._quatInverse.copy(own._quat).invert();
   }
@@ -5741,51 +5806,52 @@ export class Viewer implements ToolView {
   private tilting = 0;
 
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
-  private viewFrom(dir: THREE.Vector3, side = true, ms = 600, at?: THREE.Vector3, box?: THREE.Box3) {
-    this.upright();
+  private viewFrom(dir: THREE.Vector3, side = true, ms = 600, at?: THREE.Vector3, box?: THREE.Box3, eye = this.main) {
+    this.upright(true, eye);
     // leaving an angled view for a flat one: remember it, so pulling can return to it
-    if (side && !this.flat) this.angledView = this.camera.position.clone().sub(this.controls.target).normalize();
-    if (!side) this.leaveSideView();
+    if (side && !eye.flat) eye.angledView = eye.camera.position.clone().sub(eye.controls.target).normalize();
+    if (!side) this.leaveSideView(eye);
     else {
-      this.flat = true;
+      eye.flat = true;
       // the cube's turn arrows only for one of its 6 sides
       const own = dir.clone().applyQuaternion(this.frameTurn.clone().invert()); // a side of the cube, turned as the frame
-      this.cubeWrap.classList.toggle('aligned', Math.max(...own.toArray().map(Math.abs)) / own.length() > 0.999);
+      eye.cubeWrap.classList.toggle('aligned', Math.max(...own.toArray().map(Math.abs)) / own.length() > 0.999);
     }
-    if (side && !this.isOrthographic) {
-      this.setOrthographic(true);
-      this.autoOrtho = true;
+    if (side && eye.camera !== eye.ortho) {
+      eye.setOrtho(true);
+      eye.autoOrtho = true;
     }
-    const target = this.controls.target;
+    const controls = eye.controls;
+    const target = controls.target;
     const [t0, t1] = [target.clone(), at ?? target.clone()];
-    const cam = this.camera;
+    const cam = eye.camera;
     const dist = cam.position.distanceTo(target);
     const from = cam.position.clone().sub(target).normalize();
     const turn = new THREE.Quaternion().setFromUnitVectors(from, dir.clone().normalize());
     // the camera turns along with its position: re-aiming each frame (z up) would roll it in one go near the poles
     const [q0, q1] = [cam.quaternion.clone(), new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(t1.clone().addScaledVector(dir.clone().normalize(), dist), t1, cam.up))];
     // `box`: the ortho view's height eases to it, as `frameAll` sizes it
-    const aspect = this.el.clientHeight ? this.el.clientWidth / this.el.clientHeight : 1;
+    const aspect = eye.size.clientHeight ? eye.size.clientWidth / eye.size.clientHeight : 1;
     const inverse = q1.clone().invert();
     const corners = box && !box.isEmpty() ? [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(t1).applyQuaternion(inverse)) : [];
     const height = corners.length ? 2 * 1.3 * Math.max(...corners.map((v) => Math.max(Math.abs(v.y), Math.abs(v.x) / aspect))) : 0;
-    const h0 = this.viewHeight / this.orthographic.zoom; // the same picture at zoom 1
-    if (height > 1e-6) this.orthographic.zoom = 1;
+    const h0 = eye.height / eye.ortho.zoom; // the same picture at zoom 1
+    if (height > 1e-6) eye.ortho.zoom = 1;
     const start = performance.now();
     const animate = (now: number) => {
       const t = Math.min(1, (now - start) / ms);
       const k = t * t * (3 - 2 * t);
       target.lerpVectors(t0, t1, k);
-      if (height > 1e-6) (this.viewHeight = h0 + (height - h0) * k), this.updateFrustums(aspect);
+      if (height > 1e-6) (eye.height = h0 + (height - h0) * k), eye.frustums?.(aspect);
       cam.position.copy(target).addScaledVector(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, k)), dist);
       cam.quaternion.slerpQuaternions(q0, q1, k);
       if (t < 1) {
-        this.controls.dispatchEvent({ type: 'change' }); // renders, tools follow
+        controls.dispatchEvent({ type: 'change' }); // renders, tools follow
         requestAnimationFrame(animate);
       } else {
-        this.controls.update();
+        controls.update();
         // the cube bounces as it settles (CSS `scale` stacks on its transform)
-        this.cube.animate({ scale: [1, 1.12, 0.95, 1.03, 1] }, { duration: 400, easing: 'ease-out' });
+        eye.cube.animate({ scale: [1, 1.12, 0.95, 1.03, 1] }, { duration: 400, easing: 'ease-out' });
       }
     };
     requestAnimationFrame(animate);
