@@ -9,7 +9,7 @@ import { dxfOf, svgOf } from '../io/cutfile';
 import { laserCuts, withKerf } from './laser';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
-import { areasOf, buildBody, cosmeticOf, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BuildFeature, type BodyMesh, type Finishing } from './build';
+import { areasOf, buildBody, cosmeticOf, dropBase, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BaseCache, type BuildFeature, type BodyMesh, type Finishing } from './build';
 import { solidChecks } from './exact';
 
 /**
@@ -79,6 +79,8 @@ const ready = init({ locateFile: () => wasmUrl }).then(setOC);
 
 /** The last good solid of each body, for measuring (without its mesh: the view has that). */
 const solids = new Map<string, Solid>();
+/** Each body's solid before its last steps (see `BaseCache`). */
+const bases = new Map<string, BaseCache>();
 
 /** A check runs in turns; only a stop gets in meanwhile (a build would take its solids away). */
 let checking = false;
@@ -101,6 +103,9 @@ async function handle(data: Job) {
     for (const id of data.bodies) {
       solids.get(id)?.delete();
       solids.delete(id);
+      const base = bases.get(id);
+      if (base) dropBase(base);
+      bases.delete(id);
     }
     return;
   }
@@ -218,7 +223,8 @@ async function handle(data: Job) {
   const build = ({ id, features }: Extract<Request, { kind: 'build' }>['bodies'][number]): BodyResult => {
     try {
       const finishing: Finishing = { base: null, edges: [] };
-      const shape = buildBody(features, finishing);
+      if (!bases.has(id)) bases.set(id, {});
+      const shape = buildBody(features, finishing, bases.get(id));
       try {
         const mesh = { ...meshBody(shape, finishing, tolerance), cosmetic: cosmeticOf(features) };
         getOC().BRepTools.Clean(shape.wrapped, true);

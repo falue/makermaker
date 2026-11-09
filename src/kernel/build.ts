@@ -82,10 +82,28 @@ const EPS = 1e-3;
 const ON_FACE = 1e-3;
 
 /**
- * Features run in order, except unbaked finishes: they run last, so they also finish edges of later booleans (and
- * mirrors after them, so finishes keep their picked edges). A baked finish stays in place: a later boolean cuts through it. `finishing` gets what the unbaked ones did.
+ * A body's solid before its last steps (unbaked finishes, modeled threads, mirrors), kept between builds by its caller:
+ * a change to those alone starts from it (a fillet dragged on a body of many cuts redoes only the fillets).
  */
-export function buildBody(features: BuildFeature[], finishing?: Finishing): Shape3D {
+export interface BaseCache {
+  key?: string;
+  shape?: Shape3D;
+  circles?: Circle[];
+  finishing?: Finishing;
+}
+
+/** Lets go of what `cache` holds. */
+export function dropBase(cache: BaseCache) {
+  cache.shape?.delete();
+  cache.finishing?.base?.delete();
+  for (const k of Object.keys(cache) as (keyof BaseCache)[]) delete cache[k];
+}
+
+/**
+ * Features run in order, except unbaked finishes: they run last, so they also finish edges of later booleans (and
+ * mirrors after them, so finishes keep their picked edges). A baked finish stays in place: a later boolean cuts through it. `finishing` gets what the unbaked ones did; `cache`: see `BaseCache`.
+ */
+export function buildBody(features: BuildFeature[], finishing?: Finishing, cache?: BaseCache): Shape3D {
   const plan = frames(features.filter((f) => f.type !== 'boolean' && f.type !== 'fingers'));
   const circles: Circle[] = [];
   let shape: Shape3D | null = null;
@@ -96,35 +114,52 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing): Shap
   };
   // finishes run last (their edges picked on the body before them), except those before a shell: it hollows them too
   const early = new Set<string>();
+  const shelled = new Set(features.flatMap((s, n) => (s.type === 'shell' || s.type === 'coat' ? features.slice(0, n).map((f) => f.id) : [])));
+  const late = (s: BuildFeature) => (s.type === 'finish' && s.enabled && !s.baked && !shelled.has(s.id)) || (s.type === 'thread' && s.modeled) || s.type === 'mirror';
+  const kept = cache && finishing && features.some(late) ? cache : undefined;
+  const key = kept && JSON.stringify(features.filter((s) => !late(s)), (k, v) => (k === 'data' ? undefined : v)); // a STEP file's text never changes
   try {
-    for (const [n, s] of features.entries()) {
-      if (s.type === 'shell' || s.type === 'coat')
-        for (const f of features.slice(0, n))
-          if (f.type === 'finish' && f.enabled && !f.baked && !early.has(f.id)) {
-            if (finishing && !finishing.base) finishing.base = shape!.clone();
-            apply(f.id, (cur) => finish(cur, f, circles, finishing));
-            early.add(f.id);
-          }
-      if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
-      if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
-      if (s.type === 'step') apply(s.id, (cur) => step(cur, s));
-      if (s.type === 'boolean') apply(s.id, (cur) => boolean(cur, s));
-      if (s.type === 'split') apply(s.id, (cur) => split(cur, s));
-      if (s.type === 'revolve') apply(s.id, (cur) => revolve(cur, s, plan.get(s.id)));
-      if (s.type === 'loft') apply(s.id, (cur) => loft(cur, s));
-      if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
-      if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
-      if (s.type === 'coat') apply(s.id, (cur) => coat(cur, s));
-      if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
-      if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
-      if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
-      if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
-      if (s.type === 'piece') apply(s.id, (cur) => piece(cur, s));
-      if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles, undefined, finishing));
+    const saved = kept?.key === key ? kept?.finishing : undefined;
+    if (kept?.shape && saved) {
+      shape = kept.shape.clone();
+      circles.push(...kept.circles!);
+      Object.assign(finishing!, { base: saved.base?.clone() ?? null, lost: saved.lost && { ...saved.lost }, capped: saved.capped && { ...saved.capped } });
+      finishing!.edges.push(...saved.edges);
+    } else {
+      for (const [n, s] of features.entries()) {
+        if (s.type === 'shell' || s.type === 'coat')
+          for (const f of features.slice(0, n))
+            if (f.type === 'finish' && f.enabled && !f.baked && !early.has(f.id)) {
+              if (finishing && !finishing.base) finishing.base = shape!.clone();
+              apply(f.id, (cur) => finish(cur, f, circles, finishing));
+              early.add(f.id);
+            }
+        if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
+        if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
+        if (s.type === 'step') apply(s.id, (cur) => step(cur, s));
+        if (s.type === 'boolean') apply(s.id, (cur) => boolean(cur, s));
+        if (s.type === 'split') apply(s.id, (cur) => split(cur, s));
+        if (s.type === 'revolve') apply(s.id, (cur) => revolve(cur, s, plan.get(s.id)));
+        if (s.type === 'loft') apply(s.id, (cur) => loft(cur, s));
+        if (s.type === 'sweep') apply(s.id, (cur) => sweep(cur, s));
+        if (s.type === 'shell') apply(s.id, (cur) => shell(cur, s));
+        if (s.type === 'coat') apply(s.id, (cur) => coat(cur, s));
+        if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
+        if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
+        if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
+        if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
+        if (s.type === 'piece') apply(s.id, (cur) => piece(cur, s));
+        if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles, undefined, finishing));
+      }
+      if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
+      if (finishing && !finishing.base) finishing.base = (shape as Shape3D).clone();
+      if (kept) {
+        dropBase(kept);
+        const now = finishing!;
+        Object.assign(kept, { key, shape: (shape as Shape3D).clone(), circles: [...circles], finishing: { base: now.base?.clone() ?? null, edges: [...now.edges], lost: now.lost && { ...now.lost }, capped: now.capped && { ...now.capped } } });
+      }
     }
-    if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
-    if (finishing && !finishing.base) finishing.base = (shape as Shape3D).clone();
-    for (const s of features) if (s.type === 'finish' && s.enabled && !s.baked && !early.has(s.id)) apply(s.id, (cur) => finish(cur, s, circles, finishing));
+    for (const s of features) if (s.type === 'finish' && late(s)) apply(s.id, (cur) => finish(cur, s, circles, finishing));
     // threads after the finishes: an edge rule (vertical, top …) would take the groove's hundreds of edges; cosmetic ones are drawn only (`cosmeticOf`)
     for (const s of features) if (s.type === 'thread' && s.modeled) apply(s.id, (cur) => thread(cur, s));
     // mirrors last: finishes keep working on the edges they were picked on

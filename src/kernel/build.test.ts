@@ -4,7 +4,7 @@ import init from 'replicad-opencascadejs';
 import { measureVolume, setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { STILL } from '../doc/frames';
-import { areasOf, buildBody, FeatureError, meshBody, type BooleanBuild, type BuildFeature, type Finishing } from './build';
+import { areasOf, buildBody, dropBase, FeatureError, meshBody, type BaseCache, type BooleanBuild, type BuildFeature, type Finishing } from './build';
 
 const wasm = readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm'));
 
@@ -647,6 +647,24 @@ describe('buildBody', () => {
     const ball = built([{ id: 's', type: 'sphere', x: 0, y: 0, z: 7, d: 14 }]);
     expect(ball.box.depth).toBeCloseTo(14, 2);
     ball.done();
+  });
+
+  it('starts from the kept solid when only the last finishes changed, as a fresh build would', () => {
+    // a fillet before the shell runs with the steps (kept), the chamfer after runs last
+    const early = { ...corners, id: 'e', size: 3 } as BuildFeature;
+    const steps = (size: number) => [base(100, 20), early, { id: 'h', type: 'shell', thickness: 2, open: [[0, 0, 20]] } as BuildFeature, { id: 'c', type: 'finish', mode: 'chamfer', size, edges: 'top', enabled: true, baked: false, skip: [] } as BuildFeature];
+    const cache: BaseCache = {};
+    for (const size of [0.5, 0.8]) {
+      const [kept, fresh]: Finishing[] = [{ base: null, edges: [] }, { base: null, edges: [] }];
+      const a = buildBody(steps(size), kept, cache);
+      const b = buildBody(steps(size), fresh);
+      expect(measureVolume(a)).toBeCloseTo(measureVolume(b), 6);
+      expect(a.faces.length).toBe(b.faces.length);
+      expect(kept.edges.length).toBe(fresh.edges.length);
+      for (const s of [a, b, kept.base, fresh.base]) s?.delete();
+    }
+    expect(cache.key).toBeDefined();
+    dropBase(cache);
   });
 
   it('reports a sketch plane whose feature is gone', () => {
