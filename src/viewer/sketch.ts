@@ -878,7 +878,7 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     if (e.key === roleKeyName('tangent')) this.holdTangent(true);
     // a line's length or angle starts with a digit, so letters still snap, fix guides and switch tools
-    const sideTyping = ph.kind === 'polygon' && (ph.typed[ph.axis] !== undefined || /[\d.($-]/.test(e.key));
+    const sideTyping = ph.kind === 'polygon' && (ph.typed[ph.axis] !== undefined || /[\d.($+*/-]/.test(e.key));
     const typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey && (ph.kind === 'shape' || ph.kind === 'pull' || sideTyping || (ph.kind === 'ball' && ph.planes.length === 3));
     const more = pressed(e, 'moreSnaps');
     const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined) && !(ph.kind === 'ball' && ph.planes.length === 3); // not while typing a size
@@ -969,7 +969,7 @@ export class SketchTool implements Tool {
       else if (pressed(e, 'confirm') && ph.planes.length === 3) this.ballDone(ph);
       else return false;
     } else if (ph.kind === 'shape') {
-      if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
+      if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? this.carried(ph, e.key)) + e.key;
       else if (pressed(e, 'erase')) ph.typed[ph.axis] = ph.typed[ph.axis]?.slice(0, -1) || undefined;
       else if (pressed(e, 'otherSide') && restOf(ph.typed[ph.axis] ?? '')) ph.typed[ph.axis] += restOf(ph.typed[ph.axis]!); // a name showing: written out
       // Tab: the other size; a circle has one (Tab used up all the same: it would pick another object)
@@ -977,7 +977,7 @@ export class SketchTool implements Tool {
       else if (pressed(e, 'confirm')) this.shapeDone();
       else return false;
     } else if (ph.kind === 'polygon') {
-      if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
+      if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? this.carried(ph, e.key)) + e.key;
       else if (pressed(e, 'erase') && ph.typed[ph.axis] !== undefined) ph.typed[ph.axis] = ph.typed[ph.axis]!.slice(0, -1) || undefined;
       else if (pressed(e, 'otherSide') && restOf(ph.typed[ph.axis] ?? '')) ph.typed[ph.axis] += restOf(ph.typed[ph.axis]!); // a name showing: written out
       else if (pressed(e, 'otherSide')) ph.axis = ph.arcEnd ? 0 : 1 - ph.axis; // a first arc's bulge: only its diameter
@@ -1009,6 +1009,23 @@ export class SketchTool implements Tool {
     } else return false;
     this.update();
     return true;
+  }
+
+  /** An operator typed first into a size: the size shown goes before it, to calculate on (lengths, not angles or counts). */
+  private carried(ph: Phase, key: string): string {
+    if (!/^[-+*/]$/.test(key)) return '';
+    let mm: number | null = null;
+    if (ph.kind === 'shape') {
+      const p = this.shape(ph);
+      if (p.kind === 'rect') mm = ph.axis ? p.h : p.w;
+      else if (p.kind === 'circle') mm = this.drawMode(ph)?.id === 'tangent' ? p.d / 2 : p.d;
+      else if (p.kind === 'ngon' && !ph.axis) mm = p.d;
+    } else if (ph.kind === 'polygon' && !ph.axis && !ph.held) {
+      const last = ph.pts[ph.pts.length - 1];
+      const arc = ph.arc && arcOf(last, ph.arc, ph.arcEnd ?? ph.cur);
+      mm = arc ? 2 * arc.r : Math.hypot(ph.cur[0] - last[0], ph.cur[1] - last[1], ph.curZ - ph.z.at(-1)!);
+    }
+    return mm === null ? '' : this.host.lengthText(mm).replace(/[a-z"']+$/i, ''); // the number, in the shown unit
   }
 
   private hoverHint(target?: Target) {
