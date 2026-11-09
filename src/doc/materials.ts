@@ -76,6 +76,7 @@ export const STANDARD_SECTIONS: [string, Material[]][] = [
     [
       standard('glass', 'Glass', '#f4f8f8', { bump: 0, translucency: 0.95 }),
       standard('frosted', 'Glass frosted', '#eef3f4', { bump: 0.35, translucency: 0.85 }),
+      standard('wax', 'Wax', '#f3e6c8', { bump: 0.15, translucency: 0.35 }), // cream, a little see-through and shiny
     ],
   ],
   [
