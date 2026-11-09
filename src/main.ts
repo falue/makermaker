@@ -304,9 +304,11 @@ function revealInList(id: string | null) {
   const tab = id && tabOf(doc, id);
   if (!tab) return;
   showTab(tab); // its tab opens
-  // a body's sketch shows under its body; the groups around it unfold
+  // a body's sketch shows under its body, a linked copy under its source; the groups around it unfold
   const owner = ownerOf(doc, id!);
   if (owner) folded.add(`sketches:${owner}`);
+  const link = doc.bodies.find((b) => b.id === id)?.link;
+  if (link) folded.add(`copies:${link}`);
   const at = doc.bodies.find((b) => b.id === (owner ?? id))?.group ?? doc.groups.find((g) => g.id === id)?.parent ?? null;
   for (let g = doc.groups.find((x) => x.id === at); g; g = doc.groups.find((x) => x.id === g!.parent)) folded.delete(g.id);
   render();
@@ -5753,6 +5755,7 @@ function bodyMenu(id: string, x: number, y: number): boolean {
     ...(owner ? [{ label: `Fold into ${doc.bodies.find((b) => b.id === owner)?.name}`, title: 'It leaves the list, nothing is lost (Unfold brings it back)', run: () => foldTool(id, true) }] : []),
     ...tools.filter((t) => t.folded).map((t) => ({ label: `Unfold ${t.name}`, title: 'List it again, as an object of its own', run: () => foldTool(t.id, false) })),
     ...(tools.some((t) => !t.folded) ? [{ label: 'Fold all tool bodies', title: 'Fold every tool body of this one into its step', run: () => foldAll(id) }] : []),
+    ...(doc.bodies.some((b) => b.link === id) ? [{ label: 'Break links', title: 'Its linked copies get their own steps; they go with it into a new group of its name', run: () => breakLinks(id) }] : []),
   ];
   if (!items.length) return false;
   contextMenu(x, y, items);
@@ -7196,7 +7199,6 @@ function render() {
     editBulge: bulgePanel,
     editFingers: fingersPanel,
     lightBodies: (ids) => viewer.lightBodies(ids ? contents(history.current, ids) : []),
-    breakLinks,
     unlinkCopy,
     showJoint(id) {
       const j = history.current.joints.find((x) => x.id === id);

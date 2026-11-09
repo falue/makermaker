@@ -4,7 +4,8 @@ import type { Body as DocBody, Doc, Feature } from './types';
 export const sourceSketch = (f: Feature) => ((f.type === 'extrude' || f.type === 'revolve') && f.source.kind === 'sketch' ? f.source.sketch : null);
 
 /** A row of the object list; `open`: a group shown unfolded (true) or folded (false). */
-export type Row = { id: string; kind: 'group' | 'body'; depth: number; open?: boolean };
+/** `open`: a group unfolded, a body's tool bodies shown; `copies`: a body's linked copies shown (undefined: none to fold). */
+export type Row = { id: string; kind: 'group' | 'body'; depth: number; open?: boolean; copies?: boolean };
 
 /** The group an object is in, if that group exists (else none: the object shows at the top level). */
 export const parentOf = (doc: Doc, group: string | null) => (group && doc.groups.some((g) => g.id === group) ? group : null);
@@ -73,13 +74,16 @@ export function tree(doc: Doc, folded: Set<string>): Row[] {
   const owner = new Map([...ownersOf(doc)].filter(([tool, o]) => !doc.bodies.find((b) => b.id === o)?.features.some((f) => f.type === 'boolean' && f.body === tool && f.free)));
   // a linked copy in its source's group sits under the source
   const under = (b: DocBody) => !!b.link && doc.bodies.some((s) => s.id === b.link && s.group === b.group);
-  // a body, then the tool bodies of its booleans and its linked copies under it, like a group's contents; these start
-  // folded (`folded` holding the body means it is open)
+  // a body, then the tool bodies of its booleans and its linked copies under it, like a group's contents; each starts
+  // folded (`folded` holding the body, or `copies:` and the body, means open)
   const body = (id: string, depth: number) => {
-    const tools = doc.bodies.filter((t) => !t.folded && (owner.get(t.id) === id || (t.link === id && under(t))) && !out.some((r) => r.id === t.id));
+    const listed = (t: DocBody) => !t.folded && !out.some((r) => r.id === t.id);
+    const tools = doc.bodies.filter((t) => owner.get(t.id) === id && listed(t));
+    const copies = doc.bodies.filter((t) => t.link === id && under(t) && !owner.has(t.id) && listed(t));
     const open = tools.length ? folded.has(id) : undefined;
-    out.push({ id, kind: 'body', depth, open });
-    if (open) for (const t of tools) body(t.id, depth + 1);
+    const shown = copies.length ? folded.has(`copies:${id}`) : undefined;
+    out.push({ id, kind: 'body', depth, open, copies: shown });
+    for (const t of [...(open ? tools : []), ...(shown ? copies : [])]) body(t.id, depth + 1);
   };
   // per level its groups and bodies in their places (see `rank`)
   const walk = (parent: string | null, depth: number) => {

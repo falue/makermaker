@@ -153,8 +153,6 @@ export interface UIContext {
   boxJoint(): void;
   /** Outlines objects orange in the view, a temporary mark (hovered in the list; groups: their contents; null: none). */
   lightBodies(ids: string[] | null): void;
-  /** A body's linked copies become their own objects, together with it in a new group of its name. */
-  breakLinks(source: string): void;
   /** One linked copy gets its own steps and leaves the others. */
   unlinkCopy(id: string): void;
   /**
@@ -819,17 +817,12 @@ function left(ctx: UIContext): Node[] {
     };
     return el;
   };
-  // only groups fold: a chevron that turns down when open; other rows start at the left
-  // a group folds with a chevron, a body with booleans with the boolean icon
-  const fold = ({ id, open, kind }: Row) => {
+  // a body's tool bodies fold with the boolean button
+  const fold = ({ id, open }: Row) => {
     if (open === undefined) return [];
     const tools = doc.bodies.find((o) => o.id === id)?.features.filter((f) => f.type === 'boolean' && !f.free && !f.linked).length ?? 0;
-    const copies = doc.bodies.filter((o) => o.link === id).length;
-    // a body: its tool bodies (the boolean button) and linked copies (a chevron, as a group)
-    const what = [tools ? `${tools} boolean tool bod${tools === 1 ? 'y' : 'ies'}` : '', copies ? `${copies} linked cop${copies === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' and ');
-    const title = kind === 'body' ? `${open ? 'Hide' : 'Show'} its ${what}` : open ? 'Fold' : 'Unfold';
-    const bool = kind === 'body' && tools > 0;
-    return [h('button', { className: `icon fold${bool ? ' bool' : ''}${open ? ' open' : ''}`, innerHTML: icon(bool ? 'boolean' : 'chevron'), title, onclick: () => ctx.toggleFold(id) })];
+    const title = `Click: ${open ? 'Fold away' : 'Show'} its ${tools} boolean tool bod${tools === 1 ? 'y' : 'ies'}`;
+    return [h('button', { className: `icon fold bool${open ? ' open' : ''}`, innerHTML: icon('boolean'), title, onclick: () => ctx.toggleFold(id) })];
   };
   /**
    * A row's name: a plain click on the name of the only selected row edits it in place (Enter or leaving the field
@@ -936,14 +929,18 @@ function left(ctx: UIContext): Node[] {
         : look;
     // listed on its own: its eye too (on: its outlines show all the time; off: only while selected)
     const toolEye = op?.type === 'boolean' && op.free ? [look] : [];
-    // linked copies: the link mark on the copies; on their source a button that breaks the links
+    // linked copies: the link mark on the copies unlinks one; on their source it folds them out under it
     const source = doc.bodies.find((b) => b.id === p.link);
     const copies = doc.bodies.filter((b) => b.link === p.id).map((b) => b.id);
+    const shares = `Its ${copies.length} linked cop${copies.length === 1 ? 'y shares' : 'ies share'} its steps`;
+    const fromMenu = 'right-click: Break links';
     const linked = source
       ? [h('button', { className: 'icon linked-mark', innerHTML: icon('link'), title: `Linked copy of ${source.name}: it shares its steps (edits on any of them go to all) · click: unlink it (its own steps, on its own in the list)`, onclick: () => ctx.unlinkCopy(p.id) })]
-      : copies.length
-        ? [h('button', { className: 'icon linked-mark', innerHTML: icon('link'), title: `Its ${copies.length} linked cop${copies.length === 1 ? 'y shares' : 'ies share'} its steps · click: break the links (each its own object, together in a new group "${p.name}")`, onclick: () => ctx.breakLinks(p.id) })]
-        : [];
+      : !copies.length
+        ? []
+        : r.copies === undefined
+          ? [h('span', { className: 'icon linked-mark', innerHTML: icon('link'), title: `${shares} · listed in their own groups · ${fromMenu}` })]
+          : [h('button', { className: 'icon linked-mark', innerHTML: icon('link'), title: `${shares} · click: ${r.copies ? 'Fold them away' : 'Show them under it'} · ${fromMenu}`, onclick: () => ctx.toggleFold(`copies:${p.id}`) })];
     // a box joint: its button opens its panel
     const finger = p.features.find((f) => f.type === 'fingers');
     const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Box joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];

@@ -30,9 +30,22 @@ describe('groups', () => {
     const rows = (open: string[]) => tree(linked, new Set(open)).map((r) => `${r.depth}:${r.id}`);
     expect(rows([])).not.toContain('0:c1');
     expect(rows([])).toContain('1:c2'); // in its own group
-    expect(tree(linked, new Set()).find((r) => r.id === src.id)?.open).toBe(false);
-    const open = rows([src.id]);
+    expect(tree(linked, new Set()).find((r) => r.id === src.id)?.copies).toBe(false);
+    const open = rows([`copies:${src.id}`]);
     expect(open[open.indexOf(`0:${src.id}`) + 1]).toBe('1:c1');
+  });
+
+  it('folds a body\'s tool bodies and its linked copies apart', () => {
+    const d = sampleDoc();
+    const [src, tool] = d.bodies;
+    const both = { ...d, bodies: [{ ...src, features: [...src.features, { id: 'f', type: 'boolean' as const, op: 'subtract' as const, body: tool.id }] }, tool, { ...src, id: 'c1', link: src.id, features: [] }] };
+    const rows = (open: string[]) => tree(both, new Set(open)).map((r) => r.id);
+    const row = tree(both, new Set()).find((r) => r.id === src.id);
+    expect([row?.open, row?.copies]).toEqual([false, false]);
+    expect(rows([src.id])).toContain(tool.id);
+    expect(rows([src.id])).not.toContain('c1');
+    expect(rows([`copies:${src.id}`])).toContain('c1');
+    expect(rows([`copies:${src.id}`])).not.toContain(tool.id);
   });
 
   it('keeps sketches out of the object list; a body knows its sketches', () => {
