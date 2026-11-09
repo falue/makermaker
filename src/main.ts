@@ -1688,7 +1688,7 @@ function moveBy(by: Vector3) {
   commit(next);
 }
 
-/** Copies are made linked (sharing their source's steps): the Linked checkboxes of copy-move, Duplicate, Mirror and Pattern (this session). */
+/** Copies are made linked (sharing their source's steps): the Linked checkboxes of Mirror, Pattern and Rotate's Copy (this session). */
 let linkedCopies = false;
 
 /** Where a body's shape edits go (its index): a linked copy's source, so all its copies change too; else the body. */
@@ -4786,6 +4786,20 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
     }
     return next;
   };
+  let made: string[] = []; // Copy: the copies (in a sketch its shapes), selected once kept
+  /** Copy: the selection stays, turned copies of it (bodies, or the shapes) are added. */
+  const copied = (angle: number): Doc => {
+    const t = turned(angle);
+    if (frame && sketch) {
+      const k = doc0.sketches.findIndex((s) => s.id === sketch);
+      const copies = t.sketches[k].shapes.filter((q) => shapes.some((p) => p.id === q.id)).map((q) => ({ ...q, id: newId() }));
+      made = copies.map((q) => q.id);
+      return setIn(doc0, ['sketches', String(k), 'shapes'], [...doc0.sketches[k].shapes, ...copies]);
+    }
+    const { bodies, pairs } = copiesOf(t.bodies.filter((b) => selected.includes(b.id)), [], ' copy', linkedCopies);
+    made = bodies.map((b) => b.id);
+    return listedAfter({ ...doc0, bodies: [...doc0.bodies, ...bodies] }, pairs);
+  };
   let angle = 0;
   let typed = false; // a typed angle: the pointer no longer turns it
   let mode: 'turn' | 'axis' | 'aim' = 'axis';
@@ -4793,8 +4807,9 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
   const apply = (a: number) => {
     angle = a;
     input.value = fmt(a);
-    if (history.current !== doc0) history.replace(turned(a));
-    else history.push(turned(a));
+    const next = copy.checked ? copied(a) : turned(a);
+    if (history.current !== doc0) history.replace(next);
+    else history.push(next);
     update();
     marks();
   };
@@ -4927,7 +4942,9 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
     tips.cursorTip(null);
     toolHint = null;
     if (!ok && history.current !== doc0) return undo();
-    render();
+    if (!copy.checked || history.current === doc0) return render();
+    [selected, shapeSel] = frame ? [selected, made] : [made, []];
+    showSelection();
   };
   const keys = (e: KeyboardEvent) => {
     if (e.defaultPrevented) return; // the view's Esc ending a pick
@@ -4944,10 +4961,18 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
   const axisSwitch = [button('Set axis', 'Click an edge or line, a circle (its centre) or a point (Z through it; again: X, then Y)', setAxis), ...(frame ? [] : [0, 1, 2].map(axisButton))];
   const switcher = Object.assign(document.createElement('span'), { className: 'segmented' });
   switcher.append(...axisSwitch);
+  const again = () => pivot && apply(angle);
+  // Linked (bodies only) shows once Copy is on
+  const linked = checkbox('Linked', 'The copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => ((linkedCopies = on), again()));
+  linked.hidden = true;
+  const copyBox = checkbox('Copy', 'Leave the selection where it is and turn a copy of it', false, (on) => ((linked.hidden = !on || !!frame), again()));
+  const copy = copyBox.querySelector('input')!;
   box.append(
     cell(label, input, toObjectButton(aimAngle, 'Click where something is now, then where it should go: their angle goes into Turn °')),
     switcher,
     ...(frame ? [] : [button('Set bodies', 'Click: Pick again what turns (a second click drops it); the axis stays', setBodies)]),
+    copyBox,
+    linked,
     button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
   );
   document.body.append(box);
