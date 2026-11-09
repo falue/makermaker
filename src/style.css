@@ -2015,10 +2015,6 @@ button.primary.wide {
 .axis-move select {
   width: auto;
 }
-.axis-move label[hidden],
-.axis-move .cell[hidden] {
-  display: none;
-}
 .axis-move > span {
   white-space: nowrap;
 }
@@ -2398,6 +2394,11 @@ input + .to-object,
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+}
+/* after the label rule: it would show them */
+.axis-move label[hidden],
+.axis-move .cell[hidden] {
+  display: none;
 }
 
 /* icons in two greys: the shape, its dashed or faint (secondary) parts lighter; `lead`: a dashed part that is the shape */
