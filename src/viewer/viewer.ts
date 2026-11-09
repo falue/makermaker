@@ -3553,7 +3553,7 @@ export class Viewer implements ToolView {
   /** Centres of round body edges (world), per edge lines: kept while their geometry and place stay. */
   private roundCentres = new WeakMap<THREE.Object3D, { key: string; pts: THREE.Vector3[] }>();
 
-  private edgeCentres() {
+  edgeCentres() {
     const out: THREE.Vector3[] = [];
     for (const [id, g] of this.bodies)
       for (const c of this.hidden.has(id) ? [] : g.children) {

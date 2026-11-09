@@ -133,6 +133,8 @@ export interface ToolView {
   lightPlane(id: string | null): void;
   /** Body corners in the world, to snap to. */
   corners(): THREE.Vector3[];
+  /** Centres of round body edges in the world, to snap to. */
+  edgeCentres(): THREE.Vector3[];
   /** Body edges in the world (each as segments), to snap to. */
   edges(): [THREE.Vector3, THREE.Vector3][][];
   /** Spheres in the world. */
@@ -1127,7 +1129,7 @@ export class SketchTool implements Tool {
    * Where the pointer snaps, in the target's plane coordinates, each with what it is and the outline it belongs to (lit
    * while snapped): the plane origin; centres, corners (line ends), points along sides (the middle, or as many as set
    * with A) and around circles (quadrants, or as set) of the shapes of every visible sketch; the same along straight
-   * body edges; body corners and sphere centres (their edges are looked up when snapped). Only points in the plane drawn
+   * body edges; body corners, sphere centres (their edges are looked up when snapped) and round edges' centres. Only points in the plane drawn
    * on: one off it would snap to its projection, away from what it is.
    */
   private snapPoints(t: Target, lines: SnapLine[]): SnapPoint[] {
@@ -1136,6 +1138,7 @@ export class SketchTool implements Tool {
     const add = (v: THREE.Vector3, o: Omit<SnapPoint, 'at'>) => (inPlane(t.frame, v) || (o.key && o.key === this.showing)) && pts.push({ at: uvOf(t.frame, v), ...o });
     for (const { at, ...o } of linePoints(lines)) add(at, o);
     for (const c of this.view.corners()) add(c, { what: 'corner', corner: c });
+    for (const c of this.view.edgeCentres()) add(c, { what: 'centre' }); // a hole's or shaft's: its rim in the plane
     // the line being drawn: its own points, its start closes it
     const ph = this.phase;
     if (ph.kind === 'polygon') ph.pts.slice(0, -1).forEach((at, i) => pts.push({ at, what: !i && this.canClose(ph) ? 'start: a click closes it' : 'point of this line' }));
