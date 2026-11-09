@@ -109,6 +109,7 @@ Answers assumed where a request left a question open.
 - Lines and All lines: a section shows its cut copies shaded, and the extra views beside the main one draw Lines as classic hidden lines (each body hiding the others too).
 
 ## Group origins
+- Inside a group's own origin a base plane seen from behind still draws into that plane's sketch (the sketch from behind is a fixed plane, which would not move with the group).
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
 
 ## Found by hand (2026-11-07 / 08, user-observed, not reproduced)

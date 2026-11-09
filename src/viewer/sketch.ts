@@ -1052,7 +1052,8 @@ export class SketchTool implements Tool {
     const ray = this.view.ray(e);
     const hit = this.view.hit(e);
     const onSketch = this.sketchUnder(e, px);
-    if (onSketch) return this.sketchTarget(onSketch);
+    // a base-plane sketch seen from behind takes no shapes: those go on that plane's sketch facing this way (below)
+    if (onSketch && !(onSketch.placement.kind === 'base' && ray.direction.dot(v3(onSketch.frame.n)) > 0)) return this.sketchTarget(onSketch);
     // a work plane in front of any face: its sketch, or a new one on it
     for (const w of this.view.workPlanes) {
       const p = planeHit(ray, w.frame);
@@ -1081,8 +1082,14 @@ export class SketchTool implements Tool {
     const facing = (['yz', 'xz', 'xy'] as const)[[dir.x, dir.y, dir.z].map(Math.abs).reduce((best, c, k, all) => (c > all[best] ? k : best), 0)];
     const axis = Math.abs(dir.z) > Math.sin((groundDeg * Math.PI) / 180) ? 'xy' : m ? facing : this.view.facing();
     const active = this.view.sketches.find((s) => s.id === this.view.activeSketch);
-    const base = active ?? (m ? undefined : this.view.sketches.find((s) => s.placement.kind === 'base' && s.placement.axis === axis && s.placement.offset === 0));
     const f = BASE[axis];
+    // seen from behind (from below the ground, say): a sketch of its own on that plane, facing this way, so the two do not mix
+    if (!active && !m && ray.direction.dot(v3(f.n)) > 0) {
+      const back: Frame = { o: f.o, x: f.x, y: v3(f.y).negate().toArray(), n: v3(f.n).negate().toArray() };
+      const there = this.view.sketches.find((s) => s.placement.kind === 'plane' && v3(s.frame.n).dot(v3(back.n)) > 1 - 1e-6 && Math.abs(v3(s.frame.o).dot(v3(back.n))) < 1e-3);
+      return there ? this.sketchTarget(there) : { sketch: null, placement: { kind: 'plane', ...back }, frame: back, body: null, name: `${AXIS_NAME[axis]}, from behind` };
+    }
+    const base = active ?? (m ? undefined : this.view.sketches.find((s) => s.placement.kind === 'base' && s.placement.axis === axis && s.placement.offset === 0));
     const frame: Frame = m ? { o: v3(f.o).applyMatrix4(m).toArray(), x: v3(f.x).transformDirection(m).toArray(), y: v3(f.y).transformDirection(m).toArray(), n: v3(f.n).transformDirection(m).toArray() } : f;
     return base ? this.sketchTarget(base) : { sketch: null, placement: { kind: 'base', axis, offset: 0 }, frame, body: null, name: AXIS_NAME[axis] };
   }
