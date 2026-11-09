@@ -4864,6 +4864,7 @@ export class Viewer implements ToolView {
     save.className = 'primary';
     const live = (on: boolean) => {
       mode.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', (i === 1) === on));
+      el.querySelector<HTMLElement>('.drawer')!.hidden = on; // its section sliders: only for the 3D view
       if (!on) {
         view.live?.picture.remove();
         view.live = null;
