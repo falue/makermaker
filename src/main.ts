@@ -6218,6 +6218,7 @@ const toolHost: ToolHost = {
   cursorTip: (text, more) => tips.cursorTip(text, more),
   cursorTipRect: () => tips.cursorTipRect(),
   construction: () => drawConstruction,
+  toggleConstruction: () => ((drawConstruction = !drawConstruction), render()),
 };
 
 /** New sketch objects are drawn as construction lines (follows the last switch of an object, or the X key). */

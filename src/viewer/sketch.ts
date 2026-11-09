@@ -306,6 +306,8 @@ export interface ToolHost {
   cursorTipRect(): DOMRect | null;
   /** New shapes are drawn as construction lines. */
   construction(): boolean;
+  /** Switches what the next shapes are drawn as (construction lines or not), the one being drawn too. */
+  toggleConstruction(): void;
 }
 
 type UV = [number, number];
@@ -911,6 +913,8 @@ export class SketchTool implements Tool {
       this.aim(this.view.aimHere());
       return true;
     }
+    // Q (as T and D, not in the middle of a name): the shape being drawn becomes a construction line, or back
+    if ((ph.kind === 'shape' || ph.kind === 'polygon') && pressed(e, 'construction') && !inName(ph.typed[ph.axis] ?? '')) return this.host.toggleConstruction(), this.update(), true;
     // Alt: the next drawing mode (before drawing: kept; while drawing: for this shape only)
     if ((ph.kind === 'hover' || ph.kind === 'shape' || ph.kind === 'ball' || (ph.kind === 'polygon' && !ph.held)) && e.key === 'Alt' && !e.repeat && this.drawMode()) return this.switchMode(e.shiftKey ? -1 : 1), this.update(), true;
     if (ph.kind === 'hover' && this.cycle.count > 1 && pressed(e, 'otherSide') && this.lastPoint) {
