@@ -4771,7 +4771,7 @@ export class Viewer implements ToolView {
     const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section, cube };
     view.controls.zoomToCursor = true;
     this.sped(view.controls);
-    view.controls.addEventListener('change', () => (this.renderView(view), view.live && this.restartLive(view)));
+    view.controls.addEventListener('change', () => (this.renderView(view), view.live && this.restartLive(view, 75))); // turning it: soon after it stops
     // while it is turned, the plain view shows through
     view.controls.addEventListener('start', () => view.live && (view.live.picture.hidden = true));
     el.addEventListener('pointerdown', () => view.live && this.liveView !== view && ((this.liveView = view), view.live.stale && this.restartLive(view)));
@@ -4888,9 +4888,9 @@ export class Viewer implements ToolView {
     };
   }
 
-  /** Something a render shows changed: the live render view touched last starts again, the others when touched. */
+  /** Something a render shows changed: the live render view touched last starts again (soon while a body is dragged), the others when touched. */
   liveChanged() {
-    for (const v of this.views) if (v.live && this.liveKey(v) !== v.live.key) v === this.liveView ? this.restartLive(v) : (v.live.stale = true);
+    for (const v of this.views) if (v.live && this.liveKey(v) !== v.live.key) v === this.liveView ? this.restartLive(v, this.drag ? 75 : 400) : (v.live.stale = true);
   }
 
   /** What a live view's picture is made of besides its camera: it renders again only when this changes. */
