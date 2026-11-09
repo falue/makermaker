@@ -6253,9 +6253,9 @@ function addSphere({ center, d, typed }: NonNullable<SketchResult['sphere']>) {
 }
 
 /** R / C / N / P: in sketch mode into its sketch (flat), else one shape that is pulled right away. O: a sphere (not in sketch mode). */
-function startTool(kind: ToolKind) {
-  // the same tool again (its button or key): its next drawing mode
-  if (viewer.activeTool === kind && viewer.nextDrawMode()) return;
+/** Starts drawing tool `kind`; `button`: its toolbar button, which, pressed again, steps to its next drawing mode (its key keeps the mode). */
+function startTool(kind: ToolKind, button = false) {
+  if (viewer.activeTool === kind && (!button || viewer.nextDrawMode())) return;
   if (kind === 'sphere' && sketching) exitSketch();
   const s = viewer.sketches.find((v) => v.id === sketching);
   if (s) viewer.startTool(kind, toolHost, { kind: 'draw', target: { ...targetOf(s), body: null } });
@@ -7249,7 +7249,7 @@ function render() {
     previewColor: (id, color) => viewer.previewColor(id, color),
     setMaterialOf,
     openMaterials: materialsDialog,
-    startTool,
+    startTool: (kind) => startTool(kind, true),
     extrude,
     sketching,
     newSketch: startNewSketch,

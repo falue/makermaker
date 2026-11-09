@@ -604,7 +604,7 @@ const SHAPES = [
 /** Left of the 3D view (incase's toolbar): sketching and making things, grouping, duplicating, deleting. */
 /** Shapes with several drawing modes, and how to switch them. */
 const MODED = ['rect', 'circle', 'ngon', 'line'];
-const MODE_TIP = ' · again (or Alt): its next drawing mode';
+const MODE_TIP = ' · this button again (or Alt): its next drawing mode';
 
 function toolbar(ctx: UIContext): Node[] {
   const on = (name: string) => ctx.active === name;
@@ -617,7 +617,7 @@ function toolbar(ctx: UIContext): Node[] {
   return [
     tool('sketch', 'New sketch (S): click a face or empty space, or a face first, then this; then draw shapes on it', ctx.newSketch, on('sketch')),
     ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw one and pull it up (a click or Esc keeps it flat and starts sketching)${MODED.includes(kind) ? MODE_TIP : ''}`, () => ctx.startTool(kind), on(kind))),
-    tool('sphere', 'Sphere (O): drag from its centre on a face or the ground · O or Alt again: two points across, three or four points, touching three planes', () => ctx.startTool('sphere'), on('sphere')),
+    tool('sphere', 'Sphere (O): drag from its centre on a face or the ground · this button again or Alt: two points across, three or four points, touching three planes', () => ctx.startTool('sphere'), on('sphere')),
     tool('plane', "Work plane: a green plane on a face clicked next (or the base plane facing you), moved by an offset (T: a point's distance, e.g. /2 for halfway); drawing tools draw on it", ctx.planeTool),
     h('hr'), // making above, organizing below
     tool(ctx.groupSelected ? 'ungroup' : 'group', ctx.groupSelected ? "Ungroup (⇧⌘G): the contents move to the group's parent, staying where they are" : 'Group (⌘G): the selection, or the objects clicked next (Enter groups them)', ctx.groupTool, on('group')),

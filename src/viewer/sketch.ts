@@ -1033,7 +1033,7 @@ export class SketchTool implements Tool {
     if (this.mode?.kind === 'plane') return `${target?.sketch ? 'Click: Open this sketch' : `Click ${target ? target.name : 'a top face or empty space'} to draw on it`} · [Esc] cancels`;
     const m = this.drawMode();
     const how = this.kind === 'line' ? ({ polygon: 'Click points', bezier: 'Click points, drag to pull handles', arc: 'Click a start and an end, then the bulge' }[m?.id ?? ''] ?? 'Click two points') : m?.lines ? 'Click a line' : m && m.clicks > 2 ? 'Click three times' : 'Drag (or click twice)';
-    const modes = m ? ` · ${m.name} ([Alt], or the tool's key or button again: the next mode)` : '';
+    const modes = m ? ` · ${m.name} ([Alt], or the tool's button again: the next mode)` : '';
     if (this.mode?.kind === 'draw') return `${how} to draw ${NAMES[this.kind!]}${modes} · [R] [C] [L] switch · snaps to corners and centres · [A] / [Shift A] more / fewer snap points on a line · [Ctrl] grid · [Esc] stops drawing shapes`;
     return `${how} to draw ${NAMES[this.kind!]}${modes}${target ? ` · on ${target.name}` : ''} · [Ctrl] precise · right-drag turns the view · [Esc] stops`;
   }
