@@ -31,7 +31,7 @@ it('every file has the standard materials', () => {
   const d = doc([], [body({ material: 'std-wood' })]);
   expect(findMaterial(d, 'std-wood')?.name).toBe('Wood');
   expect(lookOf(d, d.bodies[0]).color).toBe('#a9773f');
-  expect(STANDARD_MATERIALS.map((m) => m.name)).toEqual(['Steel', 'Bronze', 'Brass', 'Plastic, white', 'Plastic, red', 'Plastic, yellow', 'Plastic, black', 'Plastic, light grey', 'Plastic, dark grey', 'POM-C black', 'Wood', 'Glass', 'Glass frosted', 'Wax', 'Lamp', 'Grid 10 × 10 cm', 'Grid 1 × 1 ft']);
+  expect(STANDARD_MATERIALS.map((m) => m.name)).toEqual(['Steel', 'Bronze', 'Brass', 'Plastic, white', 'Plastic, red', 'Plastic, yellow', 'Plastic, black', 'Plastic, light grey', 'Plastic, dark grey', 'POM-C black', 'Wood', 'Glass', 'Glass frosted', 'Wax', 'Lamp', 'Amber light', 'LED white', 'LED green', 'LED red', 'LED orange', 'Grid 10 × 10 cm', 'Grid 1 × 1 ft']);
 });
 
 it('changing a standard material makes a copy in the file, under its name; the standard one stays', () => {

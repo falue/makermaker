@@ -83,6 +83,12 @@ export const STANDARD_SECTIONS: [string, Material[]][] = [
     'Specials',
     [
       standard('lamp', 'Lamp', '#fff4dc', { bump: 0.3, glow: '#ffe2b0', glowStrength: 0.8 }),
+      standard('amber-light', 'Amber light', '#332211', { bump: 0.2, glow: '#ff9a3c', glowStrength: 0.6 }),
+      // LEDs: a mirror surface in their own colour, glowing a little, lighting only what is close
+      standard('led-white', 'LED white', '#ffffff', { bump: 0, reflection: 0.85, glow: '#ffffff', glowStrength: 0.05, glowReach: 60 }),
+      standard('led-green', 'LED green', '#22c55e', { bump: 0, reflection: 0.85, glow: '#22c55e', glowStrength: 0.05, glowReach: 60 }),
+      standard('led-red', 'LED red', '#ef2b2b', { bump: 0, reflection: 0.85, glow: '#ef2b2b', glowStrength: 0.05, glowReach: 60 }),
+      standard('led-orange', 'LED orange', '#ff8a1f', { bump: 0, reflection: 0.85, glow: '#ff8a1f', glowStrength: 0.05, glowReach: 60 }),
       standard('grid-metric', 'Grid 10 × 10 cm', '#808080', { bump: 0.4, overlay: 'metric' }),
       standard('grid-imperial', 'Grid 1 × 1 ft', '#808080', { bump: 0.4, overlay: 'imperial' }),
     ],
