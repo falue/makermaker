@@ -235,9 +235,24 @@ async function handle(data: Job) {
       return err instanceof FeatureError ? { id, error: err.message, featureId: err.featureId, max: err.max } : { id, error: String(err), featureId: '' };
     }
   };
-  for (const b of data.bodies) {
+  // the same steps (linked copies: their source's) are built once: the others get a copy of its mesh and solid
+  const made = new Map<string, { id: string; result: BodyResult }>();
+  const keys = data.bodies.map((b) => JSON.stringify(b.features, (k, v) => (k === 'data' ? undefined : v)));
+  const [seen, twice] = [new Set<string>(), new Set<string>()];
+  for (const k of keys) (seen.has(k) ? twice : seen).add(k);
+  for (const [i, b] of data.bodies.entries()) {
     await loadImports(b.features);
-    results.push(build(b));
+    const key = keys[i];
+    const twin = made.get(key);
+    const solid = twin && solids.get(twin.id);
+    if (twin && solid) {
+      solids.get(b.id)?.delete();
+      solids.set(b.id, new Solid(solid.shape.clone()));
+    }
+    const result = twin && (solid || 'error' in twin.result) ? { ...structuredClone(twin.result), id: b.id } : build(b);
+    // kept before it is sent: sending hands its arrays over
+    if (!twin && twice.has(key)) made.set(key, { id: b.id, result: structuredClone(result) });
+    results.push(result);
     if (performance.now() - sent > 400) send(false);
   }
   send(true);
