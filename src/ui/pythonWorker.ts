@@ -22,7 +22,7 @@ export type FromPython =
   /** `cad.check`: what the run did so far goes in first (`doc`), then the answer comes as `checked`. */
   | { kind: 'check'; args: CheckArgs; doc?: Doc; wantMeasures: boolean }
   /** `doc`: changed; `selection`: changed; `moves`: undo (below 0) or redo steps past the run's start. */
-  | { kind: 'done'; state: string; doc?: Doc; selection?: string[]; moves: number; failedAfterChange: boolean; snapshots?: Snapshot[] };
+  | { kind: 'done'; state: string; doc?: Doc; selection?: string[]; moves: number; failedAfterChange: boolean; snapshots?: Snapshot[]; failed?: { line: number | null; message: string } };
 
 const PRELUDE = `
 import ast, codeop, inspect, json, re, rlcompleter, sys, traceback, types
@@ -72,12 +72,18 @@ sys.modules['cad'] = cad
 _ns = {'__name__': '__main__', 'cad': cad}
 _completer = rlcompleter.Completer(_ns)
 
+_failed = None
+
 def _report():
+    global _failed
     kind, error, tb = sys.exc_info()
     frames = [f for f in traceback.extract_tb(tb) if f.filename == '<cad>']
     # a command's complaint, as it is
     message = [re.sub(r'^.*JsException: Error: ', '', m) for m in traceback.format_exception_only(kind, error)]
     sys.stderr.write(''.join(traceback.format_list(frames) + message))
+    # where in the script, and what: for the editor to mark
+    line = error.lineno if isinstance(error, SyntaxError) else frames[-1].lineno if frames else None
+    _failed = json.dumps({'line': line, 'message': message[-1].strip()})
 
 _AWAIT = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
 
@@ -265,6 +271,6 @@ onmessage = async ({ data }: MessageEvent<ToPython>) => {
   fn.destroy();
   flush();
   const changed = steps[at] !== base;
-  if (state === 'error') post({ kind: 'done', state, moves: 0, failedAfterChange: changed });
+  if (state === 'error') post({ kind: 'done', state, moves: 0, failedAfterChange: changed, failed: JSON.parse(python.globals.get('_failed')) });
   else post({ kind: 'done', state, moves, failedAfterChange: false, ...(changed ? { doc: steps[at] } : {}), ...(selection !== before ? { selection } : {}), ...(snapshots.length ? { snapshots } : {}) });
 };

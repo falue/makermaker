@@ -91,6 +91,8 @@ export interface PythonField {
   onChange(changed: () => void): void;
   /** The content's height changed (a prompt grows with it). */
   onHeight(height: (px: number) => void): void;
+  /** Marks line `line` as where it failed (red, `message` on hover), scrolled to; null: no mark. */
+  mark(line: number | null, message?: string): void;
 }
 
 /** A Monaco field in a new element with `className`: with `prompt`, one that grows with its lines and has no margin. */
@@ -169,6 +171,12 @@ export function pythonField(className: string, prompt = false): PythonField {
     onHeight(height) {
       editor.onDidContentSizeChange((e) => e.contentHeightChanged && height(e.contentHeight));
       height(editor.getContentHeight());
+    },
+    mark(line, message = '') {
+      const m = editor.getModel()!;
+      const at = line && Math.min(line, m.getLineCount());
+      monaco.editor.setModelMarkers(m, 'python', at ? [{ severity: monaco.MarkerSeverity.Error, message, startLineNumber: at, startColumn: m.getLineFirstNonWhitespaceColumn(at) || 1, endLineNumber: at, endColumn: m.getLineMaxColumn(at) }] : []);
+      if (at) editor.revealLineInCenterIfOutsideViewport(at);
     },
   };
 }

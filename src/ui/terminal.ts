@@ -190,6 +190,8 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
 
   const past: string[] = [];
   let back = 0;
+  /** Where and why the last run failed (none: it did not). */
+  let lastFailure: Extract<FromPython, { kind: 'done' }>['failed'];
   /** Runs `text` through Python's `fn` as one undo step; its state. */
   const batched = async (fn: '_step' | '_run', text: string) => {
     load();
@@ -214,6 +216,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
         if (panes.closed && editor.hidden) showPrompt(true); // its Stop
       }, 300);
       running = async (m) => {
+        lastFailure = m.failed;
         let taken = true;
         if (m.failedAfterChange) print('Nothing was changed: it failed before its end.', 'terminal-note');
         else if (m.state !== 'error' && (m.doc || m.selection || m.moves)) taken = api.apply(start, m);
@@ -276,6 +279,7 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     const script = (editorText = pythonField('script-text'));
     editor.append(script.el);
     script.onChange(() => {
+      script.mark(null); // edited: the error's mark goes
       if (!current) return;
       current.text = script.value;
       unsaved = current;
@@ -399,7 +403,15 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
     await flush();
     print(`▶ ${s.name}`, 'terminal-echo');
     lastOut.textContent = lastOut.title = '';
-    await batched('_run', s.text);
+    editorText?.mark(null);
+    const state = await batched('_run', s.text);
+    // failed: the line marked in the script (the message on hover) and named under it; the whole traceback in the terminal
+    if (state === 'error' && lastFailure) {
+      const { line, message } = lastFailure;
+      if (current === s) editorText?.mark(line, message);
+      lastOut.textContent = lastOut.title = `${line ? `Line ${line}: ` : ''}${message} · the whole error in the terminal`;
+      lastOut.className = 'script-last terminal-error';
+    }
     changed();
   };
   const open = (s: Script | null) => {
