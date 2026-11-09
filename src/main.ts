@@ -2670,7 +2670,8 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
     const v = texts.map((t, i) => (mode === 'grid' && i >= 3 && i < 6 ? (length(t) ?? 0) : Number(t) || 0));
     const made: [string, string][] = [];
     const copies = placements(v).flatMap((worlds, k) => {
-      const { bodies, pairs } = copiesOf(doc0.bodies.filter((b) => sources.includes(b.id)), [], ` ${k + 2}`, linkedCopies);
+      // in the order of `sources`, as placed below
+      const { bodies, pairs } = copiesOf(sources.map((id) => doc0.bodies.find((b) => b.id === id)!), [], ` ${k + 2}`, linkedCopies);
       made.push(...pairs);
       return bodies.map((b, n) => ({ ...b, ...placementIn(parentPlace(sources[n]), worlds[n]) }));
     });
