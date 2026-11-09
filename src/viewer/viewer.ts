@@ -3333,11 +3333,17 @@ export class Viewer implements ToolView {
     if (key === look.key) return;
     look.key = key;
     const lines: [number[], number[], number[]] = [[], [], []]; // the step's, every 5th (or 10th), through 0
+    const alphas: [number[], number[], number[]] = [[], [], []]; // per point: full to half the reach, then fading to none (no edge)
     const kind = (v: number) => (Math.abs(v) < step / 2 ? 2 : Math.round(v / step) % every === 0 ? 1 : 0);
     // a line at x along y and at y along x, `reach` from the middle; the step's lines only where no stronger one lies
     const add = (x: number, y: number, reach: number, fine: boolean) => {
-      if (!fine || !kind(x)) lines[kind(x)].push(x, cy - reach, 0, x, cy + reach, 0);
-      if (!fine || !kind(y)) lines[kind(y)].push(cx - reach, y, 0, cx + reach, y, 0);
+      const fade = (d: number) => Math.min(1, Math.max(0, 2 - (2 * Math.abs(d)) / reach));
+      const line = (k: number, a: number, at: (u: number) => number[]) => {
+        for (const [u, w] of [[-1, -0.5], [-0.5, 0.5], [0.5, 1]]) lines[k].push(...at(u * reach), ...at(w * reach));
+        alphas[k].push(0, a, a, a, a, 0);
+      };
+      if (!fine || !kind(x)) line(kind(x), fade(x - cx), (u) => [x, cy + u, 0]);
+      if (!fine || !kind(y)) line(kind(y), fade(y - cy), (u) => [cx + u, y, 0]);
     };
     for (let i = -cells; i <= cells; i++) add(cx + i * step, cy + i * step, cells * step, true);
     const n = Math.round((cells * wide) / every);
@@ -3346,7 +3352,8 @@ export class Viewer implements ToolView {
     group.clear();
     lines.forEach((pts, k) => {
       const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: look.colors[k], depthWrite: false, transparent: look.opacity[k] < 1, opacity: look.opacity[k] }));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(alphas[k].flatMap((a) => [1, 1, 1, a]), 4));
+      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: look.colors[k], vertexColors: true, depthWrite: false, transparent: true, opacity: look.opacity[k] }));
       line.renderOrder = -2;
       group.add(line);
     });
