@@ -4804,7 +4804,7 @@ export class Viewer implements ToolView {
     const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
     const persp = new THREE.PerspectiveCamera(35, 1, 1, 50000);
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
-    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section, size: renderer.domElement, cube: document.createElement('div'), cubeWrap: document.createElement('div'), autoOrtho: false, flat: false, angledView: null, explode: { amount: [0, 0, 0], axis: 0, depth: 1 } };
+    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section, size: renderer.domElement, cube: document.createElement('div'), cubeWrap: document.createElement('div'), autoOrtho: false, flat: false, angledView: null, explode: { amount: [0, 0, 0], axis: 2, depth: 1 } };
     // a 3D view's own view cube, as the main view's
     const cubeWrap = this.viewCube(view);
     cubeWrap.hidden = kind !== '3d';
@@ -4927,7 +4927,7 @@ export class Viewer implements ToolView {
       amount.value = String(Math.round(Math.max(0, Math.min(1, (e.clientX - r.left - 7) / (r.width - 14))) * 1000));
       slid();
     };
-    const reset = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('undo'), title: 'Click: Put everything back (all three axes, depth 1)', onclick: () => ((ex.amount = [0, 0, 0]), (ex.depth = 1), showExplode(), redraw()) });
+    const reset = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('undo'), title: 'Click: Put everything back (all three axes, depth 1, the slider on Z)', onclick: () => ((ex.amount = [0, 0, 0]), (ex.depth = 1), (ex.axis = 2), showExplode(), redraw()) });
     const tools = document.createElement('span');
     tools.append(reset, depth);
     el.querySelector('.sections')!.append(axisLabel, tools, track);
