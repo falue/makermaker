@@ -9,7 +9,7 @@ const doc = (groups: Group[], bodies: Body[]) => ({ materials: [material('a'), m
 
 it('a body without a material keeps its colour', () => {
   const d = doc([], [body({})]);
-  expect(lookOf(d, d.bodies[0])).toMatchObject({ color: '#abcdef', roughness: 0.7, bump: 0, metalness: 0, translucency: 0, glowStrength: 0 });
+  expect(lookOf(d, d.bodies[0])).toMatchObject({ color: '#abcdef', roughness: 0.5, bump: 0, metalness: 0, translucency: 0, glowStrength: 0 });
 });
 
 it('the slider runs from mirror over matte to bumpy', () => {

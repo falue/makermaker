@@ -48,8 +48,8 @@ const drawn = (m: MaterialLook): Look => ({
   ...(m.image ? { image: m.image } : {}),
 });
 
-/** A plain look of a colour: what a body without a material has. */
-export const plainLook = (color: string): MaterialLook => ({ color, bump: 0.35, reflection: 0, translucency: 0, glow: '#ffffff', glowStrength: 0 });
+/** A plain look of a colour: what a body without a material has (roughness 0.5: a little shine). */
+export const plainLook = (color: string): MaterialLook => ({ color, bump: 0.25, reflection: 0, translucency: 0, glow: '#ffffff', glowStrength: 0 });
 
 const standard = (id: string, name: string, color: string, look: Partial<MaterialLook> = {}): Material => ({ ...plainLook(color), id: `std-${id}`, name, ...look });
 
