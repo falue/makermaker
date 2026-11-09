@@ -115,7 +115,14 @@ const bare = <T extends Body | Group>(x: T): T => {
 };
 
 /** Bodies and groups `ids` get a material (none: their group's, else their own colour). */
-export const assignMaterial = (doc: Doc, ids: string[], material?: string) => withObjects(doc, ids, (x) => (material ? { ...bare(x), material } : bare(x)));
+/** `ids` with all of their bodies' linked family (the source and every linked copy of it): they share one material. */
+const withLinked = (doc: Doc, ids: string[]) => {
+  const sources = new Set(doc.bodies.filter((b) => ids.includes(b.id)).map((b) => b.link ?? b.id));
+  return [...new Set([...ids, ...doc.bodies.filter((b) => sources.has(b.link ?? b.id)).map((b) => b.id)])];
+};
+
+/** Gives `ids` a material (none: their group's, else their own colour), linked copies of their bodies too. */
+export const assignMaterial = (doc: Doc, ids: string[], material?: string) => withObjects(doc, withLinked(doc, ids), (x) => (material ? { ...bare(x), material } : bare(x)));
 
 /** A name for a new material of the file, not taken yet. */
 function freeName(doc: Doc, name: string) {

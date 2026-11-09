@@ -35,6 +35,7 @@ Loose ends fixed 2026-11-08:
 - [ ] Look at face with a body selected (no face): waits for a face click; after orbiting, panning or a view cube side: still waits, then looks straight at the clicked face; an Alt-picked flat face first: at once; a round face (fillet, hole wall, ball): the view square to it where clicked
 - [ ] Front, Back, Look at face on an upright face, a turned view near level: bodies hide what is behind them (no edges or colours shining through), no flicker while the view cube turns
 - [ ] Materials → Transparent: Wax, cream, a little see-through, a bit shiny, in the view and in a render; its picture made in the browser at first (no shipped one yet)
+- [ ] A material given to a body (picked, or a slider in Materials making a new one) goes to all its linked copies and their source too, whichever of them is selected
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:

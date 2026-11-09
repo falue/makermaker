@@ -100,3 +100,10 @@ it('the sun stands where its angles say', () => {
   expect(z).toBeCloseTo(1);
   expect(sunDirection({ ...DEFAULT_LIGHT, sunHeight: 0, sunAround: 0 })[0]).toBeCloseTo(1);
 });
+
+it('a material goes to the whole linked family: the source and every linked copy', () => {
+  const d = doc([], [body({ id: 'src' }), body({ id: 'c1', link: 'src' }), body({ id: 'c2', link: 'src' }), body({ id: 'other' })]);
+  const fromCopy = assignMaterial(d, ['c1'], 'a');
+  expect(fromCopy.bodies.map((b) => b.material)).toEqual(['a', 'a', 'a', undefined]);
+  expect(assignMaterial(fromCopy, ['src']).bodies.map((b) => b.material)).toEqual([undefined, undefined, undefined, undefined]);
+});
