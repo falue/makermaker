@@ -3343,3 +3343,74 @@ input[type='checkbox']:disabled {
   opacity: 0.5;
   cursor: default;
 }
+
+/* the command box (Space): a field and the commands it finds */
+.command-box {
+  position: fixed;
+  z-index: 1000;
+  top: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(440px, calc(100vh - 120px));
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.25);
+}
+.command-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.command-head input {
+  flex: 1;
+  font-size: 14px;
+  padding: 6px 8px;
+}
+.command-list {
+  overflow-y: auto;
+  margin-top: 6px;
+}
+.command-list .command {
+  display: grid;
+  grid-template-columns: 20px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  text-align: left;
+  color: var(--text);
+}
+.command-list .command.on {
+  background: var(--selected);
+}
+.command-icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+.command-name {
+  white-space: nowrap;
+}
+.command-hint {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--muted);
+}
+.command-list kbd {
+  font-size: 11px;
+  color: var(--muted);
+}
+.command-none {
+  padding: 6px;
+  color: var(--muted);
+}

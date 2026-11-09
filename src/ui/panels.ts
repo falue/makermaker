@@ -14,7 +14,8 @@ import type { CappedEdge } from '../kernel/build';
 import { axisHtml, sizeHtml } from './axes';
 import { BUILT_IN_PHOTOS } from './photospheres';
 import { closeButton, deleteButton, icon, tool, type IconName } from './icons';
-import { MAC, mod, pressed, role, toggles } from './keys';
+import { comboText, KEYS, keysOf, MAC, mod, pressed, role, send, toggles, type Action } from './keys';
+import type { Command } from './commandBox';
 import { rocket } from './rocket';
 
 /** On error notes (a click copies them: see main). */
@@ -398,6 +399,7 @@ let revealOf: UIContext['revealInList'] | null = null;
 export function renderUI(ctx: UIContext) {
   if (holding) return void (waiting = ctx);
   waiting = null;
+  latest = ctx;
   menuOf = (id, x, y) => (ctx.doc.sketches.some((s) => s.id === id) ? (ctx.sketchMenu(id, x, y), true) : ctx.doc.bodies.some((b) => b.id === id) && ctx.bodyMenu(id, x, y));
   revealOf = ctx.revealInList;
   const active = document.activeElement as HTMLInputElement | null;
@@ -656,7 +658,7 @@ function editbar(ctx: UIContext): Node[] {
       }, flyout || on('boolean')),
       ...(flyout ? [h('div', { className: 'flyout menu' }, ...booleanMenu(ctx))] : []),
     ),
-    tool('cut', "Cut: the selected bodies (else one clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
+    tool('cut', "Cut: split the selected bodies (else one clicked next) in two along a face's plane (turn and move it), a sketch line or shape, a ball or cylinder; keep both or delete one side", ctx.cutTool, on('cut')),
     tool('offset', 'Offset / Shell: selected sketch shapes get outlines a distance outside (or inside); a body (selected, or clicked next) is hollowed to walls, the faces clicked left open', ctx.offsetTool),
     tool('coat', 'Coat: a body (selected, or clicked next) made thicker all round, like paint', ctx.coatTool),
     tool('clash', 'Interference and clearance: where bodies overlap or come too close, also as their joints move', ctx.clashTool),
@@ -679,6 +681,36 @@ function editbar(ctx: UIContext): Node[] {
     tool('attach', 'Entangle: the selected objects (two or more) move and turn as one, at once; nothing selected: click them, then Enter', ctx.attachTool),
     tool('measure', 'Distance measure (D): click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
   ];
+}
+
+/** The context of the last `renderUI`. */
+let latest: UIContext | null = null;
+/** Hotkey actions the command box leaves out: only for while a tool runs, or a toolbar button does the same. */
+const NOT_COMMANDS = new Set<Action>(['commandBox', 'cycle', 'cycleBack', 'nudgeLeft', 'nudgeRight', 'nudgeUp', 'nudgeDown', 'toObject', 'pullPicked', 'terminal']);
+
+/** For the command box: what the toolbars and their menus offer now (as their buttons run it), and the app's hotkey actions. */
+export function commands(): Command[] {
+  if (!latest) return [];
+  const keys = (name: string) => {
+    const a = (Object.keys(KEYS) as Action[]).find((k) => KEYS[k].name === name);
+    return a && keysOf(a).map(comboText).join(' ');
+  };
+  const bars = h('div', {}, ...topbar(latest), ...toolbar(latest), ...editbar(latest), ...booleanMenu(latest), ...alignTools(latest));
+  const out = new Map<string, Command>();
+  for (const b of bars.querySelectorAll('button')) {
+    if (!b.title || !b.onclick || b.disabled || b.parentElement?.classList.contains('flyout-at')) continue; // a menu's own button: its rows are here
+    const label = b.querySelector('span')?.textContent;
+    const name = label ?? b.title.split(/ \(|:/)[0];
+    const hint = label ? b.title : b.title.slice(name.length).replace(/^\s*(\([^)]*\))?:\s*/, '').trim();
+    out.set(`${name}\n${hint}`, { name, hint, keys: keys(name), icon: b.querySelector('svg')?.outerHTML, run: () => b.click() });
+  }
+  const names = new Set([...out.values()].map((c) => c.name));
+  for (const a of Object.keys(KEYS) as Action[]) {
+    const k: (typeof KEYS)[Action] = KEYS[a];
+    if (NOT_COMMANDS.has(a) || k.chapter === 'While a tool runs' || k.chapter === 'Drawing aids' || names.has(k.name)) continue;
+    out.set(a, { name: k.name, hint: k.hint, keys: keys(k.name), run: () => send(a) });
+  }
+  return [...out.values()];
 }
 
 /** The boolean flyout of the toolbar is open. */

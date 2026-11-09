@@ -30,6 +30,7 @@ export interface Binding {
 export const KEYS = {
   save: { chapter: 'File', name: 'Save', order: 10, default: [{ key: 's', mod: true }], hint: 'Save the design (a new version in the file)' },
   open: { chapter: 'File', name: 'Open', order: 11, default: [{ key: 'o', mod: true }], hint: 'Open a design file' },
+  commandBox: { chapter: 'Edit', name: 'Command box', order: 19, default: [{ key: ' ' }], hint: 'Type a command by its name (typos allowed), Enter runs it' },
   undo: { chapter: 'Edit', name: 'Undo', order: 20, default: [{ key: 'z', mod: true, shift: false }], hint: 'Undo the last step' },
   redo: { chapter: 'Edit', name: 'Redo', order: 21, default: [{ key: 'z', mod: true, shift: true }, { key: 'y', mod: true }], hint: 'Redo the step undone' },
   terminal: { chapter: 'View', name: 'Python terminal', order: 29, default: [], hint: 'Open or close the Python terminal and its scripts (no key by default)' },
@@ -54,7 +55,7 @@ export const KEYS = {
   ungroup: { chapter: 'Organize', name: 'Ungroup', order: 51, default: [{ key: 'g', mod: true, shift: true }], hint: 'Ungroup the selected group; its contents stay where they are' },
   duplicate: { chapter: 'Organize', name: 'Duplicate', order: 52, default: [{ key: 'd', mod: true }], hint: 'Duplicate the selection (or the selected shapes)' },
   copy: { chapter: 'Organize', name: 'Copy', order: 52.2, default: [{ key: 'c', mod: true }], hint: 'Take a copy of the selection (bodies, sketches or shapes) for Paste' },
-  cut: { chapter: 'Organize', name: 'Cut', order: 52.3, default: [{ key: 'x', mod: true }], hint: 'Take the selection away for Paste (Paste puts it back as it was)' },
+  cut: { chapter: 'Organize', name: 'Cut to clipboard', order: 52.3, default: [{ key: 'x', mod: true }], hint: 'Take the selection away for Paste (Paste puts it back as it was)' },
   paste: { chapter: 'Organize', name: 'Paste', order: 52.4, default: [{ key: 'v', mod: true }], hint: 'Copies of what Copy took, as Duplicate makes them; after Cut what it took, as it was (nothing taken: click what to copy)' },
   delete: { chapter: 'Organize', name: 'Delete', order: 53, default: [{ key: 'delete' }, { key: 'backspace' }], hint: 'Delete the selection, or the selected part of a fillet' },
   deselect: { chapter: 'Edit', name: 'Deselect', order: 54, default: [{ key: 'escape' }], hint: 'Clear the selection; in sketch mode leave the sketch' },
@@ -125,8 +126,17 @@ export function keyOf(e: KeyboardEvent) {
   return e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : e.code.startsWith('Digit') ? e.code.slice(5) : typed;
 }
 
+/** A key press `send` makes for `action`. */
+type Sent = KeyboardEvent & { action?: Action };
+
+/** Runs `action` as its key would (also one with no key): a keydown that `pressed` takes for it alone. */
+export function send(action: Action) {
+  document.body.dispatchEvent(Object.assign(new KeyboardEvent('keydown', { bubbles: true, cancelable: true }), { action }));
+}
+
 /** Whether `e` is one of `action`'s keys. */
 export function pressed(e: KeyboardEvent, action: Action): boolean {
+  if ((e as Sent).action) return (e as Sent).action === action;
   return keysOf(action).some((c) => keyOf(e) === c.key && !!c.mod === (e.metaKey || e.ctrlKey) && !!c.alt === e.altKey && (c.shift === undefined || c.shift === e.shiftKey));
 }
 
