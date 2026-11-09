@@ -803,6 +803,8 @@ function left(ctx: UIContext): Node[] {
     el.onmouseenter = () => (ctx.lightBodies([id, ...doc.bodies.filter((b) => b.link === id).map((b) => b.id), ...tools, ...targets]), mark(true));
     el.onmouseleave = () => (ctx.lightBodies(null), mark(false));
     el.dataset.id = id;
+    // right-click beside its name (its marks, its eye): its menu as well, never the browser's
+    el.oncontextmenu = (e) => !e.defaultPrevented && (e.preventDefault(), menuOf?.(id, e.clientX, e.clientY));
     el.style.paddingLeft = `${depth * 22}px`; // a level: the chevron's width, so contents line up under the group name
     el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
     const where = (e: DragEvent) => {
