@@ -45,6 +45,7 @@ import { openVersions, type Picture } from './ui/versions';
 import type { ExportBody, ExportFormat, PrintCheck } from './kernel/worker';
 import { COPY_TIP, measureButton, renderUI, scrub, showRenderProgress, showTab, tabOf, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
+import { explodeTree } from './viewer/explode';
 import { loadSettings, openSettings } from './ui/settings';
 import { pythonTerminal } from './ui/terminal';
 import { MAC, pressed, role, roleKeyName, type Action, comboText, keysOf } from './ui/keys';
@@ -563,6 +564,8 @@ function update() {
     const resolved = [...shared, ...resolve(p.features, lookup, `bodies.${i}.features`, exprErrors)];
     return exprErrors.size === before ? [{ id: p.id, resolved, at: bodyPlace(p.id) }] : [];
   });
+  // extra views explode groups along their own axes
+  viewer.explodeRoot = explodeTree(doc, (g) => new Quaternion().setFromRotationMatrix(groupPlaces.get(g) ?? new Matrix4()));
   viewer.placed();
   const resolvedOf = new Map(pending.map((b) => [b.id, b.resolved]));
   // joints still playing stay where they are in their motion (another one stopping saves and redraws everything)

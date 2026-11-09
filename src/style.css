@@ -921,6 +921,12 @@ body.scrubbing * {
 .sections button.icon {
   padding: 0 5px;
 }
+/* an extra view's Explode label (its axis letter in the axis' colour): a click switches the axis */
+.sections button.explode-axis {
+  padding: 0 2px;
+  border: none;
+  color: inherit;
+}
 /* an axis' reset and invert, centred on its slider's line */
 .sections > span:not([class]) {
   display: flex;

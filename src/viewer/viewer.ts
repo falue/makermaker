@@ -18,6 +18,7 @@ import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './
 import { FacePullTool, type PullLook } from './faces';
 import { closeButton, icon } from '../ui/icons';
 import { sectionControls } from '../ui/sections';
+import { exploded, explodeDepth, type ExplodeNode } from './explode';
 import { marks } from './marks';
 import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayout } from './viewlayout';
 import { fastRaycast } from './pick';
@@ -68,6 +69,8 @@ type Eye = {
 };
 /** An extra view's own section: its cuts, the group it is drawn in (shown only for that view), its boxes, its sliders' range. */
 type ViewSection = SectionCut & { group: THREE.Group; boxes: Span[][]; bounds?: (box: THREE.Box3) => void };
+/** An extra view's explode: how far along each axis (0 to 1), the axis its slider shows, how many levels deep. */
+type ViewExplode = { amount: [number, number, number]; axis: number; depth: number };
 
 export interface ViewerHost {
   /** Fit (F, or its button): onto the selection, else everything (see `fit`). */
@@ -4556,7 +4559,7 @@ export class Viewer implements ToolView {
     const main = this.buildSection(this.sectionView, { sections: this.sections, inverted: this.inverted }, this.custom, this.el);
     [this.cuts, this.cutPlanes, this.boxes] = [null, main.planes, main.boxes];
     this.showBodies(this.boxes);
-    for (const v of this.views) v.section.boxes = this.buildSection(v.section.group, v.section, [], v.renderer.domElement).boxes;
+    for (const v of this.views) v.section.boxes = this.explodedFor(v, () => this.buildSection(v.section.group, v.section, [], v.renderer.domElement)).boxes;
     this.render();
   }
 
@@ -4780,7 +4783,10 @@ export class Viewer implements ToolView {
   }
 
   /** Extra views beside this one (in #stage): each its own camera and controls on the same scene; editing stays here. */
-  private views: (Eye & { el: HTMLElement; renderer: THREE.WebGLRenderer; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; live: LiveRender | null; setLive(on: boolean): void; section: ViewSection })[] = [];
+  private views: (Eye & { el: HTMLElement; renderer: THREE.WebGLRenderer; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; live: LiveRender | null; setLive(on: boolean): void; section: ViewSection; explode: ViewExplode })[] = [];
+
+  /** What extra views explode: the document's groups and bodies (see `explodeTree`), set by the app. */
+  explodeRoot: ExplodeNode | null = null;
 
   /** The light live renders take, and what they need from the app: whether the render queue is busy, keeping a picture. */
   liveHost: { light: Light; haze: { haze: number; fog: number }; queueBusy(): boolean; save(camera: CameraState, background: Backdrop, image: Blob, shot?: string): string } | null = null;
@@ -4811,7 +4817,7 @@ export class Viewer implements ToolView {
     const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
     const persp = new THREE.PerspectiveCamera(35, 1, 1, 50000);
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
-    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section, size: renderer.domElement, cube: document.createElement('div'), cubeWrap: document.createElement('div'), autoOrtho: false, flat: false, angledView: null };
+    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section, size: renderer.domElement, cube: document.createElement('div'), cubeWrap: document.createElement('div'), autoOrtho: false, flat: false, angledView: null, explode: { amount: [0, 0, 0], axis: 0, depth: 1 } };
     // a 3D view's own view cube, as the main view's
     const cubeWrap = this.viewCube(view);
     cubeWrap.hidden = kind !== '3d';
@@ -4902,9 +4908,43 @@ export class Viewer implements ToolView {
     );
     bar.append(projection, middle, right);
     el.append(bar, cubeWrap, renderer.domElement);
-    const rebuild = () => ((section.boxes = this.buildSection(section.group, section, [], renderer.domElement).boxes), this.renderView(view));
+    const rebuild = () => ((section.boxes = this.explodedFor(view, () => this.buildSection(section.group, section, [], renderer.domElement)).boxes), this.renderView(view));
     const sliders = sectionControls(el, (axis, from, to, inverted) => ((section.sections[axis] = [from, to]), (section.inverted[axis] = inverted), rebuild()), undefined, s && section);
     section.bounds = sliders.bounds;
+    // Explode under the section sliders: its label switches the axis (each keeps its amount), depth, reset, a slider for the axis shown
+    const ex = view.explode;
+    const redraw = () => (section.boxes.length ? rebuild() : this.renderView(view));
+    const axisLabel = Object.assign(document.createElement('button'), { className: 'explode-axis' });
+    const depth = Object.assign(document.createElement('button'), { className: 'icon' });
+    const amount = Object.assign(document.createElement('input'), { type: 'range', min: '0', max: '1000' });
+    const track = Object.assign(document.createElement('span'), { className: 'dual', title: 'Drag to move the objects apart along this axis, until they stand free' });
+    track.append(amount);
+    const showExplode = () => {
+      const a = 'XYZ'[ex.axis];
+      const next = 'XYZ'[(ex.axis + 1) % 3];
+      Object.assign(axisLabel, { innerHTML: `Explode <span class="axis-${a.toLowerCase()}">${a}</span>`, title: `Click: Explode along ${next} instead (each axis keeps how far it is exploded)` });
+      const most = this.explodeRoot ? explodeDepth(this.explodeRoot) : 1;
+      Object.assign(depth, { textContent: String(ex.depth), title: ex.depth < most ? `Depth ${ex.depth} of ${most} · Click: One level deeper (the groups' contents move apart too)` : `Depth ${ex.depth} of ${most} · Click: Back to the top level only` });
+      amount.value = String(Math.round(ex.amount[ex.axis] * 1000));
+      track.style.setProperty('--from', '0');
+      track.style.setProperty('--to', String(ex.amount[ex.axis]));
+    };
+    axisLabel.onclick = () => ((ex.axis = (ex.axis + 1) % 3), showExplode());
+    depth.onclick = () => ((ex.depth = (ex.depth % (this.explodeRoot ? explodeDepth(this.explodeRoot) : 1)) + 1), showExplode(), redraw());
+    const slid = () => ((ex.amount[ex.axis] = amount.valueAsNumber / 1000), showExplode(), redraw());
+    amount.oninput = slid;
+    // a click on the track moves the handle there (the input only takes clicks on its handle)
+    track.onpointerdown = (e) => {
+      if (e.target !== track) return;
+      const r = track.getBoundingClientRect();
+      amount.value = String(Math.round(Math.max(0, Math.min(1, (e.clientX - r.left - 7) / (r.width - 14))) * 1000));
+      slid();
+    };
+    const reset = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('undo'), title: 'Click: Put everything back (all three axes, depth 1)', onclick: () => ((ex.amount = [0, 0, 0]), (ex.depth = 1), showExplode(), redraw()) });
+    const tools = document.createElement('span');
+    tools.append(reset, depth);
+    el.querySelector('.sections')!.append(axisLabel, tools, track);
+    showExplode();
     stage.append(el);
     this.views.push(view);
     this.placeViews();
@@ -5162,22 +5202,45 @@ export class Viewer implements ToolView {
     view.ortho.updateProjectionMatrix();
     view.persp.aspect = aspect;
     fitDepth(view.persp, view.controls.target);
-    fitOrthoDepth(view.ortho, this.shownBox());
     view.persp.updateProjectionMatrix();
     // a view has a renderer of its own: the photo's picture is the main view's, and from its camera
     const background = this.scene.background;
     if (this.photo) this.scene.background = new THREE.Color(this.solidGrey());
-    // its own section instead of the main one's, for this draw
+    // its own section instead of the main one's, and its bodies exploded, for this draw
     const swap = (own: boolean) => {
       this.sectionView.visible = !own;
       view.section.group.visible = own;
       this.showBodies(own ? view.section.boxes : this.boxes);
     };
     swap(true);
-    view.renderer.render(this.scene, view.camera);
+    this.explodedFor(view, () => {
+      fitOrthoDepth(view.ortho, this.shownBox());
+      view.renderer.render(this.scene, view.camera);
+    });
     this.turnCube(view.cube, view.camera);
     swap(false);
     this.scene.background = background;
+  }
+
+  /** Runs `draw` with the bodies where extra view `view`'s explode puts them; back where they were after. */
+  private explodedFor<T>(view: Viewer['views'][number], draw: () => T): T {
+    const e = view.explode;
+    const root = this.explodeRoot;
+    if (!root || !e.amount.some((t) => t > 0)) return draw();
+    const boxOf = (id: string) => {
+      const g = this.bodies.get(id);
+      return g && !this.hidden.has(id) ? new THREE.Box3().setFromObject(g) : null;
+    };
+    const moved = [...exploded(root, boxOf, e.amount, e.depth)].flatMap(([id, by]) => {
+      const g = this.bodies.get(id);
+      return g ? [{ g, was: g.position.clone(), by }] : [];
+    });
+    for (const { g, by } of moved) g.position.add(by), g.updateMatrixWorld();
+    try {
+      return draw();
+    } finally {
+      for (const { g, was } of moved) g.position.copy(was), g.updateMatrixWorld();
+    }
   }
 
   /** A projection chosen by hand stays when leaving a cube side. */
