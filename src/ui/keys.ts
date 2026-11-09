@@ -153,7 +153,7 @@ export const MODS = {
   add: { key: 'shift', when: 'click', name: 'Add', hint: 'Adds to the selection or takes away (in lists: a range)' },
   addOne: { key: MAC ? 'meta' : 'ctrl', when: 'click', name: 'Add one, isolate', hint: 'In lists adds one or takes it away; on an eye shows only that body' },
   parts: { key: 'alt', when: 'click', name: 'Faces and edges', hint: 'Picks a face or an edge instead of the body (with Shift: more of them)' },
-  tangent: { key: 'ctrl', when: 'click', name: 'Tangent', hint: 'Line tool: a click on a circle, arc or curve starts a line tangent to it (a right click does too)' },
+  tangent: { key: 'ctrl', when: 'click', name: 'Tangent', hint: 'Line tool: a click on a circle, arc or curve starts a line tangent to it (a right click does too); drawing a line, near one: its end snaps where it touches' },
   constrain: { key: 'shift', when: 'moving', name: 'Constrain', hint: 'Square, keeps proportions, 15° turns, ten times bigger steps' },
   precise: { key: 'ctrl', when: 'moving', name: 'Precise', hint: 'Steps of the minimum step (Settings → General)' },
   centre: { key: 'alt', when: 'moving', name: 'From the centre', hint: 'Draws and resizes from the centre (with the others too)' },

@@ -484,16 +484,20 @@ export class SketchTool implements Tool {
     return used;
   }
 
-  /** On a curve the line tool starts a tangent from, as the tangent modifier's click does (a Mac makes a Ctrl-click a right click). */
+  /** On a curve the line tool starts a tangent from, or ends one on, as the tangent modifier's click does (a Mac makes a Ctrl-click a right click). */
   rightClick(e: MouseEvent) {
-    const target = this.phase.kind === 'hover' && this.kind === 'line' ? this.target(e) : null;
-    if (!target) return;
+    const ph = this.phase;
+    if (this.kind !== 'line') return;
+    const target = ph.kind === 'hover' ? this.target(e) : null;
+    if (!target && ph.kind !== 'polygon') return;
+    const look = () => (target ? this.point(e, target) : ph.kind === 'polygon' && this.sideEnd(e, ph));
     this.tangentHeld = true;
-    this.point(e, target);
-    const on = !!this.tangentOn;
+    this.snapWhat = null;
+    look();
+    const on = target ? !!this.tangentOn : !!(this.snapWhat as string | null)?.startsWith('tangent to'); // look() set it
     this.tangentHeld = false;
     if (on) this.down(new PointerEvent('pointerdown', { button: 0, clientX: e.clientX, clientY: e.clientY, [`${roleKey('tangent')}Key`]: true }));
-    else this.point(e, target);
+    else look();
   }
 
   private press(e: PointerEvent): boolean {
@@ -1356,10 +1360,37 @@ export class SketchTool implements Tool {
   private holdTangent(on: boolean) {
     if (on === this.tangentHeld) return;
     this.tangentHeld = on;
-    if (this.phase.kind === 'hover' && this.kind === 'line' && this.lastPoint) {
-      this.point(...this.lastPoint);
-      this.update();
+    const ph = this.phase;
+    if (!this.lastPoint || this.kind !== 'line') return;
+    if (ph.kind === 'hover') this.point(...this.lastPoint);
+    else if (ph.kind === 'polygon') ph.cur = this.sideEnd(this.lastPoint[0], ph) ?? ph.cur;
+    else return;
+    this.update();
+  }
+
+  /** Drawing a line, the tangent modifier held: where a line from its last corner touches a curve, within `px` of the pointer. */
+  private tangentTo(t: Target, lines: SnapLine[], mx: number, my: number, px: number) {
+    const ph = this.phase;
+    if (!this.tangentHeld || ph.kind !== 'polygon' || this.kind !== 'line' || !this.straightMode() || this.sliding(ph) || ph.z.at(-1)) return null;
+    const from = ph.pts[ph.pts.length - 1];
+    let best: { at: UV; line: Segment[]; name: string; d: number } | null = null;
+    for (const l of lines) {
+      // its piece nearest the pointer, if the curve passes that close at all
+      let near: { i: number; d: number } | null = null;
+      for (const [i, [a, b]] of l.segs.entries()) {
+        const { d } = this.screenDist(mx, my, a, b);
+        if (d < px && (!near || d < near.d)) near = { i, d };
+      }
+      if (!near || !inPlane(t.frame, l.segs[near.i][0]) || !inPlane(t.frame, l.segs[near.i][1])) continue;
+      const round = curveOf(l, near.i, t.frame);
+      for (const k of round?.curve.from(from) ?? []) {
+        const at = round!.curve.at(k);
+        const [x, y] = this.view.toScreen(v3(toWorld(t.frame, ...at)));
+        const d = Math.hypot(mx - x, my - y);
+        if (d < px && (!best || d < best.d) && Math.hypot(at[0] - from[0], at[1] - from[1]) > 1e-6) best = { at, line: l.segs, name: round!.name, d };
+      }
     }
+    return best;
   }
 
   private snapAt(e: MouseEvent, t: Target, lines: SnapLine[], grid: boolean | UV, px = 10, linePx = 8): UV | null {
@@ -1425,6 +1456,14 @@ export class SketchTool implements Tool {
         this.snapPoint = this.snapSeg = this.snapKey = this.onGuide = null;
         return uv;
       }
+    }
+    const touch = this.tangentTo(t, lines, mx, my, 2 * px);
+    if (touch) {
+      this.snapped = v3(toWorld(t.frame, ...touch.at));
+      this.snapLine = touch.line;
+      this.snapWhat = `tangent to ${touch.name}`;
+      this.snapPoint = this.snapSeg = this.snapKey = this.onGuide = null;
+      return touch.at;
     }
     // on a line, on an edge or on a point along it, all at once: Tab goes through them (see `key`)
     const along = near?.key ? 1 : 0;
@@ -2325,7 +2364,7 @@ function lineHint(mode?: string) {
   const end = '[Alt] or [L] next mode · a click on the start closes it · [Enter], [Esc] or double-click finishes · [Backspace] removes the last';
   if (mode === 'bezier') return `Click: a smooth point, drag: pull its handles · [Shift] handle in angle steps, [Ctrl] precise · ${end}`;
   if (mode === 'arc') return `Click the arc's end, or type its diameter · [Tab] its angle, [Enter] · [Shift] angle steps · ${end}`;
-  const how = 'or type a length · [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise · [B] on a line: measure the angle from it';
+  const how = 'or type a length · [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise (near a circle or curve: tangent to it) · [B] on a line: measure the angle from it';
   return mode === 'polygon' ? `Click the next point, ${how} · ${end}` : `Click the end point, ${how} · [Alt] or [L] next mode · [Esc] cancels`;
 }
 /** An angle (radians) in degrees, the short way: -180 to 180. */
