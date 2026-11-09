@@ -264,7 +264,7 @@ let extruding: ExtrudeTool | null = null;
 /** Counts tool starts: an extrude tool still loading its areas sees whether another tool started meanwhile. */
 let extrudeRun = 0;
 /** A tool picked before its objects: its toolbar name, and what clicking a body does (Enter applies booleans). */
-let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut' | 'joint' | 'shell'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
+let pending: { tool: 'boolean' | 'delete' | 'duplicate' | 'hide' | 'group' | 'move' | 'cut' | 'joint' | 'shell' | 'pattern'; pick(id: string, how: Pick): void; apply?(): void } | null = null;
 /** On only for a design saved to a file (a new one starts with it off; an opened one as last switched). */
 let autosave = false;
 let autosaveTimer = 0;
@@ -944,8 +944,8 @@ function pickShape(sketch: string, shape: string, how: Pick) {
   const ids = unit!.shapes;
   if (how === true) shapeSel = ids.every((id) => shapeSel.includes(id)) ? shapeSel.filter((id) => !ids.includes(id)) : [...shapeSel, ...ids.filter((id) => !shapeSel.includes(id))];
   else shapeSel = how === 'range' ? picked(shapeSel, s.shapes.map((q) => q.id), shape, how) : ids;
-  // X / Y / Z waiting: a plain click opens the field for the shapes picked
-  if (pending?.tool === 'move' && !how) return pending.pick(sketch, false);
+  // X / Y / Z waiting: a plain click opens the field for the shapes picked; Pattern waiting: repeats them
+  if ((pending?.tool === 'move' || pending?.tool === 'pattern') && !how) return pending.pick(sketch, false);
   showSelection();
 }
 
@@ -2586,16 +2586,27 @@ function checkbox(label: string, title: string, on: boolean, change: (on: boolea
  * Angle ° (360: evenly all the way round), the copies turned with it or only moved. Grid: X / Y / Z pcs (whole), their
  * spacing as the gap between copies or Overall (from the first's start to the last's end: switching fills it in), T:
  * the last copy's far side at a clicked point, and a turn per copy (each further copy turns that much more around its
- * middle).
+ * middle). A selected sketch: its selected shapes (none: all) in its plane, along its X / Y, around a point in it.
  */
 function patternTool(mode: 'around' | 'grid' = pickedAxis() ? 'around' : 'grid') {
+  const sketch = activeSketch();
+  const frame = viewer.sketches.find((v) => v.id === sketch)?.frame;
+  // a sketch selected alone (not drawing in it): all its shapes
+  const shapes = !sketch ? [] : shapeSel.length ? shapeSel : sketching ? [] : history.current.sketches.find((s) => s.id === sketch)!.shapes.map((q) => q.id);
+  const on = sketch && frame && shapes.length ? { sketch, frame } : undefined;
   // an Alt-picked edge: around it; groups as their bodies
-  const sources = contents(history.current, selected).filter((id) => history.current.bodies.some((b) => b.id === id));
+  const sources = on ? shapes : contents(history.current, selected).filter((id) => history.current.bodies.some((b) => b.id === id));
   if (!sources.length) {
     const picked: string[] = [];
     pending = {
-      tool: 'shell',
+      tool: 'pattern',
       pick(id) {
+        // a sketch: its shapes (a clicked shape: that one)
+        if (history.current.sketches.some((s) => s.id === id)) {
+          cancelPending();
+          if (activeSketch() !== id) [selected, shapeSel] = [[id], []];
+          return patternTool(mode);
+        }
         picked.splice(0, picked.length, ...(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]));
         selected = [...picked];
         showSelection();
@@ -2606,74 +2617,111 @@ function patternTool(mode: 'around' | 'grid' = pickedAxis() ? 'around' : 'grid')
         else render();
       },
     };
-    toolHint = 'Pattern: click the bodies to repeat (a second click drops it) · [Enter] Finalize · [Esc] cancels';
+    toolHint = 'Pattern: click the bodies to repeat (a second click drops it) or a sketch · [Enter] Finalize · [Esc] cancels';
     return render();
   }
   if (mode === 'around') {
     // an edge Alt-picked first is the axis
     const picked = pickedAxis();
-    if (picked) return viewer.dropPicked(), patternPanel(sources, 'around', picked);
-    toolHint = 'Pattern around: click the axis · an edge or line, a circle (its centre) or a point (Z through it) · [Esc] cancels';
+    if (picked) return viewer.dropPicked(), patternPanel(sources, 'around', picked, on);
+    toolHint = on ? 'Pattern around: click the centre · a circle or arc (its centre), a point, or an edge through the sketch · [Esc] cancels' : 'Pattern around: click the axis · an edge or line, a circle (its centre) or a point (Z through it) · [Esc] cancels';
     render();
     return viewer.pickAxis(
       (a) => {
         tips.cursorTip(null);
         viewer.showAxis(null);
         toolHint = null;
-        if (a) patternPanel(sources, 'around', a);
+        if (a) patternPanel(sources, 'around', a, on);
         else render();
       },
       (a) => (tips.cursorTip(a ? `${a.what}\nClick: copies go round it` : null), viewer.showAxis(a, a?.at, 60)),
     );
   }
-  patternPanel(sources, 'grid');
+  patternPanel(sources, 'grid', undefined, on);
 }
 
-function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxis) {
+/** `sources`: bodies, or with `on` shapes of that sketch (worked in its plane's coordinates: u, v, its normal Z). */
+function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxis, on?: { sketch: string; frame: Frame }) {
   const doc0 = history.current;
   const u = UNITS[doc0.units];
-  const start = new Map(sources.map((id) => [id, bodyPlaces.get(id)!.clone()]));
-  const box = sources.reduce((b, id) => b.union(viewer.measure(id)?.box ?? new Box3()), new Box3());
+  const f = on?.frame;
+  const local = (p: Vector3) => (f ? new Vector3(...uvOf(f, p), 0) : p);
+  const world = (p: Vector3) => (f ? new Vector3(...toWorld(f, p.x, p.y, p.z)) : p);
+  const worldDir = (d: Vector3) => (f ? world(d).sub(new Vector3(...f.o)) : d);
+  /** In a sketch: the axis turns around its normal, where it crosses the plane (one along the plane: its point there). */
+  const inPlane = (a: TurnAxis): TurnAxis => {
+    if (!f) return a;
+    const [o, n] = [new Vector3(...f.o), new Vector3(...f.n)];
+    const d = a.dir.dot(n);
+    return { ...a, at: local(Math.abs(d) > 1e-6 ? a.at.clone().addScaledVector(a.dir, o.sub(a.at).dot(n) / d) : a.at), dir: new Vector3(0, 0, 1) };
+  };
+  if (axis) axis = inPlane(axis);
+  const dims = f ? 2 : 3;
+  const sketchK = doc0.sketches.findIndex((s) => s.id === on?.sketch);
+  const originals = f ? doc0.sketches[sketchK].shapes.filter((q) => sources.includes(q.id)) : [];
+  const shown = originals.map((q) => viewer.sketches.find((v) => v.id === on!.sketch)!.shapes.find((x) => x.id === q.id)!);
+  const start = new Map(f ? [] : sources.map((id) => [id, bodyPlaces.get(id)!.clone()]));
+  const box = f
+    ? shown.reduce((b, q) => {
+        const [x0, y0, x1, y1] = bounds(q);
+        return b.union(new Box3(new Vector3(x0, y0, 0), new Vector3(x1, y1, 0)));
+      }, new Box3())
+    : sources.reduce((b, id) => b.union(viewer.measure(id)?.box ?? new Box3()), new Box3());
   const [size, middle] = [box.getSize(new Vector3()), box.getCenter(new Vector3())];
   let [turnCopies, overall] = [true, false];
   let texts: string[] = [];
   const gridGroup = newId();
-  /** The copies' world placements for these values: per copy (the original left out) and source. */
-  const placements = (v: number[]): Matrix4[][] => {
-    const out: Matrix4[][] = [];
+  /** Each copy's move for these values (the original left out). */
+  const moves = (v: number[]): Matrix4[] => {
+    const out: Matrix4[] = [];
     if (mode === 'around' && axis) {
       const [count, angle] = [Math.max(1, Math.round(v[0])), v[1]];
       const step = Math.abs(angle) >= 360 ? angle / count : angle / Math.max(1, count - 1);
       for (let k = 1; k < count; k++) {
         const turn = new Matrix4().makeTranslation(axis.at).multiply(new Matrix4().makeRotationAxis(axis.dir, (k * step * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(axis.at.clone().negate()));
         // not turned: only moved where their middle goes
-        const moved = turnCopies ? turn : new Matrix4().makeTranslation(middle.clone().applyMatrix4(turn).sub(middle));
-        out.push(sources.map((id) => moved.clone().multiply(start.get(id)!)));
+        out.push(turnCopies ? turn : new Matrix4().makeTranslation(middle.clone().applyMatrix4(turn).sub(middle)));
       }
       return out;
     }
-    const counts = [0, 1, 2].map(pcs);
-    const steps = [0, 1, 2].map((k) => way(k) * (overall ? (v[3 + k] - size.getComponent(k)) / Math.max(1, counts[k] - 1) : size.getComponent(k) + v[3 + k]));
+    const counts = [0, 1, 2].map((k) => (k < dims ? pcs(k) : 1));
+    const steps = [0, 1, 2].map((k) => (k < dims ? way(k) * (overall ? (v[dims + k] - size.getComponent(k)) / Math.max(1, counts[k] - 1) : size.getComponent(k) + v[dims + k]) : 0));
     let index = 0;
     for (let z = 0; z < counts[2]; z++)
       for (let y = 0; y < counts[1]; y++)
         for (let x = 0; x < counts[0]; x++) {
           if (!index++) continue;
-          const spin = new Matrix4().makeTranslation(middle).multiply(new Matrix4().makeRotationZ((((index - 1) * v[6]) * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(middle.clone().negate()));
-          const move = new Matrix4().makeTranslation(x * steps[0], y * steps[1], z * steps[2]).multiply(spin);
-          out.push(sources.map((id) => move.clone().multiply(start.get(id)!)));
+          const spin = new Matrix4().makeTranslation(middle).multiply(new Matrix4().makeRotationZ((((index - 1) * v[2 * dims]) * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(middle.clone().negate()));
+          out.push(new Matrix4().makeTranslation(x * steps[0], y * steps[1], z * steps[2]).multiply(spin));
         }
     return out;
   };
+  /** A sketch shape moved by `m` (in the plane): a line's points, else its centre, turned with it. */
+  const movedShape = (p: DrawnProfile, m: Matrix4): DrawnProfile => {
+    const e = m.elements;
+    const at = ([x, y]: [number, number]): [number, number] => [e[0] * x + e[4] * y + e[12], e[1] * x + e[5] * y + e[13]];
+    if (p.kind === 'line') return mapPoints(p, at);
+    const [c, to] = [centre(p), at(centre(p))];
+    return shifted(rotated(p, (Math.atan2(e[1], e[0]) * 180) / Math.PI), to[0] - c[0], to[1] - c[1]);
+  };
   const apply = () => {
     // counts and degrees as numbers, the spacings as lengths (mm)
-    const v = texts.map((t, i) => (mode === 'grid' && i >= 3 && i < 6 ? (length(t) ?? 0) : Number(t) || 0));
+    const v = texts.map((t, i) => (mode === 'grid' && i >= dims && i < 2 * dims ? (length(t) ?? 0) : Number(t) || 0));
+    if (on) {
+      // copies of the shapes (their expressions), then moved
+      const made = moves(v).flatMap((m) => originals.map((q, n) => ({ copy: { ...structuredClone(q), id: newId() }, profile: movedShape(shown[n], m) })));
+      const added = setIn(doc0, ['sketches', String(sketchK), 'shapes'], [...doc0.sketches[sketchK].shapes, ...made.map((x) => x.copy)]);
+      const next = withShapes(added, on.sketch, made.map((x) => ({ id: x.copy.id, profile: x.profile })));
+      if (history.current === doc0) history.push(next);
+      else history.replace(next);
+      return update();
+    }
     const made: [string, string][] = [];
-    const copies = placements(v).flatMap((worlds, k) => {
+    const copies = moves(v).flatMap((move, k) => {
       // in the order of `sources`, as placed below
       const { bodies, pairs } = copiesOf(sources.map((id) => doc0.bodies.find((b) => b.id === id)!), [], ` ${k + 2}`, linkedCopies);
       made.push(...pairs);
-      return bodies.map((b, n) => ({ ...b, ...placementIn(parentPlace(sources[n]), worlds[n]) }));
+      return bodies.map((b, n) => ({ ...b, ...placementIn(parentPlace(sources[n]), move.clone().multiply(start.get(sources[n])!)) }));
     });
     let next = listedAfter({ ...doc0, bodies: [...doc0.bodies, ...copies] }, made);
     // unlinked grid: the originals and their copies in one group "Grid", where the first original was
@@ -2697,15 +2745,17 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
   const way = (k: number) => (Math.round(Number(texts[k]) || 1) < 0 ? -1 : 1);
   /** How far from the selection's start a point lies along axis `k` (mm): the gap, or overall, that ends the last copy there. */
   const reach = (k: number) => (p: Vector3) => {
-    const d = way(k) > 0 ? p.getComponent(k) - box.min.getComponent(k) : box.max.getComponent(k) - p.getComponent(k);
+    const q = local(p);
+    const d = way(k) > 0 ? q.getComponent(k) - box.min.getComponent(k) : box.max.getComponent(k) - q.getComponent(k);
     return [overall ? d : pcs(k) > 1 ? (d - pcs(k) * size.getComponent(k)) / (pcs(k) - 1) : 0]; // replaces the field's value
   };
+  const axes = ['X', 'Y', 'Z'].slice(0, dims);
   const fields =
     mode === 'around'
       ? [{ label: 'Count', value: '6', raw: true, int: true }, { label: 'Angle °', value: '360', raw: true }]
       : [
-          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} pcs`, value: k ? '1' : '3', raw: true, int: true, title: `${a} pcs: how many along ${a} (negative: the other way)` })),
-          ...['X', 'Y', 'Z'].map((a, k) => ({ label: `${a} gap`, value: fmt(5 / u), reach: reach(k), title: `${a} gap: between the copies` })),
+          ...axes.map((a, k) => ({ label: `${a} pcs`, value: k ? '1' : '3', raw: true, int: true, title: `${a} pcs: how many along ${a} (negative: the other way)` })),
+          ...axes.map((a, k) => ({ label: `${a} gap`, value: fmt(5 / u), reach: reach(k), title: `${a} gap: between the copies` })),
           { label: 'Turn each °', value: '0', raw: true, title: 'Turn each °: every copy turned this much more than the one before, around its middle' },
         ];
   const link = checkbox('Linked', 'The copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => ((linkedCopies = on), apply()));
@@ -2718,7 +2768,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
         tips.cursorTip(null);
         viewer.showAxis(null);
         toolHint = null;
-        if (a) (axis = a), apply(), angles?.show();
+        if (a) (axis = inPlane(a)), apply(), angles?.show();
         render();
       },
       (a) => (tips.cursorTip(a ? `${a.what}\nClick: copies go round it` : null), viewer.showAxis(a, a?.at, 60)),
@@ -2730,7 +2780,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
       ? null
       : checkbox('Overall', 'The spacing fields are the whole size from the first copy\'s start to the last one\'s end, not the gap between copies', false, (on) => {
           overall = on;
-          panel.inputs.slice(3, 6).forEach((input, k) => {
+          panel.inputs.slice(dims, 2 * dims).forEach((input, k) => {
             const label = input.previousElementSibling as HTMLElement;
             // overall: the whole size, L / W / H; else the gap along X / Y / Z
             label.innerHTML = sizeHtml(on ? 'LWH'[k] : `${'XYZ'[k]} gap`);
@@ -2739,25 +2789,26 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
             const [n, s, v] = [pcs(k), size.getComponent(k), length(input.value || '0') ?? 0];
             input.value = fmt((on ? n * s + (n - 1) * v : n > 1 ? (v - n * s) / (n - 1) : 0) / u);
           });
-          panel.inputs[3].dispatchEvent(new Event('input'));
+          panel.inputs[dims].dispatchEvent(new Event('input'));
         });
-  const extra = mode === 'around' ? [checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply())), link] : [link];
-  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] Finalize · [Esc] leaves nothing' : 'Pattern grid: counts and gaps · along X / Y / Z, the gap between copies (or Overall), a turn per copy · [Enter] Finalize · [Esc] leaves nothing', extra, [switcher]);
+  // sketch shapes are not linked
+  const extra = [...(mode === 'around' ? [checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply()))] : []), ...(on ? [] : [link])];
+  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] Finalize · [Esc] leaves nothing' : `Pattern grid: counts and gaps · along ${axes.join(' / ')}, the gap between copies (or Overall), a turn per copy · [Enter] Finalize · [Esc] leaves nothing`, extra, [switcher]);
   // between the fields: Overall before the distances, Set axis before the angle
-  panel.inputs[mode === 'around' ? 1 : 3].parentElement!.before(overallBox ?? setAxis);
+  panel.inputs[mode === 'around' ? 1 : dims].parentElement!.before(overallBox ?? setAxis);
   texts = fields.map((f) => f.value);
   // around: the sweep, from the selection's middle; grid: each copy's turn, while it is in use
-  const turnField = panel.inputs[mode === 'around' ? 1 : 6];
+  const turnField = panel.inputs[mode === 'around' ? 1 : 2 * dims];
   const angles = angleControl({
     input: turnField,
     axis: () => {
-      if (mode === 'grid') return document.activeElement === turnField || (Number(turnField.value) || 0) !== 0 ? { at: box.getCenter(new Vector3()), dir: new Vector3(0, 0, 1), zero: new Vector3(1, 0, 0) } : null;
+      if (mode === 'grid') return document.activeElement === turnField || (Number(turnField.value) || 0) !== 0 ? { at: world(box.getCenter(new Vector3())), dir: worldDir(new Vector3(0, 0, 1)), zero: worldDir(new Vector3(1, 0, 0)) } : null;
       if (!axis) return null;
       const mid = box.getCenter(new Vector3());
       const at = axis.at.clone().addScaledVector(axis.dir, mid.clone().sub(axis.at).dot(axis.dir));
       const zero = mid.sub(at);
       if (zero.lengthSq() < 1e-9) zero.set(axis.dir.z > 0.9 ? 1 : 0, 0, axis.dir.z > 0.9 ? 0 : 1).cross(axis.dir);
-      return { at, dir: axis.dir, zero: zero.normalize() };
+      return { at: world(at), dir: worldDir(axis.dir), zero: worldDir(zero.normalize()) };
     },
   });
   turnField.parentElement!.append(angles.buttons());
