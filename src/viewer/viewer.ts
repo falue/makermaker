@@ -4904,13 +4904,21 @@ export class Viewer implements ToolView {
       l.picture.hidden = false;
       l.picture.style.top = `${(view.el.querySelector('.view-bar') as HTMLElement).offsetHeight}px`;
       l.picture.style.background = backdropCss(l.background ?? this.backdropColours());
+      // the header's status is the view's own: once this render is left or started anew, it writes nothing there
+      const mine = () => view.live === l && l.gen === gen;
+      let bar: HTMLProgressElement | null = null;
       try {
         const image = await this.renderNice(this.viewCamera(view), l.background ?? this.backdropColours(), host.light, host.haze, samples, {
           show: (canvas) => l.picture.replaceChildren(canvas),
-          progress: (done) => (l.status.textContent = `${Math.round(done * samples)} / ${samples}`),
-          cancelled: () => view.live !== l || l.gen !== gen,
+          progress: (done) => {
+            if (!mine()) return;
+            if (!bar?.isConnected) l.status.replaceChildren((bar = Object.assign(document.createElement('progress'), { className: 'live-progress', max: 1 })));
+            bar.value = done;
+          },
+          cancelled: () => !mine(),
           slow: () => false,
         });
+        if (!mine()) return;
         l.image = image;
         l.status.textContent = 'Done';
         l.save.hidden = false;
@@ -4918,7 +4926,7 @@ export class Viewer implements ToolView {
         img.onload = () => URL.revokeObjectURL(img.src);
         l.picture.replaceChildren(img);
       } catch (err) {
-        if (view.live === l && l.gen === gen) l.status.textContent = (err as Error).message;
+        if (mine()) l.status.textContent = (err as Error).message;
       } finally {
         l.running = false;
       }

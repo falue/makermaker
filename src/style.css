@@ -3101,6 +3101,14 @@ section > h4 .segmented button {
   margin-top: 8px;
 }
 
+/* a live render's passes so far, in its view's header */
+.live-progress {
+  width: 80px;
+  height: 6px;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+
 /* a live render view: the path traced picture over the plain view (which shows while turning it); presses go through to orbit */
 #stage .view .live {
   position: absolute;
