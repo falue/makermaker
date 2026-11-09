@@ -345,6 +345,10 @@ span.error,
 #stage .view-bar button {
   white-space: nowrap;
 }
+/* Save: no taller than the bar's other buttons */
+#stage .view-bar button.primary {
+  padding-block: 2px;
+}
 #stage .view-bar .middle {
   display: flex;
   align-items: center;
