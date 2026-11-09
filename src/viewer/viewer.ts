@@ -3658,6 +3658,27 @@ export class Viewer implements ToolView {
     return out;
   }
 
+  /** Which body edge (body, kernel index) segments handed out by `bodyEdges` (and so `edges`) are. */
+  private edgeOf = new WeakMap<object, { body: string; index: number }>();
+
+  /**
+   * The top along world direction `w` of the body edge whose segments `edges` gave: on the kernel's circle or free
+   * curve (path), found at once; null: none (straight, or `w` square to its circle); undefined: not known (a mesh body).
+   */
+  edgeTopAlong(segs: [THREE.Vector3, THREE.Vector3][], w: THREE.Vector3): THREE.Vector3 | null | undefined {
+    const ref = this.edgeOf.get(segs);
+    const exact = ref && this.exactEdge(ref.body, ref.index);
+    if (!exact) return undefined;
+    const { edge, place } = exact;
+    if (edge.kind === 'circle') {
+      const [c, n] = [new THREE.Vector3(...edge.c).applyMatrix4(place), new THREE.Vector3(...edge.n).transformDirection(place)];
+      const out = w.clone().projectOnPlane(n);
+      return out.lengthSq() > 1e-12 ? c.addScaledVector(out.normalize(), edge.r) : null;
+    }
+    if ((edge.kind === 'ellipse' || edge.kind === 'curve') && edge.path.pts.length > 1) return new THREE.Vector3(...farthestOnPath(edge.path, w.clone().transformDirection(place.clone().invert()).toArray())).applyMatrix4(place);
+    return null;
+  }
+
   private bodyEdges() {
     const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true; index?: number }[] = [...this.cutEdges().lines, ...this.crossEdges().lines];
     for (const [id, g] of this.bodies)
@@ -3670,6 +3691,7 @@ export class Viewer implements ToolView {
           const segs: [THREE.Vector3, THREE.Vector3][] = [];
           for (let i = groups[k]; i + 1 < groups[k] + groups[k + 1]; i += 2) segs.push([at(i), at(i + 1)]);
           out.push({ body: id, segs, index: k / 2 });
+          this.edgeOf.set(segs, { body: id, index: k / 2 });
         }
       }
     return out;

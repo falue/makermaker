@@ -37,6 +37,7 @@ Loose ends fixed 2026-11-08:
 - [ ] Materials → Transparent: Wax, cream, a little see-through, a bit shiny, in the view and in a render; its picture made in the browser at first (no shipped one yet)
 - [ ] A material given to a body (picked, or a slider in Materials making a new one) goes to all its linked copies and their source too, whichever of them is selected
 - [ ] Materials → Specials: Amber light (as the sample's Glowing resin), LED white / green / red / orange: shiny in their colour, a faint glow lighting only what is within about 60 mm
+- [ ] testdata/LIO test with lights.mmk: right after opening, Rectangle: the pointer follows, clicks land (was 20 s+ per move); round edges still give their top / side guides
 - [ ] Pattern grid, Linked off: the originals and copies end up in one group "Grid" where the first original was, nothing moves; Linked on: no group
 
 Selection first, then the tool:

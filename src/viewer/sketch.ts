@@ -115,6 +115,8 @@ export interface ToolView {
   onBodyEdge(at: THREE.Vector3, reach?: number): THREE.Vector3 | null;
   bodyCircleAt(at: THREE.Vector3, reach: number): { c: THREE.Vector3; n: THREE.Vector3; r: number } | null;
   bodyCurveTop(at: THREE.Vector3, w: THREE.Vector3, reach: number): THREE.Vector3 | null;
+  /** A body edge's top along `w` from its own true curve (see `Viewer.edgeTopAlong`); undefined: not known. */
+  edgeTopAlong(segs: Segment[], w: THREE.Vector3): THREE.Vector3 | null | undefined;
   /** Base plane facing the camera most. */
   facing(): BasePlane;
   /** Where the camera looks (world, unit). */
@@ -1176,6 +1178,9 @@ export class SketchTool implements Tool {
     const [u, v] = [v3(t.frame.x), v3(t.frame.y)];
     const sides: [THREE.Vector3, THREE.Vector3][] = [[u, v], [u.clone().negate(), v], [v, u], [v.clone().negate(), u]]; // outward, along
     const tops: [THREE.Vector3, THREE.Vector3][] = [];
+    const r = this.view.el.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
+    const ray = this.view.ray(e);
     // a circle's top along w: its middle and radius out, in its plane (null: w stands square to it)
     const topOf = (c: THREE.Vector3, n: THREE.Vector3, r: number, w: THREE.Vector3) => {
       const out = w.clone().projectOnPlane(n);
@@ -1190,16 +1195,22 @@ export class SketchTool implements Tool {
           if (top) tops.push([top, along]);
         }
       } else if (!l.shape && !l.guide && l.segs.length > 1) {
-        // a curved body edge: on the kernel's circle or path, where its points' outermost one lies near it (else that point: an end)
+        // a curved body edge: on the kernel's circle or path, where its points' outermost one lies near it (else that point: an end);
+        // only one passing near the pointer (its tops lie on it, within the mesh's sag): finding them looks through all edges
+        const box = new THREE.Box3().setFromPoints(l.segs.map(([a]) => a).concat([l.segs[l.segs.length - 1][1]]));
+        if (!ray.intersectsBox(box.expandByScalar((2 * px) / this.view.pixelsPerMm(l.segs[0][0])))) continue; // a quick look first
+        if (!l.segs.some(([a, b]) => this.screenDist(mx, my, a, b).d <= 2 * px)) continue;
         const pts = [l.segs[0][0], ...l.segs.map((g) => g[1])];
         const key = [t.frame.x, t.frame.y, pts[0].toArray(), pts[pts.length - 1].toArray(), pts.length].join();
         let got = this.roundTops.get(key);
         if (!got) {
           const reach = Math.max(...l.segs.map(([a, b]) => a.distanceTo(b)));
-          got = sides.map(([w]) => {
+          // from the edge's own curve; not known (a mesh body): the circle or path found near it (the same for all four sides)
+          const own = sides.map(([w]) => this.view.edgeTopAlong(l.segs, w));
+          const k = own[0] === undefined ? this.view.bodyCircleAt(pts[0], reach) : null;
+          got = sides.map(([w], i) => {
             const far = pts.reduce((a, b) => (b.dot(w) > a.dot(w) ? b : a));
-            const k = this.view.bodyCircleAt(far, reach);
-            const top = k ? topOf(k.c, k.n, k.r, w) : this.view.bodyCurveTop(far, w, reach);
+            const top = own[i] !== undefined ? own[i] : k ? topOf(k.c, k.n, k.r, w) : this.view.bodyCurveTop(far, w, reach);
             return top && top.distanceTo(far) <= reach ? top : far;
           });
           if (this.roundTops.size > 5000) this.roundTops.clear();
@@ -1209,8 +1220,6 @@ export class SketchTool implements Tool {
       }
     }
     for (const s of this.view.spheres()) for (const [w, along] of sides) tops.push([s.center.clone().addScaledVector(w, s.r), along]);
-    const r = this.view.el.getBoundingClientRect();
-    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
     let best: [THREE.Vector3, THREE.Vector3] | null = null;
     let nearest = px;
     for (const top of tops) {
