@@ -21,14 +21,14 @@ export class Kernel {
   private nextAsk = 0;
   private tolerance = 0.05;
 
-  /** `onResults`: bodies as they get built, in several lots for a long build; `done`: the last lot of a send. */
+  /** `onResults`: bodies as they get built, in several lots for a long build; `done`: the last lot, with nothing waiting to be sent after it. */
   constructor(onResults: (results: BodyResult[], done: boolean) => void) {
     this.worker.onmessage = ({ data }: MessageEvent<Response>) => {
       if (data.kind !== 'build') {
         this.asked.get(data.id)?.(data);
         return this.asked.delete(data.id);
       }
-      onResults(data.results, data.done);
+      onResults(data.results, data.done && !this.waiting.size);
       if (!data.done) return;
       this.busy = false;
       if (this.waiting.size) this.send([...this.waiting.values()]);

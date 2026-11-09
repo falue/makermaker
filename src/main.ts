@@ -8209,6 +8209,7 @@ function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   viewer.setSketchGrid(null);
   viewer.fitNext(viewer.setViews(doc.views)); // fitted into view, a saved view keeps its direction
   update();
+  void kernel.idle().then(() => viewer.holdFit(false)); // also when nothing needed building (the same file again)
 }
 
 function loadFile({ name, bytes, handle }: OpenedFile) {
