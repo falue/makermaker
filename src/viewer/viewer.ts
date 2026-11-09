@@ -928,6 +928,8 @@ export class Viewer implements ToolView {
   /** Writes see-through bodies' depth first, so they hide each other like solid ones and only the front shows. */
   private depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   private fadedEdges = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.2 });
+  /** Faded in the line modes: the edges are all there is, so they stay plainly seen, lighter than the rest. */
+  private fadedLineEdges = new THREE.LineBasicMaterial({ color: 0x2a2a2a, transparent: true, opacity: 0.5 });
   /** Where in the sketch group the view is: a row under the projection buttons. */
   private crumbs = Object.assign(document.createElement('div'), { className: 'overlay crumbs', hidden: true });
   private lastHit: THREE.Intersection | null = null;
@@ -2331,7 +2333,7 @@ export class Viewer implements ToolView {
     // faded (a group's or sketch's surroundings) in the visual style too: grey faded grey, the line modes no fill (faint edges only)
     const fadedFill = mode === 'lines' || mode === 'wire' ? this.noFill : mode === 'grey' ? this.fadedGrey : this.fadedOf(id);
     (solid as THREE.Mesh).material = cutter ? this.ghost : dropped ? this.droppedFill : faded ? fadedFill : fill;
-    (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? this.fadedEdges : this.edgeMaterial; // selected: a red silhouette
+    (lines as THREE.LineSegments).material = cutter ? this.cutterEdge : faded ? (mode === 'lines' || mode === 'wire' ? this.fadedLineEdges : this.fadedEdges) : this.edgeMaterial; // selected: a red silhouette
     lines.visible = cutter || faded || (mode !== 'lines' && mode !== 'wire'); // line modes: its wide copy instead (`drawContours`)
     // reduced opacity (and the cut tool): see-through bodies hide each other, their depth drawn before the see-through
     // colours (sections and picking skip it); x-ray shows what lies inside
