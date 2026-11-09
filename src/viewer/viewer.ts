@@ -4927,7 +4927,7 @@ export class Viewer implements ToolView {
       amount.value = String(Math.round(Math.max(0, Math.min(1, (e.clientX - r.left - 7) / (r.width - 14))) * 1000));
       slid();
     };
-    const reset = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('undo'), title: 'Click: Put everything back (all three axes, depth 1, the slider on Z)', onclick: () => ((ex.amount = [0, 0, 0]), (ex.depth = 1), (ex.axis = 2), showExplode(), redraw()) });
+    const reset = Object.assign(document.createElement('button'), { className: 'icon', innerHTML: icon('undo'), title: 'Click: Put everything back on all three axes (the depth stays)', onclick: () => ((ex.amount = [0, 0, 0]), showExplode(), redraw()) });
     const tools = document.createElement('span');
     tools.append(reset, depth);
     el.querySelector('.sections')!.append(axisLabel, tools, track);
