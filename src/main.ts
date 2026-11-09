@@ -2553,13 +2553,21 @@ function placementIn(parent: Matrix4, world: Matrix4) {
 /** A panel (cut, rotate, joint, values, move) at the top of the view, below its switches, centred left of the view cube (`cube` px); its contents wrap rather than reach under it. */
 function atTop(box: HTMLElement, cube = 120, least = 360) {
   const r = viewer.el.getBoundingClientRect();
-  // between the view's top-left column (breadcrumbs, mode note, switches) and the view cube, too wide its contents
-  // wrap; no room for `least` px beside the column: below it
+  // centred between the view's left edge and the view cube, too wide its contents wrap; only where it would cover the
+  // top-left column (breadcrumbs, mode note, switches): narrower and moved right just clear of it, and with less than
+  // `least` px there below it
   const c = viewer.corner.getBoundingClientRect();
-  const beside = !c.width || r.right - cube - (c.right + 8) >= least;
-  const [from, to, top] = [beside && c.width ? c.right + 8 : r.left + 8, r.right - cube, beside ? r.top + 44 : c.bottom + 6];
+  const [from, to, clear] = [r.left + 8, r.right - cube, c.right + 8];
+  const centred = () => from + (to - from - box.offsetWidth) / 2;
   box.style.maxWidth = `${to - from}px`;
-  keepInside(box, from + (to - from - box.offsetWidth) / 2, top, false, [r.left, r.top, r.right, r.bottom]);
+  let [x, top] = [centred(), r.top + 44];
+  if (c.width && x < clear) {
+    if (to - clear >= least) {
+      box.style.maxWidth = `${to - clear}px`;
+      x = Math.max(clear, centred());
+    } else top = c.bottom + 6;
+  }
+  keepInside(box, x, top, false, [r.left, r.top, r.right, r.bottom]);
 }
 
 // the top-left column (a mode note, a switch) or the view changes size: the panels at the top placed again
