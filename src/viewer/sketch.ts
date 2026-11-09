@@ -972,7 +972,8 @@ export class SketchTool implements Tool {
       if (typing) ph.typed[ph.axis] = (ph.typed[ph.axis] ?? '') + e.key;
       else if (pressed(e, 'erase')) ph.typed[ph.axis] = ph.typed[ph.axis]?.slice(0, -1) || undefined;
       else if (pressed(e, 'otherSide') && restOf(ph.typed[ph.axis] ?? '')) ph.typed[ph.axis] += restOf(ph.typed[ph.axis]!); // a name showing: written out
-      else if (pressed(e, 'otherSide') && (this.kind === 'rect' || this.kind === 'ngon')) ph.axis = 1 - ph.axis;
+      // Tab: the other size; a circle has one (Tab used up all the same: it would pick another object)
+      else if (pressed(e, 'otherSide')) ph.axis = this.kind === 'rect' || this.kind === 'ngon' ? 1 - ph.axis : ph.axis;
       else if (pressed(e, 'confirm')) this.shapeDone();
       else return false;
     } else if (ph.kind === 'polygon') {
