@@ -4941,17 +4941,23 @@ export class Viewer implements ToolView {
       const host = this.liveHost;
       if (!host) return;
       l.running = true;
-      l.picture.hidden = false;
       l.picture.style.top = `${(view.el.querySelector('.view-bar') as HTMLElement).offsetHeight}px`;
-      l.picture.style.background = backdropCss(l.background ?? this.backdropColours());
       // the header's status is the view's own: once this render is left or started anew, it writes nothing there
       const mine = () => view.live === l && l.gen === gen;
       let bar: HTMLProgressElement | null = null;
+      // the tracer's picture shows with its first pass: until then what was there stays (the 3D view while turned, else the last render)
+      let first: HTMLCanvasElement | null = null;
       try {
         const image = await this.renderNice(this.viewCamera(view), l.background ?? this.backdropColours(), host.light, host.haze, samples, {
-          show: (canvas) => l.picture.replaceChildren(canvas),
+          show: (canvas) => (first = canvas),
           progress: (done) => {
             if (!mine()) return;
+            if (first) {
+              l.picture.hidden = false;
+              l.picture.style.background = backdropCss(l.background ?? this.backdropColours());
+              l.picture.replaceChildren(first);
+              first = null;
+            }
             if (!bar?.isConnected) l.status.replaceChildren((bar = Object.assign(document.createElement('progress'), { className: 'live-progress', max: 1 })));
             bar.value = done;
           },
