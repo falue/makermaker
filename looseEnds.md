@@ -86,9 +86,11 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Drawing over big STEP assemblies (testdata/LIO test with lights.mmk, about 330 bodies): a pointer move over a dense part still takes about 0.2 s (2026-11-09): the snap points of all body edges are gathered on every move (`snapPoints`, `bodyEdges`), not only those near the pointer.
 - Reading and meshing a 15 MB STEP file (7,948 faces, about 7.7 s per copy) takes the worker's memory up to 1.9 GB; a few times that size could hit the browser's WebAssembly limit. Not caused by keeping solids; the copy or the mesh step is where to look first.
 - Rebuilding a body leaves some memory behind in the worker even when its shape is deleted; dropping the mesh first reduced this. Over very long sessions it could add up.
+- A fillet or chamfer too big for some edges still takes 1-2 s on testdata/blowout.mmk's candle holder (2026-11-09): every trial of the size search takes the result's tight box (`sound` in `finish`), slow on the bulge's spline face.
 - Only joint animation on the lamp has been measured against the 50-60 fps goal. Dragging bodies, editing sketches and big STEP files have not.
 
 ## Tests
+- `build.test.ts` › "reports the failing feature instead of guessing" fails (seen 2026-11-09, already on 3c042fa): a 40 mm corner fillet on the 100×60 plate is no longer refused; the edge-by-edge search caps all four corners at ~30 mm and returns that.
 - `setPointerCapture` threw InvalidStateError in Playwright pulls, cause unknown; not seen by hand.
 
 ## Assumed, change if wrong

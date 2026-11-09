@@ -1261,10 +1261,12 @@ function pickedNow(shape: Shape3D, rule: Exclude<EdgeRule, string>, skip: V3[], 
 function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finishing?: Finishing, lostIn = finishing): Shape3D {
   if (!shape) throw new Error('nothing to finish yet');
   positive(s.size, s.mode === 'fillet' ? 'radius' : 'distance');
-  const [[, , bottom], [, , top]] = shape.boundingBox.bounds;
+  // its tight box, once and only when asked for (seconds on a large spline face, e.g. a bulge's)
+  let box: [V3, V3] | undefined;
+  const bounds = () => (box ??= shape.boundingBox.bounds as [V3, V3]);
   const now = typeof s.edges === 'object' ? pickedNow(shape, s.edges, s.skip) : null;
   if (now?.lost && lostIn) lostIn.lost = { ...lostIn.lost, [s.id]: now.lost };
-  const rule = edgeRule(now ? { pts: now.lines } : s.edges, bottom, top, circles);
+  const rule = edgeRule(now ? { pts: now.lines } : s.edges, () => [bounds()[0][2], bounds()[1][2]], circles);
   const at = (e: Edge, t: number): V3 => e.pointAt(t).toTuple() as V3;
   const pick = (e: Edge) => rule(e) && !s.skip.some((p) => Math.hypot(...at(e, 0.5).map((v, k) => v - p[k])) < 0.01);
   const picked = shape.edges.filter(pick);
@@ -1290,13 +1292,14 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
   };
   // OpenCascade can hand back a broken solid instead of failing: sound only if valid and within the body's box (a
   // fillet or chamfer only takes from corners or fills them, never reaches beyond)
-  const [lo, hi] = shape.boundingBox.bounds;
   const sound = (out: Shape3D) => {
     const check = new (getOC().BRepCheck_Analyzer)(out.wrapped, true, false, false);
     const valid = check.IsValid();
     check.delete();
+    if (!valid) return false;
+    const [lo, hi] = bounds();
     const [a, b] = out.boundingBox.bounds;
-    return valid && [0, 1, 2].every((k) => a[k] > lo[k] - 1e-3 && b[k] < hi[k] + 1e-3);
+    return [0, 1, 2].every((k) => a[k] > lo[k] - 1e-3 && b[k] < hi[k] + 1e-3);
   };
   const tried = (make: () => Shape3D) => {
     try {
@@ -1374,7 +1377,7 @@ function normalsAt(shape: Shape3D, e: Edge): V3[] {
   return shape.faces.filter((f) => f.edges.some((g) => g.isSame(e))).map((f) => f.normalAt(e.pointAt(0.5)).toTuple() as V3);
 }
 
-function edgeRule(rule: EdgeRule, bottom: number, top: number, circles: Circle[], tol = 0.05): (e: Edge) => boolean {
+function edgeRule(rule: EdgeRule, heights: () => [bottom: number, top: number], circles: Circle[], tol = 0.05): (e: Edge) => boolean {
   if (typeof rule === 'object') {
     // picked edges: its ends and middle lie on one of their polylines
     const lines = rule.pts.map((pts) => pts.flat());
@@ -1391,9 +1394,9 @@ function edgeRule(rule: EdgeRule, bottom: number, top: number, circles: Circle[]
       case 'vertical':
         return vertical;
       case 'top':
-        return at(top);
+        return at(heights()[1]);
       case 'bottom':
-        return at(bottom);
+        return at(heights()[0]);
     }
   };
 }
