@@ -3,7 +3,7 @@ import { fitting, THREADS } from '../doc/threads';
 import { getIn, paramLookup, resolve, setIn } from '../doc/resolve';
 import { lookOf, setLook, STANDARD_SECTIONS } from '../doc/materials';
 import { ex, newFinish } from '../doc/sample';
-import { freed, ownerOf, ownersOf, sketchesOf, tree, whose, type Row } from '../doc/groups';
+import { freed, ownerOf, ownersOf, tree, whose, type Row } from '../doc/groups';
 import { shapesIn } from '../doc/shapegroups';
 import { backdropCss, twoColours } from '../viewer/sky';
 import { ASPECTS, shotCamera } from '../viewer/render';
@@ -800,9 +800,31 @@ function customSections(ctx: UIContext): Node[] {
 
 function left(ctx: UIContext): Node[] {
   const { doc } = ctx;
+  // what rows look up, built once (a big assembly lists hundreds of bodies)
+  const byId = new Map(doc.bodies.map((b) => [b.id, b]));
+  const indexOf = new Map(doc.bodies.map((b, i) => [b.id, i]));
+  const targetsOf = new Map<string, string[]>(); // a tool body: the bodies whose booleans take it
+  const userOf = new Map<string, Doc['bodies'][number]>(); // a tool body: the first whose (unlinked) boolean takes it
+  const copiesOf = new Map<string, string[]>();
+  for (const b of doc.bodies) {
+    if (b.link) copiesOf.set(b.link, [...(copiesOf.get(b.link) ?? []), b.id]);
+    for (const f of b.features) {
+      if (f.type !== 'boolean') continue;
+      const t = targetsOf.get(f.body) ?? [];
+      if (!t.includes(b.id)) targetsOf.set(f.body, [...t, b.id]);
+      if (!f.linked && !userOf.has(f.body)) userOf.set(f.body, b);
+    }
+  }
+  const sketchOwner = new Map(doc.sketches.map((k) => [k.id, ownerOf(doc, k.id)]));
+  const sketchesBy = new Map<string, Doc['sketches']>();
+  for (const k of doc.sketches) {
+    const o = sketchOwner.get(k.id);
+    if (o) sketchesBy.set(o, [...(sketchesBy.get(o) ?? []), k]);
+  }
   // while a body is isolated the others grey out (their eyes still show or hide them), all of a list while it is hidden
   const dimmed = (id: string, list: 'objects' | 'sketches' = 'objects') => ((ctx.isolated && ctx.isolated !== id) || ctx.hideAll[list] ? ' dimmed' : '');
-  const order = { objects: tree(doc, ctx.folded).map((r) => r.id), sketches: doc.sketches.map((s) => s.id) };
+  const listedRows = tree(doc, ctx.folded);
+  const order = { objects: listedRows.map((r) => r.id), sketches: doc.sketches.map((s) => s.id) };
   /** Shows or hides bodies (with their linked copies), sketches and groups by id (one step). */
   const setShown = (ids: string[], on: boolean) => {
     const all = new Set([...ids, ...doc.bodies.filter((b) => b.link && ids.includes(b.link)).map((b) => b.id)]);
@@ -828,11 +850,11 @@ function left(ctx: UIContext): Node[] {
     const el = h('div', { className: `listed${dimmed(id)}`, draggable: renaming !== id }, ...cells);
     // hovered: it (a group: its contents; a body: its linked copies too) outlined orange in the view, and in the list and view
     // the boolean's other side: the body it cuts, or its tool bodies
-    const tools = doc.bodies.find((b) => b.id === id)?.features.flatMap((f) => (f.type === 'boolean' ? [f.body] : [])) ?? [];
-    const targets = doc.bodies.filter((b) => b.features.some((f) => f.type === 'boolean' && f.body === id)).map((b) => b.id);
+    const tools = byId.get(id)?.features.flatMap((f) => (f.type === 'boolean' ? [f.body] : [])) ?? [];
+    const targets = targetsOf.get(id) ?? [];
     const pair = tools.length + targets.length > 0;
     const mark = (on: boolean) => pair && lightPair(on ? (r) => (tools.includes(r) ? 'bool-tool' : targets.includes(r) ? 'bool-target' : null) : null);
-    el.onmouseenter = () => (ctx.lightBodies([id, ...doc.bodies.filter((b) => b.link === id).map((b) => b.id), ...tools, ...targets]), mark(true));
+    el.onmouseenter = () => (ctx.lightBodies([id, ...(copiesOf.get(id) ?? []), ...tools, ...targets]), mark(true));
     el.onmouseleave = () => (ctx.lightBodies(null), mark(false));
     el.dataset.id = id;
     // right-click beside its name (its marks, its eye): its menu as well, never the browser's
@@ -920,7 +942,7 @@ function left(ctx: UIContext): Node[] {
     const up = (group: string | null) => {
       for (let g = doc.groups.find((x) => x.id === group); g; g = doc.groups.find((x) => x.id === g!.parent)) keep.add(g.id);
     };
-    for (const b of doc.bodies) if (matches(b.name) || sketchesOf(doc, b.id).some((k) => matches(k.name))) (keep.add(b.id), up(b.group));
+    for (const b of doc.bodies) if (matches(b.name) || (sketchesBy.get(b.id) ?? []).some((k) => matches(k.name))) (keep.add(b.id), up(b.group));
     for (const g of doc.groups) if (matches(g.name)) (keep.add(g.id), up(g.parent));
   }
   /** A sketch's row (`depth`: indented under its body); a plain click draws into it: sketch mode, looking at its plane. */
@@ -931,14 +953,15 @@ function left(ctx: UIContext): Node[] {
     item.onmouseenter = () => ctx.lightSketch(sk.id);
     item.onmouseleave = () => ctx.lightSketch(null);
     // listed on its own (Aids) though a body's: a body mark, a click selects that body
-    const owner = depth ? undefined : doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
+    const o = sketchOwner.get(sk.id);
+    const owner = depth || !o ? undefined : byId.get(o);
     const mark = owner ? [h('button', { className: 'icon', innerHTML: icon('body'), title: `Sketch of ${owner.name} · click: select ${owner.name}`, onclick: () => ctx.select(owner.id, false) })] : [];
     const el = h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, marked(mark), eye('sketches', sk.id, sk.visible));
     el.dataset.id = sk.id;
     el.style.paddingLeft = `${depth * 22}px`;
     return el;
   };
-  const rows = tree(doc, keep ? new Set() : ctx.folded).filter((r) => !keep || keep.has(r.id)).flatMap((r): HTMLElement[] => {
+  const rows = (keep ? tree(doc, new Set()) : listedRows).filter((r) => !keep || keep.has(r.id)).flatMap((r): HTMLElement[] => {
     const { id, kind, depth } = r;
     if (kind === 'group') {
       const i = doc.groups.findIndex((g) => g.id === id);
@@ -949,7 +972,7 @@ function left(ctx: UIContext): Node[] {
       const pick = (how: Pick) => (!how && renaming !== id && !r.open && ctx.toggleFold(id), ctx.select(id, how));
       return [row(id, depth, true, listItem(id, `${selectedClass(id)} group`, pick, chevron, nameOf(id, g.name, ['groups', String(i), 'name'])), marked(jointMark(id)), eye('objects', id, g.visible))];
     }
-    const i = doc.bodies.findIndex((q) => q.id === id);
+    const i = indexOf.get(id)!;
     const p = doc.bodies[i];
     const swatch = h('span', { className: 'swatch' });
     swatch.style.background = lookOf(ctx.doc, p).color;
@@ -965,12 +988,12 @@ function left(ctx: UIContext): Node[] {
       Object.assign(look, { innerHTML: icon(full ? 'eye' : 'eyeFaded'), title: full ? 'Shown fully: click to make it see-through again' : `See-through while ${when}: click to show it fully`, onclick: (e: MouseEvent) => eyeClick('solid', p.id, !full, e, ctx.setSolid) });
     }
     // its sketches fold out under it, as a boolean's tool bodies do: this button folds them
-    const own = sketchesOf(doc, p.id);
+    const own = sketchesBy.get(p.id) ?? [];
     const sketchesOpen = ctx.folded.has(`sketches:${p.id}`) || (!!keep && own.some((k) => matches(k.name)));
     const bools = fold(r); // an owner of tool bodies: the red boolean button folds them
     const sketch = own.length ? [h('button', { className: `icon sketch-fold${sketchesOpen ? ' open' : ''}`, innerHTML: icon('sketch'), title: `${sketchesOpen ? 'Click: Fold its sketches away' : 'Click: Show its sketches under it'}: ${own.map((q) => q.name).join(', ')}`, onclick: () => ctx.toggleFold(`sketches:${p.id}`) })] : [];
     // a boolean's tool body: the op, and whose
-    const user = doc.bodies.find((o) => o.features.some((f) => f.type === 'boolean' && f.body === id && !f.linked));
+    const user = userOf.get(id);
     const op = user?.features.find((f) => f.type === 'boolean' && f.body === id && !f.linked);
     // a boolean's tool body: the op as a button in the eye's place (whose; a click frees it)
     const tool =
@@ -980,8 +1003,8 @@ function left(ctx: UIContext): Node[] {
     // listed on its own: its eye too (on: its outlines show all the time; off: only while selected)
     const toolEye = op?.type === 'boolean' && op.free ? [look] : [];
     // linked copies: the link mark on the copies unlinks one; on their source it folds them out under it
-    const source = doc.bodies.find((b) => b.id === p.link);
-    const copies = doc.bodies.filter((b) => b.link === p.id).map((b) => b.id);
+    const source = p.link ? byId.get(p.link) : undefined;
+    const copies = copiesOf.get(p.id) ?? [];
     const shares = `Its ${copies.length} linked cop${copies.length === 1 ? 'y shares' : 'ies share'} its steps`;
     const fromMenu = 'right-click: Break links';
     const linked = source

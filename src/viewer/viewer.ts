@@ -3690,10 +3690,11 @@ export class Viewer implements ToolView {
     return null;
   }
 
-  private bodyEdges() {
+  /** `only`: just these bodies' own edges (cut and crossing lines all the same). */
+  private bodyEdges(only?: Set<string>) {
     const out: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true; index?: number }[] = [...this.cutEdges().lines, ...this.crossEdges().lines];
     for (const [id, g] of this.bodies)
-      for (const c of this.hidden.has(id) ? [] : g.children) {
+      for (const c of this.hidden.has(id) || (only && !only.has(id)) ? [] : g.children) {
         const groups = c.userData.edgeGroups as Uint32Array | undefined;
         if (!groups) continue;
         const pos = (c as THREE.LineSegments).geometry.attributes.position;
@@ -3789,11 +3790,20 @@ export class Viewer implements ToolView {
     const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
     const ray = this.ray(e);
     const front = this.intersect(this.raycaster(e))[0]?.distance ?? Infinity;
+    // only bodies whose box the pointer's ray passes near (a big assembly has hundreds of thousands of segments)
+    const near = new Set<string>();
+    const mid = new THREE.Vector3();
+    for (const [id, g] of this.bodies) {
+      const box = new THREE.Box3().setFromObject(g);
+      if (!box.isEmpty() && ray.intersectsBox(box.expandByScalar((2 * px) / this.pixelsPerMm(box.getCenter(mid))))) near.add(id);
+    }
+    const [w, h, v] = [this.el.clientWidth, this.el.clientHeight, new THREE.Vector3()];
+    const screen = (p: THREE.Vector3) => (v.copy(p).project(this.camera), [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h]);
     let best: { body: string; segs: [THREE.Vector3, THREE.Vector3][]; cut?: true; index?: number; d: number } | null = null;
-    for (const edge of this.bodyEdges())
+    for (const edge of this.bodyEdges(near))
       for (const [a, b] of edge.segs) {
-        const [ax, ay] = this.toScreen(a);
-        const [bx, by] = this.toScreen(b);
+        const [ax, ay] = screen(a);
+        const [bx, by] = screen(b);
         const len2 = (bx - ax) ** 2 + (by - ay) ** 2;
         const k = len2 ? Math.max(0, Math.min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)) : 0;
         const d = Math.hypot(mx - ax - k * (bx - ax), my - ay - k * (by - ay));

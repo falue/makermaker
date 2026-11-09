@@ -70,32 +70,48 @@ export function listedAfter(doc: Doc, made: [string, string][]): Doc {
 
 export function tree(doc: Doc, folded: Set<string>): Row[] {
   const out: Row[] = [];
+  const byId = new Map(doc.bodies.map((b) => [b.id, b]));
   // tool bodies listed under their body, but for those dragged elsewhere
-  const owner = new Map([...ownersOf(doc)].filter(([tool, o]) => !doc.bodies.find((b) => b.id === o)?.features.some((f) => f.type === 'boolean' && f.body === tool && f.free)));
+  const owner = new Map([...ownersOf(doc)].filter(([tool, o]) => !byId.get(o)?.features.some((f) => f.type === 'boolean' && f.body === tool && f.free)));
   // a linked copy in its source's group sits under the source
-  const under = (b: DocBody) => !!b.link && doc.bodies.some((s) => s.id === b.link && s.group === b.group);
+  const under = (b: DocBody) => !!b.link && byId.get(b.link)?.group === b.group;
+  const [toolsOf, copiesOf] = [new Map<string, DocBody[]>(), new Map<string, DocBody[]>()];
+  const add = (m: Map<string, DocBody[]>, k: string, b: DocBody) => m.set(k, [...(m.get(k) ?? []), b]);
+  for (const b of doc.bodies) {
+    const o = owner.get(b.id);
+    if (o) add(toolsOf, o, b);
+    else if (b.link && under(b)) add(copiesOf, b.link, b);
+  }
+  const listed = new Set<string>();
+  const push = (r: Row) => (out.push(r), listed.add(r.id));
   // a body, then the tool bodies of its booleans and its linked copies under it, like a group's contents; each starts
   // folded (`folded` holding the body, or `copies:` and the body, means open)
   const body = (id: string, depth: number) => {
-    const listed = (t: DocBody) => !t.folded && !out.some((r) => r.id === t.id);
-    const tools = doc.bodies.filter((t) => owner.get(t.id) === id && listed(t));
-    const copies = doc.bodies.filter((t) => t.link === id && under(t) && !owner.has(t.id) && listed(t));
+    const shownHere = (t: DocBody) => !t.folded && !listed.has(t.id);
+    const tools = (toolsOf.get(id) ?? []).filter(shownHere);
+    const copies = (copiesOf.get(id) ?? []).filter(shownHere);
     const open = tools.length ? folded.has(id) : undefined;
     const shown = copies.length ? folded.has(`copies:${id}`) : undefined;
-    out.push({ id, kind: 'body', depth, open, copies: shown });
+    push({ id, kind: 'body', depth, open, copies: shown });
     for (const t of [...(open ? tools : []), ...(shown ? copies : [])]) body(t.id, depth + 1);
   };
   // per level its groups and bodies in their places (see `rank`)
-  const walk = (parent: string | null, depth: number) => {
-    const groups = doc.groups.filter((g) => parentOf(doc, g.parent) === parent).map((g) => ({ id: g.id, group: true }));
-    const bodies = doc.bodies.filter((b) => parentOf(doc, b.group) === parent && !owner.has(b.id) && !under(b) && !b.folded).map((b) => ({ id: b.id, group: false }));
-    for (const { id, group } of [...groups, ...bodies].sort((a, b) => rank(doc, a.id) - rank(doc, b.id) || +b.group - +a.group)) {
+  const groupIds = new Set(doc.groups.map((g) => g.id));
+  const parent = (g: string | null) => (g && groupIds.has(g) ? g : null); // as `parentOf`
+  const ranks = new Map<string, number>();
+  doc.bodies.forEach((b, i) => ranks.set(b.id, b.order ?? i));
+  doc.groups.forEach((g, i) => ranks.set(g.id, g.order ?? i - 1e6));
+  const level = new Map<string | null, { id: string; group: boolean }[]>();
+  for (const g of doc.groups) level.set(parent(g.parent), [...(level.get(parent(g.parent)) ?? []), { id: g.id, group: true }]);
+  for (const b of doc.bodies) if (!owner.has(b.id) && !under(b) && !b.folded) level.set(parent(b.group), [...(level.get(parent(b.group)) ?? []), { id: b.id, group: false }]);
+  const walk = (at: string | null, depth: number) => {
+    for (const { id, group } of (level.get(at) ?? []).sort((a, b) => ranks.get(a.id)! - ranks.get(b.id)! || +b.group - +a.group)) {
       if (!group) {
         body(id, depth);
         continue;
       }
       const open = !folded.has(id);
-      out.push({ id, kind: 'group', depth, open });
+      push({ id, kind: 'group', depth, open });
       if (open) walk(id, depth + 1);
     }
   };

@@ -364,13 +364,14 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     render();
   },
   pickFinish(sel) {
+    const before = [finishSel, stepSel];
     finishSel = sel;
     viewer.setFinishMark(sel);
     // not a finish's face: the step that made it, if not the body's first (a bulge's face: that bulge)
     const face = sel ? null : viewer.lastFaceItem();
     const bulge = face && !stepAt(face) && bulgeAt(face);
     selectStep(face && (stepAt(face) ?? (bulge ? { body: face.body, feature: bulge.feature } : null)));
-    render();
+    if (finishSel !== before[0] || stepSel !== before[1]) render(); // a click drops all picks: each unchanged one redrew the whole UI
   },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
   dragFinish,
@@ -428,6 +429,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
     showSelection();
   },
   pickedPart(part) {
+    if (part === pickedPart) return;
     pickedPart = part;
     render();
   },
