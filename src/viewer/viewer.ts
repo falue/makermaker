@@ -4568,10 +4568,16 @@ export class Viewer implements ToolView {
             mark.renderOrder = order;
             this.sectionView.add(mark);
           }
-          const look = { color: (solid.material as THREE.MeshStandardMaterial).color.clone().multiplyScalar(shade), map: this.hatch, roughness: 0.9, clippingPlanes: others };
-          sheet(new THREE.MeshStandardMaterial({ ...look, ...stencil(0x01, THREE.EqualStencilFunc) }), 0.2);
-          // the canvas' alpha kept: else the page shows through
-          sheet(new THREE.MeshStandardMaterial({ ...look, opacity: 0.5, blending: THREE.CustomBlending, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, ...stencil(0x81, THREE.EqualStencilFunc) }), 0.3);
+          // the cut face in the visual style: shaded its colour, grey grey, both hatched; Lines no colour, only hiding what lies behind; All lines none (its outline only)
+          const mode = this.viewMode;
+          const colour = mode === 'grey' ? new THREE.Color(0xb4b4b4) : (this.materialOf(id) as THREE.MeshStandardMaterial).color.clone();
+          const look = { color: colour.multiplyScalar(shade), map: this.hatch, roughness: 0.9, clippingPlanes: others };
+          if (mode === 'lines') sheet(new THREE.MeshBasicMaterial({ colorWrite: false, clippingPlanes: others, ...stencil(0x01, THREE.EqualStencilFunc) }), 0.2);
+          else if (mode !== 'wire') {
+            sheet(new THREE.MeshStandardMaterial({ ...look, ...stencil(0x01, THREE.EqualStencilFunc) }), 0.2);
+            // the canvas' alpha kept: else the page shows through
+            sheet(new THREE.MeshStandardMaterial({ ...look, opacity: 0.5, blending: THREE.CustomBlending, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor, ...stencil(0x81, THREE.EqualStencilFunc) }), 0.3);
+          }
           // where it lies now: bit 0x80 (its count cleared)
           last = sheet(new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false, ...stencil(0x80, THREE.NotEqualStencilFunc, 0x7f, THREE.ReplaceStencilOp) }), 0.4);
           g.updateMatrix();
