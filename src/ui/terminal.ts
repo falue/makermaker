@@ -315,10 +315,12 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   let dir: FileSystemDirectoryHandle | null = null;
   /** The folder remembered, its permission still to be given (that takes a click). */
   let waiting: FileSystemDirectoryHandle | null = null;
-  /** What became of the examples in this browser: edited, renamed. */
+  /** What became of the examples in this browser: edited, renamed (only what differs: the app's own later fixes still come). */
   const changedExamples = stored<Record<string, { name?: string; text?: string }>>('makermaker.exampleScripts', {});
   const changeExample = (example: string, change: { name?: string; text?: string }) => {
-    changedExamples[example] = { ...changedExamples[example], ...change };
+    const own = EXAMPLES.find((e) => e.name === example)!;
+    const { name, text } = { ...changedExamples[example], ...change };
+    changedExamples[example] = { ...(name !== own.name ? { name } : {}), ...(text !== own.text ? { text } : {}) };
     store('makermaker.exampleScripts', changedExamples);
   };
   /** Files picked by themselves, wherever they lie; remembered in this browser. */

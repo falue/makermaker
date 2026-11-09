@@ -25,7 +25,7 @@ sketch = cad.sketch('xy', offset=20, name='Outline')
 cad.polygon(sketch, [[-50, -30], [50, -30], [50, 30], [-50, 30]])
 
 # What came out, and what stays selected.
-design = cad.list()  adasdasd
+design = cad.list()
 print(len(design['bodies']), 'bodies,', len(design['sketches']), 'sketches')
 cad.select(plate, *pegs)
 print('selected', len(cad.selection()))
