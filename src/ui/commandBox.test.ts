@@ -17,3 +17,9 @@ it('allows a typo (two from 6 letters), and finds by the hint from 3 letters', (
   expect(score('two', c('Cut', 'the bodies in two'))).toBe(5);
   expect(score('tw', c('Cut', 'the bodies in two'))).toBeNull();
 });
+
+it('a single letter puts the command with that key first', () => {
+  expect(score('e', { name: 'Extrude', hint: '', keys: 'E' })).toBe(-1);
+  expect(score('d', { name: 'Duplicate', hint: '', keys: '⌘D' })).toBe(0); // ⌘D is not D
+  expect(score('e', { name: 'Export', hint: '' })).toBe(0);
+});

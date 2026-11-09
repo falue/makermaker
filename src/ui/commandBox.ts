@@ -15,10 +15,11 @@ function edits(a: string, b: string) {
 }
 
 /**
- * How well `q` (lower case) finds `c`, lower is better; null: not at all. Its name or a word of it starting with `q`,
+ * How well `q` (lower case) finds `c`, lower is better; null: not at all. A single letter that is its key first; its name or a word of it starting with `q`,
  * the name holding it, a word starting with it give or take a typo (two from 6 letters), or (3 letters on) its hint holding it.
  */
-export function score(q: string, c: Pick<Command, 'name' | 'hint'>): number | null {
+export function score(q: string, c: Pick<Command, 'name' | 'hint' | 'keys'>): number | null {
+  if (q.length === 1 && c.keys?.split(' ').includes(q.toUpperCase())) return -1; // its key, as pressed without the box
   const name = c.name.toLowerCase();
   const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   if (name.startsWith(q)) return 0;
