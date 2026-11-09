@@ -5,7 +5,8 @@ import { setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { BuildFeature } from './build';
 import { area, bounds } from '../doc/profiles';
-import { dxfOf, laserCuts, laserSvg, withKerf } from './laser';
+import { dxfOf } from '../io/cutfile';
+import { laserCuts, laserSvg, withKerf } from './laser';
 
 beforeAll(async () => setOC(await init({ wasmBinary: readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm')) })), 60_000);
 

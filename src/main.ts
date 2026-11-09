@@ -36,6 +36,7 @@ import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import type { Exact } from './kernel/exact';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
+import { dxfOf, sketchCuts, svgOf } from './io/cutfile';
 import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature, CappedEdge } from './kernel/build';
 import { Kernel } from './kernel/client';
@@ -5764,6 +5765,20 @@ function bodyMenu(id: string, x: number, y: number): boolean {
   return true;
 }
 
+/** A sketch's right-click menu: its shapes exported as a drawing. */
+function sketchMenu(id: string, x: number, y: number) {
+  contextMenu(x, y, (['svg', 'dxf'] as const).map((format) => ({ label: `Export as ${format.toUpperCase()}`, title: 'Its shapes at 1:1 in mm (construction lines left out)', run: () => exportSketch(id, format) })));
+}
+
+/** A sketch's shapes as an SVG or DXF file, 1:1 in mm. */
+function exportSketch(id: string, format: 'svg' | 'dxf') {
+  const doc = history.current;
+  const s = doc.sketches.find((x) => x.id === id)!;
+  const cuts = sketchCuts(resolve(s, paramLookup(doc.params), '', new Map()).shapes);
+  if (!cuts.length) return fail(`Nothing to export: ${s.name} has no shapes (construction lines stay out)`);
+  download(new Blob([format === 'svg' ? svgOf(cuts) : dxfOf(cuts)], { type: format === 'svg' ? 'image/svg+xml' : 'image/vnd.dxf' }), `${s.name.replace(/[^\w.-]+/g, '_') || 'sketch'}.${format}`);
+}
+
 /** Folds tool body `id` into its body's boolean step (it leaves the list, nothing is lost), or unfolds it again. */
 function foldTool(id: string, fold: boolean) {
   const doc = history.current;
@@ -7221,6 +7236,7 @@ function render() {
     foldTool,
     foldAll,
     bodyMenu,
+    sketchMenu,
     revealInList,
     removeStep: (body, feature) => removeStep({ body, feature }),
     deselectAgain(id, how) {

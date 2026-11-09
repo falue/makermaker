@@ -87,6 +87,8 @@ export interface UIContext {
   foldAll(owner: string): void;
   /** Body `id`'s right-click menu at (x, y) (Fold, Unfold, Fold all); false: nothing to offer. */
   bodyMenu(id: string, x: number, y: number): boolean;
+  /** Sketch `id`'s right-click menu at (x, y): Export as SVG / DXF. */
+  sketchMenu(id: string, x: number, y: number): void;
   /** Shows `id`'s row in the left column: its tab, its groups open, scrolled to. */
   revealInList(id: string): void;
   /** Deletes step `feature` of `body` (a boolean's: a folded tool body goes with it, a listed one becomes free). */
@@ -352,7 +354,7 @@ function listItem(id: string, className: string, pick: (how: Pick) => void, ...c
       pick(how);
       if (found) revealOf?.(id);
     },
-    // right-click: a body's menu if it has one; Ctrl-click (macOS sends it as a right-click) toggles as ⌘-click does
+    // right-click: a body's or sketch's menu if it has one; Ctrl-click (macOS sends it as a right-click) toggles as ⌘-click does
     oncontextmenu: (e) => (e.preventDefault(), (!e.ctrlKey && menuOf?.(id, e.clientX, e.clientY)) || pick(true)),
   }, ...children);
   el.dataset.id = id; // the view lights it (see `onHover` in main)
@@ -396,7 +398,7 @@ let revealOf: UIContext['revealInList'] | null = null;
 export function renderUI(ctx: UIContext) {
   if (holding) return void (waiting = ctx);
   waiting = null;
-  menuOf = (id, x, y) => ctx.doc.bodies.some((b) => b.id === id) && ctx.bodyMenu(id, x, y);
+  menuOf = (id, x, y) => (ctx.doc.sketches.some((s) => s.id === id) ? (ctx.sketchMenu(id, x, y), true) : ctx.doc.bodies.some((b) => b.id === id) && ctx.bodyMenu(id, x, y));
   revealOf = ctx.revealInList;
   const active = document.activeElement as HTMLInputElement | null;
   const path = active?.dataset?.path ?? (renaming ? `list.${renaming}` : undefined); // a name just clicked gets the focus
