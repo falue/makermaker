@@ -1129,20 +1129,26 @@ export class SketchTool implements Tool {
    * Where the pointer snaps, in the target's plane coordinates, each with what it is and the outline it belongs to (lit
    * while snapped): the plane origin; centres, corners (line ends), points along sides (the middle, or as many as set
    * with A) and around circles (quadrants, or as set) of the shapes of every visible sketch; the same along straight
-   * body edges; body corners, sphere centres (their edges are looked up when snapped) and round edges' centres. Only points in the plane drawn
-   * on: one off it would snap to its projection, away from what it is.
+   * body edges; body corners, sphere centres (their edges are looked up when snapped) and round edges' centres. Points in the plane drawn
+   * on, and projected onto it those seen through it (beyond it from the camera: "below"), after them so one in the plane wins.
    */
   private snapPoints(t: Target, lines: SnapLine[]): SnapPoint[] {
     const pts: SnapPoint[] = [{ at: [0, 0], what: 'origin' }];
-    // a line off the plane: only the points just asked for with A, projected
-    const add = (v: THREE.Vector3, o: Omit<SnapPoint, 'at'>) => (inPlane(t.frame, v) || (o.key && o.key === this.showing)) && pts.push({ at: uvOf(t.frame, v), ...o });
+    const beneath: SnapPoint[] = [];
+    const n = v3(t.frame.n);
+    const side = Math.sign(this.view.looking().dot(n)); // seen edge-on: nothing beyond
+    // off the plane: beyond it projected; else only the points just asked for with A, projected
+    const add = (v: THREE.Vector3, o: Omit<SnapPoint, 'at'>) => {
+      if (inPlane(t.frame, v) || (o.key && o.key === this.showing)) pts.push({ at: uvOf(t.frame, v), ...o });
+      else if (v.clone().sub(v3(t.frame.o)).dot(n) * side > 1e-3) beneath.push({ at: uvOf(t.frame, v), ...o, what: `${o.what} below` });
+    };
     for (const { at, ...o } of linePoints(lines)) add(at, o);
     for (const c of this.view.corners()) add(c, { what: 'corner', corner: c });
     for (const c of this.view.edgeCentres()) add(c, { what: 'centre' }); // a hole's or shaft's: its rim in the plane
     // the line being drawn: its own points, its start closes it
     const ph = this.phase;
     if (ph.kind === 'polygon') ph.pts.slice(0, -1).forEach((at, i) => pts.push({ at, what: !i && this.canClose(ph) ? 'start: a click closes it' : 'point of this line' }));
-    return pts;
+    return [...pts, ...beneath];
   }
 
   /**
@@ -1445,7 +1451,7 @@ export class SketchTool implements Tool {
         // a body corner lights the edges meeting there; none: a sphere centre
         const touching = lines.filter((l) => !l.shape && [l.segs[0][0], l.segs[l.segs.length - 1][1]].some((v) => v.distanceTo(c) < 1e-4)).flatMap((l) => l.segs);
         if (touching.length) this.snapLine = touching;
-        else this.snapWhat = 'centre';
+        else this.snapWhat = near.what.replace('corner', 'centre');
       }
       return near.at;
     }
