@@ -1225,6 +1225,11 @@ canvas.drawing,
 }
 .listed .item {
   margin-bottom: 0;
+  min-width: 0; /* a long word must not widen the row: it would push the eye out */
+}
+.listed .item .name {
+  min-width: 0;
+  overflow-wrap: anywhere; /* one long word breaks inside the box */
 }
 /* the icon (colour, sketch, fold arrow) beside the name: a wrapping name keeps its own left edge */
 .listed button.item {
