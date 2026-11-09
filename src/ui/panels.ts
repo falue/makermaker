@@ -300,7 +300,7 @@ let lastEye: { list: 'objects' | 'sketches' | 'solid'; id: string; on: boolean }
 /** The list row whose name is edited in place (its id). */
 let renaming: string | null = null;
 
-/** The left column's tabs: Objects (bodies, groups, a body's own sketches under it), Aids (free sketches, work planes, images), Parameters. */
+/** The left column's tabs: Objects (bodies, groups, a body's own sketches under it), Aids (every sketch, work planes, images), Parameters. */
 export type LeftTab = 'objects' | 'aids' | 'params';
 const LEFT_TABS: [LeftTab, string, IconName][] = [
   ['objects', 'Objects', 'body'],
@@ -317,10 +317,10 @@ export function showTab(tab: LeftTab) {
   localStorage.setItem('makermaker.leftTab', tab);
 }
 
-/** The tab that lists `id`: a body, group or a body's sketch Objects; a free sketch, work plane or image Aids; else null. */
+/** The tab that lists `id`: a body or group Objects; a body's sketch Objects unless Aids is open; a free sketch, work plane or image Aids; else null. */
 export function tabOf(doc: Doc, id: string): LeftTab | null {
   if (doc.bodies.some((b) => b.id === id) || doc.groups.some((g) => g.id === id)) return 'objects';
-  if (doc.sketches.some((s) => s.id === id)) return ownerOf(doc, id) ? 'objects' : 'aids';
+  if (doc.sketches.some((s) => s.id === id)) return ownerOf(doc, id) && leftTab !== 'aids' ? 'objects' : 'aids';
   return doc.planes.some((w) => w.id === id) || doc.images.some((im) => im.id === id) ? 'aids' : null;
 }
 
@@ -960,8 +960,8 @@ function left(ctx: UIContext): Node[] {
     const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.deselectAgain(id, how) || ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), marked([...linked, ...joint, ...sketch, ...bools, ...jointMark(id)]), tool, ...toolEye);
     return [el, ...(sketchesOpen ? own.filter((k) => !keep || matches(k.name) || matches(p.name)).map((k) => sketchRow(k, depth + 1)) : [])];
   });
-  // Aids: the sketches no body owns (a body's are under it)
-  const sketchRows = doc.sketches.filter((sk) => !ownerOf(doc, sk.id) && matches(sk.name)).map((sk) => sketchRow(sk));
+  // Aids: every sketch, a body's too (also under its body)
+  const sketchRows = doc.sketches.filter((sk) => matches(sk.name)).map((sk) => sketchRow(sk));
   const imageRows = doc.images.flatMap((im, i) => {
     if (!matches(im.name)) return [];
     // a click on the one selected takes it off again
@@ -1012,7 +1012,7 @@ function left(ctx: UIContext): Node[] {
   };
   const counts: Record<LeftTab, number> = {
     objects: doc.bodies.filter((b) => !ownersOf(doc).has(b.id)).length + doc.groups.length,
-    aids: doc.sketches.filter((sk) => !ownerOf(doc, sk.id)).length + doc.planes.length + doc.images.length,
+    aids: doc.sketches.length + doc.planes.length + doc.images.length,
     params: Object.keys(doc.params).length,
   };
   // the tabs on top (the shared tab look): one list at a time, the whole height
