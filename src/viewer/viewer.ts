@@ -448,7 +448,7 @@ export class Viewer implements ToolView {
   /** A tool's preview (shapes being drawn, snaps, guides): sorted after everything else (a group's order), so no body, nor a section's clipped copy, covers it. */
   overlay = Object.assign(new THREE.Group(), { renderOrder: 2e6 });
   private sketchView = new THREE.Group();
-  private sketchGrid = new THREE.Group();
+  private sketchGrid = Object.assign(new THREE.Group(), { visible: false });
   private selectedShapes: string[] = [];
   /** Shapes shown changed while they are dragged, before the change is handed over. */
   private overrides = new Map<string, DrawnProfile>();
@@ -1353,21 +1353,16 @@ export class Viewer implements ToolView {
     if (hover?.mesh.parent && !picked.some((f) => f.mesh === hover.mesh && f.index === hover.index)) this.faceMarks.push(this.replaceMark(null, hover.mesh, [hover.index], 0x3b6fd8)!);
   }
 
-  /** The sketch in sketch mode gets a grid on its plane and a cut there (null: none). */
-  setSketchGrid(frame: Frame | null, size = 400, step = 10) {
+  /** The sketch in sketch mode gets a grid on its plane (drawn as the ground grid is: `drawGrid`) and a cut there (null: none). */
+  setSketchGrid(frame: Frame | null) {
     this.setSketchCut(frame);
-    for (const o of this.sketchGrid.children) (o as THREE.GridHelper).dispose();
-    this.sketchGrid.clear();
-    if (frame) {
-      const g = new THREE.GridHelper(size, size / step, 0x3b6fd8, 0x3b6fd8);
-      Object.assign(g.material, { transparent: true, opacity: 0.25, depthWrite: false });
-      g.matrixAutoUpdate = false;
-      // the helper lies in its x-z plane
-      g.matrix.makeBasis(new THREE.Vector3(...frame.x), new THREE.Vector3(...frame.n), new THREE.Vector3(...frame.y)).setPosition(new THREE.Vector3(...frame.o));
-      this.sketchGrid.add(g);
-    }
+    this.sketchGrid.visible = !!frame;
+    if (frame) Object.assign(this.sketchGrid, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.makeBasis(new THREE.Vector3(...frame.x), new THREE.Vector3(...frame.y), new THREE.Vector3(...frame.n)).setPosition(new THREE.Vector3(...frame.o));
+    this.sketchLook.key = '';
     this.render();
   }
+  /** The sketch grid's look (see `gridLook`): blue, see-through. */
+  private sketchLook = { colors: [0x3b6fd8, 0x3b6fd8, 0x3b6fd8], opacity: [0.12, 0.3, 0.45], key: '' };
 
   /** Shows the sketches; `active`: the selected sketch, `shapes`: its selected shapes. */
   setSketches(sketches: ViewSketch[], active: string | null, shapes: string[]) {
@@ -3287,7 +3282,7 @@ export class Viewer implements ToolView {
       this.dropPhoto();
       this.scene.background = new THREE.Color(backdrop.stops[0].color);
     }
-    this.gridLook = { major: dark ? 0x45474d : 0xbbbbbb, minor: dark ? 0x2c2e32 : 0xd6d6d4, zero: dark ? 0x60636b : 0xa2a2a2, key: '' }; // through 0: a tad stronger
+    this.gridLook = { colors: dark ? [0x2c2e32, 0x45474d, 0x60636b] : [0xd6d6d4, 0xbbbbbb, 0xa2a2a2], opacity: [0.5, 1, 1], key: '' }; // through 0: a tad stronger
     for (const m of [this.lineEdges, this.allEdges]) m.color.set(dark ? 0xdcdcdc : 0x2a2a2a);
     this.render();
   };
@@ -3304,48 +3299,56 @@ export class Viewer implements ToolView {
     this.tiltUp();
   }
 
-  /** The ground grid's colours (the step's lines, every 5th, those through 0), and what it was drawn for (step and middle). */
-  private gridLook = { major: 0xbbbbbb, minor: 0xd6d6d4, zero: 0xa2a2a2, key: '' };
+  /** The ground grid's colours and opacities (the step's lines, every 5th, those through 0), and what it was drawn for (step and middle). */
+  private gridLook = { colors: [0xd6d6d4, 0xbbbbbb, 0xa2a2a2], opacity: [0.5, 1, 1], key: '' };
+
+  /** The ground grid, and while sketching the sketch's on its plane. */
+  private drawGrid() {
+    this.gridIn(this.grid, this.groupFrame, this.gridLook);
+    if (this.sketchGrid.visible) this.gridIn(this.sketchGrid, this.sketchGrid.matrix, this.sketchLook);
+  }
 
   /**
-   * The ground grid: a faint line every drag step there (1-2-5, by the zoom: finer zooming in, coarser out), every 5th
-   * stronger (on a 5 step every 10th: 10, 50, 100 …), `cells` steps each way from the point looked at; drawn anew when
-   * the step changes or the view moves far.
+   * A grid in `group`, on the x-y plane of `frame` (world): a faint line every drag step there (1-2-5, by the zoom: finer
+   * zooming in, coarser out) `cells` steps each way from the point looked at, every 5th stronger (on a 5 step every 10th:
+   * 10, 50, 100 …) and `wide` times as far; drawn anew when the step changes or the view moves far.
    */
-  private drawGrid(cells = 250, grazing = 0.1) {
-    // around where the middle of the view meets the ground (zoomed in towards the pointer, the point orbited round
-    // can lie far off), else the point looked at; also when the view runs almost along the ground (a front view a hair
+  private gridIn(group: THREE.Group, frame: THREE.Matrix4, look: { colors: number[]; opacity: number[]; key: string }, cells = 250, wide = 10, grazing = 0.1) {
+    // around where the middle of the view meets the plane (zoomed in towards the pointer, the point orbited round
+    // can lie far off), else the point looked at; also when the view runs almost along the plane (a front view a hair
     // off level met it some 1e17 mm away: the grid there stretched the ortho camera's depth range and broke it)
-    const toGrid = this.groupFrame.clone().invert();
+    const toGrid = frame.clone().invert();
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2(0, 0), this.camera);
-    const ground = new THREE.Plane(new THREE.Vector3(0, 0, 1).applyQuaternion(this.frameTurn), 0).translate(new THREE.Vector3().setFromMatrixPosition(this.groupFrame));
-    const steep = Math.abs(ray.ray.direction.dot(ground.normal)) > grazing;
-    const world = (steep && ray.ray.intersectPlane(ground, new THREE.Vector3())) || this.controls.target.clone();
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3().setFromMatrixColumn(frame, 2).normalize(), new THREE.Vector3().setFromMatrixPosition(frame));
+    const steep = Math.abs(ray.ray.direction.dot(plane.normal)) > grazing;
+    const world = (steep && ray.ray.intersectPlane(plane, new THREE.Vector3())) || this.controls.target.clone();
     const step = this.step(world);
     const t = world.clone().applyMatrix4(toGrid); // in the grid's own coordinates
     const every = this.every(step);
-    const far = step * every * 10;
+    const big = step * every;
+    const far = big * 10;
     const [cx, cy] = [Math.round(t.x / far) * far, Math.round(t.y / far) * far];
-    const look = this.gridLook;
-    const key = `${step} ${every} ${cx} ${cy} ${look.major} ${look.minor} ${look.zero}`;
+    const key = `${step} ${every} ${cx} ${cy} ${look.colors}`;
     if (key === look.key) return;
     look.key = key;
     const lines: [number[], number[], number[]] = [[], [], []]; // the step's, every 5th (or 10th), through 0
-    const reach = cells * step;
     const kind = (v: number) => (Math.abs(v) < step / 2 ? 2 : Math.round(v / step) % every === 0 ? 1 : 0);
-    for (let i = -cells; i <= cells; i++) {
-      const [x, y] = [cx + i * step, cy + i * step];
-      lines[kind(x)].push(x, cy - reach, 0, x, cy + reach, 0);
-      lines[kind(y)].push(cx - reach, y, 0, cx + reach, y, 0);
-    }
-    for (const o of this.grid.children as THREE.LineSegments[]) (o.geometry.dispose(), (o.material as THREE.Material).dispose());
-    this.grid.clear();
+    // a line at x along y and at y along x, `reach` from the middle; the step's lines only where no stronger one lies
+    const add = (x: number, y: number, reach: number, fine: boolean) => {
+      if (!fine || !kind(x)) lines[kind(x)].push(x, cy - reach, 0, x, cy + reach, 0);
+      if (!fine || !kind(y)) lines[kind(y)].push(cx - reach, y, 0, cx + reach, y, 0);
+    };
+    for (let i = -cells; i <= cells; i++) add(cx + i * step, cy + i * step, cells * step, true);
+    const n = Math.round((cells * wide) / every);
+    for (let i = -n; i <= n; i++) add(cx + i * big, cy + i * big, n * big, false);
+    for (const o of group.children as THREE.LineSegments[]) (o.geometry.dispose(), (o.material as THREE.Material).dispose());
+    group.clear();
     lines.forEach((pts, k) => {
       const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: [look.minor, look.major, look.zero][k], depthWrite: false, transparent: !k, opacity: k ? 1 : 0.5 })); // the step's lines faint
+      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: look.colors[k], depthWrite: false, transparent: look.opacity[k] < 1, opacity: look.opacity[k] }));
       line.renderOrder = -2;
-      this.grid.add(line);
+      group.add(line);
     });
   }
 
