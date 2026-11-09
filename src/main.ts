@@ -1554,7 +1554,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
       fields[k] = input;
     }
     fields[k]!.focus();
-    if (fields[k]!.value && fields[k]!.value === fields[k]!.dataset.start) fields[k]!.select(); // untouched: typing replaces it
+    fields[k]!.select(); // typing replaces it
   };
   const keys = (e: KeyboardEvent, input: HTMLInputElement) => {
     const k = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
