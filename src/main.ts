@@ -485,7 +485,7 @@ const kernel = new Kernel((results, done) => {
     }
   }
   if (done) viewer.holdFit(false);
-  if (done) viewer.liveChanged();
+  if (done) viewer.liveChanged(), viewer.warmShaders();
   cutting?.refresh();
   render();
 }, (results) => {

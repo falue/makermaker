@@ -2941,6 +2941,47 @@ export class Viewer implements ToolView {
     Object.assign(this.ao, { composer: null, gtao: null, gbuffer: null, external: false });
   }
 
+  /**
+   * Shader programs once made stay: three drops one with its last material, and marks come and go with each click, so
+   * each was compiled anew (0.1-0.3 s a time, per view).
+   */
+  private keptPrograms = new WeakSet<object>();
+  private keepPrograms(r: THREE.WebGLRenderer) {
+    for (const p of r.info.programs ?? []) if (!this.keptPrograms.has(p)) (p.usedTimes++, this.keptPrograms.add(p));
+  }
+
+  private warmed = false;
+
+  /** Compiles what selections and marks draw with, in every view, before a first click waits for it (once). */
+  warmShaders() {
+    if (this.warmed) return;
+    this.warmed = true;
+    const pts = [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0];
+    const plain = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    const coloured = plain.clone().setAttribute('color', new THREE.Float32BufferAttribute(Array(16).fill(1), 4));
+    const fat = () => new LineSegmentsGeometry().setPositions(pts);
+    const warm = new THREE.Group().add(
+      new LineSegments2(fat(), new LineMaterial({ color: 0xff8c1a, depthTest: false, transparent: true })),
+      new LineSegments2(fat().setColors(pts), new LineMaterial({ vertexColors: true, depthTest: false, transparent: true })),
+      new LineSegments2(fat(), new LineMaterial({ color: 0xff8c1a, dashed: true, depthTest: false })),
+      new THREE.Mesh(plain, new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, side: THREE.DoubleSide })),
+      new THREE.Mesh(plain, new THREE.MeshBasicMaterial({ transparent: true, depthTest: false })),
+      new THREE.LineSegments(coloured, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true })),
+      new THREE.LineSegments(plain, new THREE.LineBasicMaterial({ transparent: true })),
+    );
+    this.scene.add(warm);
+    for (const [r, camera] of [[this.renderer, this.camera], ...this.views.map((v) => [v.renderer, v.camera] as const)] as const) {
+      r.compile(this.scene, camera);
+      this.keepPrograms(r);
+    }
+    warm.removeFromParent();
+    warm.traverse((o) => {
+      if (!(o instanceof THREE.Mesh || o instanceof THREE.LineSegments)) return;
+      o.geometry.dispose();
+      (o.material as THREE.Material).dispose();
+    });
+  }
+
   /** Something shown changed: the next frame draws every view. */
   render = () => {
     this.viewsStale = true;
@@ -2997,6 +3038,7 @@ export class Viewer implements ToolView {
     for (const mark of [this.pickedEdgeMark, this.edgeMark, this.measureMark]) if (mark.children.length) this.renderer.render(mark, this.camera); // the measure last
     this.renderer.autoClear = autoClear;
     this.turnCube(this.main.cube, this.camera); // the view cube shows the camera's rotation
+    this.keepPrograms(this.renderer);
   }
 
   /**
@@ -5256,6 +5298,7 @@ export class Viewer implements ToolView {
       fitOrthoDepth(view.ortho, this.shownBox());
       view.renderer.render(this.scene, view.camera);
     });
+    this.keepPrograms(view.renderer);
     this.turnCube(view.cube, view.camera);
     swap(false);
     this.scene.background = background;
