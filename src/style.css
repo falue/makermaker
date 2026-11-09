@@ -717,6 +717,17 @@ body.scrubbing * {
   width: 92px;
   height: 92px;
 }
+/* an extra view's: under its bar, top right */
+#stage .view > .viewcube {
+  position: relative;
+  top: 4px;
+  right: auto;
+  align-self: flex-end;
+  margin-right: 4px;
+}
+#stage .view > .viewcube[hidden] {
+  display: none;
+}
 .cube {
   position: absolute;
   inset: 18px;

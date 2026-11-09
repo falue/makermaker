@@ -2938,9 +2938,7 @@ export class Viewer implements ToolView {
     this.renderer.autoClear = false;
     for (const mark of [this.pickedEdgeMark, this.edgeMark, this.measureMark]) if (mark.children.length) this.renderer.render(mark, this.camera); // the measure last
     this.renderer.autoClear = autoClear;
-    // the view cube shows the camera's rotation (cube frame mirrored into CSS's y-down frame)
-    const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.frameTurn.clone().invert()).multiply(this.camera.quaternion)).invert().elements; // inside a turned group: as turned from it
-    this.cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
+    this.turnCube(this.cube, this.camera); // the view cube shows the camera's rotation
   }
 
   /**
@@ -4734,7 +4732,7 @@ export class Viewer implements ToolView {
   }
 
   /** Extra views beside this one (in #stage): each its own camera and controls on the same scene; editing stays here. */
-  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; setOrtho(on: boolean): void; live: LiveRender | null; setLive(on: boolean): void; section: ViewSection }[] = [];
+  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; setOrtho(on: boolean): void; live: LiveRender | null; setLive(on: boolean): void; section: ViewSection; cube: HTMLElement }[] = [];
 
   /** The light live renders take, and what they need from the app: whether the render queue is busy, keeping a picture. */
   liveHost: { light: Light; haze: { haze: number; fog: number }; queueBusy(): boolean; save(camera: CameraState, background: Backdrop, image: Blob, shot?: string): string } | null = null;
@@ -4762,10 +4760,15 @@ export class Viewer implements ToolView {
       boxes: [],
     };
     this.scene.add(section.group);
+    // a 3D view's own view cube: a click glides its camera to that side or corner
+    const cube = document.createElement('div');
+    this.cubeFaces(cube, (dir) => this.glideView(view, dir));
+    const cubeWrap = Object.assign(document.createElement('div'), { className: 'viewcube', hidden: kind !== '3d' });
+    cubeWrap.append(cube);
     const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
     const persp = new THREE.PerspectiveCamera(35, 1, 1, 50000);
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
-    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section };
+    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section, cube };
     view.controls.zoomToCursor = true;
     this.sped(view.controls);
     view.controls.addEventListener('change', () => (this.renderView(view), view.live && this.restartLive(view)));
@@ -4777,6 +4780,7 @@ export class Viewer implements ToolView {
     side.append(...sides.map(([k, name]) => Object.assign(document.createElement('option'), { value: k, textContent: name, selected: k === kind })));
     side.onchange = () => {
       view.kind = side.value as ViewKind;
+      cubeWrap.hidden = view.kind !== '3d';
       this.aimView(view, view.kind, look);
     };
     const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { textContent: text, title, onclick });
@@ -4838,7 +4842,7 @@ export class Viewer implements ToolView {
       }),
     );
     bar.append(projection, middle, right);
-    el.append(bar, renderer.domElement);
+    el.append(bar, cubeWrap, renderer.domElement);
     const rebuild = () => ((section.boxes = this.buildSection(section.group, section, [], renderer.domElement).boxes), this.renderView(view));
     const sliders = sectionControls(el, (axis, from, to, inverted) => ((section.sections[axis] = [from, to]), (section.inverted[axis] = inverted), rebuild()), undefined, s && section);
     section.bounds = sliders.bounds;
@@ -5079,6 +5083,7 @@ export class Viewer implements ToolView {
     view.camera = view.controls.object = here.ortho ? view.ortho : view.persp;
     view.el.querySelectorAll('.segmented button').forEach((b, i) => b.classList.toggle('on', (i === 0) === here.ortho));
     view.el.querySelector('select')!.value = view.kind = '3d'; // the main camera: free
+    view.cube.parentElement!.hidden = false;
     (view.camera as THREE.Camera).position.set(...here.position);
     view.controls.target.set(...here.target);
     view.height = here.height;
@@ -5111,6 +5116,7 @@ export class Viewer implements ToolView {
     };
     swap(true);
     view.renderer.render(this.scene, view.camera);
+    this.turnCube(view.cube, view.camera);
     swap(false);
     this.scene.background = background;
   }
@@ -5531,59 +5537,8 @@ export class Viewer implements ToolView {
   }
 
   /** Small cube top right; clicking a face looks from that side. */
-  private viewCube(size = 56 /* px, cube edge */, dragSpeed = 0.02 /* rad per px */) {
-    const half = size / 2;
-    const faces: [string, string, THREE.Vector3, number][] = [
-      // last: brightness, lit from the top front right
-      ['Front', `translateZ(${half}px)`, new THREE.Vector3(0, 0, 1), 0.9],
-      ['Back', `rotateY(180deg) translateZ(${half}px)`, new THREE.Vector3(0, 0, -1), 0.75],
-      ['Right', `rotateY(90deg) translateZ(${half}px)`, new THREE.Vector3(1, 0, 0), 0.82],
-      ['Left', `rotateY(-90deg) translateZ(${half}px)`, new THREE.Vector3(-1, 0, 0), 0.78],
-      // straight up/down is a pole for the orbit controls: tilt a hair towards the front
-      ['Top', `rotateX(90deg) translateZ(${half}px)`, new THREE.Vector3(0, 1, 1e-3), 1],
-      ['Bottom', `rotateX(-90deg) translateZ(${half}px)`, new THREE.Vector3(0, -1, 1e-3), 0.68],
-    ];
-    this.cube.className = 'cube';
-    this.cube.append(
-      ...faces.map(([label, transform, dir, light]) => {
-        const face = Object.assign(document.createElement('div'), {
-          className: 'face',
-          textContent: label,
-          onclick: () => this.viewFrom(fromCube(dir).applyQuaternion(this.frameTurn)),
-          style: `transform: ${transform}; filter: brightness(${light})`,
-        });
-        // corner spots look from that cube corner, 45° between the sides; hovering lights the spots of that corner on all three faces
-        const n = dir.clone().round();
-        const up = n.y ? new THREE.Vector3(0, 0, -n.y) : new THREE.Vector3(0, 1, 0);
-        const right = up.clone().cross(n);
-        face.append(
-          ...(
-            [
-              ['tl', -1, 1],
-              ['tr', 1, 1],
-              ['bl', -1, -1],
-              ['br', 1, -1],
-            ] as const
-          ).map(([at, x, y]) => {
-            const corner = n.clone().addScaledVector(right, x).addScaledVector(up, y);
-            const lit = (on: boolean) =>
-              this.cube.querySelectorAll(`[data-corner="${corner.toArray()}"]`).forEach((c) => c.classList.toggle('lit', on));
-            const spot = Object.assign(document.createElement('div'), {
-              className: `corner ${at}`,
-              onclick: (e: MouseEvent) => {
-                e.stopPropagation();
-                this.viewFrom(fromCube(corner).applyQuaternion(this.frameTurn), false);
-              },
-              onpointerenter: () => lit(true),
-              onpointerleave: () => lit(false),
-            });
-            spot.dataset.corner = `${corner.toArray()}`;
-            return spot;
-          }),
-        );
-        return face;
-      }),
-    );
+  private viewCube(dragSpeed = 0.02 /* rad per px */) {
+    this.cubeFaces(this.cube, (dir, side) => this.viewFrom(dir, side));
     // dragging the cube orbits the camera without end: the pointer is hidden and locked, so the screen edge does not stop it;
     // the capture makes the release no click on a face
     let start = { x: 0, y: 0 };
@@ -5636,6 +5591,88 @@ export class Viewer implements ToolView {
     this.cubeWrap.className = 'viewcube';
     this.cubeWrap.append(this.cube, ...arrows, below);
     return this.cubeWrap;
+  }
+
+  /** Turns `cube` as `camera` looks (cube frame mirrored into CSS's y-down frame; inside a turned group: as turned from it). */
+  private turnCube(cube: HTMLElement, camera: THREE.Camera) {
+    const e = new THREE.Matrix4().makeRotationFromQuaternion(toCube.clone().multiply(this.frameTurn.clone().invert()).multiply(camera.quaternion)).invert().elements;
+    cube.style.transform = `matrix3d(${e[0]},${-e[1]},${e[2]},0,${-e[4]},${e[5]},${-e[6]},0,${e[8]},${-e[9]},${e[10]},0,0,0,0,1)`;
+  }
+
+  /** An extra view's camera glides round its target to look from `dir` (world), `ms` long. */
+  private glideView(view: Viewer['views'][number], dir: THREE.Vector3, ms = 500) {
+    const cam = view.camera;
+    const target = view.controls.target;
+    const dist = cam.position.distanceTo(target);
+    const from = cam.position.clone().sub(target).normalize();
+    const turn = new THREE.Quaternion().setFromUnitVectors(from, dir.clone().normalize());
+    const [q0, q1] = [cam.quaternion.clone(), new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(target.clone().addScaledVector(dir.clone().normalize(), dist), target, cam.up))];
+    const start = performance.now();
+    const animate = (now: number) => {
+      const t = Math.min(1, (now - start) / ms);
+      const k = t * t * (3 - 2 * t);
+      cam.position.copy(target).addScaledVector(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, k)), dist);
+      cam.quaternion.slerpQuaternions(q0, q1, k);
+      if (t < 1) view.controls.dispatchEvent({ type: 'change' }), requestAnimationFrame(animate);
+      else view.controls.update();
+    };
+    requestAnimationFrame(animate);
+  }
+
+  /** A view cube's sides and corner spots in `cube`: a click looks from there (world direction; `side`: straight at a side). */
+  private cubeFaces(cube: HTMLElement, look: (dir: THREE.Vector3, side: boolean) => void, size = 56 /* px, cube edge */) {
+    const half = size / 2;
+    const faces: [string, string, THREE.Vector3, number][] = [
+      // last: brightness, lit from the top front right
+      ['Front', `translateZ(${half}px)`, new THREE.Vector3(0, 0, 1), 0.9],
+      ['Back', `rotateY(180deg) translateZ(${half}px)`, new THREE.Vector3(0, 0, -1), 0.75],
+      ['Right', `rotateY(90deg) translateZ(${half}px)`, new THREE.Vector3(1, 0, 0), 0.82],
+      ['Left', `rotateY(-90deg) translateZ(${half}px)`, new THREE.Vector3(-1, 0, 0), 0.78],
+      // straight up/down is a pole for the orbit controls: tilt a hair towards the front
+      ['Top', `rotateX(90deg) translateZ(${half}px)`, new THREE.Vector3(0, 1, 1e-3), 1],
+      ['Bottom', `rotateX(-90deg) translateZ(${half}px)`, new THREE.Vector3(0, -1, 1e-3), 0.68],
+    ];
+    cube.className = 'cube';
+    cube.append(
+      ...faces.map(([label, transform, dir, light]) => {
+        const face = Object.assign(document.createElement('div'), {
+          className: 'face',
+          textContent: label,
+          onclick: () => look(fromCube(dir).applyQuaternion(this.frameTurn), true),
+          style: `transform: ${transform}; filter: brightness(${light})`,
+        });
+        // corner spots look from that cube corner, 45° between the sides; hovering lights the spots of that corner on all three faces
+        const n = dir.clone().round();
+        const up = n.y ? new THREE.Vector3(0, 0, -n.y) : new THREE.Vector3(0, 1, 0);
+        const right = up.clone().cross(n);
+        face.append(
+          ...(
+            [
+              ['tl', -1, 1],
+              ['tr', 1, 1],
+              ['bl', -1, -1],
+              ['br', 1, -1],
+            ] as const
+          ).map(([at, x, y]) => {
+            const corner = n.clone().addScaledVector(right, x).addScaledVector(up, y);
+            const lit = (on: boolean) =>
+              cube.querySelectorAll(`[data-corner="${corner.toArray()}"]`).forEach((c) => c.classList.toggle('lit', on));
+            const spot = Object.assign(document.createElement('div'), {
+              className: `corner ${at}`,
+              onclick: (e: MouseEvent) => {
+                e.stopPropagation();
+                look(fromCube(corner).applyQuaternion(this.frameTurn), false);
+              },
+              onpointerenter: () => lit(true),
+              onpointerleave: () => lit(false),
+            });
+            spot.dataset.corner = `${corner.toArray()}`;
+            return spot;
+          }),
+        );
+        return face;
+      }),
+    );
   }
 
   /** Looks straight at the last clicked face if its body is selected, else at the face clicked next. */
