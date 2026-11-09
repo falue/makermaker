@@ -9,6 +9,7 @@ import { dxfOf, svgOf } from '../io/cutfile';
 import { laserCuts, withKerf } from './laser';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
+import { exactOf, type Exact } from './exact';
 import { areasOf, buildBody, cosmeticOf, dropBase, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BaseCache, type BuildFeature, type BodyMesh, type Finishing } from './build';
 import { solidChecks } from './exact';
 
@@ -38,7 +39,8 @@ export type Response =
   | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] }
   | { kind: 'check'; id: number; results: PrintCheck[] }
   | { kind: 'measure'; id: number; answers: MeasureAnswer[] }
-  | { kind: 'clash'; id: number; result: ClashResult };
+  | { kind: 'clash'; id: number; result: ClashResult }
+  | { kind: 'exact'; results: { id: string; exact: Exact | null }[] };
 
 const PRINT = { tolerance: 0.01, angularTolerance: 0.1 };
 
@@ -226,7 +228,7 @@ async function handle(data: Job) {
       if (!bases.has(id)) bases.set(id, {});
       const shape = buildBody(features, finishing, bases.get(id));
       try {
-        const mesh = { ...meshBody(shape, finishing, tolerance), cosmetic: cosmeticOf(features) };
+        const mesh = { ...meshBody(shape, finishing, tolerance, false), cosmetic: cosmeticOf(features) };
         getOC().BRepTools.Clean(shape.wrapped, true);
         solids.get(id)?.delete();
         solids.set(id, new Solid(shape));
@@ -246,6 +248,10 @@ async function handle(data: Job) {
   const keys = data.bodies.map((b) => JSON.stringify(b.features, (k, v) => (k === 'data' ? undefined : v)));
   const [seen, twice] = [new Set<string>(), new Set<string>()];
   for (const k of keys) (seen.has(k) ? twice : seen).add(k);
+  // exact numbers still to work out: from a solid, for it and its twins (each with the solid it got)
+  type Due = { solid: Solid; later: NonNullable<BodyMesh['later']>; to: { id: string; solid: Solid }[] };
+  const due: Due[] = [];
+  const dueOf = new Map<string, Due>();
   for (const [i, b] of data.bodies.entries()) {
     await loadImports(b.features);
     const key = keys[i];
@@ -258,8 +264,33 @@ async function handle(data: Job) {
     const result = twin && (solid || 'error' in twin.result) ? { ...structuredClone(twin.result), id: b.id } : build(b);
     // kept before it is sent: sending hands its arrays over
     if (!twin && twice.has(key)) made.set(key, { id: b.id, result: structuredClone(result) });
+    if ('mesh' in result && result.mesh.later) {
+      const own = { id: b.id, solid: solids.get(b.id)! };
+      const group = twin && dueOf.get(key);
+      if (group) group.to.push(own);
+      else {
+        const d = { solid: own.solid, later: result.mesh.later, to: [own] };
+        due.push(d);
+        if (twice.has(key)) dueOf.set(key, d);
+      }
+    }
     results.push(result);
     if (performance.now() - sent > 400) send(false);
   }
   send(true);
+  // the exact numbers after all meshes (a change shows sooner); none for a body built again or gone meanwhile (its
+  // solid replaced): a new build gets in between, as the worker lets messages in every so often
+  let exacts: { id: string; exact: Exact | null }[] = [];
+  await new Promise((next) => setTimeout(next, 60)); // a drag's next build gets in first: these wait till it rests
+  let [posted, paused] = [performance.now(), performance.now()];
+  for (const d of due) {
+    if (performance.now() - paused > 30) await new Promise((next) => setTimeout(next)), (paused = performance.now());
+    if (solids.get(d.to[0].id) !== d.solid) continue;
+    const exact = exactOf(d.solid.shape, d.later.faces, d.later.edges);
+    exacts.push(...d.to.filter((t) => solids.get(t.id) === t.solid).map((t) => ({ id: t.id, exact })));
+    if (performance.now() - posted < 400) continue;
+    postMessage({ kind: 'exact', results: exacts } satisfies Response);
+    [exacts, posted] = [[], performance.now()];
+  }
+  if (exacts.length) postMessage({ kind: 'exact', results: exacts } satisfies Response);
 };

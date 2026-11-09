@@ -488,6 +488,9 @@ const kernel = new Kernel((results, done) => {
   if (done) viewer.liveChanged();
   cutting?.refresh();
   render();
+}, (results) => {
+  for (const { id, exact } of results) viewer.setExact(id, exact);
+  render(); // the info panel's values exact now
 });
 
 kernel.setTolerance(settings.meshDetail);

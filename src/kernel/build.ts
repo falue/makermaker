@@ -46,6 +46,8 @@ export interface BodyMesh {
   pieces?: number;
   /** Its faces', edges' and own exact numbers, per face and edge group (null: too many faces; a mesh: none). */
   exact?: Exact | null;
+  /** Its exact numbers left for later (`meshBody` without them): the face and edge ids `exactOf` takes. */
+  later?: { faces: number[]; edges: number[] };
 }
 
 type V3 = [number, number, number];
@@ -190,9 +192,10 @@ function toLine(p: V3, pts: ArrayLike<number>, pairs: boolean) {
 
 /**
  * The mesh of a body; `finishing` (from `buildBody`) marks the edges and faces its unbaked finishes made. `tolerance`:
- * how far (mm) the drawn surface may stray from the real one; display only, exports mesh for themselves.
+ * how far (mm) the drawn surface may stray from the real one; display only, exports mesh for themselves. `exact`: false
+ * leaves the exact numbers for later (`later`), as they take a while.
  */
-export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05): BodyMesh {
+export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05, exact = true): BodyMesh {
   const opts = { tolerance, angularTolerance: Math.max(0.1, tolerance * 4) };
   const m = shape.mesh(opts);
   const e = shape.meshEdges(opts);
@@ -236,7 +239,7 @@ export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05
     lostEdges: finishing?.lost ?? {},
     capped: finishing?.capped ?? {},
     pieces: shape.solids.length,
-    exact: exactOf(shape, m.faceGroups.map((g) => g.faceId), e.edgeGroups.map((g) => g.edgeId)),
+    ...((ids) => (exact ? { exact: exactOf(shape, ids.faces, ids.edges) } : { later: ids }))({ faces: m.faceGroups.map((g) => g.faceId), edges: e.edgeGroups.map((g) => g.edgeId) }),
   };
 }
 

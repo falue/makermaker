@@ -2224,6 +2224,15 @@ export class Viewer implements ToolView {
   /** Cosmetic threads' lines: dashed, near black like the edges. */
   private cosmeticMaterial = new THREE.LineDashedMaterial({ color: 0x2a2a2a, dashSize: 0.6, gapSize: 0.4 });
 
+  /** Body `id`'s exact numbers, arriving after its mesh (see `meshBody`). */
+  setExact(id: string, exact: Exact | null) {
+    for (const c of this.bodies.get(id)?.children ?? [])
+      if ('exact' in c.userData) {
+        c.userData.exact = exact;
+        this.roundCentres.delete(c); // fitted to its segments meanwhile
+      }
+  }
+
   setBody(id: string, mesh: BodyMesh) {
     const group = this.group(id);
     this.disposeChildren(group);
