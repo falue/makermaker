@@ -6560,7 +6560,7 @@ function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
   [selected, shapeSel] = [[id], shapeSel];
   if (look) {
     const box = new Box3().setFromPoints(sketchHull(s).map((p) => new Vector3(...p)));
-    viewer.lookAlong(new Vector3(...s.frame.n), box.isEmpty() ? undefined : box.getCenter(new Vector3()));
+    viewer.lookAlong(new Vector3(...s.frame.n), box.isEmpty() ? undefined : box.getCenter(new Vector3()), box);
   }
   viewer.setSketchGrid(s.frame);
   showSelection();

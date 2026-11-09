@@ -1686,9 +1686,10 @@ export class Viewer implements ToolView {
   }
 
   /** Looks straight along `n`; `at`: that point moves to the middle of the view. */
-  lookAlong(n: THREE.Vector3, at?: THREE.Vector3) {
+  /** Looks straight along `n` at `at`; `box`: zoomed so it fills the view (with room around it). */
+  lookAlong(n: THREE.Vector3, at?: THREE.Vector3, box?: THREE.Box3) {
     // straight up/down is a pole for the orbit controls: tilt a hair towards the front
-    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone(), true, 600, at);
+    this.viewFrom(Math.abs(n.z) > 0.999 ? new THREE.Vector3(0, -1e-3, Math.sign(n.z)) : n.clone(), true, 600, at, box);
   }
 
   /** Where the camera looks (world, unit). */
@@ -5600,7 +5601,7 @@ export class Viewer implements ToolView {
   private tilting = 0;
 
   /** Turns the camera to look from `dir` (same target and distance); `side`: straight at a cube side, switching to orthographic for it. */
-  private viewFrom(dir: THREE.Vector3, side = true, ms = 600, at?: THREE.Vector3) {
+  private viewFrom(dir: THREE.Vector3, side = true, ms = 600, at?: THREE.Vector3, box?: THREE.Box3) {
     this.upright();
     // leaving an angled view for a flat one: remember it, so pulling can return to it
     if (side && !this.flat) this.angledView = this.camera.position.clone().sub(this.controls.target).normalize();
@@ -5623,11 +5624,19 @@ export class Viewer implements ToolView {
     const turn = new THREE.Quaternion().setFromUnitVectors(from, dir.clone().normalize());
     // the camera turns along with its position: re-aiming each frame (z up) would roll it in one go near the poles
     const [q0, q1] = [cam.quaternion.clone(), new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(t1.clone().addScaledVector(dir.clone().normalize(), dist), t1, cam.up))];
+    // `box`: the ortho view's height eases to it, as `frameAll` sizes it
+    const aspect = this.el.clientHeight ? this.el.clientWidth / this.el.clientHeight : 1;
+    const inverse = q1.clone().invert();
+    const corners = box && !box.isEmpty() ? [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(t1).applyQuaternion(inverse)) : [];
+    const height = corners.length ? 2 * 1.3 * Math.max(...corners.map((v) => Math.max(Math.abs(v.y), Math.abs(v.x) / aspect))) : 0;
+    const h0 = this.viewHeight / this.orthographic.zoom; // the same picture at zoom 1
+    if (height > 1e-6) this.orthographic.zoom = 1;
     const start = performance.now();
     const animate = (now: number) => {
       const t = Math.min(1, (now - start) / ms);
       const k = t * t * (3 - 2 * t);
       target.lerpVectors(t0, t1, k);
+      if (height > 1e-6) (this.viewHeight = h0 + (height - h0) * k), this.updateFrustums(aspect);
       cam.position.copy(target).addScaledVector(from.clone().applyQuaternion(new THREE.Quaternion().slerp(turn, k)), dist);
       cam.quaternion.slerpQuaternions(q0, q1, k);
       if (t < 1) {
