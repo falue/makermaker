@@ -1024,6 +1024,22 @@ canvas.drawing,
 .size-label.active {
   border-color: var(--accent);
 }
+/* while moving: the entangle icon on what goes along by an attach, at its middle */
+.entangled-tag {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  padding: 3px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--accent);
+  pointer-events: none;
+}
+.entangled-tag svg {
+  width: 16px;
+  height: 16px;
+}
 
 /* incase-style icons */
 .tool {

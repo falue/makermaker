@@ -2377,6 +2377,20 @@ export class Viewer implements ToolView {
 
   /** Bodies a body takes along when it moves: a joint's parts, an attach's others (set by the host). */
   carried = new Map<string, string[]>();
+  /** Bodies in an attach (set by the host): while one moves, the others going along carry the entangle icon. */
+  entangled = new Set<string>();
+  /** While moving: the entangle icon on each body that goes along by an attach. */
+  private tags: { id: string; el: HTMLElement }[] = [];
+
+  /** The entangle icons at their bodies' middles (each frame: they follow the camera and the move). */
+  private placeTags() {
+    for (const { id, el } of this.tags) {
+      const g = this.bodies.get(id);
+      if (!g) continue;
+      const [x, y] = this.toScreen(new THREE.Box3().setFromObject(g).getCenter(new THREE.Vector3()));
+      Object.assign(el.style, { left: `${x}px`, top: `${y}px` });
+    }
+  }
 
   /** `ids` and the bodies they own or take along, all the way down. */
   private withOwned(ids: string[]) {
@@ -2901,6 +2915,7 @@ export class Viewer implements ToolView {
     this.drawRefs();
     this.drawGrid();
     this.pointTo(this.arrowAt());
+    this.placeTags();
     for (const v of this.views) this.renderView(v);
     if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
     this.drawContours();
@@ -4337,6 +4352,9 @@ export class Viewer implements ToolView {
       this.moving = { from: new Map(), carried: new Map(), ghosts: new THREE.Group(), looks };
       this.scene.add(this.moving.ghosts);
       for (const id of this.withOwned(this.selection)) this.ghostAt(id, this.moving.from);
+      this.tags = this.withOwned(this.selection)
+        .filter((id) => this.entangled.has(id) && !this.selection.includes(id))
+        .map((id) => ({ id, el: this.el.appendChild(Object.assign(document.createElement('div'), { className: 'entangled-tag', innerHTML: icon('attach'), title: 'Entangled: moves along' })) }));
     }
     const m = this.moving;
     if (!m) return;
@@ -4357,6 +4375,8 @@ export class Viewer implements ToolView {
       m.ghosts.removeFromParent();
       for (const look of m.looks) look.dispose();
       this.moving = this.shifted = null;
+      for (const { el } of this.tags) el.remove();
+      this.tags = [];
     }
     this.renderSketches();
     this.applySection(false);

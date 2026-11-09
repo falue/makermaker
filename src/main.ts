@@ -739,6 +739,7 @@ function update() {
   viewer.setPhotos([...BUILT_IN_PHOTOS, ...allPhotos()]);
   // what a body takes along when dragged: a joint's parts (an attach: each one all the others)
   viewer.carried = new Map();
+  viewer.entangled = new Set(doc.joints.flatMap((j) => (j.kind === 'attach' ? contents(doc, [j.parent, ...j.children]) : [])));
   for (const j of doc.joints) {
     const [p, c] = [contents(doc, [j.parent]), contents(doc, j.children)];
     for (const [from, to] of j.kind === 'attach' ? [[[...p, ...c], [...p, ...c]]] : [[p, c]]) for (const id of from) viewer.carried.set(id, [...(viewer.carried.get(id) ?? []), ...to.filter((x) => x !== id)]);
