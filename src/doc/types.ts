@@ -496,11 +496,11 @@ export interface Doc {
   views?: Views;
 }
 
-/** The main camera, the extra views beside it (each: from where, its camera) and where their borders lie. */
+/** The main camera, the extra views beside it (each: from where, its camera, its own section: null ends open) and where their borders lie. */
 export interface Views {
   camera: CameraState;
   layout: { x: number; rows: Record<number, number[]> };
-  views: { kind: string; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number; live?: boolean }[];
+  views: { kind: string; look?: { n: [number, number, number]; at: [number, number, number] }; ortho: boolean; position: [number, number, number]; target: [number, number, number]; height: number; zoom: number; live?: boolean; section?: { sections: Record<'x' | 'y' | 'z', [number | null, number | null]>; inverted: Record<'x' | 'y' | 'z', boolean> } }[];
 }
 
 /** The light of renders (`same`: the 3D view's instead), and their haze: fast by depth (0 to 1), and real fog in the path tracer (0 to 10). */

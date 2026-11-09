@@ -17,6 +17,7 @@ import { anchorAt, angleAt, centreMoved, controlMoved, handlesOf, pointHandles, 
 import { ExtrudeTool, type AreaGroup, type ExtrudeHost, type FaceItem } from './extrude';
 import { FacePullTool, type PullLook } from './faces';
 import { closeButton, icon } from '../ui/icons';
+import { sectionControls } from '../ui/sections';
 import { marks } from './marks';
 import { borders, dragged, newViewLayout, panes, type ViewBorder, type ViewLayout } from './viewlayout';
 import { fastRaycast } from './pick';
@@ -42,6 +43,10 @@ THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 export type Vec3 = [number, number, number];
 export type Axis = 'x' | 'y' | 'z';
 type Span = [number, number];
+/** A section's slider cuts per axis (world mm, ±Infinity: open) and which show only what lies outside. */
+type SectionCut = { sections: Record<Axis, Span>; inverted: Record<Axis, boolean> };
+/** An extra view's own section: its cuts, the group it is drawn in (shown only for that view), its boxes, its sliders' range. */
+type ViewSection = SectionCut & { group: THREE.Group; boxes: Span[][]; bounds?: (box: THREE.Box3) => void };
 
 export interface ViewerHost {
   /** Fit (F, or its button): onto the selection, else everything (see `fit`). */
@@ -1382,6 +1387,7 @@ export class Viewer implements ToolView {
     if (bounds.equals(this.lastBounds)) return;
     this.lastBounds = bounds;
     this.onBounds?.(bounds);
+    for (const v of this.views) v.section.bounds?.(bounds);
   }
 
   /** The single selected shape (with its sketch), which gets handles. */
@@ -4489,8 +4495,6 @@ export class Viewer implements ToolView {
   /** The bodies in the object list's order (top first): in a section, a body higher up covers those below where they overlap. */
   listOrder: string[] = [];
 
-  /** The last section's materials: disposed a rebuild later, so the new ones (drawn by then) keep their compiled shaders. */
-  private retired: THREE.Material[] = [];
   /** Where a section plane cuts each body: kept per body and plane until either changes. */
   private capCuts = new Map<string, { key: string; segs: [THREE.Vector3, THREE.Vector3][][] }>();
   private capCut(id: string, solid: THREE.Mesh, matrix: THREE.Matrix4, plane: THREE.Plane, others: THREE.Plane[]) {
@@ -4501,39 +4505,51 @@ export class Viewer implements ToolView {
     return kept.segs;
   }
 
-  private applySection(rebound = true, cap = 1e4 /* mm, cap plane size */, hatchMm = 4, shade = 0.6, eps = 1e-3, line = 0x1d1f24) {
-    for (const m of this.retired) m.dispose();
-    this.retired = [];
-    this.sectionView.traverse((o) => {
+  private applySection(rebound = true) {
+    if (rebound) this.rebound();
+    const main = this.buildSection(this.sectionView, { sections: this.sections, inverted: this.inverted }, this.custom, this.el);
+    [this.cuts, this.cutPlanes, this.boxes] = [null, main.planes, main.boxes];
+    this.showBodies(this.boxes);
+    for (const v of this.views) v.section.boxes = this.buildSection(v.section.group, v.section, [], v.renderer.domElement).boxes;
+    this.render();
+  }
+
+  /** The bodies themselves shown, unless a section (`boxes`) shows its copies instead. */
+  private showBodies(boxes: Span[][]) {
+    for (const [id, g] of this.bodies) g.visible = !boxes.length && !this.hidden.has(id);
+  }
+
+  /** Builds a section into `group` (emptied first): its boxes, and the exact planes of each. `size`: what its lines are drawn on. */
+  private buildSection(group: THREE.Group, cut: SectionCut, custom: THREE.Plane[], size: HTMLElement, cap = 1e4 /* mm, cap plane size */, hatchMm = 4, shade = 0.6, eps = 1e-3, line = 0x1d1f24) {
+    const retired: THREE.Material[] = (group.userData.retired ??= []);
+    for (const m of retired.splice(0)) m.dispose();
+    group.traverse((o) => {
       if (!(o instanceof THREE.Mesh || o instanceof THREE.LineSegments)) return;
-      this.retired.push(o.material as THREE.Material);
+      retired.push(o.material as THREE.Material);
       if (o.userData.cap) o.geometry.dispose();
     });
-    this.sectionView.clear();
-    [this.cuts, this.cutPlanes] = [null, []];
+    group.clear();
+    const cutPlanes: THREE.Plane[][] = [];
     const axes = ['x', 'y', 'z'] as const;
-    const active = this.custom.length > 0 || axes.some((a) => this.inverted[a] || this.sections[a].some(Number.isFinite));
-    if (rebound) this.rebound();
+    const active = custom.length > 0 || axes.some((a) => cut.inverted[a] || cut.sections[a].some(Number.isFinite));
     const spans = (a: Axis): Span[] => {
-      const [lo, hi] = this.sections[a];
-      return this.inverted[a] ? ([[-Infinity, lo], [hi, Infinity]] as Span[]).filter(([s, e]) => s < e) : [[lo, hi]];
+      const [lo, hi] = cut.sections[a];
+      return cut.inverted[a] ? ([[-Infinity, lo], [hi, Infinity]] as Span[]).filter(([s, e]) => s < e) : [[lo, hi]];
     };
-    this.boxes = active ? spans('x').flatMap((x) => spans('y').flatMap((y) => spans('z').map((z) => [x, y, z]))) : [];
-    const sectioned = this.boxes.length > 0;
-    for (const [id, g] of this.bodies) g.visible = !sectioned && !this.hidden.has(id);
-    if (!sectioned) return this.render();
+    const boxes: Span[][] = active ? spans('x').flatMap((x) => spans('y').flatMap((y) => spans('z').map((z) => [x, y, z]))) : [];
+    if (!boxes.length) return { boxes, planes: cutPlanes };
 
     this.hatch.repeat.set(cap / hatchMm, cap / hatchMm);
     let order = 0;
-    for (const box of this.boxes) {
+    for (const box of boxes) {
       // where it cuts (picked and outlined there); clipped `eps` further in
       const exact = box.flatMap(([lo, hi], k) => {
         const n = new THREE.Vector3().setComponent(k, 1);
         return [...(Number.isFinite(lo) ? [new THREE.Plane(n.clone(), -lo)] : []), ...(Number.isFinite(hi) ? [new THREE.Plane(n.clone().negate(), hi)] : [])];
       });
-      exact.push(...this.custom.map((c) => c.clone()));
+      exact.push(...custom.map((c) => c.clone()));
       const planes = exact.map((p) => new THREE.Plane(p.normal.clone(), p.constant - eps));
-      this.cutPlanes.push(exact);
+      cutPlanes.push(exact);
       // per plane each body's cut face in its colour, hatched, the list's last first; where an earlier one lies already
       // (stencil bit 0x80), half see-through over it: the colours mix
       const rank = (id: string) => (this.listOrder.indexOf(id) + 1 || Infinity);
@@ -4558,7 +4574,7 @@ export class Viewer implements ToolView {
           plane.coplanarPoint(m.position);
           m.lookAt(m.position.clone().sub(plane.normal));
           m.renderOrder = order + sub;
-          this.sectionView.add(m);
+          group.add(m);
           return m;
         };
         const stencil = (ref: number, func: THREE.StencilFunc, mask = 0xff, op: THREE.StencilOp = THREE.KeepStencilOp) =>
@@ -4578,7 +4594,7 @@ export class Viewer implements ToolView {
             mark.position.copy(g.position);
             mark.quaternion.copy(g.quaternion);
             mark.renderOrder = order;
-            this.sectionView.add(mark);
+            group.add(mark);
           }
           // the cut face in the visual style: shaded its colour, grey grey, both hatched; Lines no colour, only hiding what lies behind; All lines none (its outline only)
           const mode = this.viewMode;
@@ -4600,11 +4616,11 @@ export class Viewer implements ToolView {
         if (segs.length) {
           // in front of the cap by a depth offset, on it at any zoom
           const m = new LineMaterial({ color: line, linewidth: 1.5, clippingPlanes: others, ...FRONT });
-          m.resolution.set(this.el.clientWidth, this.el.clientHeight);
+          m.resolution.set(size.clientWidth, size.clientHeight);
           const lines = new LineSegments2(new LineSegmentsGeometry().setPositions(segs.flatMap(([a, b]) => [...a.toArray(), ...b.toArray()])), m);
           lines.userData.cap = true;
           lines.renderOrder = order + 0.75;
-          this.sectionView.add(lines);
+          group.add(lines);
         }
       }
       // the bodies clipped to this box, drawn after the caps
@@ -4621,10 +4637,10 @@ export class Viewer implements ToolView {
           copy.quaternion.copy(g.quaternion);
           copy.renderOrder = 1e6;
           copy.userData.bodyId = id; // its outline when selected
-          this.sectionView.add(copy);
+          group.add(copy);
         }
     }
-    this.render();
+    return { boxes, planes: cutPlanes };
   }
 
   private group(id: string) {
@@ -4718,7 +4734,7 @@ export class Viewer implements ToolView {
   }
 
   /** Extra views beside this one (in #stage): each its own camera and controls on the same scene; editing stays here. */
-  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; setOrtho(on: boolean): void; live: LiveRender | null; setLive(on: boolean): void }[] = [];
+  private views: { el: HTMLElement; renderer: THREE.WebGLRenderer; ortho: THREE.OrthographicCamera; persp: THREE.PerspectiveCamera; camera: THREE.Camera; controls: OrbitControls<THREE.Camera>; height: number; kind: ViewKind; look?: { n: THREE.Vector3; at: THREE.Vector3 }; setOrtho(on: boolean): void; live: LiveRender | null; setLive(on: boolean): void; section: ViewSection }[] = [];
 
   /** The light live renders take, and what they need from the app: whether the render queue is busy, keeping a picture. */
   liveHost: { light: Light; haze: { haze: number; fog: number }; queueBusy(): boolean; save(camera: CameraState, background: Backdrop, image: Blob, shot?: string): string } | null = null;
@@ -4733,12 +4749,23 @@ export class Viewer implements ToolView {
   addView(kind: ViewKind, look?: { n: THREE.Vector3; at: THREE.Vector3 }, saved?: SavedView) {
     const stage = this.el.parentElement!;
     const el = Object.assign(document.createElement('div'), { className: 'view' });
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, stencil: true }); // stencil: section caps
     renderer.setPixelRatio(this.renderer.getPixelRatio());
+    renderer.localClippingEnabled = true;
+    // its own section (sliders only), in a group drawn only for it
+    const open = (v: number | null, end: number) => v ?? end;
+    const s = saved?.section;
+    const section: ViewSection = {
+      sections: Object.fromEntries((['x', 'y', 'z'] as const).map((a) => [a, s ? [open(s.sections[a][0], -Infinity), open(s.sections[a][1], Infinity)] : [-Infinity, Infinity]])) as Record<Axis, Span>,
+      inverted: { x: false, y: false, z: false, ...s?.inverted },
+      group: Object.assign(new THREE.Group(), { visible: false }),
+      boxes: [],
+    };
+    this.scene.add(section.group);
     const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -50000, 50000);
     const persp = new THREE.PerspectiveCamera(35, 1, 1, 50000);
     for (const c of [ortho, persp]) c.up.set(0, 0, 1);
-    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on) };
+    const view: Viewer['views'][number] = { el, renderer, ortho, persp, camera: ortho, controls: new OrbitControls(ortho as THREE.Camera, renderer.domElement), height: 400, kind, look, setOrtho: (on) => pick(on), live: null, setLive: (on) => live(on), section };
     view.controls.zoomToCursor = true;
     this.sped(view.controls);
     view.controls.addEventListener('change', () => (this.renderView(view), view.live && this.restartLive(view)));
@@ -4806,17 +4833,20 @@ export class Viewer implements ToolView {
       closeButton('Close this view', () => {
         live(false);
         this.views = this.views.filter((v) => v !== view);
-        view.controls.dispose();
-        renderer.dispose();
-        el.remove();
+        this.dropView(view);
         this.placeViews();
       }),
     );
     bar.append(projection, middle, right);
     el.append(bar, renderer.domElement);
+    const rebuild = () => ((section.boxes = this.buildSection(section.group, section, [], renderer.domElement).boxes), this.renderView(view));
+    const sliders = sectionControls(el, (axis, from, to, inverted) => ((section.sections[axis] = [from, to]), (section.inverted[axis] = inverted), rebuild()), undefined, s && section);
+    section.bounds = sliders.bounds;
     stage.append(el);
     this.views.push(view);
     this.placeViews();
+    sliders.bounds(this.lastBounds);
+    if (s) rebuild();
     if (saved) {
       view.setOrtho(saved.ortho);
       for (const c of [ortho, persp]) c.position.set(...saved.position);
@@ -4827,6 +4857,16 @@ export class Viewer implements ToolView {
       if (saved.live) live(true);
     } else this.aimView(view, kind, look);
     return view;
+  }
+
+  /** An extra view gone: its controls, renderer, section and element. */
+  private dropView(view: Viewer['views'][number]) {
+    view.controls.dispose();
+    view.renderer.dispose();
+    view.el.remove();
+    this.buildSection(view.section.group, { sections: { x: [-Infinity, Infinity], y: [-Infinity, Infinity], z: [-Infinity, Infinity] }, inverted: { x: false, y: false, z: false } }, [], view.el); // emptied
+    for (const m of view.section.group.userData.retired) m.dispose();
+    this.scene.remove(view.section.group);
   }
 
   /** An extra view's camera as a render takes it, at the size it shows. */
@@ -4992,14 +5032,14 @@ export class Viewer implements ToolView {
       layout: this.viewLayout,
       views: this.views.map((v): SavedView => {
         const cam = v.camera as THREE.OrthographicCamera | THREE.PerspectiveCamera;
-        return { kind: v.kind, look: v.look && { n: v.look.n.toArray(), at: v.look.at.toArray() }, ortho: cam === v.ortho, position: cam.position.toArray(), target: v.controls.target.toArray(), height: v.height, zoom: v.ortho.zoom, ...(v.live ? { live: true } : {}) };
+        return { kind: v.kind, look: v.look && { n: v.look.n.toArray(), at: v.look.at.toArray() }, ortho: cam === v.ortho, position: cam.position.toArray(), target: v.controls.target.toArray(), height: v.height, zoom: v.ortho.zoom, ...(v.live ? { live: true } : {}), ...(v.section.boxes.length ? { section: { sections: Object.fromEntries(Object.entries(v.section.sections).map(([a, ends]) => [a, ends.map((e) => (Number.isFinite(e) ? e : null))])) as Record<Axis, [number | null, number | null]>, inverted: v.section.inverted } } : {}) };
       }),
     };
   }
 
   /** The views of an opened document (none: the main one alone); false: it had none saved, so the view is free to fit. */
   setViews(state?: Views) {
-    for (const v of this.views) (v.controls.dispose(), v.renderer.dispose(), v.el.remove());
+    for (const v of this.views) this.dropView(v);
     this.views = [];
     this.viewLayout = state?.layout ?? newViewLayout();
     for (const v of state?.views ?? []) this.addView(v.kind as ViewKind, v.look && { n: new THREE.Vector3(...v.look.n), at: new THREE.Vector3(...v.look.at) }, v);
@@ -5057,7 +5097,15 @@ export class Viewer implements ToolView {
     // a view has a renderer of its own: the photo's picture is the main view's, and from its camera
     const background = this.scene.background;
     if (this.photo) this.scene.background = new THREE.Color(this.solidGrey());
+    // its own section instead of the main one's, for this draw
+    const swap = (own: boolean) => {
+      this.sectionView.visible = !own;
+      view.section.group.visible = own;
+      this.showBodies(own ? view.section.boxes : this.boxes);
+    };
+    swap(true);
     view.renderer.render(this.scene, view.camera);
+    swap(false);
     this.scene.background = background;
   }
 

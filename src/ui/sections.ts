@@ -7,9 +7,9 @@ import { icon } from './icons';
  * reset and invert (show only what is outside the handles); double-click a slider to reset it. Below: custom
  * sections (rows rendered into #custom-sections by the panels) and a button that starts a new one.
  * Cuts are world positions (mm, ±Infinity: open): they stay where they are when bodies change; the sliders span the
- * bodies and the cuts (`bounds`).
+ * bodies and the cuts (`bounds`). No `add`: no custom sections (an extra view's panel); `start`: the cuts it starts with.
  */
-export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void, add: () => void) {
+export function sectionControls(host: HTMLElement, set: (axis: Axis, from: number, to: number, inverted: boolean) => void, add?: () => void, start?: { sections: Record<Axis, [number, number]>; inverted: Record<Axis, boolean> }) {
   const spans: ((box: { min: Record<Axis, number>; max: Record<Axis, number> }) => void)[] = [];
   const panel = Object.assign(document.createElement('div'), { className: 'sections' });
   const tips: Record<Axis, [string, string]> = {
@@ -24,7 +24,7 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
     const slider = Object.assign(document.createElement('span'), { className: 'dual', title: tips[axis][1] });
     slider.append(from, to);
     const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { className: 'icon', textContent: text, title, onclick });
-    let cut: [number, number] = [-Infinity, Infinity];
+    let cut: [number, number] = start ? [...start.sections[axis]] : [-Infinity, Infinity];
     let span: [number, number] = [0, 1]; // mm the slider spans
     const value = (mm: number) => (Number.isFinite(mm) ? Math.round(((mm - span[0]) / (span[1] - span[0] || 1)) * 1000) : mm < 0 ? 0 : 1000);
     const show = () => {
@@ -62,6 +62,7 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
       update();
     }), { innerHTML: icon('swap') });
     invert.disabled = true;
+    invert.classList.toggle('active', !!start?.inverted[axis]);
     from.oninput = () => update(from);
     to.oninput = () => update(to);
     // a click on the track moves the nearest handle there (the inputs only take clicks on their handles)
@@ -78,9 +79,8 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
     tools.append(Object.assign(button('', 'Click: Show the whole range again', reset), { innerHTML: icon('undo') }), invert);
     panel.append(Object.assign(document.createElement('span'), { textContent: axis.toUpperCase(), title: tips[axis][0], className: `axis-${axis}` }), tools, slider);
   }
-  const custom = Object.assign(document.createElement('div'), { id: 'custom-sections' });
   const more = Object.assign(document.createElement('button'), { textContent: '+ Section', title: 'A section parallel to a face you click: slanted planes too', onclick: add });
-  panel.append(custom, more);
+  if (add) panel.append(Object.assign(document.createElement('div'), { id: 'custom-sections' }), more);
   host.append(drawer('Section view', 'left', panel, true));
   return {
     /** While a face is being picked the button says what to do. */
