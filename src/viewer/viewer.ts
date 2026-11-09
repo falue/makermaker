@@ -4175,10 +4175,12 @@ export class Viewer implements ToolView {
    * A step of a body selected (see main's `stepSel`): its faces lit, those `of` says made it (each face asked with a point
    * on it and its outward normal, world); null: none.
    */
-  setStepMark(sel: { body: string; of: (at: THREE.Vector3, n: THREE.Vector3) => boolean } | null) {
+  /** Lights the faces of a step: `of` says for each face (a point on it, its normal, whether it is free-form) whether that step made it. */
+  setStepMark(sel: { body: string; of: (at: THREE.Vector3, n: THREE.Vector3, free: boolean) => boolean } | null) {
     this.stepSel = sel;
     const solid = sel && (this.bodies.get(sel.body)?.children[0] as THREE.Mesh | undefined);
     const groups = solid?.userData.faces as Uint32Array | undefined;
+    const exact = solid?.userData.exact as Exact | null | undefined;
     const faces: number[] = [];
     if (solid && groups) {
       const [pos, idx] = [solid.geometry.attributes.position, solid.geometry.index!];
@@ -4187,13 +4189,13 @@ export class Viewer implements ToolView {
         // its first triangle: its middle lies on the face, its winding gives the outward normal
         const [a, b, c] = [0, 1, 2].map((k) => corner(groups[f * 2] + k));
         const n = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
-        if (sel.of(a.add(b).add(c).divideScalar(3), n)) faces.push(f);
+        if (sel.of(a.add(b).add(c).divideScalar(3), n, exact?.faces[f]?.kind === 'free')) faces.push(f);
       }
     }
     this.stepMark = this.replaceMark(this.stepMark, solid ?? undefined, faces, PICKED);
     this.render();
   }
-  private stepSel: { body: string; of: (at: THREE.Vector3, n: THREE.Vector3) => boolean } | null = null;
+  private stepSel: { body: string; of: (at: THREE.Vector3, n: THREE.Vector3, free: boolean) => boolean } | null = null;
   private stepMark: THREE.Mesh | null = null;
 
   /** The finish part under a body hit, if the hit face is one. */

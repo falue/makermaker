@@ -364,9 +364,10 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
   pickFinish(sel) {
     finishSel = sel;
     viewer.setFinishMark(sel);
-    // not a finish's face: the step that made it, if not the body's first
+    // not a finish's face: the step that made it, if not the body's first (a bulge's face: that bulge)
     const face = sel ? null : viewer.lastFaceItem();
-    selectStep(face && stepAt(face));
+    const bulge = face && !stepAt(face) && bulgeAt(face);
+    selectStep(face && (stepAt(face) ?? (bulge ? { body: face.body, feature: bulge.feature } : null)));
     render();
   },
   format: (mm) => `${fmt(mm / UNITS[history.current.units])} ${history.current.units}`,
@@ -930,7 +931,7 @@ function selectStep(sel: { body: string; feature: string } | null) {
   viewer.setStepMark(
     s && {
       body: s.body,
-      of: (at, n) => stepAt({ body: s.body, point: at, n })?.feature === s.feature,
+      of: (at, n, free) => (stepAt({ body: s.body, point: at, n })?.feature ?? (free ? bulgeNear(s.body, at)?.feature : undefined)) === s.feature,
     },
   );
 }
@@ -3368,9 +3369,14 @@ function splitCapped(body: string, feature: string) {
 /** The bulge that made `face` (a free-form face of a body with bulges: the nearest of them), else null. */
 function bulgeAt(face: FaceItem) {
   if ((face.mesh.userData.exact as Exact | null | undefined)?.faces[face.index]?.kind !== 'free') return null;
+  return bulgeNear(face.body, face.point);
+}
+
+/** Of `body`'s bulges (its source's, for a linked copy) the one nearest world point `at`: the body holding the step and it; null: none. */
+function bulgeNear(body: string, at: Vector3) {
   const doc = history.current;
-  const steps = doc.bodies[stepsOf(doc, face.body)];
-  const p = new Vector3(...unplaced(bodyPlace(face.body), face.point.toArray()));
+  const steps = doc.bodies[stepsOf(doc, body)];
+  const p = new Vector3(...unplaced(bodyPlace(body), at.toArray()));
   const away = (f: BulgeFeature) => (f.on.kind === 'sketch' ? 0 : p.distanceTo(new Vector3(...(f.on.kind === 'face' ? f.on.mid : f.on.at))));
   const bulges = steps.features.filter((f): f is BulgeFeature => f.type === 'bulge').sort((a, b) => away(a) - away(b));
   return bulges.length ? { body: steps.id, feature: bulges[0].id } : null;
