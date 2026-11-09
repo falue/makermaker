@@ -898,7 +898,10 @@ function left(ctx: UIContext): Node[] {
     item.title = `${whose(doc, sk.id)} · click to draw into it`;
     item.onmouseenter = () => ctx.lightSketch(sk.id);
     item.onmouseleave = () => ctx.lightSketch(null);
-    const el = h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, marked([]), eye('sketches', sk.id, sk.visible));
+    // listed on its own (Aids) though a body's: a body mark, a click selects that body
+    const owner = depth ? undefined : doc.bodies.find((b) => b.id === ownerOf(doc, sk.id));
+    const mark = owner ? [h('button', { className: 'icon', innerHTML: icon('body'), title: `Sketch of ${owner.name} · click: select ${owner.name}`, onclick: () => ctx.select(owner.id, false) })] : [];
+    const el = h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, marked(mark), eye('sketches', sk.id, sk.visible));
     el.dataset.id = sk.id;
     el.style.paddingLeft = `${depth * 22}px`;
     return el;
