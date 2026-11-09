@@ -742,7 +742,7 @@ export class Viewer implements ToolView {
         this.camera.position.copy(target).add(offset);
         orbit = { ...orbit, target: target.clone(), turn: this.camera.quaternion.clone() };
       }
-      this.render();
+      this.paintSoon(); // the main camera only
       this.tool?.refresh(); // labels and markers follow the camera
     });
     new ResizeObserver(() => this.resize()).observe(el);
@@ -2932,12 +2932,22 @@ export class Viewer implements ToolView {
     Object.assign(this.ao, { composer: null, gtao: null, gbuffer: null, external: false });
   }
 
+  /** Something shown changed: the next frame draws every view. */
   render = () => {
+    this.viewsStale = true;
+    this.paintSoon();
+  };
+
+  /** Extra views draw again only when something shown changed, not when the main camera moved (each has its own renderer). */
+  private viewsStale = true;
+
+  /** The main view draws in the next frame. */
+  private paintSoon() {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;
       this.paint();
     });
-  };
+  }
 
   /** The origin axes `px` long on screen at any zoom, at the origin (a group's own inside it). */
   private sizeAxes(px = 60) {
@@ -2958,7 +2968,8 @@ export class Viewer implements ToolView {
     this.drawGrid();
     this.pointTo(this.arrowAt());
     this.placeTags();
-    for (const v of this.views) this.renderView(v);
+    if (this.viewsStale) for (const v of this.views) this.renderView(v);
+    this.viewsStale = false;
     if (this.camera === this.perspective ? fitDepth(this.perspective, this.controls.target) : fitOrthoDepth(this.orthographic, this.shownBox())) this.dropComposer();
     this.drawContours();
     // lines: the bodies' own edges and contours drawn after the rest (`ownLines`)
