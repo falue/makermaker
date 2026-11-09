@@ -2932,19 +2932,6 @@ export class Viewer implements ToolView {
     Object.assign(this.ao, { composer: null, gtao: null, gbuffer: null, external: false });
   }
 
-  /** The view as it is now, drawn at once and copied into `into` (2D, its size kept): a frame's picture is gone after it. */
-  pictureInto(into: HTMLCanvasElement) {
-    cancelAnimationFrame(this.frame);
-    this.frame = 0;
-    this.paint();
-    const src = this.renderer.domElement;
-    const g = into.getContext('2d')!;
-    // the middle of the view, at the canvas' shape
-    const k = Math.min(src.width / into.width, src.height / into.height);
-    const [w, h] = [into.width * k, into.height * k];
-    g.drawImage(src, (src.width - w) / 2, (src.height - h) / 2, w, h, 0, 0, into.width, into.height);
-  }
-
   render = () => {
     this.frame ||= requestAnimationFrame(() => {
       this.frame = 0;

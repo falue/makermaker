@@ -39,7 +39,7 @@ export class MaterialPreview {
   private sky: THREE.DataTexture | null = null;
   private lit: Light | null = null;
   private tracer: Tracer | null = null;
-  private wanted: { look: Look; light: Light; finished?: string; air: { haze: number; fog: number } } | null = null;
+  private wanted: { look: Look; light: Light; finished?: string; air: { haze: number; fog: number }; traced: boolean } | null = null;
   private air = { haze: 0, fog: 0 };
   private fog: THREE.Mesh | null = null;
   private depth: Uint8ClampedArray | null = null;
@@ -96,9 +96,9 @@ export class MaterialPreview {
     this.camera.updateMatrixWorld();
   }
 
-  /** Shows a look: at once as the 3D view draws it; rendered: `finished` if there is such a picture, else traced, in `air` if given. */
-  show(look: Look, light: Light, finished?: string, air: { haze: number; fog: number } = { haze: 0, fog: 0 }) {
-    this.wanted = { look, light, finished, air };
+  /** Shows a look: at once as the 3D view draws it; rendered: `finished` if there is such a picture, else traced (unless `traced` is off: only `viewCanvas` is wanted), in `air` if given. */
+  show(look: Look, light: Light, finished?: string, air: { haze: number; fog: number } = { haze: 0, fog: 0 }, traced = true) {
+    this.wanted = { look, light, finished, air, traced };
     void this.run();
   }
 
@@ -243,7 +243,7 @@ export class MaterialPreview {
     this.running = true;
     while (!this.closed) {
       if (this.wanted) {
-        const { look, light, finished, air } = this.wanted;
+        const { look, light, finished, air, traced } = this.wanted;
         this.wanted = null;
         this.dress(look, light);
         await this.setAir(air, light);
@@ -257,7 +257,7 @@ export class MaterialPreview {
         } else {
           this.renderer.render(this.scene, this.camera);
           this.copy();
-          this.tracing = { look, light, at: performance.now() + this.rest };
+          if (traced) this.tracing = { look, light, at: performance.now() + this.rest };
         }
       } else if (this.tracing) {
         if (performance.now() >= this.tracing.at) {

@@ -46,7 +46,7 @@ export function loadSettings(): Settings {
  * The settings dialog: changes apply and are saved at once; × or Esc closes it. `doc`: the open document's own
  * settings (its units, shown under General; its render light, under Light) and its photo spheres.
  */
-export function openSettings(settings: Settings, changed: (next: Settings) => void, doc: { units(): Unit; setUnits(units: Unit): void; renderLight(): RenderLight; setRenderLight(light: RenderLight): void; photos(): PhotoSphere[]; addPhoto(file: File): Promise<string>; removePhoto(id: string): void; viewPicture(into: HTMLCanvasElement): void }, start?: 'light-render') {
+export function openSettings(settings: Settings, changed: (next: Settings) => void, doc: { units(): Unit; setUnits(units: Unit): void; renderLight(): RenderLight; setRenderLight(light: RenderLight): void; photos(): PhotoSphere[]; addPhoto(file: File): Promise<string>; removePhoto(id: string): void; }, start?: 'light-render') {
   const make = (tag: string, props: object = {}, ...children: (Node | string)[]) => {
     const el = Object.assign(document.createElement(tag), props);
     el.append(...children);
@@ -140,23 +140,21 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   };
   let lightTab: 'view' | 'render' = start ? 'render' : 'view';
   let lightPreview: MaterialPreview | null = null;
-  /** The light of renders on the teapot in steel. */
-  /** The 3D view tab's preview: the view itself as it draws now (its light, its visual style), not a render. */
-  const viewShot = Object.assign(document.createElement('canvas'), { width: 800, height: 450, className: 'light-preview', title: 'The 3D view as it draws with these settings' });
-  /** The open tab's preview: the 3D view as it is, or the renders' light on the teapot (with their haze). */
+  /** The open tab's preview on the teapot of the material pictures, in Plastic, light grey: as the 3D view draws it, or rendered in the renders' light (with their haze). */
   const showLight = () => {
     const r = doc.renderLight();
-    if (lightTab === 'view') return doc.viewPicture(viewShot);
-    lightPreview?.show(toLook(STANDARD_MATERIALS.find((m) => m.id === 'std-light-grey')!), effectiveLight(r.same ? s.light : r), undefined, r);
+    const look = toLook(STANDARD_MATERIALS.find((m) => m.id === 'std-light-grey')!);
+    if (lightTab === 'view') lightPreview?.show(look, effectiveLight(s.light), undefined, undefined, false);
+    else lightPreview?.show(look, effectiveLight(r.same ? s.light : r), undefined, r);
   };
   /** The open tab's preview, made once. */
   const preview = () => {
-    if (lightTab === 'view') return showLight(), viewShot;
     lightPreview ??= new MaterialPreview();
-    lightPreview.canvas.className = 'light-preview';
-    lightPreview.canvas.title = 'These settings on the teapot of the material pictures, in Plastic, light grey';
+    const canvas = lightTab === 'view' ? lightPreview.viewCanvas : lightPreview.canvas;
+    canvas.className = 'light-preview';
+    canvas.title = lightTab === 'view' ? 'These settings on the teapot of the material pictures, as the 3D view draws it' : 'These settings on the teapot of the material pictures, rendered';
     showLight();
-    return lightPreview.canvas;
+    return canvas;
   };
   /** Chapters: the left column lists them, the right shows the open one. */
   const chapters: [string, () => Node[]][] = [

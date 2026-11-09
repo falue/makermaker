@@ -6773,7 +6773,6 @@ function settingsDialog(start?: 'light-render') {
     {
       units: () => history.current.units,
       setUnits: (units) => commit({ ...history.current, units }),
-      viewPicture: (into) => viewer.pictureInto(into),
       renderLight: docRenderLight,
       setRenderLight(light) {
         // one undo step while the dialog keeps changing it

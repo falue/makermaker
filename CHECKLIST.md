@@ -76,7 +76,7 @@ Settings:
 
 - [ ] Zoom, pan and orbit speed sliders: 0.1 to 8, snap to 1 near it, a reset each; they work in every view and for sideways scrolling
 - [ ] General in two columns; Settings, Materials and Versions open a fixed distance from the top, no jump between chapters; titles in the text colour
-- [ ] Light → 3D view tab: the preview is the 3D view itself in its visual style; light rows in aligned columns
+- [ ] Light → 3D view tab: the preview is the teapot of the material pictures as the 3D view draws it (not the document), changing live; light rows in aligned columns
 - [ ] Section sliders: reset with the undo icon; invert with the two-arrow icon, both centred
 - [ ] Every checkbox is a switch; Autosave a switch after the file name; dropdown chevrons set in from the edge
 
