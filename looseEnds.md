@@ -113,6 +113,10 @@ Answers assumed where a request left a question open.
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
 
 ## Found by hand (2026-11-07 / 08, user-observed, not reproduced)
+- The candle's chamfer itself was not timed (no way to build a document in Node yet); what changed is that its 7 linked copies no longer build it again.
+- The entangle icon shows while moving (move fields, drags, Align), not while turning with Rotate.
+- An example script saved in this browser before 2026-11-09 keeps that copy (also a broken one); only later saves store just what differs.
+- Sketch export: from the list's right-click only, not from the 3D view.
 - The main hint panel at the top moves sideways with the width of the top-left column (the mode note, say): it is centred between that column and the view cube. Wanted: centred in the view, moved only where the two would overlap.
 - Sketch mode's section on a ground-plane sketch cuts away every body standing on the ground. Maybe a sketch on a base plane (or seen from the top) should start without the section.
 - Closing a polygon inside sketch mode (Line tool, polygon mode, three corners, click the start) leaves sketch mode; it should stay flat and the tool go on (checklist: "Closed inside sketch mode"). Not reproduced (2026-11-08, headless Chrome, sample sketch "Plate outline": it stayed in the sketch, the tool went on); the exact steps are needed.
