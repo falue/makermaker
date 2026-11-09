@@ -7221,6 +7221,7 @@ function render() {
     foldTool,
     foldAll,
     bodyMenu,
+    revealInList,
     removeStep: (body, feature) => removeStep({ body, feature }),
     deselectAgain(id, how) {
       if (how || picks(id) || extruding?.picking() || selected.length !== 1 || selected[0] !== id) return false;

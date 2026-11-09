@@ -87,6 +87,8 @@ export interface UIContext {
   foldAll(owner: string): void;
   /** Body `id`'s right-click menu at (x, y) (Fold, Unfold, Fold all); false: nothing to offer. */
   bodyMenu(id: string, x: number, y: number): boolean;
+  /** Shows `id`'s row in the left column: its tab, its groups open, scrolled to. */
+  revealInList(id: string): void;
   /** Deletes step `feature` of `body` (a boolean's: a folded tool body goes with it, a listed one becomes free). */
   removeStep(body: string, feature: string): void;
   /** New sketch objects are drawn as construction lines or not, as the last object switched. */
@@ -342,7 +344,14 @@ function listItem(id: string, className: string, pick: (how: Pick) => void, ...c
   if (renaming === id) return h('div', { className }, ...children);
   const el = h('button', {
     className,
-    onclick: (e) => pick(role(e, 'add') ? 'range' : role(e, 'addOne')),
+    onclick: (e) => {
+      const how = role(e, 'add') ? 'range' : role(e, 'addOne');
+      // a plain click on a search result: the search goes, the row shows in the whole list
+      const found = !how && !!filters[leftTab];
+      if (found) filters[leftTab] = '';
+      pick(how);
+      if (found) revealOf?.(id);
+    },
     // right-click: a body's menu if it has one; Ctrl-click (macOS sends it as a right-click) toggles as ⌘-click does
     oncontextmenu: (e) => (e.preventDefault(), (!e.ctrlKey && menuOf?.(id, e.clientX, e.clientY)) || pick(true)),
   }, ...children);
@@ -382,11 +391,13 @@ addEventListener('pointercancel', release, { capture: true });
 /** Rebuilds all panels, keeping focus and unsaved typing in the active field. */
 /** The right-click menu list rows open (a body's; set with each render). */
 let menuOf: UIContext['bodyMenu'] | null = null;
+let revealOf: UIContext['revealInList'] | null = null;
 
 export function renderUI(ctx: UIContext) {
   if (holding) return void (waiting = ctx);
   waiting = null;
   menuOf = (id, x, y) => ctx.doc.bodies.some((b) => b.id === id) && ctx.bodyMenu(id, x, y);
+  revealOf = ctx.revealInList;
   const active = document.activeElement as HTMLInputElement | null;
   const path = active?.dataset?.path ?? (renaming ? `list.${renaming}` : undefined); // a name just clicked gets the focus
   const typing = active?.dataset.dirty ? { value: active.value, from: active.selectionStart, to: active.selectionEnd } : null;
