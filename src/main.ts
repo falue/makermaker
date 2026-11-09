@@ -1393,11 +1393,13 @@ function finishSize(doc: Doc, path: string[], value: Expr): Doc {
   return setIn(doc, ['bodies', i, 'features', j], { ...feature, mode, size });
 }
 
-/** V: the selected bodies, sketches and groups switch between hidden and shown (one step). */
+/** V: the selected bodies, sketches and groups switch between hidden and shown, a body's linked copies as it goes (one step). */
 function toggleVisible() {
   const doc = history.current;
-  const flip = <T extends { id: string; visible: boolean }>(list: T[]) => list.map((o) => (selected.includes(o.id) ? { ...o, visible: !o.visible } : o));
-  commit({ ...doc, bodies: flip(doc.bodies), sketches: flip(doc.sketches), groups: flip(doc.groups) });
+  const to = new Map([...doc.bodies, ...doc.sketches, ...doc.groups].filter((o) => selected.includes(o.id)).map((o) => [o.id, !o.visible]));
+  for (const b of doc.bodies) if (b.link && to.has(b.link)) to.set(b.id, to.get(b.link)!);
+  const set = <T extends { id: string; visible: boolean }>(list: T[]) => list.map((o) => (to.has(o.id) ? { ...o, visible: to.get(o.id)! } : o));
+  commit({ ...doc, bodies: set(doc.bodies), sketches: set(doc.sketches), groups: set(doc.groups) });
 }
 
 /**

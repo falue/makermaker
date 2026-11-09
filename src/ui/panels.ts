@@ -758,9 +758,10 @@ function left(ctx: UIContext): Node[] {
   // while a body is isolated the others grey out (their eyes still show or hide them), all of a list while it is hidden
   const dimmed = (id: string, list: 'objects' | 'sketches' = 'objects') => ((ctx.isolated && ctx.isolated !== id) || ctx.hideAll[list] ? ' dimmed' : '');
   const order = { objects: tree(doc, ctx.folded).map((r) => r.id), sketches: doc.sketches.map((s) => s.id) };
-  /** Shows or hides bodies, sketches and groups by id (one step). */
+  /** Shows or hides bodies (with their linked copies), sketches and groups by id (one step). */
   const setShown = (ids: string[], on: boolean) => {
-    const set = <T extends { id: string; visible: boolean }>(list: T[]) => list.map((o) => (ids.includes(o.id) ? { ...o, visible: on } : o));
+    const all = new Set([...ids, ...doc.bodies.filter((b) => b.link && ids.includes(b.link)).map((b) => b.id)]);
+    const set = <T extends { id: string; visible: boolean }>(list: T[]) => list.map((o) => (all.has(o.id) ? { ...o, visible: on } : o));
     ctx.commit({ ...doc, bodies: set(doc.bodies), sketches: set(doc.sketches), groups: set(doc.groups) });
   };
   /** An eye switched to `on`; with Shift, every row from the last eye clicked in its list to this one goes the way that one went. */
