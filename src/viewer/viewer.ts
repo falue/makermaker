@@ -445,7 +445,8 @@ export class Viewer implements ToolView {
   activeSketch: string | null = null;
   /** Reference points of shapes (by id; none: the centre), shown on the active sketch's shapes. */
   shapeRefs = new Map<string, [number, number]>();
-  overlay = new THREE.Group();
+  /** A tool's preview (shapes being drawn, snaps, guides): sorted after everything else (a group's order), so no body, nor a section's clipped copy, covers it. */
+  overlay = Object.assign(new THREE.Group(), { renderOrder: 2e6 });
   private sketchView = new THREE.Group();
   private sketchGrid = new THREE.Group();
   private selectedShapes: string[] = [];
