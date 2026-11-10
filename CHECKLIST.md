@@ -352,6 +352,7 @@ Only typechecked or tested at kernel level, or impossible for a test browser.
 
 ## Speed
 
+- [ ] LIO, a live render view: after a change a rough picture shows first and sharpens; orbiting or zooming the main view greys its progress bar (tooltip: paused) and it carries on right after
 - [ ] Lamp: play a joint: fluid; Repeat on for a while
 - [ ] Lamp with its section on: fluid; the caps and outlines follow the moving parts
 - [ ] Lamp with the work plane: its green lines follow a body moving through it

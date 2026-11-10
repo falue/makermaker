@@ -3129,6 +3129,10 @@ section > h4 .segmented button {
   vertical-align: middle;
   accent-color: var(--accent);
 }
+.live-progress.paused {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
 
 /* a live render view: the path traced picture over the plain view (which shows while turning it); presses go through to orbit */
 #stage .view .live {

@@ -88,7 +88,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Rebuilding a body leaves some memory behind in the worker even when its shape is deleted; dropping the mesh first reduced this. Over very long sessions it could add up.
 - A fillet or chamfer too big for some edges still takes 1-2 s on testdata/blowout.mmk's candle holder (2026-11-09): every trial of the size search takes the result's tight box (`sound` in `finish`), slow on the bulge's spline face.
 - Measured against the 50-60 fps goal (2026-11-10, headless Chrome at 2x, 2400×1350): LIO and blowout orbit at 60 fps in Shaded, Lines and with Soft shadows; a click on LIO ~100-170 ms (the left list rebuilt, then the browser's layout of its ~400 rows). Dragging bodies and editing sketches not measured yet.
-- A live render view keeps the GPU busy for its whole render (~80 s on LIO at 468×810): the other views turn at 15-30 fps meanwhile.
+- A live render view keeps the GPU busy for its whole render (~80 s on LIO at 468×810); it pauses while the main camera moves, but other extra views still turn at 15-30 fps meanwhile.
+- Every live render restart builds the tracer's BVH on the main thread (~0.95 s on LIO, the UI frozen meanwhile), even when only its camera turned: a kept tracer would skip it (camera) or refit it (moved body); three-mesh-bvh's worker could build it off the main thread.
 - The first click after loading still compiles two programs in an extra view (~0.1 s), not covered by `warmShaders`.
 
 ## Tests

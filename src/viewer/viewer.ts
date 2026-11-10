@@ -742,6 +742,7 @@ export class Viewer implements ToolView {
         this.camera.position.copy(target).add(offset);
         orbit = { ...orbit, target: target.clone(), turn: this.camera.quaternion.clone() };
       }
+      this.mainTurned = performance.now();
       this.paintSoon(); // the main camera only
       this.tool?.refresh(); // labels and markers follow the camera
     });
@@ -4886,6 +4887,8 @@ export class Viewer implements ToolView {
   liveHost: { light: Light; haze: { haze: number; fog: number }; queueBusy(): boolean; save(camera: CameraState, background: Backdrop, image: Blob, shot?: string): string } | null = null;
   /** The live render view touched last: the only one that renders (the others keep their picture). */
   private liveView: Viewer['views'][number] | null = null;
+  /** When the main camera moved last: live renders wait while it moves. */
+  private mainTurned = 0;
 
   /**
    * A new view: `kind` looks from that side (3D: from the front right, above), 'face': along `look.n` at `look.at`;
@@ -5160,6 +5163,11 @@ export class Viewer implements ToolView {
           },
           cancelled: () => !mine(),
           slow: () => false,
+          paused: () => {
+            const on = performance.now() - this.mainTurned < 300;
+            if (bar) Object.assign(bar, { title: on ? 'Paused while the 3D view moves' : 'Rendering' }).classList.toggle('paused', on);
+            return on;
+          },
         });
         if (!mine()) return;
         l.image = image;

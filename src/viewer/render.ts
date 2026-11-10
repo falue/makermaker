@@ -36,6 +36,8 @@ export interface RenderWatch {
   cancelled(): boolean;
   /** Render slower, leaving the app usable. */
   slow(): boolean;
+  /** Wait without tracing (the GPU is the app's meanwhile). */
+  paused?(): boolean;
 }
 
 /**
@@ -109,14 +111,32 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
   const tracer = new WebGLPathTracer(renderer);
   Object.assign(tracer, { renderDelay: 0, fadeDuration: 0, minSamples: 0, bounces: fogBounces(fog, tracer.bounces) });
   tracer.setScene(scene, view);
-  watch.show(renderer.domElement);
+  // what is shown: a copy after each whole pass (the tracer's canvas fills tile by tile)
+  const shown = Object.assign(document.createElement('canvas'), { width, height });
+  const shownG = shown.getContext('2d')!;
+  watch.show(shown);
   try {
-    while (tracer.samples < samples) {
-      tracer.renderSample();
-      watch.progress(Math.min(1, tracer.samples / samples));
-      if (watch.cancelled()) throw new Error('Rendering cancelled');
-      await new Promise((next) => (watch.slow() ? setTimeout(next, slowMs) : requestAnimationFrame(next)));
+    // a rough picture first: a few passes at ¼ and ½ size, then `samples` at full size
+    for (const [scale, tiles, passes] of [[0.25, 1, 2], [0.5, 2, 4], [1, 3, samples]]) {
+      tracer.renderScale = scale;
+      tracer.tiles.set(tiles, tiles);
+      tracer.reset();
+      while (tracer.samples < passes) {
+        if (watch.cancelled()) throw new Error('Rendering cancelled');
+        if (watch.paused?.()) {
+          await new Promise((next) => setTimeout(next, 100));
+          continue;
+        }
+        tracer.renderSample();
+        if (Number.isInteger(tracer.samples)) {
+          shownG.clearRect(0, 0, width, height);
+          shownG.drawImage(renderer.domElement, 0, 0);
+        }
+        watch.progress(scale < 1 ? 0 : Math.min(1, tracer.samples / samples));
+        await new Promise((next) => (watch.slow() ? setTimeout(next, slowMs) : requestAnimationFrame(next)));
+      }
     }
+    if (watch.cancelled()) throw new Error('Rendering cancelled');
     const out = Object.assign(document.createElement('canvas'), { width, height });
     const g = out.getContext('2d')!;
     const look = camera.getWorldDirection(new THREE.Vector3());
