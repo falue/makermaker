@@ -5906,13 +5906,21 @@ export class Viewer implements ToolView {
     // dragging the cube orbits the camera without end: the pointer is hidden and locked, so the screen edge does not stop it;
     // the capture makes the release no click on a face
     let start = { x: 0, y: 0 };
-    let turning = false;
+    let [held, turning] = [false, false];
     cube.onpointerdown = (e) => {
       start = { x: e.clientX, y: e.clientY };
-      turning = false;
+      [held, turning] = [e.button === 0, false];
     };
+    // a release anywhere ends the drag; a lock Chrome grants only after it (asked for while dragging) ends at once
+    const release = () => {
+      [held, turning] = [false, false];
+      if (document.pointerLockElement === cube) document.exitPointerLock();
+    };
+    addEventListener('pointerup', release, { capture: true });
+    addEventListener('blur', release);
+    document.addEventListener('pointerlockchange', () => !held && document.pointerLockElement === cube && document.exitPointerLock());
     cube.onpointermove = (e) => {
-      if (e.buttons !== 1) return;
+      if (!held || e.buttons !== 1) return;
       if (!turning) {
         if (Math.hypot(e.clientX - start.x, e.clientY - start.y) <= 4) return;
         turning = true;
@@ -5936,7 +5944,6 @@ export class Viewer implements ToolView {
       eye.camera.position.copy(target).add(offset);
       eye.controls.update();
     };
-    cube.onpointerup = () => document.pointerLockElement === cube && document.exitPointerLock();
     // after a side was chosen, arrows turn the view by 90° to the neighbouring side
     const arrows = (['up', 'down', 'left', 'right'] as const).map((side) =>
       Object.assign(document.createElement('button'), { className: `turn ${side}`, onclick: () => this.turn(side, eye) }),
