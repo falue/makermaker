@@ -27,6 +27,8 @@ export function selectTyped(e: KeyboardEvent, typed: string | undefined, clear: 
   return false;
 }
 const MODIFIERS = ['Shift', 'Alt', 'Control', 'Meta'];
+const PAIRS: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
+const CLOSING = Object.values(PAIRS);
 
 /**
  * What is typed while drawing or dragging (no field there), as a label shows it: the caret, then what Tab would add;
@@ -47,7 +49,8 @@ export const caretHtml = (text: string) =>
  * starts with what is typed shows in grey after it, Tab writes it out with a space. Typed values without a field get
  * the same from `restOf` and `caret`.
  * A calculation shows its result after that (`preview`: the text as shown, null: none). The field's value holds only
- * what was typed.
+ * what was typed. ( [ { add their closing bracket after the caret (a selection: around it), a closing one typed before
+ * the same steps over it, Backspace between an empty pair takes both.
  */
 export function installCompletion(names: () => string[], preview: (text: string, field: HTMLInputElement) => string | null) {
   paramNames = names;
@@ -93,6 +96,28 @@ export function installCompletion(names: () => string[], preview: (text: string,
   document.addEventListener('keyup', (e) => e.key.startsWith('Arrow') && update(e.target));
   document.addEventListener('focusout', hide);
   addEventListener('scroll', hide, true);
+  const write = (el: HTMLInputElement, text: string, from: number, to: number, caret: [number, number]) => {
+    el.setRangeText(text, from, to);
+    el.setSelectionRange(...caret);
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  };
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) || el.dataset.complete === undefined || e.metaKey || e.ctrlKey || e.altKey) return;
+      const [a, b] = [el.selectionStart ?? 0, el.selectionEnd ?? 0];
+      const close = PAIRS[e.key];
+      const next = el.value[a];
+      if (close) write(el, `${e.key}${el.value.slice(a, b)}${close}`, a, b, [a + 1, b + 1]);
+      else if (a === b && next && e.key === next && CLOSING.includes(next)) el.setSelectionRange(a + 1, a + 1);
+      else if (a === b && a > 0 && e.key === 'Backspace' && PAIRS[el.value[a - 1]] === next) write(el, '', a - 1, a + 1, [a - 1, a - 1]);
+      else return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    },
+    { capture: true },
+  );
   document.addEventListener(
     'keydown',
     (e) => {
