@@ -2023,13 +2023,13 @@ export class SketchTool implements Tool {
       this.dwell = { seg, point, timer: guide ? window.setTimeout(guide, SketchTool.guideMs) : 0 };
     }
     this.clearPreview();
-    const labels: [string, THREE.Vector3, boolean, boolean?, PullOp?][] = []; // text, where, typed into, T reaches for it, what a pull does to the body
+    const labels: [string, THREE.Vector3, boolean, boolean?, PullOp?, THREE.Vector3?][] = []; // text, where, typed into, T reaches for it, what a pull does to the body, a point outward (the label sits just outside)
     let angle: Parameters<SketchTool['angleLabel']>[0] | null = null; // the open side's angle: placed last, around the others
     let sideLength: string | null = null;
     const ph = this.phase;
     const fmt = (mm: number) => mm.toFixed(2);
-    const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean, t = false) =>
-      labels.push([`${name} ${typed === undefined ? fmt(mm) : caret(typed, active)}`, at, active, t]);
+    const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean, t = false, out?: THREE.Vector3) =>
+      labels.push([`${name} ${typed === undefined ? fmt(mm) : caret(typed, active)}`, at, active, t, undefined, out]);
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
       const open = ph.kind === 'polygon' ? (ph.held?.adds ? ph.held.at : ph.arcEnd ?? ph.cur) : ph.cur;
@@ -2040,8 +2040,8 @@ export class SketchTool implements Tool {
         // at the middles of its bottom and right sides, turned with it
         const t = ((profile.rot ?? 0) * Math.PI) / 180;
         const at = (lx: number, ly: number) => v3(toWorld(f, profile.x + lx * Math.cos(t) - ly * Math.sin(t), profile.y + lx * Math.sin(t) + ly * Math.cos(t)));
-        label('L', ph.typed[0], profile.w, at(0, -profile.h / 2), ph.axis === 0);
-        label('W', ph.typed[1], profile.h, at(profile.w / 2, 0), ph.axis === 1);
+        label('L', ph.typed[0], profile.w, at(0, -profile.h / 2), ph.axis === 0, false, at(0, -profile.h / 2 - 1));
+        label('W', ph.typed[1], profile.h, at(profile.w / 2, 0), ph.axis === 1, false, at(profile.w / 2 + 1, 0));
       }
       if (ph.kind === 'polygon') this.handlesShown(ph);
       const sliding = ph.kind === 'polygon' && this.sliding(ph);
@@ -2168,7 +2168,20 @@ export class SketchTool implements Tool {
     }
     const els = labels.map(([text, , active, t, op]) => sizeLabel(text, active, t, op));
     this.labels.replaceChildren(...els);
-    labels.forEach(([, at], i) => keepInside(els[i], ...this.view.toScreen(at)));
+    labels.forEach(([, at, , , , out], i) => {
+      let [x, y] = this.view.toScreen(at);
+      if (out) {
+        // pushed outward until its box clears the side
+        const [ox, oy] = this.view.toScreen(out);
+        const d = Math.hypot(ox - x, oy - y);
+        if (d > 1e-6) {
+          const [ux, uy] = [(ox - x) / d, (oy - y) / d];
+          const push = (Math.abs(ux) * els[i].offsetWidth + Math.abs(uy) * els[i].offsetHeight) / 2 + 6;
+          [x, y] = [x + ux * push, y + uy * push];
+        }
+      }
+      keepInside(els[i], x, y);
+    });
     if (angle) this.angleLabel(angle, els);
     this.view.render();
   }
