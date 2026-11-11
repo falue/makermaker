@@ -5904,7 +5904,7 @@ export class Viewer implements ToolView {
    * side. Let go of a fast spin (over `flingPx` px per ms, the last `recentMs`) and it turns on at `carry` of that speed,
    * slowing to a stop in `spinMs`.
    */
-  private viewCube(eye = this.main, dragSpeed = 0.02 /* rad per px */, flingPx = 0.6, recentMs = 100, spinMs = 2000, carry = 0.5) {
+  private viewCube(eye = this.main, dragSpeed = 0.02 /* rad per px */, flingPx = 0.6, recentMs = 100, spinMs = 2000, carry = 0.25) {
     const { cube, cubeWrap } = eye;
     this.cubeFaces(cube, (dir, side) => this.viewFrom(dir, side, 600, undefined, undefined, eye));
     // the camera orbited by a move of (x, y) px over the cube
