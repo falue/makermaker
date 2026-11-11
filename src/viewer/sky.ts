@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import type { Backdrop } from '../doc/types';
 
 /**
@@ -40,15 +41,28 @@ function colourAt(b: Backdrop, at: number) {
 }
 
 /**
+ * Ortho has no horizon: where (NDC, up positive) the ground (z 0) crosses the screen plane through `at` (the point
+ * looked at), so a level view fades there; tilted, the fade moves off as in perspective. Perspective: 0 (its horizon
+ * lies far off).
+ */
+export function groundShift(camera: THREE.Camera, at: THREE.Vector3) {
+  if (!(camera instanceof THREE.OrthographicCamera)) return 0;
+  camera.updateMatrixWorld(); // as it is now, not as last drawn
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  if (up.z < 0.1) return 0; // looking almost straight up or down: off the picture anyway
+  return at.clone().addScaledVector(up, -at.z / up.z).project(camera).y;
+}
+
+/**
  * The background around the horizon as the camera sees it: for each picture row the elevation of the ray through it
  * picks the colour (the band of the backdrop spans the stops). `pitch`: the camera's elevation (radians, up
  * positive); `tanHalf`: tangent of half its vertical field of view. The camera has no roll (z stays up), so a row has
  * one colour.
  */
-export function drawSky(g: CanvasRenderingContext2D, width: number, height: number, pitch: number, tanHalf: number, b: Backdrop) {
+export function drawSky(g: CanvasRenderingContext2D, width: number, height: number, pitch: number, tanHalf: number, b: Backdrop, shift = 0) {
   const edge = (b.band * Math.PI) / 180;
   for (let y = 0; y < height; y++) {
-    const ndc = 1 - ((y + 0.5) / height) * 2; // 1 at the top row
+    const ndc = 1 - ((y + 0.5) / height) * 2 - shift; // 1 at the top row; ortho: counted from the ground's line (`groundShift`)
     const up = Math.sin(pitch) + Math.cos(pitch) * ndc * tanHalf;
     const elevation = Math.asin(up / Math.hypot(1, ndc * tanHalf));
     const t = Math.min(1, Math.max(0, (elevation + edge) / (2 * edge)));
