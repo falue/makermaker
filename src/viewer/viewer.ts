@@ -5901,9 +5901,10 @@ export class Viewer implements ToolView {
 
   /**
    * A view's cube (top right) with its turn arrows, Look at a face, Fit and Home below it; clicking a face looks from that
-   * side. Let go of a fast spin (over `flingPx` px per ms, the last `recentMs`) and it turns on, slowing to a stop in `spinMs`.
+   * side. Let go of a fast spin (over `flingPx` px per ms, the last `recentMs`) and it turns on at `carry` of that speed,
+   * slowing to a stop in `spinMs`.
    */
-  private viewCube(eye = this.main, dragSpeed = 0.02 /* rad per px */, flingPx = 0.6, recentMs = 100, spinMs = 2000) {
+  private viewCube(eye = this.main, dragSpeed = 0.02 /* rad per px */, flingPx = 0.6, recentMs = 100, spinMs = 2000, carry = 0.5) {
     const { cube, cubeWrap } = eye;
     this.cubeFaces(cube, (dir, side) => this.viewFrom(dir, side, 600, undefined, undefined, eye));
     // the camera orbited by a move of (x, y) px over the cube
@@ -5946,12 +5947,13 @@ export class Viewer implements ToolView {
       const ms = Math.max(16, now - moves[0].t);
       const [vx, vy] = [moves.reduce((a, m) => a + m.x, 0) / ms, moves.reduce((a, m) => a + m.y, 0) / ms];
       if (Math.hypot(vx, vy) < flingPx) return;
+      const [sx, sy] = [vx * carry, vy * carry];
       let last = now;
       const step = (t: number) => {
         const k = (t - now) / spinMs;
         if (k >= 1) return void (spin = 0);
-        const slow = (1 - k) ** 2; // eases out to a stop
-        turnBy(vx * slow * (t - last), vy * slow * (t - last));
+        const slow = (1 - k) ** 3; // eases out to a stop, most of it early
+        turnBy(sx * slow * (t - last), sy * slow * (t - last));
         last = t;
         spin = requestAnimationFrame(step);
       };
