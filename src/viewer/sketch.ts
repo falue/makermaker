@@ -2026,13 +2026,13 @@ export class SketchTool implements Tool {
       this.dwell = { seg, point, timer: guide ? window.setTimeout(guide, SketchTool.guideMs) : 0 };
     }
     this.clearPreview();
-    const labels: [string, THREE.Vector3, boolean, boolean?, PullOp?, THREE.Vector3?][] = []; // text, where, typed into, T reaches for it, what a pull does to the body, a point outward (the label sits just outside)
+    const labels: [string, THREE.Vector3, boolean, boolean?, PullOp?, THREE.Vector3?, ('x' | 'y')?][] = []; // text, where, typed into, T reaches for it, what a pull does to the body, a point outward (the label sits just outside), a leader to it in that axis' colour
     let angle: Parameters<SketchTool['angleLabel']>[0] | null = null; // the open side's angle: placed last, around the others
     let sideLength: string | null = null;
     const ph = this.phase;
     const fmt = (mm: number) => mm.toFixed(2);
-    const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean, t = false, out?: THREE.Vector3) =>
-      labels.push([`${name} ${typed === undefined ? fmt(mm) : caret(typed, active)}`, at, active, t, undefined, out]);
+    const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean, t = false, out?: THREE.Vector3, leader?: 'x' | 'y') =>
+      labels.push([`${name} ${typed === undefined ? fmt(mm) : caret(typed, active)}`, at, active, t, undefined, out, leader]);
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
       const open = ph.kind === 'polygon' ? (ph.held?.adds ? ph.held.at : ph.arcEnd ?? ph.cur) : ph.cur;
@@ -2043,8 +2043,11 @@ export class SketchTool implements Tool {
         // at the middles of its bottom and right sides, turned with it
         const t = ((profile.rot ?? 0) * Math.PI) / 180;
         const at = (lx: number, ly: number) => v3(toWorld(f, profile.x + lx * Math.cos(t) - ly * Math.sin(t), profile.y + lx * Math.sin(t) + ly * Math.cos(t)));
-        label('L', ph.typed[0], profile.w, at(0, -profile.h / 2), ph.axis === 0, false, at(0, -profile.h / 2 - 1));
-        label('W', ph.typed[1], profile.h, at(profile.w / 2, 0), ph.axis === 1, false, at(profile.w / 2 + 1, 0));
+        // a side short on screen: its label further out, a leader to it
+        const short = (a: THREE.Vector3, b: THREE.Vector3) => Math.hypot(...this.view.toScreen(a).map((v, k) => v - this.view.toScreen(b)[k])) < 60;
+        const [lw, lh] = [short(at(-profile.w / 2, -profile.h / 2), at(profile.w / 2, -profile.h / 2)), short(at(profile.w / 2, -profile.h / 2), at(profile.w / 2, profile.h / 2))];
+        label('L', ph.typed[0], profile.w, at(0, -profile.h / 2), ph.axis === 0, false, at(0, -profile.h / 2 - 1), lw ? 'x' : undefined);
+        label('W', ph.typed[1], profile.h, at(profile.w / 2, 0), ph.axis === 1, false, at(profile.w / 2 + 1, 0), lh ? 'y' : undefined);
       }
       if (ph.kind === 'polygon') this.handlesShown(ph);
       const sliding = ph.kind === 'polygon' && this.sliding(ph);
@@ -2171,19 +2174,26 @@ export class SketchTool implements Tool {
     }
     const els = labels.map(([text, , active, t, op]) => sizeLabel(text, active, t, op));
     this.labels.replaceChildren(...els);
-    labels.forEach(([, at, , , , out], i) => {
-      let [x, y] = this.view.toScreen(at);
+    labels.forEach(([, at, , , , out, leader], i) => {
+      const [sx, sy] = this.view.toScreen(at);
+      let [x, y] = [sx, sy];
       if (out) {
-        // pushed outward until its box clears the side
+        // pushed outward until its box clears the side (with a leader: further)
         const [ox, oy] = this.view.toScreen(out);
         const d = Math.hypot(ox - x, oy - y);
         if (d > 1e-6) {
           const [ux, uy] = [(ox - x) / d, (oy - y) / d];
-          const push = (Math.abs(ux) * els[i].offsetWidth + Math.abs(uy) * els[i].offsetHeight) / 2 + 6;
+          const push = (Math.abs(ux) * els[i].offsetWidth + Math.abs(uy) * els[i].offsetHeight) / 2 + (leader ? 28 : 6);
           [x, y] = [x + ux * push, y + uy * push];
         }
       }
       keepInside(els[i], x, y);
+      if (!leader) return;
+      // from the side's middle to where the label ended up, under it
+      const [lx, ly] = [parseFloat(els[i].style.left) - sx, parseFloat(els[i].style.top) - sy];
+      const line = Object.assign(document.createElement('div'), { className: `leader ${leader}` });
+      Object.assign(line.style, { left: `${sx}px`, top: `${sy}px`, width: `${Math.hypot(lx, ly)}px`, transform: `rotate(${Math.atan2(ly, lx)}rad)` });
+      this.labels.prepend(line);
     });
     if (angle) this.angleLabel(angle, els);
     this.view.render();
