@@ -7,8 +7,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - [ ] README: anything big missing?
 - [ ] README, why it is awesome: parametric fillets and chamfers (steps, changed after the fact, the geometry under them kept).
 - [ ] 3D print / laser panel: Export at the bottom right, blue; the options on the left, as an actions footer.
-- [ ] View options panel: closes on a click outside it.
-- [ ] View options button: the same border as "+ View".
 
 ## Lines and polygons
 - What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.

@@ -4979,6 +4979,8 @@ export class Viewer implements ToolView {
     head.append(Object.assign(document.createElement('strong'), { textContent: 'View' }), closeButton('Close', () => (options.hidden = true)));
     options.append(head, toggle('Grid', 'Show or hide the ground grid', this.grid), toggle('Origin', 'Show or hide the origin axes', this.axes), style);
     const cog = Object.assign(button('', 'Click: View options: grid, origin, visual style', () => (options.hidden = !options.hidden)), { className: 'icon cog', innerHTML: icon('settings') });
+    // a press outside it closes it (the cog toggles it itself)
+    addEventListener('pointerdown', (e) => !options.hidden && !options.contains(e.target as Node) && !cog.contains(e.target as Node) && (options.hidden = true), { capture: true });
     bar.append(this.projection, cog, more, options);
     return bar;
   }
