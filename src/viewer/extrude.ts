@@ -6,7 +6,7 @@ import type { Area } from '../doc/types';
 import { area, inside, type DrawnProfile } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
 import { aimInto, FRONT, onBody, OP_HINT, planeHit, pullBy, pullCuts, pullName, pulled, pullKey, pullOp, pullTap, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
-import { pressed, role, toggles } from '../ui/keys';
+import { comboText, keysOf, pressed, role, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
@@ -71,6 +71,8 @@ export class ExtrudeTool implements Tool {
   /** The Measure tool is on, this one waits for it. */
   private measuring = false;
   private aimed: string | null = null;
+  /** A round face pulled: its size typed and shown as diameter (0), radius (1) or plain offset (2); the extrude key switches. */
+  private roundMode = 0;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
   constructor(
@@ -164,7 +166,10 @@ export class ExtrudeTool implements Tool {
       const { frame, at } = this.ref();
       pullBy(this.view, e, frame.n, at, this.pull);
       const step = this.view.step(at, e);
-      this.pull.depth = Math.round(this.pull.raw / step) * step;
+      const round = this.rounded();
+      // a round face: on the step of its size, the size it had a snap point
+      const [now, was] = round ? [round.shown(this.pull.raw), round.shown(0)] : [];
+      this.pull.depth = round ? round.depth(Math.abs(now! - was!) < step ? was! : Math.round(now! / step) * step) : Math.round(this.pull.raw / step) * step;
       this.pull.alt = role(e, 'centre');
       return this.changed();
     }
@@ -222,6 +227,12 @@ export class ExtrudeTool implements Tool {
         this.view.unlockPointer();
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
+      }
+      if (this.roundFace() && pressed(e, 'extrude') && !typing) {
+        this.roundMode = (this.roundMode + 1) % 3;
+        p.typed = undefined; // typed as the old kind of size
+        this.host.hint(this.pullHint());
+        return this.changed(), true;
       }
       if (!pullKey(e, p, this.onBody())) return false;
       this.host.hint(this.pullHint());
@@ -301,7 +312,24 @@ export class ExtrudeTool implements Tool {
   }
 
   private depths() {
-    return pulled(this.pull!, (t) => this.host.length(t));
+    const p = this.pull!;
+    const { depth, back } = pulled(p, (t) => this.host.length(t));
+    const round = this.rounded();
+    const typed = round && p.typed !== undefined ? this.host.length(p.typed) : null;
+    return { depth: typed === null ? depth : round!.depth(typed), back };
+  }
+
+  /** The first face pulled, if round and nothing else picked (sketch areas pull by depth). */
+  private roundFace() {
+    return this.groups.some((g) => g.picked.size) ? undefined : this.faces[0]?.round;
+  }
+
+  /** Pulling a round face by its size (not plain offset): that size from an offset along the face (`shown`) and back (`depth`). */
+  private rounded() {
+    const round = this.roundFace();
+    if (!round || this.roundMode === 2) return null;
+    const [k, s] = [this.roundMode ? 1 : 2, round.shaft ? 1 : -1]; // a hole's wall faces its axis: pulled out, the hole shrinks
+    return { name: this.roundMode ? 'R' : 'Ø', shown: (mm: number) => k * (round.r + s * mm), depth: (size: number) => s * (size / k - round.r) };
   }
 
   /** The pull changed: the faces follow it in the model. */
@@ -348,7 +376,8 @@ export class ExtrudeTool implements Tool {
   }
 
   private pullHint() {
-    return PULL_HINT + (this.onBody() ? OP_HINT : '');
+    const round = this.roundFace() ? ` · [${comboText(keysOf('extrude')[0])}] Ø, R or offset` : '';
+    return PULL_HINT + round + (this.onBody() ? OP_HINT : '');
   }
 
   /** Centre of a sketch's picked areas' corners, on its plane (world). */
@@ -410,7 +439,8 @@ export class ExtrudeTool implements Tool {
       // the depth at the end, how far back behind the plane (when it reaches back or is typed into)
       const { frame, at } = this.ref();
       const n = v3(frame.n);
-      const shown: [string, string | undefined, number, number, boolean][] = [[pullName(frame.n), p.typed, depth, depth, !p.side]];
+      const round = this.rounded();
+      const shown: [string, string | undefined, number, number, boolean][] = [[round?.name ?? pullName(frame.n), p.typed, round ? round.shown(depth) : depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
         const op = name !== 'Back' && this.onBody() ? this.op() : undefined; // what it does to the body
