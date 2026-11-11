@@ -2713,6 +2713,9 @@ input + .set-axis {
 }
 
 /* the export panels: one row per body, then the options */
+.export-panel {
+  width: 420px; /* not the whole view's width (a small view: its max-width, see atTop) */
+}
 .export-panel .export-head {
   display: grid;
   grid-template-columns: 1fr auto 1fr; /* the title truly centred, the close button at the right */

@@ -7498,7 +7498,7 @@ async function exportPanel(kind: 'laser' | 'print') {
           toolHint = `Laser: click the face of ${b.name} to cut out · [Esc] keeps it as it was`;
           render();
           viewer.pickFace((p) => {
-            toolHint = '[Enter] exports · [Esc] closes';
+            toolHint = '';
             if (p?.item?.body === b.id) {
               const pl = bodyPlace(b.id);
               faces.set(b.id, { at: unplaced(pl, p.item.point.toArray()), n: unplaced(pl, p.item.n.toArray(), true) });
@@ -7539,7 +7539,7 @@ async function exportPanel(kind: 'laser' | 'print') {
     showNote(); // the hint row back
     atTop(box);
   };
-  toolHint = '[Enter] exports · [Esc] closes';
+  toolHint = ''; // the hint bar stays empty while it is open
   document.body.append(box);
   draw();
   render();
