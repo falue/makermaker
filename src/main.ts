@@ -7492,11 +7492,13 @@ async function exportPanel(kind: 'laser' | 'print') {
       row.append(tick, Object.assign(document.createElement('span'), { className: 'name', textContent: b.name }));
       if (kind === 'laser') {
         const picked = faces.get(b.id);
-        const faceButton = panelButton(picked ? 'Face: picked' : 'Face: auto', 'The face cut out: its biggest flat one (auto), or click one of it', () => {
+        // what is cut now, then the button that changes it
+        const state = Object.assign(document.createElement('span'), { className: 'check', textContent: picked ? 'Face picked' : 'Auto face', title: picked ? 'The face picked is cut out' : 'Its biggest flat face is cut out' });
+        const faceButton = panelButton('Pick a face', picked ? 'Click: Pick another face of it to cut out' : 'Click: Pick the face of it to cut out (now: its biggest flat one)', () => {
           toolHint = `Laser: click the face of ${b.name} to cut out · [Esc] keeps it as it was`;
           render();
           viewer.pickFace((p) => {
-            toolHint = 'Laser: Face: which face is cut · [Enter] exports · [Esc] cancels';
+            toolHint = 'Laser: Pick a face: another face to cut out · [Enter] exports · [Esc] cancels';
             if (p?.item?.body === b.id) {
               const pl = bodyPlace(b.id);
               faces.set(b.id, { at: unplaced(pl, p.item.point.toArray()), n: unplaced(pl, p.item.n.toArray(), true) });
@@ -7504,7 +7506,7 @@ async function exportPanel(kind: 'laser' | 'print') {
             draw();
           });
         });
-        row.append(faceButton, ...(picked ? [panelButton('×', 'Back to its biggest flat face', () => (faces.delete(b.id), draw()))] : []));
+        row.append(state, faceButton, ...(picked ? [panelButton('×', 'Click: Back to its biggest flat face', () => (faces.delete(b.id), draw()))] : []));
       } else {
         const c = checks.get(b.id);
         const [x, y, z] = (c?.size ?? [0, 0, 0]).map((v) => fmt(+(v / UNITS[doc.units]).toFixed(1)));
@@ -7537,7 +7539,7 @@ async function exportPanel(kind: 'laser' | 'print') {
     showNote(); // the hint row back
     atTop(box);
   };
-  toolHint = kind === 'laser' ? 'Laser: Face: which face is cut · [Enter] exports · [Esc] cancels' : '3D print: each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';
+  toolHint = kind === 'laser' ? 'Laser: Pick a face: another face to cut out · [Enter] exports · [Esc] cancels' : '3D print: each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';
   document.body.append(box);
   draw();
   render();
