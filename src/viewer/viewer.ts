@@ -31,7 +31,7 @@ import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import type { Exact, ExactEdge } from '../kernel/exact';
 import { farthestOnPath, nearestOnPath, type EdgePath } from '../kernel/paths';
 import { turnedBox } from './turnedBox';
-import { backdropCss, drawSky, skyPitch, SKIES, twoColours } from './sky';
+import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
 import { caret, caretHtml, restOf, selectTyped } from '../ui/complete';
 import type { Settings } from '../ui/settings';
@@ -2852,9 +2852,10 @@ export class Viewer implements ToolView {
     return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, light, haze, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
   }
 
-  /** The camera's tilt and half field of view, for the sky (ortho has no horizon: its fade stays in the middle, as if level). */
+  /** The camera's tilt and half field of view (ortho: as the perspective camera would see it), for the sky. */
   private tilt() {
-    return { pitch: skyPitch(this.camera), tanHalf: Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2)) };
+    const look = this.camera.getWorldDirection(new THREE.Vector3());
+    return { pitch: Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf: Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2)) };
   }
 
   /** Redraws the gradient background when the camera tilted. */

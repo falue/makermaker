@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import type { Backdrop } from '../doc/types';
 
 /**
@@ -39,9 +38,6 @@ function colourAt(b: Backdrop, at: number) {
   const [a, c] = [rgb(p.color), rgb(q.color)];
   return a.map((v, j) => Math.round(v + (c[j] - v) * k));
 }
-
-/** The camera's elevation (radians, up positive) the sky is drawn for; ortho has no horizon: 0, its fade in the middle. */
-export const skyPitch = (camera: THREE.Camera) => (camera instanceof THREE.OrthographicCamera ? 0 : Math.asin(THREE.MathUtils.clamp(camera.getWorldDirection(new THREE.Vector3()).z, -1, 1)));
 
 /**
  * The background around the horizon as the camera sees it: for each picture row the elevation of the ray through it
