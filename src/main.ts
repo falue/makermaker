@@ -50,7 +50,7 @@ import { sectionControls } from './ui/sections';
 import { explodeTree } from './viewer/explode';
 import { loadSettings, openSettings } from './ui/settings';
 import { pythonTerminal } from './ui/terminal';
-import { MAC, pressed, role, roleKeyName, type Action, comboText, keysOf } from './ui/keys';
+import { MAC, pressed, role, roleKeyName, type Action, comboText, keyOf, keysOf } from './ui/keys';
 import { openCommandBox } from './ui/commandBox';
 import { caret, installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
@@ -461,6 +461,7 @@ function applySettings() {
   SketchTool.guideMs = settings.guideMs;
   viewer.setAO(settings.ao);
   viewer.setSpeeds(settings.speeds);
+  viewer.trackpad = settings.trackpad;
   viewer.setSurroundings(settings.surroundings);
   viewer.setBackdrop(settings.background);
   viewer.setLight(effectiveLight(settings.light), !settings.light.standard);
@@ -8321,7 +8322,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'saveAs')) run(() => save(true));
   else if (pressed(e, 'open')) run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
-  else if (pressed(e, 'commandBox')) openCommandBox(commands());
+  else if (pressed(e, 'commandBox')) e.repeat || viewer.holdNav(true); // opens when let go (`keyup` below)
   else if (pressed(e, 'newDoc')) newDesign();
   else if (pressed(e, 'terminal')) terminal.toggle();
   else if (pressed(e, 'moreSnaps') || pressed(e, 'fewerSnaps')) notify(`${comboText(keysOf('moreSnaps')[0])} / ${comboText(keysOf('fewerSnaps')[0])} split a line into more or fewer snap points: with a drawing tool, the Distance measure or To object on, put the pointer on the line`);
@@ -8364,6 +8365,13 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'group')) sketching && shapeSel.length ? groupShapes() : groupTool();
   else return;
   e.preventDefault();
+});
+
+// the command box's key let go: the box opens, unless the pointer moved the view meanwhile
+addEventListener('keyup', (e) => {
+  if (!viewer.navHeld || keyOf(e) !== keysOf('commandBox')[0].key) return;
+  e.preventDefault();
+  if (!viewer.holdNav(false)) openCommandBox(commands());
 });
 
 /**

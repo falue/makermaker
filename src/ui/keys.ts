@@ -32,7 +32,7 @@ export const KEYS = {
   save: { chapter: 'File', name: 'Save', order: 10, default: [{ key: 's', mod: true, shift: false }], hint: 'Save the design (a new version in the file)' },
   saveAs: { chapter: 'File', name: 'Save as', order: 10.5, default: [{ key: 's', mod: true, shift: true }], hint: 'Save the design into a new file' },
   open: { chapter: 'File', name: 'Open', order: 11, default: [{ key: 'o', mod: true }], hint: 'Open a design file' },
-  commandBox: { chapter: 'Edit', name: 'Command box', order: 19, default: [{ key: ' ' }], hint: 'Type a command by its name (typos allowed), Enter runs it' },
+  commandBox: { chapter: 'Edit', name: 'Command box', order: 19, default: [{ key: ' ' }], hint: 'Tapped: type a command by its name (typos allowed), Enter runs it. Held: moving the mouse pans the view, with Shift orbits it' },
   undo: { chapter: 'Edit', name: 'Undo', order: 20, default: [{ key: 'z', mod: true, shift: false }], hint: 'Undo the last step' },
   redo: { chapter: 'Edit', name: 'Redo', order: 21, default: [{ key: 'z', mod: true, shift: true }, { key: 'y', mod: true }], hint: 'Redo the step undone' },
   terminal: { chapter: 'View', name: 'Python terminal', order: 29, default: [], hint: 'Open or close the Python terminal and its scripts (no key by default)' },

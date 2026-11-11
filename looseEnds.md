@@ -71,6 +71,9 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The Photo sphere dropdown on each render does not belong there: it should be global, but a photo sphere is a setting of both the 3D view (background) and the renders (background and light). Needs a rethink of where backgrounds and photo spheres live.
 - A render saved from a live view gets its preview as thumbnail; its camera is the live view's at its size on screen.
 
+## Moving the view without a button
+- The command box now opens when Space is let go, not when pressed. Space-pan and -orbit only reach a view while the pointer is over its canvas and no field has the focus. The trackpad mode is a setting since browsers cannot tell a trackpad from a mouse wheel; with it on a mouse wheel pans too. Shift + swipe was not tried on a real trackpad (macOS may swap Shift + scrolling to sideways, which would turn orbit up / down into left / right).
+
 ## File menu
 - Open recent shows file names only: two designs of the same name in different folders look alike. Firefox and Safari cannot open files again by themselves, so Open recent stays greyed there. Opening a recent file (or New) does not ask about unsaved changes, as Open does not. The menu takes no arrow keys. Tested in Chromium with the open picker stubbed (files in the browser's own storage), not with files on disk.
 

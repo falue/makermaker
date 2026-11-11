@@ -30,12 +30,14 @@ export interface Settings {
   surroundings: { group: Surroundings; sketch: Surroundings };
   /** How fast the views zoom, pan and turn: factors (1: as they come). */
   speeds: { zoom: number; pan: number; orbit: number };
+  /** Two-finger swipes pan (Shift: orbit), pinching zooms; off: the wheel zooms. */
+  trackpad: boolean;
 }
 
 export type Surroundings = 'xray' | 'dim' | 'none';
 
 const KEY = 'makermaker.settings';
-const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, meshDetail: 0.05, surroundings: { group: 'xray', sketch: 'dim' }, speeds: { zoom: 1, pan: 1, orbit: 1 } };
+const DEFAULTS: Settings = { ao: false, minStep: 0.01, minAngle: 0.01, guideMs: 333, jointSeconds: 4, background: { mode: 'solid', top: '#fafafa', bottom: '#c9ccd2', sky: 4, photo: null, turn: 0 }, light: DEFAULT_LIGHT, meshDetail: 0.05, surroundings: { group: 'xray', sketch: 'dim' }, speeds: { zoom: 1, pan: 1, orbit: 1 }, trackpad: false };
 
 export function loadSettings(): Settings {
   const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
@@ -102,8 +104,9 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
       make('p', { className: 'hint' }, 'How fast the views follow the mouse, 0.1 to 8 times; 1 is as they come.'),
       ticks,
       row('zoom', 'Zoom', 'The wheel and pinching'),
-      row('pan', 'Pan', 'Right-drag, scrolling sideways, Shift + wheel'),
-      row('orbit', 'Orbit', 'Dragging to turn the view'),
+      row('pan', 'Pan', 'Right-drag, Space held + mouse, scrolling sideways, Shift + wheel'),
+      row('orbit', 'Orbit', 'Dragging to turn the view, Shift + Space held + mouse'),
+      make('label', { className: 'check', title: 'For a trackpad; off for a mouse wheel (browsers cannot tell them apart)' }, input({ type: 'checkbox', checked: s.trackpad, onchange: (e: Event) => set({ ...s, trackpad: (e.target as HTMLInputElement).checked }) }), 'Trackpad: two fingers pan, with Shift they orbit, pinching zooms'),
     ];
   };
   /** The document's photo spheres to pick from, adding one, and how far the shown one is turned. */

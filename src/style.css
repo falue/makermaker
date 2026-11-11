@@ -3455,3 +3455,11 @@ input[type='checkbox']:disabled {
   padding: 6px;
   color: var(--muted);
 }
+
+/* the command box's key held: the view pans under the pointer, with Shift orbits */
+body.nav-held canvas {
+  cursor: grab;
+}
+body.nav-held.nav-orbit canvas {
+  cursor: all-scroll;
+}

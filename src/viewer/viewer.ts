@@ -877,7 +877,7 @@ export class Viewer implements ToolView {
     canvas.addEventListener(
       'wheel',
       (e) => {
-        if (!e.shiftKey && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+        if (this.swipe(this.controls, null, e) || (!e.shiftKey && Math.abs(e.deltaX) <= Math.abs(e.deltaY))) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         const ppm = this.pixelsPerMm(this.controls.target) / this.speeds.pan;
@@ -890,6 +890,15 @@ export class Viewer implements ToolView {
       },
       { capture: true, passive: false },
     );
+    // the command box's key held: the pointer pans the view under it, with Shift orbits it (no button)
+    addEventListener('pointermove', (e) => {
+      if (!this.navHeld || e.buttons) return;
+      this.navTravel += Math.hypot(e.movementX, e.movementY);
+      document.body.classList.toggle('nav-orbit', e.shiftKey);
+      const at = this.viewAt(e.clientX, e.clientY);
+      if (at && this.navTravel > 4) this.moveFree(at.controls, at.view, e.movementX, e.movementY, e.shiftKey);
+    });
+    addEventListener('blur', () => this.holdNav(false));
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement || !this.locked) return;
       this.locked = false;
@@ -3357,6 +3366,70 @@ export class Viewer implements ToolView {
     for (const c of [this.controls, ...this.views.map((v) => v.controls)]) this.sped(c);
   }
 
+  /** Two-finger swipes pan, with Shift orbit; pinching (the wheel with Ctrl) stays the controls' zoom. Off: the wheel zooms. */
+  trackpad = false;
+  /** The command box's key is held (see `holdNav`). */
+  navHeld = false;
+  /** How far the pointer went since it was pressed (px): only beyond a few px does it move the view. */
+  private navTravel = 0;
+  /** A view moved without a button: its controls got `start` (picking the orbit's pivot), `end` comes once it stops. */
+  private freeMove: { controls: OrbitControls<THREE.Camera>; timer: number } | null = null;
+
+  /** The command box's key held (true) or let go: true if the view moved meanwhile, so the box does not open. */
+  holdNav(on: boolean) {
+    const moved = this.navTravel > 4;
+    this.navHeld = on;
+    this.navTravel = 0;
+    document.body.classList.toggle('nav-held', on);
+    if (!on) {
+      document.body.classList.remove('nav-orbit');
+      this.stopFreeMove();
+    }
+    return moved;
+  }
+
+  /** The view (main: null) whose canvas is at client point (x, y), and its controls. */
+  private viewAt(x: number, y: number) {
+    const inside = (el: HTMLElement) => {
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+    };
+    const view = this.views.find((v) => inside(v.renderer.domElement));
+    return view ? { controls: view.controls, view } : inside(this.renderer.domElement) ? { controls: this.controls, view: null } : null;
+  }
+
+  /** Pans `c` by (dx, dy) screen px as a drag would, or orbits it; a side view orbited becomes a 3D view. */
+  private moveFree(c: OrbitControls<THREE.Camera>, view: Viewer['views'][number] | null, dx: number, dy: number, orbit: boolean) {
+    if (this.freeMove?.controls !== c) {
+      this.stopFreeMove();
+      c.dispatchEvent({ type: 'start' });
+      this.freeMove = { controls: c, timer: 0 };
+    }
+    clearTimeout(this.freeMove.timer);
+    if (!this.navHeld) this.freeMove.timer = window.setTimeout(() => this.stopFreeMove(), 200); // a swipe: ends when the events stop
+    if (!orbit) return c.pan(dx * c.panSpeed, dy * c.panSpeed);
+    if (view && view.kind !== '3d') this.leaveSideView(view);
+    const turn = (2 * Math.PI * c.rotateSpeed) / c.domElement!.clientHeight;
+    c.rotateLeft(dx * turn);
+    c.rotateUp(dy * turn);
+  }
+
+  private stopFreeMove() {
+    if (!this.freeMove) return;
+    clearTimeout(this.freeMove.timer);
+    this.freeMove.controls.dispatchEvent({ type: 'end' });
+    this.freeMove = null;
+  }
+
+  /** A wheel event in trackpad mode: the swipe moves the view (true); pinching or the mode off: left to the controls. */
+  private swipe(c: OrbitControls<THREE.Camera>, view: Viewer['views'][number] | null, e: WheelEvent) {
+    if (!this.trackpad || e.ctrlKey) return false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    this.moveFree(c, view, -e.deltaX, -e.deltaY, e.shiftKey); // the content follows the fingers
+    return true;
+  }
+
   private sped(c: OrbitControls<THREE.Camera>) {
     Object.assign(c, { zoomSpeed: this.speeds.zoom, panSpeed: this.speeds.pan, rotateSpeed: this.speeds.orbit });
   }
@@ -4923,6 +4996,7 @@ export class Viewer implements ToolView {
     renderer.domElement.addEventListener('pointerdown', (e) => (down = e.button === 0 && !toggles(e) ? { x: e.clientX, y: e.clientY } : null));
     renderer.domElement.addEventListener('pointermove', (e) => down && e.buttons === 1 && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4 && ((down = null), this.leaveSideView(view)));
     view.controls.zoomToCursor = true;
+    renderer.domElement.addEventListener('wheel', (e) => this.swipe(view.controls, view, e), { capture: true, passive: false });
     this.sped(view.controls);
     view.controls.addEventListener('change', () => (this.renderView(view), view.live && this.restartLive(view, 75))); // turning it: soon after it stops
     // while it is turned, the plain view shows through
