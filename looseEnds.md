@@ -3,7 +3,6 @@
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
 ## To do (user list, 2026-11-11)
-- [ ] Sections: a snap point at 0/0/0.
 - [ ] Small rectangles far away: the L / W labels do not show which side they belong to; move them further out.
 - [ ] Extrude, several areas: Shift + click adds (or removes) an area while the pull runs; Esc stops the pull but keeps the areas selected and the tool on.
 - [ ] Extrude: a rectangle cut in two by a circle, one part cannot be picked alone (both are selected).

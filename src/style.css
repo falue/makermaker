@@ -968,6 +968,14 @@ body.scrubbing * {
   left: calc(7px + var(--from, 0) * (100% - 14px));
   right: calc(7px + (1 - var(--to, 1)) * (100% - 14px));
 }
+.dual .zero {
+  position: absolute;
+  top: 3px;
+  width: 1px;
+  height: 12px;
+  background: var(--muted);
+  left: calc(7px + var(--zero, 0) * (100% - 14px));
+}
 .dual.inverted::before {
   background: var(--accent);
 }

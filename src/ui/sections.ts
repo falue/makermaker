@@ -13,16 +13,17 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
   const spans: ((box: { min: Record<Axis, number>; max: Record<Axis, number> }) => void)[] = [];
   const panel = Object.assign(document.createElement('div'), { className: 'sections' });
   const tips: Record<Axis, [string, string]> = {
-    x: ['Show only a slice left to right', 'Drag the handles to cut the 3D view left / right · double-click to reset'],
-    y: ['Show only a slice front to back', 'Drag the handles to cut the 3D view front / back · double-click to reset'],
-    z: ['Show only a slice bottom to top', 'Drag the handles to cut the 3D view bottom / top · double-click to reset'],
+    x: ['Show only a slice left to right', 'Drag the handles to cut the 3D view left / right (they snap at 0) · double-click to reset'],
+    y: ['Show only a slice front to back', 'Drag the handles to cut the 3D view front / back (they snap at 0) · double-click to reset'],
+    z: ['Show only a slice bottom to top', 'Drag the handles to cut the 3D view bottom / top (they snap at 0) · double-click to reset'],
   };
   for (const axis of ['x', 'y', 'z'] as const) {
     const range = (value: number) => Object.assign(document.createElement('input'), { type: 'range', min: '0', max: '1000', value: String(value) });
     const from = range(0);
     const to = range(1000);
     const slider = Object.assign(document.createElement('span'), { className: 'dual', title: tips[axis][1] });
-    slider.append(from, to);
+    const zero = Object.assign(document.createElement('span'), { className: 'zero' }); // a tick where the handles snap to 0
+    slider.append(zero, from, to);
     const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { className: 'icon', textContent: text, title, onclick });
     let cut: [number, number] = start ? [...start.sections[axis]] : [-Infinity, Infinity];
     let span: [number, number] = [0, 1]; // mm the slider spans
@@ -35,6 +36,8 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
       slider.classList.toggle('inverted', inverted);
       slider.style.setProperty('--from', String(from.valueAsNumber / 1000));
       slider.style.setProperty('--to', String(to.valueAsNumber / 1000));
+      zero.hidden = !(span[0] < 0 && span[1] > 0);
+      slider.style.setProperty('--zero', String(value(0) / 1000));
       return inverted;
     };
     const update = (moved?: HTMLInputElement) => {
@@ -43,7 +46,11 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
       // only the moved handle changes its cut; at the ends of the slider it is open
       if (moved) {
         const v = moved.valueAsNumber;
-        cut[moved === from ? 0 : 1] = v === 0 ? -Infinity : v === 1000 ? Infinity : span[0] + (v / 1000) * (span[1] - span[0]);
+        const other = (moved === from ? to : from).valueAsNumber;
+        // near 0 (and not past the other handle) it snaps to 0
+        const z = value(0);
+        const snap = span[0] < 0 && span[1] > 0 && Math.abs(v - z) <= 8 && (moved === from ? z <= other : z >= other);
+        cut[moved === from ? 0 : 1] = snap ? 0 : v === 0 ? -Infinity : v === 1000 ? Infinity : span[0] + (v / 1000) * (span[1] - span[0]);
       }
       set(axis, ...cut, show());
     };
