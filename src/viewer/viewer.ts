@@ -31,7 +31,7 @@ import { cameraFrom, pathTraced, type RenderWatch } from './render';
 import type { Exact, ExactEdge } from '../kernel/exact';
 import { farthestOnPath, nearestOnPath, type EdgePath } from '../kernel/paths';
 import { turnedBox } from './turnedBox';
-import { backdropCss, drawSky, groundShift, SKIES, twoColours } from './sky';
+import { backdropCss, drawSky, skyPitch, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
 import { caret, caretHtml, restOf, selectTyped } from '../ui/complete';
 import type { Settings } from '../ui/settings';
@@ -2849,14 +2849,12 @@ export class Viewer implements ToolView {
     }
     const url = background.photo && this.photos.get(background.photo.id);
     const photo = url ? { image: await loadImage(url), turn: background.photo!.turn } : null;
-    const cam = cameraFrom(camera);
-    return pathTraced(meshes, cam, ...camera.size, background, light, haze, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), groundShift(cam, new THREE.Vector3(...camera.target)), samples, watch);
+    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, light, haze, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
   }
 
-  /** The camera's tilt and half field of view (ortho: as the perspective camera would see it), for the sky. */
+  /** The camera's tilt and half field of view, for the sky (ortho has no horizon: its fade stays in the middle, as if level). */
   private tilt() {
-    const look = this.camera.getWorldDirection(new THREE.Vector3());
-    return { pitch: Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf: Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2)) };
+    return { pitch: skyPitch(this.camera), tanHalf: Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2)) };
   }
 
   /** Redraws the gradient background when the camera tilted. */
@@ -2865,11 +2863,10 @@ export class Viewer implements ToolView {
     if (backdrop.photo) return this.drawPhoto(backdrop.photo.turn);
     if (backdrop.stops.length < 2 || !this.sky.texture) return;
     const { pitch, tanHalf } = this.tilt();
-    const shift = groundShift(this.camera, this.controls.target);
-    const key = `${pitch.toFixed(3)} ${tanHalf} ${shift.toFixed(3)}`;
+    const key = `${pitch.toFixed(3)} ${tanHalf}`;
     if (key === this.sky.drawn) return;
     this.sky.drawn = key;
-    drawSky(this.sky.canvas.getContext('2d')!, 1, 256, pitch, tanHalf, backdrop, shift);
+    drawSky(this.sky.canvas.getContext('2d')!, 1, 256, pitch, tanHalf, backdrop);
     this.sky.texture.needsUpdate = true;
   }
 
