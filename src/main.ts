@@ -7525,13 +7525,18 @@ async function exportPanel(kind: 'laser' | 'print') {
       kind === 'laser'
         ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf), segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice.laser, (v) => (exportChoice.laser = v))]
         : [segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v))];
-    box.replaceChildren(Object.assign(document.createElement('h3'), { textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), ...options, panelButton('Export', 'Export the ones switched on (Enter)', go));
+    // its title with a close button, the rows, then a footer: the options left, Export right
+    const head = Object.assign(document.createElement('div'), { className: 'export-head' });
+    head.append(Object.assign(document.createElement('h3'), { textContent: 'Available objects' }), closeButton('Close (Esc)', close));
+    const foot = Object.assign(document.createElement('div'), { className: 'export-foot' });
+    foot.append(...options, Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
+    box.replaceChildren(head, Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);
     // on top: all on or none (some: shown half)
     const every = on.size === bodies.length;
     const all = Object.assign(document.createElement('input'), { type: 'checkbox', checked: every, indeterminate: !!on.size && !every, onchange: () => (bodies.forEach((b) => (every ? on.delete(b.id) : on.add(b.id))), draw()) });
-    const head = Object.assign(document.createElement('label'), { className: 'export-row' });
-    head.append(all, Object.assign(document.createElement('span'), { className: 'name', textContent: every ? 'Unselect all' : 'Select all' }));
-    box.querySelector('.export-rows')!.append(...(bodies.length > 1 ? [head] : []), ...rows());
+    const allRow = Object.assign(document.createElement('label'), { className: 'export-row' });
+    allRow.append(all, Object.assign(document.createElement('span'), { className: 'name', textContent: every ? 'Unselect all' : 'Select all' }));
+    box.querySelector('.export-rows')!.append(...(bodies.length > 1 ? [allRow] : []), ...rows());
     showNote(); // the hint row back
     atTop(box);
   };

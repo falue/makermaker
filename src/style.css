@@ -2698,10 +2698,27 @@ input + .set-axis {
 }
 
 /* the export panels: one row per body, then the options */
-.export-panel h3 {
+.export-panel .export-head {
+  display: flex;
+  align-items: center;
   width: 100%;
+}
+.export-panel h3 {
+  flex: 1;
   margin: 2px 0;
-  text-align: center;
+}
+/* an actions footer: the options left, Export right */
+.export-panel .export-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.export-panel .export-foot .primary {
+  margin-left: auto;
 }
 .export-panel .export-rows {
   display: flex;
