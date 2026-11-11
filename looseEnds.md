@@ -16,8 +16,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - [ ] Typing ( [ or { in a field adds the closing one after the caret.
 - [ ] A hole's or cylinder's round edge picked and extruded: pulls the hole deeper (or the cylinder longer).
 - [ ] Extruding a cylinder's round face: shows its diameter to type (the old diameter a snap point); the mode key switches to radius and plain offset.
-- [ ] 3D print and laser dialogs: titled "Available objects".
-- [ ] 3D print / laser export with nothing selected and everything hidden: "No objects visible, toggle them on".
 - [ ] Fillet / chamfer history row: the radius cannot be read, field too narrow; lay out the fields anew.
 - [ ] Two circles extruded at once: one body per separate solid, all selected after the pull.
 

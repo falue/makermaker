@@ -7411,9 +7411,13 @@ function meshesLeft() {
   return n ? `; ${n} mesh bod${n === 1 ? 'y' : 'ies'} left out (no solid)` : '';
 }
 
+/** Why an export found no bodies. */
+const nothingToExport = () =>
+  !selected.length && !history.current.bodies.some((b) => b.visible) ? 'No objects visible, toggle them on' : `Nothing to export: select bodies that build (tool bodies are part of their owner)${meshesLeft()}`;
+
 /** Exports bodies (default: `exportable`) as files (`extra`: a laser face and kerf per body). */
 async function exportBodies(format: ExportFormat, bodies = exportable(), extra: (b: Body) => Partial<ExportBody> = () => ({})) {
-  if (!bodies.length) return fail(`Nothing to export: select bodies that build (tool bodies are part of their owner)${meshesLeft()}`);
+  if (!bodies.length) return fail(nothingToExport());
   const taken = new Map<string, number>();
   const nameOf = (b: Body) => {
     const base = b.name.replace(/[^\w.-]+/g, '_') || 'body';
@@ -7440,7 +7444,7 @@ const exportChoice = { laser: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3
  */
 async function exportPanel(kind: 'laser' | 'print') {
   const bodies = exportable();
-  if (!bodies.length) return fail(`Nothing to export: select bodies that build (tool bodies are part of their owner)${meshesLeft()}`);
+  if (!bodies.length) return fail(nothingToExport());
   const doc = history.current;
   const on = new Set(bodies.map((b) => b.id));
   const faces = new Map<string, { at: Vec3; n: Vec3 }>();
@@ -7509,13 +7513,13 @@ async function exportPanel(kind: 'laser' | 'print') {
       kind === 'laser'
         ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf), segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice.laser, (v) => (exportChoice.laser = v))]
         : [segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v))];
-    box.replaceChildren(Object.assign(document.createElement('div'), { className: 'export-rows' }), ...options, panelButton('Export', 'Export the ones switched on (Enter)', go));
+    box.replaceChildren(Object.assign(document.createElement('h3'), { textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), ...options, panelButton('Export', 'Export the ones switched on (Enter)', go));
     // on top: all on or none (some: shown half)
     const every = on.size === bodies.length;
     const all = Object.assign(document.createElement('input'), { type: 'checkbox', checked: every, indeterminate: !!on.size && !every, onchange: () => (bodies.forEach((b) => (every ? on.delete(b.id) : on.add(b.id))), draw()) });
     const head = Object.assign(document.createElement('label'), { className: 'export-row' });
     head.append(all, Object.assign(document.createElement('span'), { className: 'name', textContent: every ? 'Unselect all' : 'Select all' }));
-    box.firstElementChild!.append(...(bodies.length > 1 ? [head] : []), ...rows());
+    box.querySelector('.export-rows')!.append(...(bodies.length > 1 ? [head] : []), ...rows());
     showNote(); // the hint row back
     atTop(box);
   };

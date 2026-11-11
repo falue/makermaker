@@ -2674,6 +2674,11 @@ input + .set-axis {
 }
 
 /* the export panels: one row per body, then the options */
+.export-panel h3 {
+  width: 100%;
+  margin: 2px 0;
+  text-align: center;
+}
 .export-panel .export-rows {
   display: flex;
   flex-direction: column;
