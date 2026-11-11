@@ -182,7 +182,8 @@ export interface PickedFace {
 // The view cube works in three's y-up frame: world (x, y, z) is cube (x, z, -y); Front looks from -y.
 const toCube = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 const fromCube = (v: THREE.Vector3) => new THREE.Vector3(v.x, -v.z, v.y);
-const round = (v: number, step: number) => Math.round(v / step) * step;
+/** `v` on `step`, without float noise (0.1 × 3 is 0.3). */
+const round = (v: number, step: number) => +(Math.round(v / step) * step).toFixed(9);
 const unit = (k: number) => new THREE.Vector3().setComponent(k, 1);
 
 /** The B-rep face (index) of a body mesh hit. */
@@ -274,8 +275,6 @@ interface Drag {
   start: THREE.Vector3;
   /** World axes the move may take (bodies: all three; shapes: their plane's two). */
   axes: number[];
-  /** Where the first moved item starts: it lands on the snap step. */
-  lead: THREE.Vector3;
   /** Shows the items moved by `by` (world). */
   apply(by: THREE.Vector3): void;
   /** Hands the move over (null: puts the items back). */
@@ -1155,7 +1154,6 @@ export class Viewer implements ToolView {
     const placed = (by: THREE.Vector3) => from.clone().addScaledVector(fx, by.dot(fx)).addScaledVector(fy, by.dot(fy));
     this.startDrag(e, ray, start, {
       axes: [strongest(fx), strongest(fy)],
-      lead: from,
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(...im.frame.n), start),
       only: null,
       apply: (by) => this.showImageAt(im.id, placed(by)),
@@ -3592,7 +3590,6 @@ export class Viewer implements ToolView {
     this.downOnPart = true; // no click on empty space
     this.startDrag(e, this.ray(e), g.at.clone(), {
       axes: [0, 1, 2],
-      lead: new THREE.Vector3(), // the distance lands on the step
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(this.facingMove(), g.at),
       only: null,
       apply: (by) => from.forEach((v, k) => g.set(k, v + this.inAxes(by).getComponent(k))),
@@ -5561,7 +5558,6 @@ export class Viewer implements ToolView {
     const start = hit.point.clone();
     this.startDrag(e, ray.ray, start, {
       axes: [0, 1, 2],
-      lead: this.group(this.withOwned(this.selection)[0]).position.clone(),
       // the base plane facing the camera most (top view: XY, front: XZ, side: YZ)
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(this.facingMove(), start),
       only: member && this.selection.length > 1 ? id : null,
@@ -5587,12 +5583,10 @@ export class Viewer implements ToolView {
     const s = this.sketches.find((v) => v.id === sketch)!;
     const f = s.frame;
     const [fx, fy] = [new THREE.Vector3(...f.x), new THREE.Vector3(...f.y)];
-    const from = s.shapes.filter((q) => this.selectedShapes.includes(q.id));
     const start = planeHit(ray, f) ?? new THREE.Vector3(...f.o);
     const strongest = (v: THREE.Vector3) => [v.x, v.y, v.z].map(Math.abs).reduce((best, c, k, a) => (c > a[best] ? k : best), 0);
     this.startDrag(e, ray, start, {
       axes: [strongest(fx), strongest(fy)],
-      lead: new THREE.Vector3(...toWorld(f, ...centre(from[0]))),
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(...f.n), start),
       only,
       apply: (by) => this.dragIntoFields(by, new THREE.Vector3(...f.n)), // in its plane: a slanted one's axes leave it
@@ -5618,7 +5612,7 @@ export class Viewer implements ToolView {
     return true;
   }
 
-  private startDrag(e: PointerEvent, ray: THREE.Ray, start: THREE.Vector3, o: Pick<Drag, 'axes' | 'lead' | 'plane' | 'only' | 'apply' | 'end'>) {
+  private startDrag(e: PointerEvent, ray: THREE.Ray, start: THREE.Vector3, o: Pick<Drag, 'axes' | 'plane' | 'only' | 'apply' | 'end'>) {
     this.controls.enabled = false;
     this.drag = { ...o, start, t0: [0, 1, 2].map((k) => along(ray, start, this.axisDir(k))), axis: null, typed: undefined, last: null, moved: false, by: new THREE.Vector3() };
     this.renderer.domElement.setPointerCapture(e.pointerId);
@@ -5644,7 +5638,7 @@ export class Viewer implements ToolView {
   /**
    * Moves the dragged bodies together: inside the dead zone they stay put and the axis is free; leaving it picks the axis
    * whose spoke points most along the drag, kept until the pointer comes back through. A typed distance moves exactly
-   * that far (in the direction dragged); else the first body lands on the snap step (Ctrl). Alt: free in the plane.
+   * that far (in the direction dragged); else the distance lands on the zoom's step (Ctrl: the minimum). Alt: free in the plane.
    */
   private applyDrag(d: Drag) {
     const e = d.last!;
@@ -5665,12 +5659,9 @@ export class Viewer implements ToolView {
     choose(this.wheel, d.axis);
     if (delta) {
       const step = this.step(d.start, e);
-      // on the step in the move axes (inside a turned group: its own)
-      const [lead, dl] = [this.inAxes(d.lead), this.inAxes(delta)];
-      d.by =
-        (typed !== null && d.axis !== null) || !delta.lengthSq()
-          ? delta
-          : new THREE.Vector3(round(lead.x + dl.x, step) - lead.x, round(lead.y + dl.y, step) - lead.y, round(lead.z + dl.z, step) - lead.z).applyQuaternion(this.frameTurn);
+      // the distance on the step in the move axes (inside a turned group: its own), so it is what the label shows
+      const dl = this.inAxes(delta);
+      d.by = (typed !== null && d.axis !== null) || !delta.lengthSq() ? delta : new THREE.Vector3(round(dl.x, step), round(dl.y, step), round(dl.z, step)).applyQuaternion(this.frameTurn);
       d.apply(d.by);
       if (d.axis !== null) text += ` ${d.typed === undefined ? this.host.format(d.by.getComponent(d.axis)) : caret(d.typed)}`;
     }
