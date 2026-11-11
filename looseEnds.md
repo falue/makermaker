@@ -80,6 +80,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - `cad.move` on a group without its own origin moves its bodies, not sketches that have no body.
 
 ## Imports
+- Native CAD files (cadmpeg): Hasi.f3z loses its linked Raspberry Pi document (cadmpeg cannot read its manifest) and 8 component placements (parts at their component origin), and its solids come without names; being fixed in ../WEB/cadmpeg.wasm. All cadmpeg imports: the top group is named "cadmpeg_model", not after the file; a linked f3z document's group is named by its UUID; bodies take their component's name. Sketches, features and parameters are dropped (STEP has none). Which way is up is not checked against Fusion (Fusion keeps y up; nothing is turned). NX and Creo .prt give no geometry at cadmpeg's level. The worker is not stopped after use (its memory stays). No test runs it (needs a Worker).
 - One colour or one texture per part: several vertex colours become their average, see-through is ignored. Above 200 parts they merge by colour and texture, as bodies each would be too heavy. A texture is kept as the picture only: its tint, a SketchUp texture's own colour change (colorized) and transparency are not. 3MF textures and OBJ materials are not read. A GLB's texture is drawn into a PNG, so a JPEG one grows. A textured material on a body without texture coordinates (not imported) repeats every 12 mm. Big textures make the design file big, as pictures do. An all-white file counts as having no colours. OBJ and STL stay one body.
 
 ## Speed

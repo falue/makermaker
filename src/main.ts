@@ -18,6 +18,7 @@ import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { readStep, stepObjects } from './io/step';
+import { NATIVE, nativeToStep } from './io/native';
 import { changeLook, DEFAULT_RENDER_LIGHT, dropMaterial, effectiveLight, lookOf, newMaterialFor, plainLook, setLook } from './doc/materials';
 import { dropPhoto, keepPhoto, loadPhotos } from './ui/photolibrary';
 import { fromMtlx, toMtlx } from './io/materials';
@@ -7892,10 +7893,10 @@ addEventListener(
   { capture: true },
 );
 
-const IMPORTS = ['.step', '.stp', '.stl', '.obj', '.3mf', '.glb', '.skp', '.svg', '.dxf', ...PICTURES];
+const IMPORTS = ['.step', '.stp', '.stl', '.obj', '.3mf', '.glb', '.skp', '.svg', '.dxf', ...NATIVE, ...PICTURES];
 
 /**
- * Imports a file by its extension; false: not one it takes. STEP and meshes become bodies; SVG and DXF a sketch,
+ * Imports a file by its extension; false: not one it takes. STEP, native CAD files (through STEP) and meshes become bodies; SVG and DXF a sketch,
  * 1:1, and pictures an image to calibrate: on what lies at client point `at` (a work plane, a flat face, else the
  * ground; none: the ground at the origin), a drawing centred there.
  */
@@ -7918,6 +7919,14 @@ function importFile(f: File, at?: { x: number; y: number }) {
   async function read() {
     if (ext === '.svg' || ext === '.dxf') return importDrawing(f.name, ext === '.svg' ? svgShapes(await f.text()) : dxfShapes(await f.text()), target);
     if (PICTURES.includes(ext)) return importPicture(f, target.frame, target.point);
+    if (NATIVE.includes(ext)) {
+      const { step, losses } = await nativeToStep(f);
+      importStep(f.name, step);
+      if (losses.length) console.warn(`${f.name}: what did not come across`, losses);
+      const errors = losses.filter((l) => l.severity === 'error').length;
+      if (errors) notify(`${f.name}: imported, but ${errors} thing${errors === 1 ? '' : 's'} could not be read (details in the console)`, true);
+      return;
+    }
     const plain = (mesh: { vertices: Float32Array; triangles: Uint32Array }): MeshPart[] => [{ ...mesh, name: '', color: null }];
     if (ext === '.stl') return importMesh(f.name, plain(parseStl(await f.arrayBuffer())));
     if (ext === '.glb') return importMesh(f.name, await parseGlb(await f.arrayBuffer()), 'm', true);

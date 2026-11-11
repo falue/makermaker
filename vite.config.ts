@@ -21,12 +21,12 @@ const pyodide = (): Plugin => {
   };
 };
 
-// Lists every emitted file so the service worker can cache the whole app on install.
+// Lists every emitted file so the service worker can cache the whole app on install; cadmpeg (72 MB) is cached on first use.
 const precache = (): Plugin => ({
   name: 'precache',
   apply: 'build',
   generateBundle(_, bundle) {
-    this.emitFile({ type: 'asset', fileName: 'precache.json', source: JSON.stringify(['./', ...Object.keys(bundle)]) });
+    this.emitFile({ type: 'asset', fileName: 'precache.json', source: JSON.stringify(['./', ...Object.keys(bundle).filter((f) => !/cadmpeg.*\.wasm$/.test(f))]) });
   },
 });
 
