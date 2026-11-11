@@ -19,6 +19,7 @@ import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { readStep, stepObjects } from './io/step';
 import { NATIVE, nativeToStep } from './io/native';
+import { addRecent, clearRecent, dropRecent, recentFiles } from './io/recent';
 import { changeLook, DEFAULT_RENDER_LIGHT, dropMaterial, effectiveLight, lookOf, newMaterialFor, plainLook, setLook } from './doc/materials';
 import { dropPhoto, keepPhoto, loadPhotos } from './ui/photolibrary';
 import { fromMtlx, toMtlx } from './io/materials';
@@ -7355,6 +7356,9 @@ function render() {
     },
     open: () => run(openDesign),
     save: () => run(save),
+    saveAs: () => run(() => save(true)),
+    recent: canUseFolders() ? recentFiles().map((h) => ({ name: h.name, open: () => run(() => openHandle(h)) })) : null,
+    clearRecent: () => void clearRecent().then(render),
     undo: () => undo(),
     redo: () => undo(true),
   };
@@ -8223,6 +8227,7 @@ function load(doc: Doc, f: Omit<typeof file, 'saved'>) {
   history.reset(doc);
   file = { ...f, saved: doc };
   void remember('lastDesign', f.handle); // opened again on the next start (`reopenLast`); a new design: none
+  if (f.handle) void addRecent(f.handle);
   autosave = !!f.handle && localStorage.getItem('makermaker.autosave') === 'on';
   offered = false;
   selected = [];
@@ -8274,10 +8279,11 @@ function undo(redo = false) {
 /** The document as its file keeps it: with how it is looked at now (no undo step: looking around changes nothing). */
 const withViews = (doc: Doc): Doc => ({ ...doc, views: viewer.viewsState() });
 
-async function save() {
+/** `as`: into a new file, picked. */
+async function save(as = false) {
   const doc = history.current;
   const versions = addVersion(file.versions, doc);
-  const saved = await saveFile(pack(withViews(doc), versions), file.name, file.handle);
+  const saved = await saveFile(pack(withViews(doc), versions), file.name, as ? undefined : file.handle);
   if (!saved) return;
   // saved under another name: its picked render folder goes along, its folder if it is still the one it is in
   if (saved.name !== file.name) {
@@ -8286,7 +8292,10 @@ async function save() {
     if (folder && saved.handle && (await folder.resolve(saved.handle).catch(() => null))?.length === 1) await remember(docFolderKey(saved.name), folder);
   }
   file = { ...saved, versions, saved: doc };
-  if (saved.handle) void remember('lastDesign', saved.handle);
+  if (saved.handle) {
+    void remember('lastDesign', saved.handle);
+    void addRecent(saved.handle);
+  }
   notify(`Saved ${new Date().toLocaleTimeString()}`);
 }
 
@@ -8311,6 +8320,7 @@ addEventListener('keydown', (e) => {
   const arrow = NUDGES.find(([a]) => pressed(e, a))?.[1];
   const axis = (['moveX', 'moveY', 'moveZ'] as const).findIndex((a) => pressed(e, a));
   if (pressed(e, 'save')) run(save);
+  else if (pressed(e, 'saveAs')) run(() => save(true));
   else if (pressed(e, 'open')) run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
   else if (pressed(e, 'commandBox')) openCommandBox(commands());
@@ -8503,16 +8513,22 @@ addEventListener(
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
 
+/** A design by its handle, permission asked for first if it takes that; not there any more: off the recent files. */
+async function openHandle(h: FileSystemFileHandle) {
+  if ((await h.requestPermission({ mode: 'readwrite' })) !== 'granted') return;
+  const f = await readHandle(h).catch(async (err) => {
+    if (!(err instanceof DOMException && err.name === 'NotFoundError')) throw err;
+    await dropRecent(h);
+    throw new Error(`${h.name} is not there any more (moved, renamed or deleted): taken off the recent files`);
+  });
+  await loading(f.name, () => loadFile(f));
+}
+
 /** The design opened or saved last, opened again; when the browser wants to ask first, a click on the note does. */
 async function reopenLast() {
   const h = canUseFolders() ? await recall<FileSystemFileHandle>('lastDesign').catch(() => undefined) : undefined;
   if (!h) return;
-  const open = () =>
-    run(async () => {
-      if ((await h.requestPermission({ mode: 'readwrite' })) !== 'granted') return;
-      const f = await readHandle(h);
-      await loading(f.name, () => loadFile(f));
-    });
+  const open = () => run(() => openHandle(h));
   if ((await h.queryPermission({ mode: 'readwrite' })) !== 'granted') return notify(`Click: Open ${h.name} again`, false, () => ((status = ''), (statusAction = null), void open()));
   if (history.current === file.saved) await open(); // nothing changed meanwhile
 }

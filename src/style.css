@@ -2488,6 +2488,58 @@ input + .to-object,
   stroke-width: 1.5;
   flex: none;
 }
+/* the File menu: under its button in the top bar; Open recent's list beside its row while hovered */
+#topbar .file-button {
+  margin-left: 10px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+}
+#topbar .file-button:hover,
+#topbar .file-button.on {
+  background: var(--selected);
+}
+#topbar strong .flyout {
+  font-weight: normal;
+}
+.flyout.menu.down {
+  left: 0;
+  top: 100%;
+  margin: 4px 0 0;
+  min-width: 200px;
+}
+.flyout.menu hr {
+  width: auto;
+  height: 0;
+  margin: 3px 4px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.menu-sub {
+  position: relative;
+  display: grid;
+}
+.menu-sub > .flyout {
+  display: none;
+  top: -5px;
+  margin-left: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  min-width: 180px;
+}
+.menu-sub:is(:hover, :focus-within) > .flyout {
+  display: grid;
+}
+.flyout.menu .menu-item .more {
+  margin-left: auto;
+  display: flex;
+}
+.flyout.menu .menu-item .more svg {
+  width: 14px;
+  height: 14px;
+}
 .flyout.menu.align-menu .menu-item:last-child {
   grid-column: 1 / -1;
 }

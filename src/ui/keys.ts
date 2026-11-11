@@ -28,7 +28,8 @@ export interface Binding {
  * roles are in `MODS`.
  */
 export const KEYS = {
-  save: { chapter: 'File', name: 'Save', order: 10, default: [{ key: 's', mod: true }], hint: 'Save the design (a new version in the file)' },
+  save: { chapter: 'File', name: 'Save', order: 10, default: [{ key: 's', mod: true, shift: false }], hint: 'Save the design (a new version in the file)' },
+  saveAs: { chapter: 'File', name: 'Save as', order: 10.5, default: [{ key: 's', mod: true, shift: true }], hint: 'Save the design into a new file' },
   open: { chapter: 'File', name: 'Open', order: 11, default: [{ key: 'o', mod: true }], hint: 'Open a design file' },
   commandBox: { chapter: 'Edit', name: 'Command box', order: 19, default: [{ key: ' ' }], hint: 'Type a command by its name (typos allowed), Enter runs it' },
   undo: { chapter: 'Edit', name: 'Undo', order: 20, default: [{ key: 'z', mod: true, shift: false }], hint: 'Undo the last step' },

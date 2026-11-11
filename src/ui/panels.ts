@@ -270,6 +270,10 @@ export interface UIContext {
   newDoc(): void;
   open(): void;
   save(): void;
+  saveAs(): void;
+  /** Designs opened or saved lately, newest first; null: this browser cannot open them again. */
+  recent: { name: string; open(): void }[] | null;
+  clearRecent(): void;
   undo(): void;
   redo(): void;
 }
@@ -569,15 +573,77 @@ export function measureButton(onclick: () => void) {
 /** A one-character label (×, ⇄, ✎) makes an icon button: no outline. */
 const button = (label: string, onclick: () => void, title = '') => h('button', { onclick, title, className: label.length === 1 ? 'icon' : '' }, label);
 
+/** Tips of what the top bar and the File menu both offer. */
+const TIPS = {
+  new: 'New',
+  open: 'Open (⌘O, or drop a file)',
+  save: 'Save (⌘S)',
+  import: 'Import (or drop the file where it should go): STEP and native CAD files (Fusion, SolidWorks, CATIA, Inventor, FreeCAD, Rhino, IGES …) become solid bodies with their groups, names, colours and materials, STL, OBJ, 3MF, GLB and SketchUp (SKP) meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate',
+  export: 'Export STEP: one file with the selected bodies (else all shown ones) as named, coloured parts, as placed in the world (for other CAD tools)',
+  versions: 'Versions: go back in time: the saved versions of this file, shown with a click, restored if you like',
+  print: 'Export for 3D print: the selected bodies (else all shown ones), each checked (closed, manifold, sound, its size), as placed in the world: one STL each (several zipped) or one 3MF',
+  laser: 'Export for the laser: the selected bodies (else all shown ones) listed, switch any off; each the outline of a flat face (its biggest, or one clicked) at 1:1 without fillets and chamfers, kerf allowed for; SVG or DXF, several zipped',
+};
+
+/** The File menu of the top bar is open. */
+let fileOpen = false;
+
+function fileMenu(ctx: UIContext) {
+  const recent = ctx.recent;
+  return [
+    menuItem('new', 'New', TIPS.new, ctx.newDoc),
+    menuItem('open', 'Open…', TIPS.open, ctx.open),
+    h(
+      'div',
+      { className: 'menu-sub' },
+      h('button', { className: 'menu-item', innerHTML: icon('versions'), title: recent ? 'Open recent: the designs opened or saved lately in this browser' : 'Open recent: this browser cannot open files again by itself (Chrome and Edge can)', disabled: !recent?.length }, h('span', {}, 'Open recent'), h('span', { className: 'more', innerHTML: icon('chevron') })),
+      ...(recent?.length ? [h('div', { className: 'flyout menu' }, ...recentRows(ctx))] : []),
+    ),
+    h('hr'),
+    menuItem('save', 'Save', TIPS.save, ctx.save),
+    menuItem('save', 'Save as…', `Save as (${comboText(keysOf('saveAs')[0])}): the design into a new file`, ctx.saveAs),
+    menuItem('versions', 'Versions…', TIPS.versions, ctx.versions),
+    h('hr'),
+    menuItem('import', 'Import…', TIPS.import, ctx.importFile),
+    menuItem('export', 'Export STEP…', TIPS.export, ctx.exportStep),
+    menuItem('print', 'Export for 3D print…', TIPS.print, ctx.exportPrint),
+    menuItem('laser', 'Export for the laser…', TIPS.laser, ctx.exportLaser),
+  ];
+}
+
+/** Open recent's rows: a design each (its name as text: file names may hold anything), then Clear recent files. */
+function recentRows(ctx: UIContext) {
+  return [
+    ...(ctx.recent ?? []).map((f) => h('button', { className: 'menu-item', title: 'Open this recent design', onclick: () => (closeMenus(), f.open()) }, h('span', {}, f.name))),
+    ...(ctx.recent?.length ? [h('hr'), h('button', { className: 'menu-item', title: 'Clear recent files: the list starts empty (the files stay)', onclick: () => (closeMenus(), ctx.clearRecent()) }, h('span', {}, 'Clear recent files'))] : []),
+  ];
+}
+
 function topbar(ctx: UIContext): Node[] {
   return [
-    h('strong', {}, h('span', { className: 'logo', innerHTML: icon('logo') }), h('span', { className: 'wordmark', innerHTML: icon('makermaker') })),
-    tool('new', 'New', ctx.newDoc),
-    tool('open', 'Open (⌘O, or drop a file)', ctx.open),
-    tool('save', 'Save (⌘S)', ctx.save),
-    tool('import', 'Import (or drop the file where it should go): STEP becomes solid bodies with their groups, names, colours and materials, STL, OBJ, 3MF, GLB and SketchUp (SKP) meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate', ctx.importFile),
-    tool('export', 'Export STEP: one file with the selected bodies (else all shown ones) as named, coloured parts, as placed in the world (for other CAD tools)', ctx.exportStep),
-    tool('versions', 'Versions: go back in time: the saved versions of this file, shown with a click, restored if you like', ctx.versions),
+    h(
+      'strong',
+      {},
+      h('span', { className: 'logo', innerHTML: icon('logo') }),
+      h('span', { className: 'wordmark', innerHTML: icon('makermaker') }),
+      h(
+        'div',
+        { className: 'flyout-at' },
+        h('button', { className: `file-button${fileOpen ? ' on' : ''}`, title: 'File: new, open, recent, save, import, export', onclick: () => {
+          const was = fileOpen;
+          closeMenus();
+          fileOpen = !was;
+          renderUI(ctx);
+        } }, 'File'),
+        ...(fileOpen ? [h('div', { className: 'flyout menu down' }, ...fileMenu(ctx))] : []),
+      ),
+    ),
+    tool('new', TIPS.new, ctx.newDoc),
+    tool('open', TIPS.open, ctx.open),
+    tool('save', TIPS.save, ctx.save),
+    tool('import', TIPS.import, ctx.importFile),
+    tool('export', TIPS.export, ctx.exportStep),
+    tool('versions', TIPS.versions, ctx.versions),
     tool('terminal', 'Python terminal and scripts: model by typing, cad.box(80, 60, 40)', ctx.terminal.toggle, ctx.terminal.open),
     tool('undo', 'Undo (⌘Z)', ctx.undo),
     tool('redo', 'Redo (⇧⌘Z)', ctx.redo),
@@ -586,8 +652,8 @@ function topbar(ctx: UIContext): Node[] {
     h('label', { className: 'autosave', title: 'Autosave: saves into the file a moment after each change' }, h('input', { type: 'checkbox', checked: ctx.autosave, onclick: (e: MouseEvent) => (e.preventDefault(), ctx.toggleAutosave()) }), 'Autosave'),
     ...(ctx.busy.length ? [h('span', { className: 'busy' }, ctx.busy.join(', '), h('span', { className: 'bar' }))] : []),
     h('span', { className: `status${ctx.statusError && ctx.status ? ' error' : ''}` }, ctx.status),
-    tool('print', 'Export for 3D print: the selected bodies (else all shown ones), each checked (closed, manifold, sound, its size), as placed in the world: one STL each (several zipped) or one 3MF', ctx.exportPrint),
-    tool('laser', 'Export for the laser: the selected bodies (else all shown ones) listed, switch any off; each the outline of a flat face (its biggest, or one clicked) at 1:1 without fillets and chamfers, kerf allowed for; SVG or DXF, several zipped', ctx.exportLaser),
+    tool('print', TIPS.print, ctx.exportPrint),
+    tool('laser', TIPS.laser, ctx.exportLaser),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),
     tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),
     tool('material', 'Materials: pick, change and save looks; import and export', () => ctx.openMaterials()),
@@ -695,10 +761,10 @@ export function commands(): Command[] {
     const a = (Object.keys(KEYS) as Action[]).find((k) => KEYS[k].name === name);
     return a && keysOf(a).map(comboText).join(' ');
   };
-  const bars = h('div', {}, ...topbar(latest), ...toolbar(latest), ...editbar(latest), ...booleanMenu(latest), ...alignTools(latest));
+  const bars = h('div', {}, ...topbar(latest), ...toolbar(latest), ...editbar(latest), ...booleanMenu(latest), ...alignTools(latest), ...recentRows(latest));
   const out = new Map<string, Command>();
   for (const b of bars.querySelectorAll('button')) {
-    if (!b.title || !b.onclick || b.disabled || b.parentElement?.classList.contains('flyout-at')) continue; // a menu's own button: its rows are here
+    if (!b.title || !b.onclick || b.disabled || b.parentElement?.classList.contains('flyout-at') || b.closest('.menu.down')) continue; // a menu's own button: its rows are here (the File menu's: the top bar's buttons, KEYS and recent rows)
     const label = b.querySelector('span')?.textContent;
     const name = label ?? b.title.split(/ \(|:/)[0];
     const hint = label ? b.title : b.title.slice(name.length).replace(/^\s*(\([^)]*\))?:\s*/, '').trim();
@@ -715,14 +781,14 @@ export function commands(): Command[] {
 
 /** The boolean flyout of the toolbar is open. */
 let flyout = false;
-// a click anywhere else closes the boolean and align menus
-addEventListener('pointerdown', (e) => {
-  if ((flyout || alignOpen) && !(e.target as Element).closest?.('.flyout-at')) {
-    flyout = alignOpen = false;
-    for (const m of document.querySelectorAll('.flyout-at .flyout')) m.remove();
-    for (const b of document.querySelectorAll('.flyout-at > .tool.on')) b.classList.remove('on');
-  }
-}, true);
+/** Closes the boolean, align and File menus at once (a rebuild may come later). */
+function closeMenus() {
+  flyout = alignOpen = fileOpen = false;
+  for (const m of document.querySelectorAll('.flyout-at .flyout')) m.remove();
+  for (const b of document.querySelectorAll('.flyout-at > .on')) b.classList.remove('on');
+}
+// a click anywhere else closes them
+addEventListener('pointerdown', (e) => (flyout || alignOpen || fileOpen) && !(e.target as Element).closest?.('.flyout-at') && closeMenus(), true);
 /** The align menu of the toolbar is open. */
 let alignOpen = false;
 
@@ -731,7 +797,7 @@ export type ObjectAlign = `${'min' | 'mid' | 'max' | 'spread'}${'X' | 'Y' | 'Z'}
 
 /** A row of a toolbar menu (as in incase): its icon and words; a click runs it and closes the menu. */
 function menuItem(name: IconName, label: string, title: string, onclick: () => void, disabled = false) {
-  return h('button', { className: 'menu-item', innerHTML: `${icon(name)}<span>${label}</span>`, title, disabled, onclick: () => ((flyout = alignOpen = false), onclick()) });
+  return h('button', { className: 'menu-item', innerHTML: `${icon(name)}<span>${label}</span>`, title, disabled, onclick: () => (closeMenus(), onclick()) });
 }
 
 function alignTools(ctx: UIContext) {

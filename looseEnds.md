@@ -71,6 +71,9 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The Photo sphere dropdown on each render does not belong there: it should be global, but a photo sphere is a setting of both the 3D view (background) and the renders (background and light). Needs a rethink of where backgrounds and photo spheres live.
 - A render saved from a live view gets its preview as thumbnail; its camera is the live view's at its size on screen.
 
+## File menu
+- Open recent shows file names only: two designs of the same name in different folders look alike. Firefox and Safari cannot open files again by themselves, so Open recent stays greyed there. Opening a recent file (or New) does not ask about unsaved changes, as Open does not. The menu takes no arrow keys. Tested in Chromium with the open picker stubbed (files in the browser's own storage), not with files on disk.
+
 ## Versions
 - Versions are kept per save, up to 50, autosave one every 5 minutes; a design never saved has none. They have no names; × on a row deletes one (written at once when the file has a handle, else with the next save). A version shown replaces what is on screen, so its tool panels and selection reset.
 
