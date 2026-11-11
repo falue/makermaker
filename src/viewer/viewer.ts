@@ -3564,9 +3564,10 @@ export class Viewer implements ToolView {
   /**
    * A grid in `group`, on the x-y plane of `frame` (world): a faint line every drag step there (1-2-5, by the zoom: finer
    * zooming in, coarser out) `cells` steps each way from the point looked at, every 5th stronger (on a 5 step every 10th:
-   * 10, 50, 100 …) and `wide` times as far; drawn anew when the step changes or the view moves far.
+   * 10, 50, 100 …) and `wide` times as far; drawn anew when the step changes or the view moves far. Seen flat (the
+   * view's angle to the plane under `fade` (sine, from–to)) it fades out, so it does not hide what stands on it.
    */
-  private gridIn(group: THREE.Group, frame: THREE.Matrix4, look: { colors: number[]; opacity: number[]; key: string }, cells = 250, wide = 10, grazing = 0.1) {
+  private gridIn(group: THREE.Group, frame: THREE.Matrix4, look: { colors: number[]; opacity: number[]; key: string }, cells = 250, wide = 10, grazing = 0.1, fade: [number, number] = [0.04, 0.17]) {
     // around where the middle of the view meets the plane (zoomed in towards the pointer, the point orbited round
     // can lie far off), else the point looked at; also when the view runs almost along the plane (a front view a hair
     // off level met it some 1e17 mm away: the grid there stretched the ortho camera's depth range and broke it)
@@ -3583,6 +3584,8 @@ export class Viewer implements ToolView {
     const far = big * 10;
     const [cx, cy] = [Math.round(t.x / far) * far, Math.round(t.y / far) * far];
     const key = `${step} ${every} ${cx} ${cy} ${look.colors}`;
+    const shown = THREE.MathUtils.smoothstep(Math.abs(ray.ray.direction.dot(plane.normal)), ...fade);
+    (group.children as THREE.LineSegments[]).forEach((o, k) => ((o.material as THREE.LineBasicMaterial).opacity = look.opacity[k] * shown));
     if (key === look.key) return;
     look.key = key;
     const lines: [number[], number[], number[]] = [[], [], []]; // the step's, every 5th (or 10th), through 0
@@ -3606,7 +3609,7 @@ export class Viewer implements ToolView {
     lines.forEach((pts, k) => {
       const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       g.setAttribute('color', new THREE.Float32BufferAttribute(alphas[k].flatMap((a) => [1, 1, 1, a]), 4));
-      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: look.colors[k], vertexColors: true, depthWrite: false, transparent: true, opacity: look.opacity[k] }));
+      const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: look.colors[k], vertexColors: true, depthWrite: false, transparent: true, opacity: look.opacity[k] * shown }));
       line.renderOrder = -2;
       group.add(line);
     });
