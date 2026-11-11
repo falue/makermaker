@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { lightDirections } from '../doc/materials';
 import type { Backdrop, CameraState, Light } from '../doc/types';
 import { photoEnvironment, photoPass, photoTexture } from './photo';
-import { drawSky } from './sky';
+import { drawSky, groundShift } from './sky';
 
 /** A camera as `state` describes it (z up, like the viewer's). */
 export function cameraFrom(state: CameraState): THREE.Camera {
@@ -141,7 +141,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     const g = out.getContext('2d')!;
     const look = camera.getWorldDirection(new THREE.Vector3());
     if (photo) g.drawImage(photoPicture(photo, camera, width, height), 0, 0);
-    else drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background);
+    else drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background, groundShift(camera));
     g.drawImage(renderer.domElement, 0, 0);
     if (fogBox) fogBox.visible = false;
     if (haze > 0) {
