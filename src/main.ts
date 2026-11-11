@@ -7960,7 +7960,7 @@ function importFile(f: File, at?: { x: number; y: number }) {
       } catch (err) {
         throw new Error(`${f.name} could not be imported, it may be damaged: ${(err as Error).message}`);
       }
-    }),
+    }, NATIVE.includes(ext)),
   );
   return true;
 
@@ -8296,9 +8296,9 @@ function loadFile({ name, bytes, handle }: OpenedFile) {
   }
 }
 
-/** The top bar's loader while a file is read and what it brought is built. */
-async function loading<T>(name: string, task: () => Promise<T> | T) {
-  const label = `Opening ${name}`;
+/** The top bar's loader while a file is read (or `converted` first) and what it brought is built. */
+async function loading<T>(name: string, task: () => Promise<T> | T, converted = false) {
+  const label = `${converted ? 'Converting' : 'Opening'} ${name}`;
   busy.add(label);
   render();
   await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))); // the bar shows before the work blocks
