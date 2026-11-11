@@ -4,7 +4,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 
 ## To do (user list, 2026-11-11)
 - [ ] Sections: a snap point at 0/0/0.
-- [ ] Custom section: its offset field is too narrow to read.
 - [ ] Small rectangles far away: the L / W labels do not show which side they belong to; move them further out.
 - [ ] Extrude, several areas: Shift + click adds (or removes) an area while the pull runs; Esc stops the pull but keeps the areas selected and the tool on.
 - [ ] Extrude: a rectangle cut in two by a circle, one part cannot be picked alone (both are selected).
@@ -16,7 +15,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - [ ] Typing ( [ or { in a field adds the closing one after the caret.
 - [ ] A hole's or cylinder's round edge picked and extruded: pulls the hole deeper (or the cylinder longer).
 - [ ] Extruding a cylinder's round face: shows its diameter to type (the old diameter a snap point); the mode key switches to radius and plain offset.
-- [ ] Fillet / chamfer history row: the radius cannot be read, field too narrow; lay out the fields anew.
 - [ ] Two circles extruded at once: one body per separate solid, all selected after the pull.
 
 ## Lines and polygons

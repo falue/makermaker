@@ -1224,7 +1224,7 @@ canvas.drawing,
 }
 #custom-sections .custom {
   display: grid;
-  grid-template-columns: auto 1fr 64px auto auto;
+  grid-template-columns: auto minmax(0, 1fr) 96px auto auto;
   align-items: end;
   gap: 4px;
   margin-top: 4px;
@@ -3211,17 +3211,21 @@ section > h4 .segmented button {
   margin-bottom: 8px;
 }
 /* a fillet's or chamfer's row: its size the most room (label and value whole), its edges, Bake and remove, on one centred line */
-.finishes .row.finish {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto auto;
+.row.finish {
   align-items: center;
-  gap: 6px;
-  margin: 0 0 6px;
 }
-.finishes .row.finish > .field input {
-  min-width: 3em;
+.row.finish > * {
+  flex: none;
 }
-.finishes .row.finish .bake {
+.row.finish > .field {
+  flex: 3 1 0;
+  min-width: 6em;
+}
+.row.finish > select {
+  flex: 2 1 0;
+  min-width: 0;
+}
+.row.finish .bake {
   height: 26px; /* as tall as the fields beside it */
   padding: 0 10px;
   font-size: 12px;
