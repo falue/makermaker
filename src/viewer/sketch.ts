@@ -458,8 +458,14 @@ export class SketchTool implements Tool {
     addEventListener('keyup', this.keyUp);
     this.host.hint(this.hoverHint());
     this.update();
-    const m = this.drawMode();
-    if (m) showMode(view.toggles, kind!, m);
+    this.noteMode();
+  }
+
+  /** The drawing mode note, top left, for a moment (construction lines: its picture dashed). */
+  noteMode() {
+    const ph = this.phase;
+    const m = this.drawMode(ph.kind === 'shape' ? ph : undefined);
+    if (m) showMode(this.view.toggles, this.kind!, m, this.host.construction());
   }
 
   dispose() {
@@ -687,7 +693,7 @@ export class SketchTool implements Tool {
       SketchTool.modes.set(this.kind, next.id);
       if (ph.kind === 'ball' && BALL_POINTS[next.id] && !ph.planes.length) ph.pts = ph.pts.slice(0, BALL_POINTS[next.id] - 1);
       else this.phase = { kind: 'hover' };
-      showMode(this.view.toggles, this.kind, next);
+      this.noteMode();
       return this.host.hint(this.hoverHint());
     }
     if (ph.kind === 'polygon') {
@@ -697,7 +703,7 @@ export class SketchTool implements Tool {
     } else if (ph.kind !== 'shape') SketchTool.modes.set(this.kind!, next.id);
     else if (next.lines) (SketchTool.modes.set(this.kind!, next.id), (this.phase = { kind: 'hover' }));
     else Object.assign(ph, { mode: next.id, pts: [], lines: [] });
-    showMode(this.view.toggles, this.kind!, next);
+    this.noteMode();
     this.host.hint(this.phase.kind === 'shape' ? SHAPE_HINT : this.phase.kind === 'polygon' ? lineHint(next.id) : this.hoverHint());
   }
 
@@ -929,7 +935,7 @@ export class SketchTool implements Tool {
       return true;
     }
     // Q (as T and D, not in the middle of a name): the shape being drawn becomes a construction line, or back
-    if ((ph.kind === 'shape' || ph.kind === 'polygon') && pressed(e, 'construction') && !inName(ph.typed[ph.axis] ?? '')) return this.host.toggleConstruction(), this.update(), true;
+    if ((ph.kind === 'shape' || ph.kind === 'polygon') && pressed(e, 'construction') && !inName(ph.typed[ph.axis] ?? '')) return this.host.toggleConstruction(), this.noteMode(), this.update(), true;
     // Alt: the next drawing mode (before drawing: kept; while drawing: for this shape only)
     if ((ph.kind === 'hover' || ph.kind === 'shape' || ph.kind === 'ball' || (ph.kind === 'polygon' && !ph.held)) && e.key === 'Alt' && !e.repeat && this.drawMode()) return this.switchMode(e.shiftKey ? -1 : 1), this.update(), true;
     if (ph.kind === 'hover' && this.cycle.count > 1 && pressed(e, 'otherSide') && this.lastPoint) {
@@ -2280,10 +2286,11 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
 /** How many points a sphere in space takes, by its way. */
 const BALL_POINTS: Record<string, number> = { diameter: 2, three: 3, four: 4 };
 
-/** The drawing mode's pictogram, name and how to change it, top left in the view for a moment. */
-function showMode(toggles: HTMLElement, kind: ToolKind, m: Mode, ms = 3000) {
+/** The drawing mode's pictogram (dashed: construction lines), name and how to change it, top left in the view for a moment. */
+function showMode(toggles: HTMLElement, kind: ToolKind, m: Mode, construction: boolean, ms = 3000) {
   toggles.parentElement?.querySelector('.mode-note')?.remove();
-  const note = Object.assign(document.createElement('div'), { className: 'mode-note', innerHTML: `${icon(`${kind}-${m.id}`)}<span>${m.name}<small>Change with ${comboText(keysOf(kind as Action)[0])} or Alt</small></span>` });
+  const q = kind === 'sphere' ? '' : ` · ${comboText(keysOf('construction')[0])}: ${construction ? 'normal lines' : 'construction lines'}`;
+  const note = Object.assign(document.createElement('div'), { className: `mode-note${construction && kind !== 'sphere' ? ' construction' : ''}`, innerHTML: `${icon(`${kind}-${m.id}`)}<span>${m.name}<small>Change with ${comboText(keysOf(kind as Action)[0])} or Alt${q}</small></span>` });
   toggles.before(note); // above the switches
   setTimeout(() => note.remove(), ms);
 }

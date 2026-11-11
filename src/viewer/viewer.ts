@@ -946,6 +946,11 @@ export class Viewer implements ToolView {
     return this.tool instanceof SketchTool && this.tool.nextMode();
   }
 
+  /** The drawing tool's mode note again (construction lines switched). */
+  noteDrawMode() {
+    if (this.tool instanceof SketchTool) this.tool.noteMode();
+  }
+
   /** A drawing tool (`kind`; none: picking a plane); `mode`: sketch mode or plane picking. */
   startTool(kind: ToolKind | null, host: ToolHost, mode?: ToolMode) {
     this.stopTool();

@@ -2661,6 +2661,9 @@ input + .set-axis {
   stroke: currentColor;
   stroke-width: 1.5;
 }
+.mode-note.construction svg {
+  stroke-dasharray: 3 2;
+}
 
 /* hovered in the list but outside the view: an orange arrow at its edge points to it */
 .offscreen {

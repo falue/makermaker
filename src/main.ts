@@ -6290,7 +6290,8 @@ function toggleConstruction() {
   const doc = history.current;
   const k = doc.sketches.findIndex((s) => s.id === activeSketch());
   if (k >= 0 && shapeSel.length) commit(setIn(doc, ['sketches', String(k), 'shapes'], doc.sketches[k].shapes.map((q) => (shapeSel.includes(q.id) ? { ...q, construction: drawConstruction } : q))));
-  else notify(drawConstruction ? 'The next shapes are construction lines' : 'The next shapes are normal shapes');
+  else if (!viewer.activeTool) notify(drawConstruction ? 'The next shapes are construction lines' : 'The next shapes are normal shapes');
+  viewer.noteDrawMode();
 }
 
 /** The `count`-th body at the origin (of `group`), with a colour from a small palette. */
