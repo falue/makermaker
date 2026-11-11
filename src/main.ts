@@ -7351,9 +7351,7 @@ function render() {
     photos: allPhotos,
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
-    newDoc() {
-      load(cubeDoc(history.current.units), { name: `untitled${EXTENSION}`, versions: [] });
-    },
+    newDoc: newDesign,
     open: () => run(openDesign),
     save: () => run(save),
     saveAs: () => run(() => save(true)),
@@ -8324,6 +8322,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'open')) run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
   else if (pressed(e, 'commandBox')) openCommandBox(commands());
+  else if (pressed(e, 'newDoc')) newDesign();
   else if (pressed(e, 'terminal')) terminal.toggle();
   else if (pressed(e, 'moreSnaps') || pressed(e, 'fewerSnaps')) notify(`${comboText(keysOf('moreSnaps')[0])} / ${comboText(keysOf('fewerSnaps')[0])} split a line into more or fewer snap points: with a drawing tool, the Distance measure or To object on, put the pointer on the line`);
   else if (pressed(e, 'measureValue')) measureTool();
@@ -8512,6 +8511,10 @@ addEventListener(
 );
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+
+function newDesign() {
+  load(cubeDoc(history.current.units), { name: `untitled${EXTENSION}`, versions: [] });
+}
 
 /** A design by its handle, permission asked for first if it takes that; not there any more: off the recent files. */
 async function openHandle(h: FileSystemFileHandle) {

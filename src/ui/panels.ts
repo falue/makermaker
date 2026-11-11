@@ -575,9 +575,6 @@ const button = (label: string, onclick: () => void, title = '') => h('button', {
 
 /** Tips of what the top bar and the File menu both offer. */
 const TIPS = {
-  new: 'New',
-  open: 'Open (⌘O, or drop a file)',
-  save: 'Save (⌘S)',
   import: 'Import (or drop the file where it should go): STEP and native CAD files (Fusion, SolidWorks, CATIA, Inventor, FreeCAD, Rhino, IGES …) become solid bodies with their groups, names, colours and materials, STL, OBJ, 3MF, GLB and SketchUp (SKP) meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate',
   export: 'Export STEP: one file with the selected bodies (else all shown ones) as named, coloured parts, as placed in the world (for other CAD tools)',
   versions: 'Versions: go back in time: the saved versions of this file, shown with a click, restored if you like',
@@ -591,8 +588,8 @@ let fileOpen = false;
 function fileMenu(ctx: UIContext) {
   const recent = ctx.recent;
   return [
-    menuItem('new', 'New', TIPS.new, ctx.newDoc),
-    menuItem('open', 'Open…', TIPS.open, ctx.open),
+    menuItem('new', 'New', 'New: a new design', ctx.newDoc),
+    menuItem('open', 'Open…', 'Open (⌘O, or drop a file)', ctx.open),
     h(
       'div',
       { className: 'menu-sub' },
@@ -600,7 +597,7 @@ function fileMenu(ctx: UIContext) {
       ...(recent?.length ? [h('div', { className: 'flyout menu' }, ...recentRows(ctx))] : []),
     ),
     h('hr'),
-    menuItem('save', 'Save', TIPS.save, ctx.save),
+    menuItem('save', 'Save', 'Save (⌘S)', ctx.save),
     menuItem('save', 'Save as…', `Save as (${comboText(keysOf('saveAs')[0])}): the design into a new file`, ctx.saveAs),
     menuItem('versions', 'Versions…', TIPS.versions, ctx.versions),
     h('hr'),
@@ -629,18 +626,15 @@ function topbar(ctx: UIContext): Node[] {
       h(
         'div',
         { className: 'flyout-at' },
-        h('button', { className: `file-button${fileOpen ? ' on' : ''}`, title: 'File: new, open, recent, save, import, export', onclick: () => {
+        tool('files', 'File: new, open, recent files, save, save as, versions, import, export', () => {
           const was = fileOpen;
           closeMenus();
           fileOpen = !was;
           renderUI(ctx);
-        } }, 'File'),
+        }, fileOpen),
         ...(fileOpen ? [h('div', { className: 'flyout menu down' }, ...fileMenu(ctx))] : []),
       ),
     ),
-    tool('new', TIPS.new, ctx.newDoc),
-    tool('open', TIPS.open, ctx.open),
-    tool('save', TIPS.save, ctx.save),
     tool('import', TIPS.import, ctx.importFile),
     tool('export', TIPS.export, ctx.exportStep),
     tool('versions', TIPS.versions, ctx.versions),
@@ -764,7 +758,7 @@ export function commands(): Command[] {
   const bars = h('div', {}, ...topbar(latest), ...toolbar(latest), ...editbar(latest), ...booleanMenu(latest), ...alignTools(latest), ...recentRows(latest));
   const out = new Map<string, Command>();
   for (const b of bars.querySelectorAll('button')) {
-    if (!b.title || !b.onclick || b.disabled || b.parentElement?.classList.contains('flyout-at') || b.closest('.menu.down')) continue; // a menu's own button: its rows are here (the File menu's: the top bar's buttons, KEYS and recent rows)
+    if (!b.title || !b.onclick || b.disabled || b.parentElement?.classList.contains('flyout-at') || b.closest('.menu.down')) continue; // a menu's own button: its rows are here (the File menu's: KEYS, the top bar's buttons and recent rows)
     const label = b.querySelector('span')?.textContent;
     const name = label ?? b.title.split(/ \(|:/)[0];
     const hint = label ? b.title : b.title.slice(name.length).replace(/^\s*(\([^)]*\))?:\s*/, '').trim();

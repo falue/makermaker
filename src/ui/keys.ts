@@ -28,6 +28,7 @@ export interface Binding {
  * roles are in `MODS`.
  */
 export const KEYS = {
+  newDoc: { chapter: 'File', name: 'New', order: 9, default: [], hint: 'A new design (no key by default: browsers keep ⌘N)' },
   save: { chapter: 'File', name: 'Save', order: 10, default: [{ key: 's', mod: true, shift: false }], hint: 'Save the design (a new version in the file)' },
   saveAs: { chapter: 'File', name: 'Save as', order: 10.5, default: [{ key: 's', mod: true, shift: true }], hint: 'Save the design into a new file' },
   open: { chapter: 'File', name: 'Open', order: 11, default: [{ key: 'o', mod: true }], hint: 'Open a design file' },
