@@ -5755,8 +5755,46 @@ function remove() {
   const gone = new Set([...selected, ...contents(doc, selected)]);
   for (const id of gone) for (const [tool, o] of owner) if (o === id) gone.add(tool);
   const kept = unlinkedFrom(doc, gone); // linked copies of what goes take over its steps
-  const bodies = kept.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => (f.type !== 'boolean' && f.type !== 'fingers') || !gone.has(f.body)) }));
-  commit({ ...doc, bodies, joints: jointsWithout(doc.joints, gone), sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) });
+  const left = kept.bodies.filter((b) => !gone.has(b.id)).map((b) => ({ ...b, features: b.features.filter((f) => (f.type !== 'boolean' && f.type !== 'fingers') || !gone.has(f.body)) }));
+  // bodies pulled from a sketch that goes keep its shapes, so they still build
+  const shapes = shapesKept(left, doc.sketches.filter((k) => gone.has(k.id)));
+  if (typeof shapes === 'string') return fail(shapes);
+  commit({ ...doc, bodies: shapes.bodies, joints: jointsWithout(doc.joints, gone), sketches: doc.sketches.filter((s) => !gone.has(s.id)), groups: doc.groups.filter((g) => !groups.has(g.id)), planes: doc.planes.filter((w) => !gone.has(w.id)), images: doc.images.filter((im) => !gone.has(im.id)) });
+  if (shapes.users.length) notify(`${shapes.users.join(', ')} kept the shapes of the deleted sketch as ${shapes.users.length === 1 ? 'its' : 'their'} own`);
+}
+
+/**
+ * Extrusions and revolves of `bodies` pulled from one of `sketches` (being deleted) take a copy of its shapes, as Unlink
+ * does: on its base plane, on the body's own end face, else on a fixed plane where the sketch lies now (body
+ * coordinates). `users`: the bodies that did. A string: a step that cannot hold shapes of its own (loft, sweep, bulge, a
+ * cut by a shape) needs one of them, or its plane cannot be found now: nothing goes.
+ */
+function shapesKept(bodies: Body[], sketches: Sketch[]): { bodies: Body[]; users: string[] } | string {
+  const byId = new Map(sketches.map((k) => [k.id, k]));
+  const needs = (f: Feature) =>
+    f.type === 'loft' ? f.sections.map((x) => x.sketch) : f.type === 'sweep' ? [f.profile.sketch, f.path.sketch] : f.type === 'bulge' && f.on.kind === 'sketch' ? [f.on.sketch] : f.type === 'split' && f.cutter.kind === 'shape' ? [f.cutter.sketch] : [];
+  for (const b of bodies)
+    for (const f of b.features) {
+      const k = needs(f).find((id) => byId.has(id));
+      if (k) return `${byId.get(k)!.name} stays: ${b.name} needs it (a loft, sweep, bulge or cut by its shape)`;
+    }
+  const users = new Set<string>();
+  let missing = '';
+  const out = bodies.map((b) => {
+    const features = b.features.map((f): Feature => {
+      if ((f.type !== 'extrude' && f.type !== 'revolve') || f.source.kind !== 'sketch' || !byId.has(f.source.sketch)) return f;
+      const k = byId.get(f.source.sketch)!;
+      const p = k.plane;
+      const at = p.kind !== 'base' && !(p.kind === 'cap' && p.body === b.id) && frameOf(p as Resolved<SketchPlacement>);
+      const plane = p.kind === 'base' ? p : p.kind === 'cap' && p.body === b.id ? ({ kind: 'cap', feature: p.feature } as const) : at && { kind: 'frame' as const, ...placeFrame(toPlace(parentPlace(b.id)), at, true) };
+      if (!plane) return (missing = `${k.name} stays: where it lies is not built yet`), f;
+      const ids = f.source.shapes;
+      users.add(b.name);
+      return { ...f, source: { kind: 'own', plane, profiles: structuredClone(k.shapes.filter((q) => ids.includes(q.id))), ...(f.source.areas ? { areas: f.source.areas } : {}) } } as Feature;
+    });
+    return { ...b, features };
+  });
+  return missing || { bodies: out, users: [...users] };
 }
 
 /**

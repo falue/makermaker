@@ -89,7 +89,7 @@ export interface Area {
  */
 export type ExtrudeSource =
   | { kind: 'sketch'; sketch: string; shapes: string[]; areas?: Area[] }
-  | { kind: 'own'; plane: SketchPlane; profiles: Profile[]; areas?: Area[] };
+  | { kind: 'own'; plane: SketchPlane | FramePlane; profiles: Profile[]; areas?: Area[] }; // a frame: in body coordinates, fixed (its sketch was deleted)
 
 /**
  * Rounds or chamfers the edges its rule picks, except `skip` (body points on edges taken out one by one). Unbaked it
