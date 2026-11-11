@@ -10,7 +10,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - [ ] Moving by eye: the move snaps to exactly what its label shows, in a step that follows the zoom.
 - [ ] After a finished shape, New / a drawing tool again: the last shape is no longer highlighted.
 - [ ] The drawing mode note (top left): a construction-line version of its picture, and the note shows when construction lines are switched on or off.
-- [ ] The sketch being drawn in is highlighted in the sketch list.
 - [ ] Typing ( [ or { in a field adds the closing one after the caret.
 - [ ] A hole's or cylinder's round edge picked and extruded: pulls the hole deeper (or the cylinder longer).
 - [ ] Extruding a cylinder's round face: shows its diameter to type (the old diameter a snap point); the mode key switches to radius and plain offset.

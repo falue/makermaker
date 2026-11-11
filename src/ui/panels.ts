@@ -1008,7 +1008,8 @@ function left(ctx: UIContext): Node[] {
   /** A sketch's row (`depth`: indented under its body); a plain click draws into it: sketch mode, looking at its plane. */
   const sketchRow = (sk: Doc['sketches'][number], depth = 0) => {
     const i = doc.sketches.indexOf(sk);
-    const item = listItem(sk.id, selectedClass(sk.id), (how) => ctx.deselectAgain(sk.id, how) || (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']));
+    // the sketch being drawn in shows lit even when the selection moved on
+    const item = listItem(sk.id, ctx.sketching === sk.id ? 'item selected' : selectedClass(sk.id), (how) => ctx.deselectAgain(sk.id, how) || (how === false ? ctx.editSketch(sk.id) : ctx.select(sk.id, how)), sketchIcon(), nameOf(sk.id, sk.name, ['sketches', String(i), 'name']));
     item.title = `${whose(doc, sk.id)} · click to draw into it`;
     item.onmouseenter = () => ctx.lightSketch(sk.id);
     item.onmouseleave = () => ctx.lightSketch(null);
