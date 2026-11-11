@@ -51,7 +51,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 
 ## Extrude
 - A round face pulled: T (to object) makes it reach the point clicked (its radius: the point's distance from the axis); D measures the size itself. Several round faces pulled at once take the first one's size (the others the same offset).
-- A round edge picked (Alt-click) and E: the face just past its centre along its axis pulls (a cylinder's end, a blind hole's floor), picked as faces are: Enter or a drag starts the pull. A hole through has none ("Nothing to pull along this edge"). An edge of a rounded corner or a half rim counts too, if its points lie on one circle.
+- A round edge picked (Alt-click) and E: the face just past its centre along its axis pulls (a cylinder's end, a blind hole's floor), picked as faces are: Enter or a drag starts the pull. A hole through has none: its circle then pulls at once from the flat face beside it (as if drawn there: a new sketch each time, join / cut / new body as a drawn shape), and Extrude starts again after; no flat face beside it: "Nothing to pull along this edge". An edge of a rounded corner or a half rim counts too, if its points lie on one circle.
 - Seen once by hand (2026-11-08): "Extrude: memory access out of bounds" (a WebAssembly error out of the kernel). Steps to reproduce unknown yet.
 
 ## Combining shapes

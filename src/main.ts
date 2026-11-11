@@ -6693,7 +6693,8 @@ function extrude() {
   const picked = viewer.pickedFaceItems();
   // a round edge picked: its end (a cylinder's) or floor (a hole's) pulls, so it gets longer or deeper
   const rim = picked.length ? null : viewer.roundEdgeFace();
-  if (rim === 'none') return fail('Nothing to pull along this edge: no flat end or floor (a hole through?)');
+  // nothing along it (a hole through): its circle pulls from the face beside it, extrude starts again after
+  if (rim === 'none') return viewer.pullRim(toolHost) ? ((toolMode = 'pull'), render()) : fail('Nothing to pull along this edge: no flat face beside it');
   const faces = rim ? [rim] : picked;
   if (faces.length) viewer.dropPicked();
   const id = activeSketch();

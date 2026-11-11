@@ -1373,11 +1373,8 @@ export class Viewer implements ToolView {
     return segs.length ? [segs[0][0].clone(), ...segs.map(([, b]) => b.clone())] : [];
   }
 
-  /**
-   * What a picked round edge pulls: just past its centre along its axis, the nearest flat face of its body looking
-   * back there (a cylinder's end, a hole's floor). null: no round edge picked; 'none': nothing there (a hole through).
-   */
-  roundEdgeFace(): FaceItem | 'none' | null {
+  /** The picked edge (its first) as a circle: centre, axis (unit), radius and its points (world); null: none, or not round. */
+  private pickedCircle() {
     const pts = this.pickedEdgePoints();
     const body = this.pickedEdge?.body;
     if (pts.length < 4 || !body) return null;
@@ -1388,14 +1385,47 @@ export class Viewer implements ToolView {
     const centre = a.clone().add(n.clone().cross(ab).multiplyScalar(ac.lengthSq()).add(ac.clone().cross(n).multiplyScalar(ab.lengthSq())).divideScalar(2 * n.lengthSq()));
     const r = a.distanceTo(centre);
     if (pts.some((p) => Math.abs(p.distanceTo(centre) - r) > Math.max(0.02, r * 1e-3))) return null;
-    n.normalize();
-    const hits = [1, -1].flatMap((side) => {
-      const dir = n.clone().multiplyScalar(-side);
-      const ray = new THREE.Raycaster(centre.clone().addScaledVector(n, 0.05 * side), dir);
-      return this.intersect(ray).filter((h) => h.object.userData.bodyId === body && h.face!.normal.dot(dir) < -0.999).slice(0, 1);
-    });
+    return { body, centre, n: n.normalize(), r, pts };
+  }
+
+  /** The nearest face of `body` a ray from `from` along `dir` hits, facing straight back at it. */
+  private faceBehind(body: string, from: THREE.Vector3, dir: THREE.Vector3) {
+    return this.intersect(new THREE.Raycaster(from, dir)).find((h) => h.object.userData.bodyId === body && h.face!.normal.dot(dir) < -0.999);
+  }
+
+  /**
+   * What a picked round edge pulls: just past its centre along its axis, the nearest flat face of its body looking
+   * back there (a cylinder's end, a hole's floor). null: no round edge picked; 'none': nothing there (a hole through).
+   */
+  roundEdgeFace(): FaceItem | 'none' | null {
+    const c = this.pickedCircle();
+    if (!c) return null;
+    const hits = [1, -1].flatMap((side) => this.faceBehind(c.body, c.centre.clone().addScaledVector(c.n, 0.05 * side), c.n.clone().multiplyScalar(-side)) ?? []);
     const hit = hits.sort((x, y) => x.distance - y.distance)[0];
     return hit ? this.faceItem(hit) : 'none';
+  }
+
+  /**
+   * A round edge with nothing to pull along it (a hole through): its circle pulled at once on the flat face beside it
+   * (out of the body: joins or a new body, into it: cuts), as if drawn there. False: no flat face beside it.
+   */
+  pullRim(host: ToolHost) {
+    const c = this.pickedCircle();
+    if (!c) return false;
+    const out = c.pts[0].clone().sub(c.centre).normalize();
+    for (const radial of [0.2, -0.2])
+      for (const side of [1, -1]) {
+        const dir = c.n.clone().multiplyScalar(-side);
+        const hit = this.faceBehind(c.body, c.pts[0].clone().addScaledVector(out, radial).addScaledVector(c.n, 0.05 * side), dir);
+        const placed = hit && hit.distance < 0.1 && this.placeOn(hit);
+        if (!placed) continue;
+        const [x, y] = uvOf(placed.frame, c.centre);
+        this.dropPicked();
+        this.startTool('circle', host);
+        (this.tool as SketchTool).pullNow({ sketch: null, ...placed }, { kind: 'circle', x, y, d: 2 * c.r });
+        return true;
+      }
+    return false;
   }
 
   pickedEdgeLine() {

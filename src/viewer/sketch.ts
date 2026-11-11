@@ -1970,6 +1970,12 @@ export class SketchTool implements Tool {
     this.host.done({ target, drawn, depth: 0 });
   }
 
+  /** Pulls `profile` at once, as if just drawn on `target` (a round edge's circle). */
+  pullNow(target: Target, profile: DrawnProfile) {
+    this.enterPull(target, [profile], { profile, typed: {} });
+    this.update();
+  }
+
   private enterPull(target: Target, shapes: DrawnProfile[], drawn: Drawn) {
     this.phase = { kind: 'pull', target, drawn, shapes, raw: 0, depth: 0, typed: undefined };
     this.view.unflatten(v3(target.frame.n));
