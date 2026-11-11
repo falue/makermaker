@@ -3326,7 +3326,12 @@ section > h4 .segmented button {
   align-self: stretch; /* as tall as its neighbours */
   display: flex;
   align-items: center;
+  border: 1px solid var(--line); /* as + View's */
+  border-radius: 4px;
   background: var(--panel);
+}
+.overlay .cog:hover {
+  border-color: var(--muted);
 }
 .view-options {
   position: absolute;
