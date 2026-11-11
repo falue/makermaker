@@ -11,7 +11,7 @@ import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
 const PICK_HINT = 'Click a face or sketch to extrude · [Shift]-click: more (again: drops it) · double-click: everything inside a shape · a sketch in the list: all of it · [Enter] pulls them · [Esc] stops';
-const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [D] measure · [Alt] held: both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] back to picking';
+const PULL_HINT = 'Pull, or type a depth · [Tab] how far back · [T] to object · [D] measure · [Alt] held: both ways from the plane · [Shift] coarse · [Ctrl] precise · click or [Enter]: done · [Esc] back to picking (picks kept, click more)';
 
 /**
  * A face of a body: where it was clicked, its outward normal (world), which face of which mesh, the finish (fillet /
@@ -290,14 +290,12 @@ export class ExtrudeTool implements Tool {
     this.host.hint(this.pullHint());
   }
 
-  /** Esc while pulling: the faces go back, nothing stays picked, picking again. */
+  /** Esc while pulling: the faces go back, picking again with the picks kept (more can be added). */
   private drop() {
     this.view.unlockPointer();
     this.view.aimAt(null);
     [this.pull, this.reaching, this.aimed] = [null, false, null];
     if (this.faces.length) this.x.cancel();
-    this.faces = [];
-    this.groups.forEach((g) => g.picked.clear());
     this.host.hint(PICK_HINT);
     this.update();
   }

@@ -1413,7 +1413,11 @@ export class Viewer implements ToolView {
   markFaces(picked: FaceItem[], hover: FaceItem | null = null) {
     for (const m of this.faceMarks) this.replaceMark(m, undefined, [], 0);
     const by = new Map<THREE.Mesh, number[]>();
-    for (const f of picked) if (f.mesh.parent) by.set(f.mesh, [...(by.get(f.mesh) ?? []), f.index]);
+    for (const f of picked) {
+      // a body rebuilt since the pick (a pull dropped): its mesh now
+      const mesh = f.mesh.parent ? f.mesh : (this.bodies.get(f.body)?.children[0] as THREE.Mesh | undefined);
+      if (mesh) by.set(mesh, [...(by.get(mesh) ?? []), f.index]);
+    }
     this.faceMarks = [...by].map(([mesh, faces]) => this.replaceMark(null, mesh, faces, 0xff8c1a)!);
     if (hover?.mesh.parent && !picked.some((f) => f.mesh === hover.mesh && f.index === hover.index)) this.faceMarks.push(this.replaceMark(null, hover.mesh, [hover.index], 0x3b6fd8)!);
   }

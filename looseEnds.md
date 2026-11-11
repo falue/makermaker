@@ -3,7 +3,6 @@
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
 ## To do (user list, 2026-11-11)
-- [ ] Extrude, several areas: Shift + click adds (or removes) an area while the pull runs; Esc stops the pull but keeps the areas selected and the tool on.
 - [ ] Extrude: a rectangle cut in two by a circle, one part cannot be picked alone (both are selected).
 - [ ] A hole's or cylinder's round edge picked and extruded: pulls the hole deeper (or the cylinder longer).
 - [ ] Extruding a cylinder's round face: shows its diameter to type (the old diameter a snap point); the mode key switches to radius and plain offset.
