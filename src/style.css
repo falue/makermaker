@@ -182,6 +182,13 @@ span.error,
   padding: 8px 10px;
   background: var(--panel);
 }
+/* nothing selected: its note on the middle of the edit bar's row beside it (42px, the column's padding taken back) */
+#right .nothing {
+  display: flex;
+  align-items: center;
+  height: 42px;
+  margin: -8px 0 0;
+}
 #left {
   grid-area: left;
   border-right: 1px solid var(--line);

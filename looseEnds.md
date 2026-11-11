@@ -5,7 +5,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## To do (user list, 2026-11-11)
 - [ ] Two-colour 3D background: the fade lies exactly on the horizon (seen from the front: across the middle).
 - [ ] Grids (the ground's, a custom origin's, the sketch's) fade out at flat angles and back in.
-- [ ] Right column with nothing selected: "Select a body or a sketch." centred on the height of the toolbar beside it.
 - [ ] Lists (objects, sketches, …): rows without border and background; selected and hovered rows keep their colour.
 
 ## Lines and polygons

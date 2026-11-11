@@ -1405,7 +1405,7 @@ function selectionPanel(ctx: UIContext): Node[] {
   const gi = ctx.doc.groups.findIndex((g) => g.id === ctx.selected[0]);
   if (gi >= 0) return groupPanel(ctx, gi);
   const i = ctx.doc.bodies.findIndex((p) => p.id === ctx.selected[0]);
-  if (i < 0) return [h('p', { className: 'hint' }, 'Select a body or a sketch.')];
+  if (i < 0) return [h('p', { className: 'hint nothing' }, 'Select a body or a sketch.')];
   const body = ctx.doc.bodies[i];
   const at = `bodies.${i}`;
   const setBody = (next: Body) => ctx.commit(setIn(ctx.doc, ['bodies', String(i)], next));
