@@ -1276,6 +1276,14 @@ canvas.drawing,
   margin-bottom: 0;
   min-width: 0; /* a long word must not widen the row: it would push the eye out */
 }
+/* a list's rows: plain, no box until hovered, selected or lit */
+.listed .item:not(.selected, .hot) {
+  border-color: transparent;
+  background: none;
+}
+.listed .item:not(.selected, .hot):hover {
+  border-color: var(--line);
+}
 .listed .item .name {
   min-width: 0;
   overflow-wrap: anywhere; /* one long word breaks inside the box */
