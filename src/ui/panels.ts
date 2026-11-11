@@ -919,7 +919,7 @@ function left(ctx: UIContext): Node[] {
     el.dataset.id = id;
     // right-click beside its name (its marks, its eye): its menu as well, never the browser's
     el.oncontextmenu = (e) => !e.defaultPrevented && (e.preventDefault(), menuOf?.(id, e.clientX, e.clientY));
-    el.style.paddingLeft = `${depth * 22}px`; // a level: the chevron's width, so contents line up under the group name
+    el.style.paddingLeft = `${depth * 16}px`; // a level: the fold arrow's width and gap (.item .fold), so a child's mark lines up under the group's name
     el.ondragstart = (e) => e.dataTransfer!.setData('text/plain', JSON.stringify(dragged(id)));
     const where = (e: DragEvent) => {
       const r = el.getBoundingClientRect();
@@ -1019,7 +1019,7 @@ function left(ctx: UIContext): Node[] {
     const mark = owner ? [h('button', { className: 'icon', innerHTML: icon('body'), title: `Sketch of ${owner.name} · click: select ${owner.name}`, onclick: () => ctx.select(owner.id, false) })] : [];
     const el = h('div', { className: `listed${dimmed(sk.id, 'sketches')}` }, item, marked(mark), eye('sketches', sk.id, sk.visible));
     el.dataset.id = sk.id;
-    el.style.paddingLeft = `${depth * 22}px`;
+    el.style.paddingLeft = `${depth * 16}px`;
     return el;
   };
   const rows = (keep ? tree(doc, new Set()) : listedRows).filter((r) => !keep || keep.has(r.id)).flatMap((r): HTMLElement[] => {
