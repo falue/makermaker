@@ -7861,23 +7861,26 @@ function meshUnits(bodies: string[], size: Vec3, unit: Unit, known: boolean) {
 
 /**
  * Imports a STEP file at the origin (in mm, as the file says); the kernel reads it. An assembly or several solids: its
- * groups, bodies and materials. One solid, or what `readStep` cannot place: one body.
+ * groups, bodies and materials. One solid, or what `readStep` cannot place: one body. `native`: converted from a
+ * native CAD file, its top group named after the file; `note`: added to the notice.
  */
-function importStep(name: string, data: string) {
+function importStep(name: string, data: string, native = false, note = '') {
   const doc = history.current;
   const tree = readStep(data);
   if (tree && (tree.children.length || tree.parts.length > 1)) {
+    if (native) tree.name = '';
     let count = doc.bodies.length;
     const made = stepObjects(tree, name, doc.materials, (features, group) => newBody(count++, features, group));
     for (const id of made.folded) folded.add(id);
     [selected, shapeSel] = [[made.root], []];
     commit({ ...doc, bodies: [...doc.bodies, ...made.bodies], groups: [...doc.groups, ...made.groups], materials: [...doc.materials, ...made.materials] });
-    return notify(`Imported ${name}: ${made.bodies.length} bodies in ${made.groups.length} groups, ${made.materials.length} new materials`);
+    return notify(`Imported ${name}: ${made.bodies.length} bodies in ${made.groups.length} groups, ${made.materials.length} new materials${note}`);
   }
   const step: Feature = { id: newId(), type: 'step', source: name, data };
   const body = { ...newBody(doc.bodies.length, [step]), name: name.replace(/\.[^.]*$/, '') };
   [selected, shapeSel] = [[body.id], []];
   commit({ ...doc, bodies: [...doc.bodies, body] });
+  if (note) notify(`Imported ${name}${note}`);
 }
 
 const PICTURES = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
@@ -7950,9 +7953,10 @@ function importFile(f: File, at?: { x: number; y: number }) {
     if (PICTURES.includes(ext)) return importPicture(f, target.frame, target.point);
     if (NATIVE.includes(ext)) {
       const { step, losses } = await nativeToStep(f);
-      importStep(f.name, step);
-      if (losses.length) console.warn(`${f.name}: what did not come across`, losses);
       const errors = losses.filter((l) => l.severity === 'error').length;
+      const warnings = losses.length - errors;
+      importStep(f.name, step, true, warnings ? `; ${warnings} warning${warnings === 1 ? '' : 's'} (details in the console)` : '');
+      if (losses.length) console.warn(`${f.name}: what did not come across`, losses);
       if (errors) notify(`${f.name}: imported, but ${errors} thing${errors === 1 ? '' : 's'} could not be read (details in the console)`, true);
       return;
     }

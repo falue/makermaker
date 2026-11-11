@@ -2,6 +2,26 @@
 
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
+## To do (user list, 2026-11-11)
+- [ ] Cmd/Ctrl + A in any field (L / W of a rectangle, say) selects its text.
+- [ ] Sections: a snap point at 0/0/0.
+- [ ] Custom section: its offset field is too narrow to read.
+- [ ] Small rectangles far away: the L / W labels do not show which side they belong to; move them further out.
+- [ ] Extrude, several areas: Shift + click adds (or removes) an area while the pull runs; Esc stops the pull but keeps the areas selected and the tool on.
+- [ ] Extrude: a rectangle cut in two by a circle, one part cannot be picked alone (both are selected).
+- [ ] Moving (an extrude, say) and pressing D to measure: the free move made before is dropped, the measured value counts from the start.
+- [ ] Moving by eye: the move snaps to exactly what its label shows, in a step that follows the zoom.
+- [ ] After a finished shape, New / a drawing tool again: the last shape is no longer highlighted.
+- [ ] The drawing mode note (top left): a construction-line version of its picture, and the note shows when construction lines are switched on or off.
+- [ ] The sketch being drawn in is highlighted in the sketch list.
+- [ ] Typing ( [ or { in a field adds the closing one after the caret.
+- [ ] A hole's or cylinder's round edge picked and extruded: pulls the hole deeper (or the cylinder longer).
+- [ ] Extruding a cylinder's round face: shows its diameter to type (the old diameter a snap point); the mode key switches to radius and plain offset.
+- [ ] 3D print and laser dialogs: titled "Available objects".
+- [ ] 3D print / laser export with nothing selected and everything hidden: "No objects visible, toggle them on".
+- [ ] Fillet / chamfer history row: the radius cannot be read, field too narrow; lay out the fields anew.
+- [ ] Two circles extruded at once: one body per separate solid, all selected after the pull.
+
 ## Lines and polygons
 - What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.
 - A typed sweep angle of an arc is used once (its diameter stays). `cad.line` and `cad.polygon` take plain points, no side formulas.
@@ -89,7 +109,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - `cad.move` on a group without its own origin moves its bodies, not sketches that have no body.
 
 ## Imports
-- Native CAD files (cadmpeg): Hasi.f3z loses its linked Raspberry Pi document (cadmpeg cannot read its manifest) and 8 component placements (parts at their component origin), and its solids come without names; being fixed in ../WEB/cadmpeg.wasm. All cadmpeg imports: the top group is named "cadmpeg_model", not after the file; a linked f3z document's group is named by its UUID; bodies take their component's name. Sketches, features and parameters are dropped (STEP has none). Which way is up is not checked against Fusion (Fusion keeps y up; nothing is turned). NX and Creo .prt give no geometry at cadmpeg's level. The worker is not stopped after use (its memory stays). No test runs it (needs a Worker).
+- Native CAD files (cadmpeg): Hasi.f3z's linked Raspberry Pi document comes in at the origin, about 1 m off (cadmpeg cannot read its placement yet); being fixed in ../WEB/cadmpeg.wasm. A linked f3z document's group, and a component cadmpeg finds no name for, are named by cadmpeg's ids (`f3d:xref/…`, `f3d:model:component#…`); solids without a name in the file (the Pi's, some of Hasi's) take their group's name. Sketches, features and parameters are dropped (STEP has none). Up came out right on Hasi (checked by hand, 2026-11-11; nothing is turned). NX and Creo .prt give no geometry at cadmpeg's level. The worker is not stopped after use (its memory stays). No test runs it (needs a Worker).
 - One colour or one texture per part: several vertex colours become their average, see-through is ignored. Above 200 parts they merge by colour and texture, as bodies each would be too heavy. A texture is kept as the picture only: its tint, a SketchUp texture's own colour change (colorized) and transparency are not. 3MF textures and OBJ materials are not read. A GLB's texture is drawn into a PNG, so a JPEG one grows. A textured material on a body without texture coordinates (not imported) repeats every 12 mm. Big textures make the design file big, as pictures do. An all-white file counts as having no colours. OBJ and STL stay one body.
 
 ## Speed
