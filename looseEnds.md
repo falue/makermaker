@@ -50,7 +50,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
 ## Extrude
-- A round face pulled by Ø or R: T (to object) still types the plain distance from the face, which then counts as that size; D measures the size itself. Several round faces pulled at once take the first one's size (the others the same offset).
+- A round face pulled: T (to object) makes it reach the point clicked (its radius: the point's distance from the axis); D measures the size itself. Several round faces pulled at once take the first one's size (the others the same offset).
 - A round edge picked (Alt-click) and E: the face just past its centre along its axis pulls (a cylinder's end, a blind hole's floor), picked as faces are: Enter or a drag starts the pull. A hole through has none ("Nothing to pull along this edge"). An edge of a rounded corner or a half rim counts too, if its points lie on one circle.
 - Seen once by hand (2026-11-08): "Extrude: memory access out of bounds" (a WebAssembly error out of the kernel). Steps to reproduce unknown yet.
 

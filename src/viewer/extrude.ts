@@ -148,7 +148,10 @@ export class ExtrudeTool implements Tool {
       const pull = this.pull;
       void this.view.truePointAt(e).then((p) => {
         if (this.pull !== pull || !p) return;
-        reachInto(pull, p, this.ref().frame, this.host);
+        const d = this.roundFace() && !pull.side ? this.reachRound(p) : null;
+        const round = this.rounded();
+        if (d === null) reachInto(pull, p, this.ref().frame, this.host);
+        else typeInto(pull, this.host.lengthText(round ? Math.abs(round.shown(d)) : d)); // as the size now means: Ø, R or offset
         this.changed();
       });
       this.view.aimAt(null);
@@ -282,7 +285,9 @@ export class ExtrudeTool implements Tool {
 
   /** Aiming "to object": the depth follows what the pointer would reach, the pointer's note says what. */
   private aim(s: { at: THREE.Vector3; what: string } | null) {
-    if (s) aimInto(this.pull!, s.at, this.ref().frame);
+    const round = s && this.roundFace() && !this.pull!.side && this.pull!.typed === undefined ? this.reachRound(s.at) : null;
+    if (round !== null) this.pull!.depth = round;
+    else if (s) aimInto(this.pull!, s.at, this.ref().frame);
     this.aimed = s?.what ?? null;
     this.changed();
   }
@@ -320,6 +325,14 @@ export class ExtrudeTool implements Tool {
     const round = this.rounded();
     const typed = round && p.typed !== undefined ? this.host.length(p.typed) : null;
     return { depth: typed === null ? depth : round!.depth(Math.abs(typed)), back };
+  }
+
+  /** A round face's offset that takes it through `at`: its radius becomes `at`'s distance from its axis. */
+  private reachRound(at: THREE.Vector3) {
+    const round = this.roundFace()!;
+    const dir = round.dir.clone().normalize();
+    const v = at.clone().sub(round.at);
+    return (round.shaft ? 1 : -1) * (v.addScaledVector(dir, -v.dot(dir)).length() - round.r);
   }
 
   /** The first face pulled, if round and nothing else picked (sketch areas pull by depth). */
