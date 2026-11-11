@@ -6690,7 +6690,11 @@ function newSketch(t: Target, group: string | null = null) {
  * clicked on a selected body. With nothing selected it waits for picks.
  */
 function extrude() {
-  const faces = viewer.pickedFaceItems();
+  const picked = viewer.pickedFaceItems();
+  // a round edge picked: its end (a cylinder's) or floor (a hole's) pulls, so it gets longer or deeper
+  const rim = picked.length ? null : viewer.roundEdgeFace();
+  if (rim === 'none') return fail('Nothing to pull along this edge: no flat end or floor (a hole through?)');
+  const faces = rim ? [rim] : picked;
   if (faces.length) viewer.dropPicked();
   const id = activeSketch();
   const s = id ? viewer.sketches.find((v) => v.id === id) : undefined;

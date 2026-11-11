@@ -3,8 +3,6 @@
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
 ## To do (user list, 2026-11-11)
-- [ ] A hole's or cylinder's round edge picked and extruded: pulls the hole deeper (or the cylinder longer).
-- [ ] Extruding a cylinder's round face: shows its diameter to type (the old diameter a snap point); the mode key switches to radius and plain offset.
 
 ## Lines and polygons
 - What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.
@@ -52,6 +50,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The sketch shows a curved polygon's corner radius only on the extruded body, as with straight polygons.
 
 ## Extrude
+- A round face pulled by Ø or R: T (to object) still types the plain distance from the face, which then counts as that size; D measures the size itself. Several round faces pulled at once take the first one's size (the others the same offset).
+- A round edge picked (Alt-click) and E: the face just past its centre along its axis pulls (a cylinder's end, a blind hole's floor), picked as faces are: Enter or a drag starts the pull. A hole through has none ("Nothing to pull along this edge"). An edge of a rounded corner or a half rim counts too, if its points lie on one circle.
 - Seen once by hand (2026-11-08): "Extrude: memory access out of bounds" (a WebAssembly error out of the kernel). Steps to reproduce unknown yet.
 
 ## Combining shapes

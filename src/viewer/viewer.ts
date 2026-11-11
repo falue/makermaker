@@ -1373,6 +1373,31 @@ export class Viewer implements ToolView {
     return segs.length ? [segs[0][0].clone(), ...segs.map(([, b]) => b.clone())] : [];
   }
 
+  /**
+   * What a picked round edge pulls: just past its centre along its axis, the nearest flat face of its body looking
+   * back there (a cylinder's end, a hole's floor). null: no round edge picked; 'none': nothing there (a hole through).
+   */
+  roundEdgeFace(): FaceItem | 'none' | null {
+    const pts = this.pickedEdgePoints();
+    const body = this.pickedEdge?.body;
+    if (pts.length < 4 || !body) return null;
+    const [a, b, c] = [pts[0], pts[Math.floor(pts.length / 3)], pts[Math.floor((2 * pts.length) / 3)]];
+    const [ab, ac] = [b.clone().sub(a), c.clone().sub(a)];
+    const n = ab.clone().cross(ac);
+    if (n.lengthSq() < 1e-12) return null;
+    const centre = a.clone().add(n.clone().cross(ab).multiplyScalar(ac.lengthSq()).add(ac.clone().cross(n).multiplyScalar(ab.lengthSq())).divideScalar(2 * n.lengthSq()));
+    const r = a.distanceTo(centre);
+    if (pts.some((p) => Math.abs(p.distanceTo(centre) - r) > Math.max(0.02, r * 1e-3))) return null;
+    n.normalize();
+    const hits = [1, -1].flatMap((side) => {
+      const dir = n.clone().multiplyScalar(-side);
+      const ray = new THREE.Raycaster(centre.clone().addScaledVector(n, 0.05 * side), dir);
+      return this.intersect(ray).filter((h) => h.object.userData.bodyId === body && h.face!.normal.dot(dir) < -0.999).slice(0, 1);
+    });
+    const hit = hits.sort((x, y) => x.distance - y.distance)[0];
+    return hit ? this.faceItem(hit) : 'none';
+  }
+
   pickedEdgeLine() {
     const segs = this.pickedEdge?.edges[0];
     return segs ? { at: segs[0][0].clone(), to: segs[segs.length - 1][1].clone() } : null;
