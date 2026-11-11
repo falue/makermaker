@@ -1781,7 +1781,12 @@ function copyMoved(by: Vector3, linked: boolean) {
  * What ⌘C or ⌘X took (as they were then: ⌘X deletes them): the selected bodies and sketches, or the selected shapes of
  * the selected sketch; `cut`: pasted back as they were (names, places), else as Duplicate copies.
  */
-let copied: { bodies: Body[]; sketches: Sketch[]; shapes: { sketch: string; profiles: Profile[] } | null; cut: boolean } | null = null;
+let copied: { token: string; bodies: Body[]; sketches: Sketch[]; shapes: { sketch: string; profiles: Profile[] } | null; cut: boolean } | null = null;
+
+/** What ⌘C or ⌘X took, for the system clipboard (other tabs paste it, see `pasteFrom`); written by the copy event. */
+type Clip = { schema: Doc['schema']; token: string; bodies: Body[]; sketches: Sketch[]; shapes: Profile[] | null; groups: Group[]; materials: Material[] };
+const CLIP = 'application/x-makermaker';
+let clip = '';
 
 /** ⌘C / ⌘X: takes the selection (⌘X deletes it). */
 function copy(cut: boolean) {
@@ -1790,8 +1795,30 @@ function copy(cut: boolean) {
   const sketch = activeSketch();
   const shapes = sketch && shapeSel.length ? { sketch, profiles: structuredClone(doc.sketches.find((x) => x.id === sketch)!.shapes.filter((q) => shapeSel.includes(q.id))) } : null;
   const take = <T extends { id: string }>(list: T[]) => (shapes ? [] : structuredClone(list.filter((o) => selected.includes(o.id))));
-  copied = { bodies: take(doc.bodies), sketches: take(doc.sketches), shapes, cut };
+  copied = { token: newId(), bodies: take(doc.bodies), sketches: take(doc.sketches), shapes, cut };
+  // for another document: linked copies with the steps they share, and the groups and materials they are in
+  const bodies = copied.bodies.map((b) => (b.link ? { ...b, link: null, features: [...(doc.bodies.find((x) => x.id === b.link)?.features ?? []), ...b.features] } : b));
+  const groups = new Map<string, Group>();
+  const addGroup = (id: string | null) => {
+    const g = doc.groups.find((x) => x.id === id);
+    if (g && !groups.has(g.id)) groups.set(g.id, g), addGroup(g.parent);
+  };
+  for (const o of [...bodies, ...copied.sketches]) addGroup(o.group);
+  const used = new Set([...bodies, ...groups.values()].map((o) => o.material));
+  clip = JSON.stringify({ schema: doc.schema, token: copied.token, bodies, sketches: copied.sketches, shapes: shapes?.profiles ?? null, groups: [...groups.values()], materials: doc.materials.filter((x) => used.has(x.id)) } satisfies Clip);
   if (cut) remove();
+}
+
+/** ⌘V of what another tab (or an earlier session) copied: in the same place, with its groups and materials where this document lacks them. */
+function pasteFrom(c: Clip) {
+  const doc = history.current;
+  if (c.schema !== doc.schema) return fail('That was copied from another version of makermaker: reload both tabs, then copy again');
+  if (c.shapes) {
+    const sketch = activeSketch();
+    return sketch ? addShapes(sketch, c.shapes, 0) : fail('Select a sketch to paste the copied shapes into');
+  }
+  const missing = <T extends { id: string }>(list: T[], have: T[]) => list.filter((o) => !have.some((x) => x.id === o.id));
+  placeCopies(copiesOf(c.bodies, c.sketches, ''), [0, 0, 0], undefined, { ...doc, groups: [...doc.groups, ...missing(c.groups, doc.groups)], materials: [...doc.materials, ...missing(c.materials, doc.materials)] });
 }
 
 /** ⌘V: copies of what ⌘C or ⌘X took, as Duplicate makes them (after ⌘X: as they were, in place); nothing taken: pick what to copy. */
@@ -6997,8 +7024,7 @@ function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string, linked = f
 }
 
 /** Adds copies (see `copiesOf`), selects them and opens the move fields at `start` (mm), to type where they go. */
-function placeCopies({ bodies, sketches, pairs }: ReturnType<typeof copiesOf>, start: Vec3, made?: { sources: string[]; copies: string[] }) {
-  const doc = history.current;
+function placeCopies({ bodies, sketches, pairs }: ReturnType<typeof copiesOf>, start: Vec3, made?: { sources: string[]; copies: string[] }, doc = history.current) {
   selected = [...bodies, ...sketches].map((c) => c.id);
   commit(listedAfter({ ...doc, bodies: [...doc.bodies, ...bodies], sketches: [...doc.sketches, ...sketches] }, pairs));
   if (selected.length) moveAlong(0, true, start, made);
@@ -8357,8 +8383,8 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'delete')) remove();
   else if (selected.length && pressed(e, 'deselect')) select(null);
   else if (pressed(e, 'duplicate')) shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate);
-  else if (pressed(e, 'copy')) copy(false);
-  else if (pressed(e, 'cut')) copy(true);
+  else if (pressed(e, 'copy')) return void copy(false); // the browser's copy event follows (see `clip`)
+  else if (pressed(e, 'cut')) return void copy(true);
   // a file in the clipboard goes to the 'paste' event; it comes right after this key if there is one
   else if (pressed(e, 'paste')) return void (pasteSoon = window.setTimeout(paste, 60));
   else if (pressed(e, 'ungroup')) sketching && shapeSel.length ? groupShapes(true) : ungroup();
@@ -8465,10 +8491,27 @@ const terminal = pythonTerminal(
 );
 
 let pasteSoon = 0;
-// ⌘V with a file in the clipboard (a picture copied elsewhere): imported where the pointer is
+// ⌘C / ⌘X: what they took goes into the system clipboard too, for other tabs
+for (const type of ['copy', 'cut'] as const)
+  addEventListener(type, (e) => {
+    if (!clip || (e.target as HTMLElement).closest?.('input, textarea')) return;
+    e.clipboardData?.setData(CLIP, clip);
+    e.preventDefault();
+    clip = '';
+  });
+
+// ⌘V with objects copied in another tab: pasted where they were; a file in the clipboard (a picture copied elsewhere): imported where the pointer is
 addEventListener('paste', (e) => {
+  if ((e.target as HTMLElement).closest?.('input, textarea')) return;
+  const data = e.clipboardData?.getData(CLIP);
+  if (data) {
+    clearTimeout(pasteSoon);
+    e.preventDefault();
+    const c = JSON.parse(data) as Clip;
+    return c.token === copied?.token ? paste() : pasteFrom(c);
+  }
   const f = e.clipboardData?.files[0];
-  if (!f || (e.target as HTMLElement).closest?.('input, textarea')) return;
+  if (!f) return;
   clearTimeout(pasteSoon);
   e.preventDefault();
   const name = f.name.includes('.') ? f : new File([f], `pasted.${f.type.split('/')[1] ?? 'png'}`, { type: f.type });

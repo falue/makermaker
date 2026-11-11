@@ -71,6 +71,9 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The Photo sphere dropdown on each render does not belong there: it should be global, but a photo sphere is a setting of both the 3D view (background) and the renders (background and light). Needs a rethink of where backgrounds and photo spheres live.
 - A render saved from a live view gets its preview as thumbnail; its camera is the live view's at its size on screen.
 
+## Copy and paste between tabs
+- Kept simple: what a pasted body points to and that was not copied stays behind, so its step shows an error: a Join / Cut's tool body, a sketch an extrusion follows (or a body face a sketch lies on), parameters ($ply) the other document lacks. Joints stay behind. Units are not converted (mm either way, the fields show the other unit). Copied in an older version of the app: refused.
+
 ## Moving the view without a button
 - The command box now opens when Space is let go, not when pressed. Space-pan and -orbit only reach a view while the pointer is over its canvas and no field has the focus. The trackpad mode is a setting since browsers cannot tell a trackpad from a mouse wheel; with it on a mouse wheel pans too. Shift + swipe was not tried on a real trackpad (macOS may swap Shift + scrolling to sideways, which would turn orbit up / down into left / right).
 
