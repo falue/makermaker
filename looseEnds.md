@@ -5,7 +5,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## To do (user list, 2026-11-11)
 - [ ] Extrude, several areas: Shift + click adds (or removes) an area while the pull runs; Esc stops the pull but keeps the areas selected and the tool on.
 - [ ] Extrude: a rectangle cut in two by a circle, one part cannot be picked alone (both are selected).
-- [ ] Moving (an extrude, say) and pressing D to measure: the free move made before is dropped, the measured value counts from the start.
 - [ ] Moving by eye: the move snaps to exactly what its label shows, in a step that follows the zoom.
 - [ ] A hole's or cylinder's round edge picked and extruded: pulls the hole deeper (or the cylinder longer).
 - [ ] Extruding a cylinder's round face: shows its diameter to type (the old diameter a snap point); the mode key switches to radius and plain offset.

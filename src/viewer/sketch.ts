@@ -911,6 +911,9 @@ export class SketchTool implements Tool {
       if (pressed(e, 'measureValue') && !inName((ph.kind === 'pull' ? (ph.side ? ph.typedBack : ph.typed) : ph.typed[ph.axis]) ?? '')) {
         this.measuring = true;
         this.view.unlockPointer();
+        // the depth measured counts from the start: a free pull before goes
+        if (ph.kind === 'pull' && !ph.side) [ph.raw, ph.depth] = [0, 0];
+        this.update();
         this.host.measure(
           (mm) => {
             if (this.phase !== ph) return;

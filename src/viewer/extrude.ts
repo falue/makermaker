@@ -204,6 +204,9 @@ export class ExtrudeTool implements Tool {
         this.measuring = true;
         this.view.unlockPointer();
         const pull = this.pull!;
+        // the depth measured counts from the start: a free pull before goes (faces back, measured where they were)
+        if (!pull.side) [pull.raw, pull.depth] = [0, 0];
+        this.changed();
         this.host.measure(
           (mm) => {
             typeInto(pull, this.host.lengthText(mm));
