@@ -5330,6 +5330,22 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const fields = new Map<'min' | 'max' | 'speed', HTMLInputElement>();
   let last: 'min' | 'max' = 'max';
+  // changing a limit stops it playing (it shows that limit); let go (a scrub, or the typed value taken), it plays on
+  let held: { keep: boolean } | null = null;
+  const hold = () => {
+    const p = playing.get(id);
+    if (!p || held) return;
+    held = { keep: p.keep };
+    playing.delete(id);
+    showPlay();
+  };
+  const resume = () => {
+    if (!held) return;
+    const { keep } = held;
+    held = null;
+    start(id, keep);
+    showPlay();
+  };
   const field = (key: 'min' | 'max' | 'speed') => {
     const input = Object.assign(document.createElement('input'), { value: shown(now()[key]), spellcheck: false });
     input.dataset.complete = '';
@@ -5339,9 +5355,12 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
       input.classList.toggle('invalid', !ok);
       if (!ok) return;
       const x = key === 'speed' ? { e: text || '1', u: 'mm' as Unit } : expr(text || '0');
+      if (key !== 'speed') hold();
       write(key === 'speed' ? { speed: x } : { [key]: x, value: x }); // a limit changed: the joint shows there
     };
     input.oninput = () => set(input.value);
+    input.onchange = resume;
+    addEventListener('pointerup', resume); // a scrub let go (it ends on a release anywhere)
     input.onfocus = () => key !== 'speed' && (last = key);
     input.onkeydown = (e) => {
       if (key !== 'speed' && wantsT(e, input)) e.preventDefault(), aim();
@@ -5421,7 +5440,9 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
   const segmented = Object.assign(document.createElement('span'), { className: 'segmented' });
   segmented.append(...choices);
   const finish = (ok: boolean) => {
+    removeEventListener('pointerup', resume);
     if (previewing()) playing.delete(id);
+    else if (held?.keep) resume(); // it was playing in the joints box: it plays on
     viewer.aiming = null;
     viewer.cancelFacePick();
     box.remove();
@@ -5443,11 +5464,15 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
   // a toggle: plays from its min, back and forth, until clicked again (where it is now stays)
   const previewing = () => playing.get(id)?.keep === false;
   const play = button('▶ Play', 'Play it back and forth from its min to see it (where it is now stays)', () => {
+    held = null;
     if (previewing()) playing.delete(id);
     else start(id, false);
+    showPlay();
+  });
+  function showPlay() {
     play.textContent = previewing() ? '■ Stop' : '▶ Play';
     play.classList.toggle('on', previewing());
-  });
+  }
   box.append(
     segmented,
     cell(minLabel, minInput),
