@@ -477,6 +477,17 @@ describe('buildBody', () => {
     body.done();
   });
 
+  it('splits a rectangle a circle cuts in two into its pieces, and extrudes one alone', () => {
+    const rect = { id: 'r', kind: 'rect' as const, x: 0, y: 0, w: 40, h: 10, r: 0, rot: 0 };
+    const circle = { id: 'c', kind: 'circle' as const, x: 0, y: 0, d: 20 };
+    const pieces = areasOf([rect, circle]).filter((a) => a.in.length === 1 && a.in[0] === 'r');
+    expect(pieces).toHaveLength(2);
+    const left = pieces.find((a) => a.piece![0] < 0)!;
+    const body = built([{ id: 'x', type: 'extrude', plane: ground, profiles: [rect, circle], areas: [{ in: left.in, out: left.out, piece: left.piece }], depth: 5, mode: 'add', through: false } as BuildFeature]);
+    expect(body.box.bounds[1][0]).toBeLessThan(-8); // the left piece only: it ends where the circle starts
+    body.done();
+  });
+
   it('finds a pushed face far from the origin by a point only as exact as the view has it (Float32)', () => {
     const block: BuildFeature = { id: 'b', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 5000.3, y: 0, w: 20, h: 20, r: 0, rot: 0 }], depth: 10, mode: 'add', through: false };
     // its right side at x 5010.3, the picked point as the view's triangles give it

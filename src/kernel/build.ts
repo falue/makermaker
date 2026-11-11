@@ -343,6 +343,16 @@ function trisOf(face: BRepFace): Float32Array {
   return out;
 }
 
+/** Of an area's pieces, the one around plane point `at`; none there (the shapes moved): the nearest. */
+function pieceAt(faces: BRepFace[], at: [number, number]) {
+  const tris = faces.map(trisOf);
+  const hit = tris.findIndex((t) => inTris(t, at));
+  if (hit >= 0) return faces[hit];
+  const gap = (t: Float32Array) => Math.min(...Array.from({ length: t.length / 2 }, (_, k) => Math.hypot(t[2 * k] - at[0], t[2 * k + 1] - at[1])));
+  const gaps = tris.map(gap);
+  return faces[gaps.indexOf(Math.min(...gaps))];
+}
+
 /** Whether plane point (u, v) lies in triangles `t` (see `trisOf`). */
 function inTris(t: Float32Array, [u, v]: [number, number]) {
   for (let k = 0; k + 5 < t.length; k += 6) {
@@ -423,7 +433,8 @@ function areaFaces(ps: Resolved<Profile>[], areas: Area[], f: Frame, offset = 0)
       const d = area(byId, a);
       if (!filled(d)) return [];
       const sketch = d.sketchOnPlane('XY');
-      return sketch instanceof Sketches ? facesIn(sketch.faces()) : [(sketch as Sketch).face()];
+      const all = sketch instanceof Sketches ? facesIn(sketch.faces()) : [(sketch as Sketch).face()];
+      return a.piece && all.length > 1 ? [pieceAt(all, a.piece)] : all;
     }
     lined ??= lineFacesExact(ps).faces;
     const hit = lined.find((x) => inTris(x.tris, a.at!));
@@ -485,8 +496,17 @@ function shapeAreas(ps: Resolved<Profile>[]): AreaMesh[] {
     seen.push(p.id);
     bodies = next;
   }
-  // later shapes count as outside too: an area keeps its place when shapes are added
-  return bodies.map((r) => ({ in: r.in, out: seen.filter((id) => !r.in.includes(id)), tris: triangles(r.d) }));
+  // later shapes count as outside too: an area keeps its place when shapes are added; one falling apart: each piece apart
+  return bodies.flatMap((r): AreaMesh[] => {
+    const [inn, out] = [r.in, seen.filter((id) => !r.in.includes(id))];
+    const sketch = r.d.sketchOnPlane('XY');
+    const faces = sketch instanceof Sketches ? facesIn(sketch.faces()) : [];
+    if (faces.length < 2) return [{ in: inn, out, tris: triangles(r.d) }];
+    return faces.map((face) => {
+      const tris = trisOf(face);
+      return { in: inn, out, piece: [(tris[0] + tris[2] + tris[4]) / 3, (tris[1] + tris[3] + tris[5]) / 3], tris };
+    });
+  });
 }
 
 function triangles(d: Drawing): Float32Array {

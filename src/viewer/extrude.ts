@@ -322,7 +322,7 @@ export class ExtrudeTool implements Tool {
         return {
           target: g.target,
           shapes: [...new Set(picked.flatMap((a) => [...a.in, ...a.out, ...(a.uses ?? [])]))], // outside shapes cut the areas, lines close them: needed too
-          areas: picked.map((a) => ({ in: a.in, out: a.out, ...(a.at ? { at: a.at } : {}) })),
+          areas: picked.map((a) => ({ in: a.in, out: a.out, ...(a.at ? { at: a.at } : {}), ...(a.piece ? { piece: a.piece } : {}) })),
         };
       });
     this.x.done({ groups, faces: this.faces, depth, depthTyped: typed(this.pull!.typed), back, backTyped: typed(this.pull!.typedBack), op: this.op() });
@@ -426,11 +426,7 @@ export class ExtrudeTool implements Tool {
  */
 function areaAt(areas: AreaMesh[], [u, v]: [number, number], shapes: (DrawnProfile & { id: string })[]) {
   const shape = (id: string) => shapes.find((q) => q.id === id);
-  const exact = areas.findIndex((a) => !a.at && a.in.every((id) => shape(id) && inside(shape(id)!, u, v)) && !a.out.some((id) => shape(id) && inside(shape(id)!, u, v)));
-  if (exact >= 0) return exact;
-  const i = areas.findIndex((a) => {
-    if (!a.at) return false;
-    const t = a.tris;
+  const inTris = (t: Float32Array) => {
     for (let k = 0; k < t.length; k += 6) {
       const d1 = (u - t[k + 2]) * (t[k + 1] - t[k + 3]) - (t[k] - t[k + 2]) * (v - t[k + 3]);
       const d2 = (u - t[k + 4]) * (t[k + 3] - t[k + 5]) - (t[k + 2] - t[k + 4]) * (v - t[k + 5]);
@@ -438,7 +434,11 @@ function areaAt(areas: AreaMesh[], [u, v]: [number, number], shapes: (DrawnProfi
       if (!((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0))) return true;
     }
     return false;
-  });
+  };
+  // a piece of an area that falls apart: the one whose triangles hold the point
+  const exact = areas.findIndex((a) => !a.at && a.in.every((id) => shape(id) && inside(shape(id)!, u, v)) && !a.out.some((id) => shape(id) && inside(shape(id)!, u, v)) && (!a.piece || inTris(a.tris)));
+  if (exact >= 0) return exact;
+  const i = areas.findIndex((a) => a.at && inTris(a.tris));
   return i < 0 ? null : i;
 }
 

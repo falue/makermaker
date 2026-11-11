@@ -73,12 +73,14 @@ export type EdgeRule = 'all' | 'top' | 'bottom' | 'vertical' | { pts: [number, n
 
 /**
  * An area of a sketch: inside all `in` shapes and outside all `out` shapes (shape ids); with `at`: the face that lines
- * (and the shapes they reach) enclose around that point (see `lineFaces`).
+ * (and the shapes they reach) enclose around that point (see `lineFaces`); with `piece`: of several pieces such an area
+ * falls into (a circle across a rectangle), the one around that point.
  */
 export interface Area {
   in: string[];
   out: string[];
   at?: [number, number];
+  piece?: [number, number];
 }
 
 /**
