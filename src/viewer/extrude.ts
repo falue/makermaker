@@ -315,17 +315,20 @@ export class ExtrudeTool implements Tool {
     if (!depth && !back) return this.host.hint('Pull up or down first · ' + this.pullHint());
     const typed = (t: string | undefined) => (t !== undefined && this.host.length(t) !== null ? t : undefined);
     this.view.unlockPointer();
+    // one body per piece: the picked areas of a sketch in groups that touch (joining or cutting a body: one tool body)
+    const op = this.op();
     const groups = this.groups
       .filter((g) => g.picked.size)
-      .map((g) => {
-        const picked = [...g.picked].map((i) => g.areas[i]);
+      .flatMap((g) => (g.target.body && op !== 'new' ? [[...g.picked]] : touching(g.areas, [...g.picked])).map((idx) => ({ g, idx })))
+      .map(({ g, idx }) => {
+        const picked = idx.map((i) => g.areas[i]);
         return {
           target: g.target,
           shapes: [...new Set(picked.flatMap((a) => [...a.in, ...a.out, ...(a.uses ?? [])]))], // outside shapes cut the areas, lines close them: needed too
           areas: picked.map((a) => ({ in: a.in, out: a.out, ...(a.at ? { at: a.at } : {}), ...(a.piece ? { piece: a.piece } : {}) })),
         };
       });
-    this.x.done({ groups, faces: this.faces, depth, depthTyped: typed(this.pull!.typed), back, backTyped: typed(this.pull!.typedBack), op: this.op() });
+    this.x.done({ groups, faces: this.faces, depth, depthTyped: typed(this.pull!.typed), back, backTyped: typed(this.pull!.typedBack), op });
   }
 
   /** Whether a picked sketch lies on a body (its pull can join or cut it). */
@@ -440,6 +443,38 @@ function areaAt(areas: AreaMesh[], [u, v]: [number, number], shapes: (DrawnProfi
   if (exact >= 0) return exact;
   const i = areas.findIndex((a) => a.at && inTris(a.tris));
   return i < 0 ? null : i;
+}
+
+/** Areas `idx` in groups that touch (a corner of one within mesh tolerance of the other's triangles), each group once. */
+function touching(areas: AreaMesh[], idx: number[]): number[][] {
+  const near = (a: Float32Array, b: Float32Array) => {
+    for (let i = 0; i < a.length; i += 2) {
+      const [u, v] = [a[i], a[i + 1]];
+      for (let k = 0; k + 5 < b.length; k += 6) if (triGap(u, v, b, k) < 0.06) return true; // the meshes' 0.05 mm, a hair more
+    }
+    return false;
+  };
+  const root = idx.map((_, i) => i);
+  const find = (i: number): number => (root[i] === i ? i : (root[i] = find(root[i])));
+  for (let i = 0; i < idx.length; i++) for (let j = i + 1; j < idx.length; j++) if (find(i) !== find(j) && near(areas[idx[i]].tris, areas[idx[j]].tris)) root[find(i)] = find(j);
+  const out = new Map<number, number[]>();
+  idx.forEach((a, i) => (out.get(find(i)) ?? out.set(find(i), []).get(find(i))!).push(a));
+  return [...out.values()];
+}
+
+/** How far plane point (u, v) is from triangle `k` of `t` (0: inside). */
+function triGap(u: number, v: number, t: Float32Array, k: number) {
+  const [ax, ay, bx, by, cx, cy] = [t[k], t[k + 1], t[k + 2], t[k + 3], t[k + 4], t[k + 5]];
+  const d1 = (u - bx) * (ay - by) - (ax - bx) * (v - by);
+  const d2 = (u - cx) * (by - cy) - (bx - cx) * (v - cy);
+  const d3 = (u - ax) * (cy - ay) - (cx - ax) * (v - ay);
+  if (!((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0))) return 0;
+  const seg = (px: number, py: number, qx: number, qy: number) => {
+    const [dx, dy] = [qx - px, qy - py];
+    const f = Math.max(0, Math.min(1, ((u - px) * dx + (v - py) * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(u - px - f * dx, v - py - f * dy);
+  };
+  return Math.min(seg(ax, ay, bx, by), seg(bx, by, cx, cy), seg(cx, cy, ax, ay));
 }
 
 /**
