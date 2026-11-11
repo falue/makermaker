@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { lightDirections } from '../doc/materials';
 import type { Backdrop, CameraState, Light } from '../doc/types';
 import { photoEnvironment, photoPass, photoTexture } from './photo';
-import { drawSky, groundShift } from './sky';
+import { drawSky } from './sky';
 
 /** A camera as `state` describes it (z up, like the viewer's). */
 export function cameraFrom(state: CameraState): THREE.Camera {
@@ -43,11 +43,12 @@ export interface RenderWatch {
 /**
  * A path traced picture of `meshes` (placed in the world) as `camera` sees it, `width` × `height` px, lit by `light`
  * (a photo sphere replaces its ambient colours), `samples` passes: traced on a transparent background, then laid over
- * `background` (the gradient around the horizon, `tanHalf`: tangent of half the view angle it assumes, or the photo as
+ * `background` (the gradient around the horizon, `tanHalf`: tangent of half the view angle it assumes, `shift`: see
+ * `groundShift`; or the photo as
  * `photoPass` shows it); a solid background gets a floor of its colour that catches the shadows. The path tracer
  * loads on first use.
  */
-export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: Backdrop, light: Light, { haze = 0, fog = 0 }: { haze?: number; fog?: number }, photo: { image: HTMLImageElement; turn: number } | null, tanHalf: number, samples: number, watch: RenderWatch, slowMs = 120) {
+export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, width: number, height: number, background: Backdrop, light: Light, { haze = 0, fog = 0 }: { haze?: number; fog?: number }, photo: { image: HTMLImageElement; turn: number } | null, tanHalf: number, shift: number, samples: number, watch: RenderWatch, slowMs = 120) {
   if (!meshes.length) throw new Error('Nothing to render: no body is shown');
   const { WebGLPathTracer, GradientEquirectTexture, FogVolumeMaterial } = await import('three-gpu-pathtracer');
   const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true, alpha: true });
@@ -141,7 +142,7 @@ export async function pathTraced(meshes: THREE.Mesh[], camera: THREE.Camera, wid
     const g = out.getContext('2d')!;
     const look = camera.getWorldDirection(new THREE.Vector3());
     if (photo) g.drawImage(photoPicture(photo, camera, width, height), 0, 0);
-    else drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background, groundShift(camera));
+    else drawSky(g, width, height, Math.asin(THREE.MathUtils.clamp(look.z, -1, 1)), tanHalf, background, shift);
     g.drawImage(renderer.domElement, 0, 0);
     if (fogBox) fogBox.visible = false;
     if (haze > 0) {

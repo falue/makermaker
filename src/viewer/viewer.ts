@@ -2849,7 +2849,8 @@ export class Viewer implements ToolView {
     }
     const url = background.photo && this.photos.get(background.photo.id);
     const photo = url ? { image: await loadImage(url), turn: background.photo!.turn } : null;
-    return pathTraced(meshes, cameraFrom(camera), ...camera.size, background, light, haze, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), samples, watch);
+    const cam = cameraFrom(camera);
+    return pathTraced(meshes, cam, ...camera.size, background, light, haze, photo, Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), groundShift(cam, new THREE.Vector3(...camera.target)), samples, watch);
   }
 
   /** The camera's tilt and half field of view (ortho: as the perspective camera would see it), for the sky. */
@@ -2864,7 +2865,7 @@ export class Viewer implements ToolView {
     if (backdrop.photo) return this.drawPhoto(backdrop.photo.turn);
     if (backdrop.stops.length < 2 || !this.sky.texture) return;
     const { pitch, tanHalf } = this.tilt();
-    const shift = groundShift(this.camera);
+    const shift = groundShift(this.camera, this.controls.target);
     const key = `${pitch.toFixed(3)} ${tanHalf} ${shift.toFixed(3)}`;
     if (key === this.sky.drawn) return;
     this.sky.drawn = key;

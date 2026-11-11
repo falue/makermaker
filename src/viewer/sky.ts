@@ -41,15 +41,16 @@ function colourAt(b: Backdrop, at: number) {
 }
 
 /**
- * Ortho has no horizon: where (NDC, up positive) the ground (z 0) crosses the screen plane through the camera, so a
- * level view fades there; tilted, the fade moves off as in perspective. Perspective: 0 (its horizon lies far off).
+ * Ortho has no horizon: where (NDC, up positive) the ground (z 0) crosses the screen plane through `at` (the point
+ * looked at), so a level view fades there; tilted, the fade moves off as in perspective. Perspective: 0 (its horizon
+ * lies far off).
  */
-export function groundShift(camera: THREE.Camera) {
+export function groundShift(camera: THREE.Camera, at: THREE.Vector3) {
   if (!(camera instanceof THREE.OrthographicCamera)) return 0;
   camera.updateMatrixWorld(); // as it is now, not as last drawn
   const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
   if (up.z < 0.1) return 0; // looking almost straight up or down: off the picture anyway
-  return camera.position.clone().addScaledVector(up, -camera.position.z / up.z).project(camera).y;
+  return at.clone().addScaledVector(up, -at.z / up.z).project(camera).y;
 }
 
 /**
