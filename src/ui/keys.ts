@@ -48,7 +48,7 @@ export const KEYS = {
   construction: { chapter: 'Draw', name: 'Construction', order: 43.8, default: [{ key: 'q' }], hint: 'Switch selected sketch objects to construction lines and back; the next ones are drawn the same' },
   sphere: { chapter: 'Draw', name: 'Sphere', order: 44, default: [{ key: 'o' }], hint: 'Draw a sphere from its centre' },
   sketch: { chapter: 'Draw', name: 'New sketch', order: 45, default: [{ key: 's' }], hint: 'A new sketch on a face or a base plane' },
-  extrude: { chapter: 'Shape', name: 'Extrude', order: 46, default: [{ key: 'e' }], hint: 'Pull shapes or areas, or push and pull a face (a round face: its Ø; a round edge picked: a cylinder\'s end or a hole\'s floor)' },
+  extrude: { chapter: 'Shape', name: 'Extrude', order: 46, default: [{ key: 'e' }], hint: 'Pull shapes or areas, or push and pull a face (a round face: its Ø, Alt: R or offset; a round edge picked: a cylinder\'s end or a hole\'s floor)' },
   joint: { chapter: 'Organize', name: 'Joint', order: 50.5, default: [{ key: 'j' }], hint: 'A hinge or slider: a parent that stays, objects that move, an axis, limits' },
   rotate: { chapter: 'Move', name: 'Rotate', order: 54.9, default: [{ key: 'w' }], hint: 'Turn the selection around an axis through a pivot: the pointer, typed degrees, X / Y / Z, Set axis or Pivot' },
   revolve: { chapter: 'Shape', name: 'Revolve', order: 46.2, default: [{ key: 'u' }], hint: 'Turn closed sketch shapes around a line or edge in their plane into a new body' },

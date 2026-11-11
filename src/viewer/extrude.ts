@@ -6,7 +6,7 @@ import type { Area } from '../doc/types';
 import { area, inside, type DrawnProfile } from '../doc/profiles';
 import type { AreaMesh } from '../kernel/build';
 import { aimInto, FRONT, onBody, OP_HINT, planeHit, pullBy, pullCuts, pullName, pulled, pullKey, pullOp, pullTap, reachInto, sizeLabel, typeInto, uvOf, type PullOp, type Pulling, type Target, type Tool, type ToolHost, type ToolView } from './sketch';
-import { comboText, keysOf, pressed, role, toggles } from '../ui/keys';
+import { pressed, role, roleKeyName, toggles } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
 const v3 = (a: V3) => new THREE.Vector3(...a);
@@ -71,7 +71,7 @@ export class ExtrudeTool implements Tool {
   /** The Measure tool is on, this one waits for it. */
   private measuring = false;
   private aimed: string | null = null;
-  /** A round face pulled: its size typed and shown as diameter (0), radius (1) or plain offset (2); the extrude key switches. */
+  /** A round face pulled: its size typed and shown as diameter (0), radius (1) or plain offset (2); Alt tapped switches. */
   private roundMode = 0;
   private labels = Object.assign(document.createElement('div'), { className: 'size-labels' });
 
@@ -91,7 +91,14 @@ export class ExtrudeTool implements Tool {
 
   /** Alt tapped while pulling on a body: the next operation. */
   private keyUp = (e: KeyboardEvent) => {
-    if (this.pull && this.onBody() && pullTap(e, this.pull, { depth: this.depths().depth, cuts: this.cuts() })) this.update();
+    const p = this.pull;
+    // a round face: Alt tapped (not moved while held) switches what its size means
+    if (p && this.roundFace() && e.key === roleKeyName('centre') && p.tap) {
+      [p.tap, p.typed, this.roundMode] = [false, undefined, (this.roundMode + 1) % 3]; // typed as the old kind of size: gone
+      this.host.hint(this.pullHint());
+      return this.changed();
+    }
+    if (p && this.onBody() && pullTap(e, p, { depth: this.depths().depth, cuts: this.cuts() })) this.update();
   };
 
   dispose() {
@@ -170,7 +177,7 @@ export class ExtrudeTool implements Tool {
       // a round face: on the step of its size, the size it had a snap point
       const [now, was] = round ? [round.shown(this.pull.raw), round.shown(0)] : [];
       this.pull.depth = round ? round.depth(Math.abs(now! - was!) < step ? was! : Math.round(now! / step) * step) : Math.round(this.pull.raw / step) * step;
-      this.pull.alt = role(e, 'centre');
+      this.pull.alt = !this.roundFace() && role(e, 'centre'); // a round face is the same both ways: Alt switches its size instead
       return this.changed();
     }
     this.hover = this.hitAt(e);
@@ -228,12 +235,8 @@ export class ExtrudeTool implements Tool {
         this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
         return this.aim(this.view.aimHere()), true;
       }
-      if (this.roundFace() && pressed(e, 'extrude') && !typing) {
-        this.roundMode = (this.roundMode + 1) % 3;
-        p.typed = undefined; // typed as the old kind of size
-        this.host.hint(this.pullHint());
-        return this.changed(), true;
-      }
+      if (this.roundFace() && e.key === roleKeyName('centre')) return (p.tap ||= !e.repeat), true;
+      if (this.rounded() && e.key === '-' && !p.typed) return true; // Ø and R are sizes: no minus in front
       if (!pullKey(e, p, this.onBody())) return false;
       this.host.hint(this.pullHint());
       this.changed();
@@ -316,7 +319,7 @@ export class ExtrudeTool implements Tool {
     const { depth, back } = pulled(p, (t) => this.host.length(t));
     const round = this.rounded();
     const typed = round && p.typed !== undefined ? this.host.length(p.typed) : null;
-    return { depth: typed === null ? depth : round!.depth(typed), back };
+    return { depth: typed === null ? depth : round!.depth(Math.abs(typed)), back };
   }
 
   /** The first face pulled, if round and nothing else picked (sketch areas pull by depth). */
@@ -376,7 +379,7 @@ export class ExtrudeTool implements Tool {
   }
 
   private pullHint() {
-    const round = this.roundFace() ? ` · [${comboText(keysOf('extrude')[0])}] Ø, R or offset` : '';
+    const round = this.roundFace() ? ` · [${roleKeyName('centre')}] Ø, R or offset` : '';
     return PULL_HINT + round + (this.onBody() ? OP_HINT : '');
   }
 
@@ -440,7 +443,7 @@ export class ExtrudeTool implements Tool {
       const { frame, at } = this.ref();
       const n = v3(frame.n);
       const round = this.rounded();
-      const shown: [string, string | undefined, number, number, boolean][] = [[round?.name ?? pullName(frame.n), p.typed, round ? round.shown(depth) : depth, depth, !p.side]];
+      const shown: [string, string | undefined, number, number, boolean][] = [[round?.name ?? pullName(frame.n), p.typed, round ? Math.abs(round.shown(depth)) : depth, depth, !p.side]];
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
         const op = name !== 'Back' && this.onBody() ? this.op() : undefined; // what it does to the body
