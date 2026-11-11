@@ -24,7 +24,7 @@ export const twoColours = (top: string, bottom: string): Backdrop => ({
     { color: top, at: 0 },
     { color: bottom, at: 1 },
   ],
-  band: 4,
+  band: 2,
 });
 
 const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
