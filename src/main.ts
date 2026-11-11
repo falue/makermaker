@@ -7496,7 +7496,7 @@ async function exportPanel(kind: 'laser' | 'print') {
           toolHint = `Laser: click the face of ${b.name} to cut out · [Esc] keeps it as it was`;
           render();
           viewer.pickFace((p) => {
-            toolHint = 'Laser: switch off what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels';
+            toolHint = 'Laser: Face: which face is cut · [Enter] exports · [Esc] cancels';
             if (p?.item?.body === b.id) {
               const pl = bodyPlace(b.id);
               faces.set(b.id, { at: unplaced(pl, p.item.point.toArray()), n: unplaced(pl, p.item.n.toArray(), true) });
@@ -7521,16 +7521,13 @@ async function exportPanel(kind: 'laser' | 'print') {
   const draw = () => {
     const kerf = Object.assign(document.createElement('input'), { value: exportChoice.kerf, title: 'Kerf: how wide the beam cuts; the outline moves out by half, holes in, so the part comes out true', oninput: () => (exportChoice.kerf = kerf.value) });
     Object.assign(kerf.dataset, { complete: '', noMeasure: '' });
-    const options =
-      kind === 'laser'
-        ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf), segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice.laser, (v) => (exportChoice.laser = v))]
-        : [segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v))];
-    // its title with a close button, the rows, then a footer: the options left, Export right
+    const formats = kind === 'laser' ? segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice.laser, (v) => (exportChoice.laser = v)) : segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v));
+    // its title centred, the close button at the right; "Available objects" over the rows; a footer: Kerf left, the formats and Export right
     const head = Object.assign(document.createElement('div'), { className: 'export-head' });
-    head.append(Object.assign(document.createElement('h3'), { textContent: 'Available objects' }), closeButton('Close (Esc)', close));
+    head.append(Object.assign(document.createElement('h3'), { textContent: kind === 'laser' ? 'Laser export' : '3D print export' }), closeButton('Close (Esc)', close));
     const foot = Object.assign(document.createElement('div'), { className: 'export-foot' });
-    foot.append(...options, Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
-    box.replaceChildren(head, Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);
+    foot.append(...(kind === 'laser' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf)] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
+    box.replaceChildren(head, Object.assign(document.createElement('h4'), { className: 'export-sub', textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);
     // on top: all on or none (some: shown half)
     const every = on.size === bodies.length;
     const all = Object.assign(document.createElement('input'), { type: 'checkbox', checked: every, indeterminate: !!on.size && !every, onchange: () => (bodies.forEach((b) => (every ? on.delete(b.id) : on.add(b.id))), draw()) });
@@ -7540,7 +7537,7 @@ async function exportPanel(kind: 'laser' | 'print') {
     showNote(); // the hint row back
     atTop(box);
   };
-  toolHint = kind === 'laser' ? 'Laser: switch off what stays out · Face: which face is cut · [Enter] exports · [Esc] cancels' : '3D print: switch off what stays out · each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';
+  toolHint = kind === 'laser' ? 'Laser: Face: which face is cut · [Enter] exports · [Esc] cancels' : '3D print: each is checked: closed, manifold, sound, its size · [Enter] exports · [Esc] cancels';
   document.body.append(box);
   draw();
   render();
