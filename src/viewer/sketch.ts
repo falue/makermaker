@@ -302,6 +302,8 @@ export interface ToolHost {
   number(text: string): number | null;
   /** A length (mm) as shown, in the document's units. */
   lengthText(mm: number): string;
+  /** A new shape is begun (its first click). */
+  started(): void;
   /** A finished action (null: cancelled or stopped). After a flat shape the tool goes on. */
   done(result: SketchResult | null): void;
   hint(text: string): void;
@@ -550,6 +552,7 @@ export class SketchTool implements Tool {
           ? { kind: 'polygon', target, pts: [at], z: [this.atZ], curZ: this.atZ, lock: null, curves: [], sides: [], cur: at, typed: [], axis: 0, base: 0, out: null, held: this.drawMode()?.id === 'bezier' ? { at, px: [e.clientX, e.clientY], pull: null, adds: false, closes: false } : null, arcEnd: null, arc: null, ...(round ? { round } : {}) }
           : { kind: 'shape', target, anchor: at, cur: at, px: [e.clientX, e.clientY], dragged: false, typed: [], axis: 0, shift: role(e, 'constrain'), pts: [], lines: line ? [line] : [] };
       if (this.phase.kind === 'polygon') this.trueSpace(e, this.phase, 0);
+      this.host.started();
       this.host.hint(this.kind === 'line' ? lineHint(this.drawMode()?.id) : SHAPE_HINT);
     } else if (ph.kind === 'shape') {
       ph.px = [e.clientX, e.clientY]; // a drag counts from this press

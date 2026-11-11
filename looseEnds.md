@@ -8,7 +8,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - [ ] Extrude: a rectangle cut in two by a circle, one part cannot be picked alone (both are selected).
 - [ ] Moving (an extrude, say) and pressing D to measure: the free move made before is dropped, the measured value counts from the start.
 - [ ] Moving by eye: the move snaps to exactly what its label shows, in a step that follows the zoom.
-- [ ] After a finished shape, New / a drawing tool again: the last shape is no longer highlighted.
 - [ ] The drawing mode note (top left): a construction-line version of its picture, and the note shows when construction lines are switched on or off.
 - [ ] Typing ( [ or { in a field adds the closing one after the caret.
 - [ ] A hole's or cylinder's round edge picked and extruded: pulls the hole deeper (or the cylinder longer).

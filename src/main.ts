@@ -6265,6 +6265,12 @@ const toolHost: ToolHost = {
     if (was === 'direct' && kind) startTool(kind);
     else void startExtrude();
   },
+  // the last shape drawn stays lit until the next one begins
+  started() {
+    if (!shapeSel.length) return;
+    shapeSel = [];
+    showSelection();
+  },
   hint(text) {
     toolHint = text;
     render();
