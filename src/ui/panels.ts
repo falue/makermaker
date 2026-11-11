@@ -623,17 +623,17 @@ function topbar(ctx: UIContext): Node[] {
       {},
       h('span', { className: 'logo', innerHTML: icon('logo') }),
       h('span', { className: 'wordmark', innerHTML: icon('makermaker') }),
-      h(
-        'div',
-        { className: 'flyout-at' },
-        tool('files', 'File: new, open, recent files, save, save as, versions, import, export', () => {
-          const was = fileOpen;
-          closeMenus();
-          fileOpen = !was;
-          renderUI(ctx);
-        }, fileOpen),
-        ...(fileOpen ? [h('div', { className: 'flyout menu down' }, ...fileMenu(ctx))] : []),
-      ),
+    ),
+    h(
+      'div',
+      { className: 'flyout-at' },
+      tool('fileMenu', 'File: new, open, recent files, save, save as, versions, import, export', () => {
+        const was = fileOpen;
+        closeMenus();
+        fileOpen = !was;
+        renderUI(ctx);
+      }, fileOpen),
+      ...(fileOpen ? [h('div', { className: 'flyout menu down' }, ...fileMenu(ctx))] : []),
     ),
     tool('import', TIPS.import, ctx.importFile),
     tool('export', TIPS.export, ctx.exportStep),

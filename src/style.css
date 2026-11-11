@@ -96,7 +96,7 @@ body {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-/* the logo, name and File menu: Import after them stands right over Extrude (8 px into the edit bar) */
+/* the logo and name: the File menu after them stands right over Extrude (8 px into the edit bar) */
 #topbar strong {
   flex: none;
   width: calc(var(--list) + var(--tools) + 8px - 10px - 4px); /* less the bar's padding and gap */
@@ -2489,9 +2489,6 @@ input + .to-object,
   flex: none;
 }
 /* the File menu: under its button in the top bar; Open recent's list beside its row while hovered */
-#topbar strong .flyout {
-  font-weight: normal;
-}
 .flyout.menu.down {
   left: 0;
   top: 100%;
