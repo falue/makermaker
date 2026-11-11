@@ -5899,25 +5899,72 @@ export class Viewer implements ToolView {
     return Math.hypot(e.clientX - this.downAt.x, e.clientY - this.downAt.y) > px;
   }
 
-  /** A view's cube (top right) with its turn arrows, Look at a face, Fit and Home below it; clicking a face looks from that side. */
-  private viewCube(eye = this.main, dragSpeed = 0.02 /* rad per px */) {
+  /**
+   * A view's cube (top right) with its turn arrows, Look at a face, Fit and Home below it; clicking a face looks from that
+   * side. Let go of a fast spin (over `flingPx` px per ms, the last `recentMs`) and it turns on, slowing to a stop in `spinMs`.
+   */
+  private viewCube(eye = this.main, dragSpeed = 0.02 /* rad per px */, flingPx = 0.6, recentMs = 100, spinMs = 2000) {
     const { cube, cubeWrap } = eye;
     this.cubeFaces(cube, (dir, side) => this.viewFrom(dir, side, 600, undefined, undefined, eye));
+    // the camera orbited by a move of (x, y) px over the cube
+    const turnBy = (x: number, y: number) => {
+      const target = eye.controls.target;
+      // in the cube's frame: inside a turned group, turned as the group
+      const back = this.frameTurn.clone().invert();
+      const s = new THREE.Spherical().setFromVector3(eye.camera.position.clone().sub(target).applyQuaternion(back).applyQuaternion(toCube));
+      // over a pole it goes on upside down (up flipped) instead of stopping there; phi < 0: that side
+      const flip = eye.camera.up.clone().applyQuaternion(back).z < 0;
+      s.theta -= (flip ? -1 : 1) * x * dragSpeed;
+      let phi = THREE.MathUtils.euclideanModulo((flip ? -s.phi : s.phi) - y * dragSpeed + Math.PI, 2 * Math.PI) - Math.PI;
+      phi = Math.sign(phi || 1) * THREE.MathUtils.clamp(Math.abs(phi), 1e-6, Math.PI - 1e-6); // never on the pole itself
+      if (phi < 0 !== flip) s.theta += Math.PI;
+      s.phi = Math.abs(phi);
+      this.upright(phi > 0, eye);
+      const offset = new THREE.Vector3().setFromSpherical(s).applyQuaternion(toCube.clone().invert()).applyQuaternion(this.frameTurn);
+      eye.camera.position.copy(target).add(offset);
+      eye.controls.update();
+    };
     // dragging the cube orbits the camera without end: the pointer is hidden and locked, so the screen edge does not stop it;
     // the capture makes the release no click on a face
     let start = { x: 0, y: 0 };
     let [held, turning] = [false, false];
+    let recent: { t: number; x: number; y: number }[] = []; // the last moves, for the speed at the release
+    let spin = 0; // the spin going on (an animation frame), 0: none
+    // any press or key stops a spin (a key may move the camera itself: Home, Fit …)
+    const stop = () => (cancelAnimationFrame(spin), (spin = 0));
+    addEventListener('pointerdown', stop, { capture: true });
+    addEventListener('keydown', stop, { capture: true });
     cube.onpointerdown = (e) => {
       start = { x: e.clientX, y: e.clientY };
-      [held, turning] = [e.button === 0, false];
+      [held, turning, recent] = [e.button === 0, false, []];
+    };
+    // let go fast: it spins on, slowing down
+    const fling = () => {
+      const now = performance.now();
+      const moves = recent.filter((m) => now - m.t < recentMs);
+      if (!moves.length) return;
+      const ms = Math.max(16, now - moves[0].t);
+      const [vx, vy] = [moves.reduce((a, m) => a + m.x, 0) / ms, moves.reduce((a, m) => a + m.y, 0) / ms];
+      if (Math.hypot(vx, vy) < flingPx) return;
+      let last = now;
+      const step = (t: number) => {
+        const k = (t - now) / spinMs;
+        if (k >= 1) return void (spin = 0);
+        const slow = (1 - k) ** 2; // eases out to a stop
+        turnBy(vx * slow * (t - last), vy * slow * (t - last));
+        last = t;
+        spin = requestAnimationFrame(step);
+      };
+      spin = requestAnimationFrame(step);
     };
     // a release anywhere ends the drag; a lock Chrome grants only after it (asked for while dragging) ends at once
-    const release = () => {
+    const release = (thrown: boolean) => {
+      if (thrown && turning) fling();
       [held, turning] = [false, false];
       if (document.pointerLockElement === cube) document.exitPointerLock();
     };
-    addEventListener('pointerup', release, { capture: true });
-    addEventListener('blur', release);
+    addEventListener('pointerup', () => release(true), { capture: true });
+    addEventListener('blur', () => release(false));
     document.addEventListener('pointerlockchange', () => !held && document.pointerLockElement === cube && document.exitPointerLock());
     cube.onpointermove = (e) => {
       if (!held || e.buttons !== 1) return;
@@ -5928,21 +5975,8 @@ export class Viewer implements ToolView {
         Promise.resolve(cube.requestPointerLock()).catch(() => {}); // without the lock it still turns, up to the screen edge
         this.leaveSideView(eye);
       }
-      const target = eye.controls.target;
-      // in the cube's frame: inside a turned group, turned as the group
-      const back = this.frameTurn.clone().invert();
-      const s = new THREE.Spherical().setFromVector3(eye.camera.position.clone().sub(target).applyQuaternion(back).applyQuaternion(toCube));
-      // over a pole it goes on upside down (up flipped) instead of stopping there; phi < 0: that side
-      const flip = eye.camera.up.clone().applyQuaternion(back).z < 0;
-      s.theta -= (flip ? -1 : 1) * e.movementX * dragSpeed;
-      let phi = THREE.MathUtils.euclideanModulo((flip ? -s.phi : s.phi) - e.movementY * dragSpeed + Math.PI, 2 * Math.PI) - Math.PI;
-      phi = Math.sign(phi || 1) * THREE.MathUtils.clamp(Math.abs(phi), 1e-6, Math.PI - 1e-6); // never on the pole itself
-      if (phi < 0 !== flip) s.theta += Math.PI;
-      s.phi = Math.abs(phi);
-      this.upright(phi > 0, eye);
-      const offset = new THREE.Vector3().setFromSpherical(s).applyQuaternion(toCube.clone().invert()).applyQuaternion(this.frameTurn);
-      eye.camera.position.copy(target).add(offset);
-      eye.controls.update();
+      recent = [...recent.filter((m) => e.timeStamp - m.t < recentMs), { t: e.timeStamp, x: e.movementX, y: e.movementY }];
+      turnBy(e.movementX, e.movementY);
     };
     // after a side was chosen, arrows turn the view by 90° to the neighbouring side
     const arrows = (['up', 'down', 'left', 'right'] as const).map((side) =>
