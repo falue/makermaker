@@ -106,7 +106,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
       row('zoom', 'Zoom', 'The wheel and pinching'),
       row('pan', 'Pan', 'Right-drag, Space held + mouse, scrolling sideways, Shift + wheel'),
       row('orbit', 'Orbit', 'Dragging to turn the view, Shift + Space held + mouse'),
-      make('label', { className: 'check', title: 'For a trackpad; off for a mouse wheel (browsers cannot tell them apart)' }, input({ type: 'checkbox', checked: s.trackpad, onchange: (e: Event) => set({ ...s, trackpad: (e.target as HTMLInputElement).checked }) }), 'Trackpad: two fingers pan, with Shift they orbit, pinching zooms'),
+      make('label', { className: 'check', title: 'For a trackpad; off for a mouse wheel (browsers cannot tell them apart, so with this on the wheel pans)' }, input({ type: 'checkbox', checked: s.trackpad, onchange: (e: Event) => set({ ...s, trackpad: (e.target as HTMLInputElement).checked }) }), 'Trackpad: two fingers pan, with Shift they orbit, pinching zooms (the mouse wheel then pans, it no longer zooms)'),
     ];
   };
   /** The document's photo spheres to pick from, adding one, and how far the shown one is turned. */
