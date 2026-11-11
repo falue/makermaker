@@ -12,7 +12,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { comboText, keysOf, MODIFIER_NAMES, MODIFIER_SIGNS, pressed, role, roleKey, roleKeyName, type Action, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
-import { caret, caretHtml, restOf } from '../ui/complete';
+import { caret, caretHtml, restOf, selectTyped } from '../ui/complete';
 import { inName } from '../doc/expr';
 import { sizeHtml } from '../ui/axes';
 import { icon } from '../ui/icons';
@@ -253,6 +253,7 @@ export function pulled(p: Pulling, length: (text: string) => number | null) {
  */
 export function pullKey(e: KeyboardEvent, p: Pulling, onBody: boolean) {
   const k = p.side ? 'typedBack' : 'typed';
+  if (selectTyped(e, p[k], () => (p[k] = undefined))) return true;
   if (onBody && e.key === roleKeyName('centre')) p.tap ||= !e.repeat;
   else if (pressed(e, 'otherSide') && restOf(p[k] ?? '')) p[k] += restOf(p[k]!); // a name showing: written out
   else if (pressed(e, 'otherSide')) p.side = p.side ? 0 : 1;
@@ -893,6 +894,9 @@ export class SketchTool implements Tool {
     const more = pressed(e, 'moreSnaps');
     const free = ph.kind !== 'pull' && !((ph.kind === 'shape' || ph.kind === 'polygon') && ph.typed[ph.axis] !== undefined) && !(ph.kind === 'ball' && ph.planes.length === 3); // not while typing a size
     const guide = this.hoveredGuide();
+    // Cmd / Ctrl + A: the size being typed marked whole (a pull: in `pullKey`)
+    if ((ph.kind === 'shape' || ph.kind === 'polygon') && selectTyped(e, ph.typed[ph.axis], () => (ph.typed[ph.axis] = undefined), typing)) return this.update(), true;
+    if (ph.kind === 'ball' && selectTyped(e, ph.typed, () => (ph.typed = undefined), typing)) return this.update(), true;
     // Measure while a size is typed: this tool waits, the value goes in (a line: its length or an arc's diameter)
     if ((ph.kind === 'shape' && !(this.kind === 'ngon' && ph.axis === 1)) || ph.kind === 'pull' || (ph.kind === 'polygon' && ph.axis === 0)) {
       if (pressed(e, 'measureValue') && !inName((ph.kind === 'pull' ? (ph.side ? ph.typedBack : ph.typed) : ph.typed[ph.axis]) ?? '')) {
@@ -2016,7 +2020,7 @@ export class SketchTool implements Tool {
     const ph = this.phase;
     const fmt = (mm: number) => mm.toFixed(2);
     const label = (name: string, typed: string | undefined, mm: number, at: THREE.Vector3, active: boolean, t = false) =>
-      labels.push([`${name} ${typed === undefined ? fmt(mm) : caret(typed)}`, at, active, t]);
+      labels.push([`${name} ${typed === undefined ? fmt(mm) : caret(typed, active)}`, at, active, t]);
     if (ph.kind === 'shape' || ph.kind === 'polygon') {
       const f = ph.target.frame;
       const open = ph.kind === 'polygon' ? (ph.held?.adds ? ph.held.at : ph.arcEnd ?? ph.cur) : ph.cur;
@@ -2041,13 +2045,13 @@ export class SketchTool implements Tool {
         // an arc: its diameter in the pointer's note, its angle at its middle (a first arc's bulge: only its diameter)
         const arc = arcOf(ph.pts[ph.pts.length - 1], ph.arc, open);
         if (arc) {
-          sideLength = `Ø ${ph.typed[0] === undefined ? fmt(arc.r * 2) : caret(ph.typed[0]!)}`;
+          sideLength = `Ø ${ph.typed[0] === undefined ? fmt(arc.r * 2) : caret(ph.typed[0]!, ph.axis === 0)}`;
           if (!ph.arcEnd) label('∠', ph.typed[1], (Math.abs(arc.a1 - arc.a0) * 180) / Math.PI, v3(toWorld(f, ...ph.arc)), ph.axis === 1);
         }
       } else if (ph.kind === 'polygon' && !ph.held && (ph.lock !== null || ph.curZ || ph.z.at(-1))) {
         // off the plane: its length in space; locked: the axis through the last point
         const last = ph.pts[ph.pts.length - 1];
-        sideLength = `L ${ph.typed[0] === undefined ? fmt(Math.hypot(ph.cur[0] - last[0], ph.cur[1] - last[1], ph.curZ - ph.z.at(-1)!)) : caret(ph.typed[0]!)}`;
+        sideLength = `L ${ph.typed[0] === undefined ? fmt(Math.hypot(ph.cur[0] - last[0], ph.cur[1] - last[1], ph.curZ - ph.z.at(-1)!)) : caret(ph.typed[0]!, ph.axis === 0)}`;
         if (ph.lock !== null) {
           const at = v3(toWorld(f, ...last, ph.z.at(-1)!));
           const dir = new THREE.Vector3().setComponent(ph.lock, 1e4);
@@ -2062,9 +2066,9 @@ export class SketchTool implements Tool {
         const a = (deg(Math.atan2(dv, du) - ph.base) * Math.PI) / 180; // from the direction it counts from, the short way
         const at = v3(toWorld(f, ...last));
         const mm = 1 / this.view.pixelsPerMm(at);
-        sideLength = `L ${ph.typed[0] === undefined ? fmt(Math.hypot(du, dv)) : caret(ph.typed[0]!)}`;
+        sideLength = `L ${ph.typed[0] === undefined ? fmt(Math.hypot(du, dv)) : caret(ph.typed[0]!, ph.axis === 0)}`;
         const shown = `${+((a * 180) / Math.PI).toFixed(2)}°`;
-        angle = { text: `∠ ${ph.typed[1] === undefined ? shown : caret(ph.typed[1]!)}`, active: ph.axis === 1, corner: last, end: ph.cur, base: ph.base, frame: f };
+        angle = { text: `∠ ${ph.typed[1] === undefined ? shown : caret(ph.typed[1]!, ph.axis === 1)}`, active: ph.axis === 1, corner: last, end: ph.cur, base: ph.base, frame: f };
         // what it is measured from: a faint ray along that direction, and the arc from it to the side
         const arc = Array.from({ length: 25 }, (_, k) => ph.base + (a * k) / 24).map((t) => v3(toWorld(f, last[0] + ARC_PX * mm * Math.cos(t), last[1] + ARC_PX * mm * Math.sin(t))));
         const segs = [at, v3(toWorld(f, last[0] + 2 * ARC_PX * mm * Math.cos(ph.base), last[1] + 2 * ARC_PX * mm * Math.sin(ph.base))), ...arc.slice(1).flatMap((p, k) => [arc[k], p])];
@@ -2078,7 +2082,7 @@ export class SketchTool implements Tool {
       }
       if (profile.kind === 'ngon' && ph.kind === 'shape') {
         label('Ø', ph.typed[0], profile.d, v3(toWorld(f, profile.x + profile.d / 2, profile.y)), ph.axis === 0);
-        labels.push([`Sides ${ph.typed[1] === undefined ? profile.sides : caret(ph.typed[1]!)}`, v3(toWorld(f, profile.x, profile.y - profile.d / 2)), ph.axis === 1]);
+        labels.push([`Sides ${ph.typed[1] === undefined ? profile.sides : caret(ph.typed[1]!, ph.axis === 1)}`, v3(toWorld(f, profile.x, profile.y - profile.d / 2)), ph.axis === 1]);
       }
     }
     if (this.snapped && ph.kind !== 'pull') {

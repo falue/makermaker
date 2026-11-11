@@ -410,7 +410,7 @@ export class ExtrudeTool implements Tool {
       if (back || p.side) shown.push(['Back', p.typedBack, back, -(Math.sign(depth) || 1) * back, !!p.side]);
       for (const [name, typed, mm, along, active] of shown) {
         const op = name !== 'Back' && this.onBody() ? this.op() : undefined; // what it does to the body
-        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed)}`, active, active && !this.reaching, op);
+        const el = sizeLabel(`${name} ${typed === undefined ? mm.toFixed(2) : caret(typed, active)}`, active, active && !this.reaching, op);
         this.labels.append(el);
         keepInside(el, ...this.view.toScreen(at.clone().addScaledVector(n, along)));
       }

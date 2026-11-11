@@ -2108,6 +2108,10 @@ button.primary.wide {
 .typed-rest {
   color: var(--muted);
 }
+.typed-all {
+  background: var(--accent);
+  color: #fff;
+}
 .typed-caret {
   display: inline-block;
   width: 0;

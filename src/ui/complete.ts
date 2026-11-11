@@ -1,3 +1,5 @@
+import { pressed } from './keys';
+
 /** The parameter names now. */
 let paramNames: () => string[] = () => [];
 
@@ -8,11 +10,37 @@ export function restOf(text: string) {
   return name ? name.slice(typed.length) : '';
 }
 
-/** What is typed while drawing or dragging (no field there), as a label shows it: the caret, then what Tab would add. */
-export const caret = (typed: string) => `${typed}▏${restOf(typed)}`;
+/** A typed value marked whole by Cmd / Ctrl + A (see `selectTyped`); null: none. */
+let marked: string | null = null;
 
-/** A label's text as HTML: the caret takes no room (the glyph's is wide), what comes after it in grey. */
-export const caretHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/▏(\w*)/g, '<span class="typed-caret"></span><span class="typed-rest">$1</span>');
+/**
+ * Cmd / Ctrl + A on a value typed without a field (`typed`: it now): marks it whole, so the next character typed
+ * replaces it (`clear` empties it first) and Backspace clears it. True: the key was used up here.
+ */
+export function selectTyped(e: KeyboardEvent, typed: string | undefined, clear: () => void, typing = e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+  if (pressed(e, 'selectAll')) return (marked = typed ?? null), true;
+  if (marked === null || MODIFIERS.includes(e.key)) return false;
+  const was = marked === typed;
+  marked = null;
+  if (was && pressed(e, 'erase')) return clear(), true;
+  if (was && typing) clear();
+  return false;
+}
+const MODIFIERS = ['Shift', 'Alt', 'Control', 'Meta'];
+
+/**
+ * What is typed while drawing or dragging (no field there), as a label shows it: the caret, then what Tab would add;
+ * `active`: the value keys go to (only it shows marked).
+ */
+export const caret = (typed: string, active = true) => `${active && typed === marked ? `\uE000${typed}\uE000` : typed}▏${restOf(typed)}`;
+
+/** A label's text as HTML: the caret takes no room (the glyph's is wide), what comes after it in grey, a marked value highlighted. */
+export const caretHtml = (text: string) =>
+  text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/\uE000(.*?)\uE000/g, '<span class="typed-all">$1</span>')
+    .replace(/▏(\w*)/g, '<span class="typed-caret"></span><span class="typed-rest">$1</span>');
 
 /**
  * Parameter names completed in value fields (inputs with `data-complete`): after a `$`, the rest of the first name that

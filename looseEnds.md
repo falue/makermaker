@@ -3,7 +3,6 @@
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
 ## To do (user list, 2026-11-11)
-- [ ] Cmd/Ctrl + A in any field (L / W of a rectangle, say) selects its text.
 - [ ] Sections: a snap point at 0/0/0.
 - [ ] Custom section: its offset field is too narrow to read.
 - [ ] Small rectangles far away: the L / W labels do not show which side they belong to; move them further out.

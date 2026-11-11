@@ -33,7 +33,7 @@ import { farthestOnPath, nearestOnPath, type EdgePath } from '../kernel/paths';
 import { turnedBox } from './turnedBox';
 import { backdropCss, drawSky, SKIES, twoColours } from './sky';
 import { axisHtml, sizeHtml } from '../ui/axes';
-import { caret, caretHtml, restOf } from '../ui/complete';
+import { caret, caretHtml, restOf, selectTyped } from '../ui/complete';
 import type { Settings } from '../ui/settings';
 import { divideMore, edgeKey, FRONT, linePoints, outline, planeHit, shape2d, sideKey, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
 import { picksFace, pressed, role, toggles, type ModEvent } from '../ui/keys';
@@ -5705,7 +5705,7 @@ export class Viewer implements ToolView {
         const angle = deg === null ? Math.atan2(at[1] - o[1], at[0] - o[0]) : (deg * Math.PI) / 180;
         at = [o[0] + length * Math.cos(angle), o[1] + length * Math.sin(angle)];
         ed.next = controlMoved(st, ed.handle.i, ed.handle.which, at);
-        const body = (k: number, name: string, text: string) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? text : caret(ed.typed[k]!)}`;
+        const body = (k: number, name: string, text: string) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? text : caret(ed.typed[k]!, k === ed.axis)}`;
         this.label(`${body(0, 'L', this.host.format(length))}   ${body(1, '∠', ((angle * 180) / Math.PI).toFixed(1))}`, new THREE.Vector3(...toWorld(f, ...at)));
       } else ed.next = ed.handle.kind === 'point' ? pointMoved(st, ed.handle.i, at) : controlMoved(st, ed.handle.i, ed.handle.which, at);
     } else if (ed.handle.kind === 'rotate') {
@@ -5718,7 +5718,7 @@ export class Viewer implements ToolView {
       const typed = ed.typed.map((t) => (t === undefined ? undefined : (this.host.length(t) ?? undefined))) as [number | undefined, number | undefined];
       ed.next = resized(st, ed.handle, ed.q0, q, { alt: !!e && role(e, 'centre'), shift: !!e && role(e, 'constrain'), step: this.step(world, e ?? undefined, false), typed });
       const [w, h] = sizeOf(ed.next);
-      const body = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : caret(ed.typed[k]!)}`;
+      const body = (k: number, name: string, mm: number) => `${name}${k === ed.axis ? '▸' : ' '}${ed.typed[k] === undefined ? this.host.format(mm) : caret(ed.typed[k]!, k === ed.axis)}`;
       this.label(st.kind === 'circle' ? body(ed.axis, 'Ø', w) : `${body(0, 'L', w)}   ${body(1, 'W', h)}`, world, true);
     }
     this.overrides.set(st.id, ed.next);
@@ -5732,7 +5732,7 @@ export class Viewer implements ToolView {
     const q = bakeTurn(s);
     const c = q.curves?.[ed.handle.i];
     const arc = c && 'mid' in c ? arcOf(q.pts[ed.handle.i], c.mid, q.pts[(ed.handle.i + 1) % q.pts.length]) : null;
-    if (arc) this.label(`Ø ${ed.typed[0] === undefined ? this.host.format(arc.r * 2) : caret(ed.typed[0])}`, new THREE.Vector3(...toWorld(ed.sketch.frame, ...arc.c)));
+    if (arc) this.label(`Ø ${ed.typed[0] === undefined ? this.host.format(arc.r * 2) : caret(ed.typed[0], ed.axis === 0)}`, new THREE.Vector3(...toWorld(ed.sketch.frame, ...arc.c)));
   }
 
   /**
@@ -5769,6 +5769,7 @@ export class Viewer implements ToolView {
     if (pressed(e, 'confirm') || pressed(e, 'cancel')) return this.endEdit(pressed(e, 'confirm')), true;
     const handleTyped = ed.handle.kind === 'control' && ed.handle.which !== 'mid';
     if (ed.handle.kind !== 'resize' && ed.handle.kind !== 'centre' && !handleTyped) return false;
+    if (selectTyped(e, ed.typed[ed.axis], () => (ed.typed[ed.axis] = undefined))) return this.applyEdit(ed), true;
     if (pressed(e, 'otherSide') && restOf(ed.typed[ed.axis] ?? '')) ed.typed[ed.axis] += restOf(ed.typed[ed.axis]!); // a name showing: written out
     else if (pressed(e, 'otherSide') && (ed.handle.kind === 'resize' || handleTyped)) ed.axis = 1 - ed.axis;
     else if (pressed(e, 'erase')) ed.typed[ed.axis] = ed.typed[ed.axis]?.slice(0, -1) || undefined;
@@ -5800,6 +5801,7 @@ export class Viewer implements ToolView {
     const d = this.drag!;
     const fields = !!this.gizmo;
     if (pressed(e, 'confirm') || pressed(e, 'cancel')) return this.endDrag(fields || pressed(e, 'confirm')), !(fields && pressed(e, 'confirm'));
+    if (selectTyped(e, d.typed, () => (d.typed = undefined))) return this.applyDrag(d), true;
     if (e.key === 'Tab' && restOf(d.typed ?? '')) d.typed += restOf(d.typed!); // a name showing: written out
     else if (pressed(e, 'erase')) d.typed = d.typed?.slice(0, -1) || undefined;
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey) d.typed = (d.typed ?? '') + e.key;

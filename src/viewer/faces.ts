@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { V3 } from '../doc/frames';
 import { pullBy, type Tool, type ToolHost, type ToolView } from './sketch';
 import { pressed } from '../ui/keys';
-import { caretHtml, restOf } from '../ui/complete';
+import { caretHtml, restOf, selectTyped } from '../ui/complete';
 import { keepInside } from '../ui/inside';
 
 /** What a pull shows and how it ends: its hint, its label at the pointer, and whether releasing the button finishes it. */
@@ -64,6 +64,7 @@ export class FacePullTool implements Tool {
   dblclick() {}
 
   key(e: KeyboardEvent) {
+    if (selectTyped(e, this.typed, () => (this.typed = undefined))) return this.update(), true;
     const [cancel, confirm] = [pressed(e, 'cancel'), pressed(e, 'confirm')];
     if (cancel) this.finish('cancel');
     else if (confirm) this.finish('done');
