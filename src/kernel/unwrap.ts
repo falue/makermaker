@@ -4,18 +4,18 @@ import type { Cut } from '../io/cutfile';
 import { facingOut, lscm, netLines, nets, stretchOf, type FlatFace, type P2 } from './flatten';
 
 /** One net of a body: its outline cut (red) and folds (green marks), y down; each face's loops and stretch, for a preview. */
-export type UnfoldPiece = { cuts: Cut[]; faces: { loops: P2[][]; stretch: number }[] };
+export type UnwrapPiece = { cuts: Cut[]; faces: { loops: P2[][]; stretch: number }[] };
 
 /** How fine faces are meshed to be flattened: mm off the true face at most, and radians per step round a curve. */
 const MESH = { linear: 0.05, angular: 0.2 };
 
 /**
- * A solid unfolded into flat nets at 1:1, seen from outside: flat faces as they are, cylinders and cones rolled out
+ * A solid unwrapped into flat nets at 1:1, seen from outside: flat faces as they are, cylinders and cones rolled out
  * exactly (their surface parameters are lengths and angles), other faces by least squares conformal maps (`lscm`),
  * stretched a little; joined along shared edges where they lie flat without overlapping (`nets`). `stretch`: the
  * worst face's (0.05: 5 %).
  */
-export function unfold(shape: Shape3D): { pieces: UnfoldPiece[]; stretch: number } {
+export function unwrap(shape: Shape3D): { pieces: UnwrapPiece[]; stretch: number } {
   const oc = getOC();
   new oc.BRepMesh_IncrementalMesh(shape.wrapped, MESH.linear, false, MESH.angular, false).delete();
   // edges by hash code, told apart by IsSame: their key is shared by the faces on either side

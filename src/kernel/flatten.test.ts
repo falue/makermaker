@@ -73,7 +73,7 @@ function cube(s: number): FlatFace[] {
 }
 
 describe('nets', () => {
-  it('unfolds a cube into one cross of six squares, five folds, one closed outline', () => {
+  it('unwraps a cube into one cross of six squares, five folds, one closed outline', () => {
     const faces = cube(10);
     const islands = nets(faces);
     expect(islands).toHaveLength(1);

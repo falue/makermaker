@@ -44,7 +44,7 @@ import type { AreaMesh, BuildFeature, CappedEdge, Sweep } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { canUseFolders, recall, remember } from './io/scriptFolder';
 import { openVersions, type Picture } from './ui/versions';
-import type { ExportBody, ExportFormat, PrintCheck, Unfolded } from './kernel/worker';
+import type { ExportBody, ExportFormat, PrintCheck, Unwrapped } from './kernel/worker';
 import { commands, COPY_TIP, measureButton, renderUI, scrub, showRenderProgress, showTab, tabOf, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { explodeTree } from './viewer/explode';
@@ -7538,7 +7538,7 @@ function render() {
     importFile: pickImport,
     exportPrint: () => void exportPanel('print'),
     exportLaser: () => void exportPanel('laser'),
-    exportUnfold: () => void exportPanel('unfold'),
+    exportUnwrap: () => void exportPanel('unwrap'),
     exportStep: () => run(() => exportBodies('step')),
     toggleTheme() {
       const theme = viewer.isDark ? 'light' : 'dark';
@@ -7645,15 +7645,15 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
 }
 
 /** The export panels' choices, this session. */
-const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unfold: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0' };
+const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0' };
 
 /**
- * Laser, unfold or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each switched on
+ * Laser, unwrap or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each switched on
  * (off: left out; hovering a row lights it). Laser: per body the face to cut (its biggest flat one, or one clicked),
- * the kerf, SVG or DXF. Unfold: per body its nets and stretch, those switched on drawn below as they come out; SVG or
+ * the kerf, SVG or DXF. Unwrap: per body its nets and stretch, those switched on drawn below as they come out; SVG or
  * DXF. Print: per body whether it is closed, manifold and sound, its size; STL or 3MF. Export (Enter) makes the files.
  */
-async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
+async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   const bodies = exportable();
   if (!bodies.length) return fail(nothingToExport());
   const doc = history.current;
@@ -7670,14 +7670,14 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
   };
   const go = () => {
     const chosen = bodies.filter((b) => on.has(b.id));
-    if (kind === 'unfold' && !unfoldedSheet(chosen).length) return fail(chosen.some((b) => !unfolds.has(b.id)) ? 'Still unfolding: a moment' : 'Nothing unfolded to export');
+    if (kind === 'unwrap' && !unwrappedSheet(chosen).length) return fail(chosen.some((b) => !unwraps.has(b.id)) ? 'Still unwrapping: a moment' : 'Nothing unwrapped to export');
     close();
     if (kind === 'print') return void run(() => exportBodies(exportChoice.print, chosen));
-    if (kind === 'unfold') {
-      const sheet = unfoldedSheet(chosen);
-      const format = exportChoice.unfold;
+    if (kind === 'unwrap') {
+      const sheet = unwrappedSheet(chosen);
+      const format = exportChoice.unwrap;
       const text = format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.map((p) => p.label));
-      download(new Blob([text], { type: format === 'svg' ? 'image/svg+xml' : 'image/vnd.dxf' }), `${chosen.length === 1 ? chosen[0].name.replace(/[^\w.-]+/g, '_') || 'body' : project()}_unfolded.${format}`);
+      download(new Blob([text], { type: format === 'svg' ? 'image/svg+xml' : 'image/vnd.dxf' }), `${chosen.length === 1 ? chosen[0].name.replace(/[^\w.-]+/g, '_') || 'body' : project()}_unwrapped.${format}`);
       return notify(`Exported ${sheet.length} flat piece${sheet.length === 1 ? '' : 's'} of ${chosen.length} bod${chosen.length === 1 ? 'y' : 'ies'} as one ${format.toUpperCase()} file`);
     }
     const kerf = length(exportChoice.kerf) ?? 0;
@@ -7693,10 +7693,10 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
   };
   // the checks for printing, filled in when they come
   const checks = new Map<string, PrintCheck>();
-  // the bodies unfolded, filled in when they come; their pieces on one sheet, named after the body (numbered if several)
-  const unfolds = new Map<string, Unfolded>();
-  const unfoldedPieces = (of: Body[]) => of.flatMap((b) => (unfolds.get(b.id)?.pieces ?? []).map((p, i, all) => ({ name: all.length > 1 ? `${b.name} ${i + 1}` : b.name, ...p })));
-  const unfoldedSheet = (of: Body[]) => sheetOf(unfoldedPieces(of));
+  // the bodies unwrapped, filled in when they come; their pieces on one sheet, named after the body (numbered if several)
+  const unwraps = new Map<string, Unwrapped>();
+  const unwrappedPieces = (of: Body[]) => of.flatMap((b) => (unwraps.get(b.id)?.pieces ?? []).map((p, i, all) => ({ name: all.length > 1 ? `${b.name} ${i + 1}` : b.name, ...p })));
+  const unwrappedSheet = (of: Body[]) => sheetOf(unwrappedPieces(of));
   // the laser pieces of the ones switched on, made anew when what goes in changes (the latest asked wins)
   let lasered: { pieces: { name: string; cuts: Cut[] }[]; failed: string[] } | null = null;
   let laserKey = '';
@@ -7718,12 +7718,12 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
   // what comes out, below the rows: the pieces of the ones switched on as they will lie on the sheet
   const preview = Object.assign(document.createElement('div'), { className: 'sheet-preview' });
   const showPreview = () => {
-    // unfolded faces are shaded by their stretch; laser pieces have none
-    const unfolded = kind === 'unfold' ? unfoldedPieces(bodies.filter((b) => on.has(b.id))) : [];
-    const pieces = kind === 'laser' ? (lasered?.pieces ?? []) : unfolded;
+    // unwrapped faces are shaded by their stretch; laser pieces have none
+    const unwrapped = kind === 'unwrap' ? unwrappedPieces(bodies.filter((b) => on.has(b.id))) : [];
+    const pieces = kind === 'laser' ? (lasered?.pieces ?? []) : unwrapped;
     const sheet = sheetOf(pieces);
     preview.hidden = !sheet.length && !lasered?.failed.length;
-    preview.innerHTML = sheet.length ? previewSvg(sheet, unfolded.map((p) => p.faces)) : '';
+    preview.innerHTML = sheet.length ? previewSvg(sheet, unwrapped.map((p) => p.faces)) : '';
     if (kind === 'laser' && lasered?.failed.length) preview.append(Object.assign(document.createElement('p'), { className: 'error', textContent: `Could not make: ${lasered.failed.join(', ')}` }));
   };
   const rows = () =>
@@ -7748,10 +7748,10 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
           });
         });
         row.append(state, faceButton, ...(picked ? [panelButton('×', 'Click: Back to its biggest flat face', () => (faces.delete(b.id), draw()))] : []));
-      } else if (kind === 'unfold') {
-        const u = unfolds.get(b.id);
+      } else if (kind === 'unwrap') {
+        const u = unwraps.get(b.id);
         const n = u?.pieces.length ?? 0;
-        const text = !u ? 'unfolding …' : u.error ? u.error : `${n} piece${n === 1 ? '' : 's'} · ${u.stretch > 0.0005 ? `stretched up to ${fmt(+(u.stretch * 100).toFixed(1))} %` : 'no stretch'}`;
+        const text = !u ? 'unwrapping …' : u.error ? u.error : `${n} piece${n === 1 ? '' : 's'} · ${u.stretch > 0.0005 ? `stretched up to ${fmt(+(u.stretch * 100).toFixed(1))} %` : 'no stretch'}`;
         row.append(Object.assign(document.createElement('span'), { className: u?.error || (u?.stretch ?? 0) > 0.1 ? 'check bad' : 'check', textContent: text, title: 'Flat faces as they are, cylinders and cones rolled out exactly, other faces flattened with a little stretch (orange below)' }));
       } else {
         const c = checks.get(b.id);
@@ -7777,7 +7777,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
       kind === 'print' ? segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v)) : segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice[kind], (v) => (exportChoice[kind] = v));
     // its title centred, the close button at the right; "Available objects" over the rows; a footer: Kerf left, the formats and Export right
     const head = Object.assign(document.createElement('div'), { className: 'export-head' });
-    head.append(Object.assign(document.createElement('h3'), { textContent: { laser: 'Laser export', unfold: 'Unfold export', print: '3D print export' }[kind] }), closeButton('Close (Esc)', close));
+    head.append(Object.assign(document.createElement('h3'), { textContent: { laser: 'Laser export', unwrap: 'Unwrap export', print: '3D print export' }[kind] }), closeButton('Close (Esc)', close));
     const foot = Object.assign(document.createElement('div'), { className: 'export-foot' });
     foot.append(...(kind === 'laser' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf)] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
     box.replaceChildren(head, Object.assign(document.createElement('h4'), { className: 'export-sub', textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);
@@ -7803,8 +7803,8 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
     for (const r of results) checks.set(r.name, r);
     if (box.isConnected) draw();
   }
-  if (kind === 'unfold') {
-    for (const r of await kernel.unfold(bodies.map((b) => ({ name: b.id, features: built.get(b.id)! })))) unfolds.set(r.name, r);
+  if (kind === 'unwrap') {
+    for (const r of await kernel.unwrap(bodies.map((b) => ({ name: b.id, features: built.get(b.id)! })))) unwraps.set(r.name, r);
     if (box.isConnected) draw();
   }
 }

@@ -50,7 +50,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The sheet is rows of boxes, not nested tightly, and has no size limit (a laser bed's).
 - Fitting pieces together: only the bodies in the panel's list count, and only flat sides along the cut face's rim; a miter (two sides each lying on the other) cuts both back, leaving a gap at the corner. A piece makes room only for laser parts after their own sides are settled (two passes, not repeated). Every body is built three times for it (export time not measured on big files).
 
-## Unfold export
+## Unwrap export
 - A closed face curved both ways (a whole sphere, a fillet ring round a hole) is flattened in one piece: its stretch gets large (a ball: about 250 %, the sample disc's rounded rim 47 %). Not yet: cutting it into gores or along hand drawn seams, nor relaxing lengths after LSCM (ARAP).
 - Outlines are polylines from the mesh (0.05 mm off the true edge at most), not arcs; no seam allowance, no glue flaps, no grain direction.
 - Faces flattened with stretch join a neighbour only where their shared edge still matches within 0.05 mm + 0.5 % of its length; otherwise they come out as pieces of their own.

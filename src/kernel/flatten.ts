@@ -1,4 +1,4 @@
-/** Faces flattened and laid out into nets (plain numbers, no OpenCascade): the maths of the unfold export. */
+/** Faces flattened and laid out into nets (plain numbers, no OpenCascade): the maths of the unwrap export. */
 
 export type P2 = [number, number];
 

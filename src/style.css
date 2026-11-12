@@ -3581,7 +3581,7 @@ body.nav-held canvas {
 body.nav-held.nav-orbit canvas {
   cursor: all-scroll;
 }
-/* the laser and unfold exports' look at what comes out: on paper white, lines a pixel wide at any size */
+/* the laser and unwrap exports' look at what comes out: on paper white, lines a pixel wide at any size */
 .sheet-preview {
   margin: 6px 0;
   max-height: 40vh;
