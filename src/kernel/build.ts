@@ -667,6 +667,12 @@ export function swept(shape: Shape3D, way: Sweep): Shape3D[] {
   return out;
 }
 
+/** `shape` moved and turned back by `pl` (into the coordinates it places; consumed as in `placeShape`). */
+export function unplaceShape(shape: Shape3D, pl: Place): Shape3D {
+  const moved = pl.offset.some((v) => v) ? shape.translate(...(pl.offset.map((v) => -v) as [number, number, number])) : shape;
+  return pl.angle ? moved.rotate(-pl.angle, [0, 0, 0], pl.axis) : moved;
+}
+
 /** `shape` turned and moved by `pl` (replicad's transforms consume the shape they are called on). */
 export function placeShape(shape: Shape3D, pl: Place): Shape3D {
   const turned = pl.angle ? shape.rotate(pl.angle, [0, 0, 0], pl.axis) : shape;

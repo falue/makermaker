@@ -63,6 +63,19 @@ function facesOf(shape: Shape3D): Face[] {
  * at an angle (as modelled, before fillets and chamfers) as marks. Looking at the face from outside; x as level as possible.
  */
 export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): Cut[] {
+  const { cuts, solid } = laserPart(features, face);
+  solid.delete();
+  return cuts;
+}
+
+/**
+ * A body's laser cuts (see `laserCuts`) and the part they make: the outlines cut straight through its sheet (from the
+ * face to the biggest one facing the other way). With other bodies (in this body's coordinates) around it: where a
+ * slanted side of the face (less than 45° off square) lies on one of `around`, the straight cut would push into it, so
+ * the part as seen there is cut back to the side's inner edge (a mark there becomes the cut); where one of `parts`
+ * (other bodies' laser parts) pushes into this body, the part as seen there is cut away to make room.
+ */
+export function laserPart(features: BuildFeature[], face?: { at: V3; n: V3 }, around: Shape3D[] = [], parts: Shape3D[] = []): { cuts: Cut[]; solid: Shape3D } {
   const shape = buildBody(features.filter((f) => f.type !== 'finish'));
   const finished = features.some((f) => f.type === 'finish') ? buildBody(features) : null;
   const slices: Shape3D[] = [];
@@ -84,13 +97,26 @@ export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): C
     const whole = finished ?? shape;
     const front = facesOf(whole).flatMap((f) => seen(f, n));
     const square = (f: Face) => f.geomType === 'PLANE' && dot(unit(f.normalAt(f.center).toTuple() as V3), n) > 1 - 1e-6;
-    if (finished || flat.some((f) => sees(f, n) && !square(f))) {
-      cut = projected(whole, front, n, slices);
-      // the angles as modelled: not where fillets and chamfers meet
-      marks = creases(flat.filter((f) => sees(f, n)), flatten);
+    // what other laser parts push into
+    const pushed = parts.flatMap((p) => {
+      const hit = whole.clone().intersect(p);
+      return measureVolume(hit) > 1e-2 ? (slices.push(hit), [hit]) : (hit.delete(), []);
+    });
+    const away = against(chosen, flat, n, around);
+    if (finished || pushed.length || away.length || flat.some((f) => sees(f, n) && !square(f))) {
+      cut = projected(whole, front, n, slices, [...away, ...pushed.flatMap((p) => facesOf(p).flatMap((f) => seen(f, n)))]);
+      // the angles as modelled: not where fillets and chamfers meet, nor where cut back
+      const gone = new Set(away.flatMap((f) => f.edges.map(edgeKey)));
+      marks = creases(flat.filter((f) => sees(f, n)), flatten, gone);
     }
+    // the part: the cut faces moved to the sheet's back (none: the body's lowest corner) and pushed through it
+    const backs = flat.filter((f) => dot(unit(f.normalAt(f.center).toTuple() as V3), n) < -1 + 1e-6);
+    const level = (p: V3) => dot(p, n);
+    const back = backs.length ? level(backs.reduce((a, b) => (measureArea(b) > measureArea(a) ? b : a)).center.toTuple() as V3) : Math.min(...shape.edges.flatMap((e) => [e.startPoint, e.endPoint]).map((p) => level(p.toTuple() as V3)));
+    const solid = prisms(cut.map((f) => f.clone().translate(...(n.map((x) => x * (back - level(f.center.toTuple() as V3))) as V3)) as Face), new Vector(n.map((x) => x * (level(o) - back)) as V3));
+    if (!solid) throw new Error('it has no thickness facing that way');
     // the outlines and each one's holes (both calls use up the face they are called on)
-    return [...marks, ...cut.flatMap((f) => [f.clone().outerWire(), ...f.clone().innerWires()].map((w, k): Cut => {
+    const cuts = [...marks, ...cut.flatMap((f) => [f.clone().outerWire(), ...f.clone().innerWires()].map((w, k): Cut => {
       const edges = w.edges;
       const { pts, curves } = loopOf(w, flatten);
       // all its edges arcs of one circle: one circle (OpenCascade may split it in two)
@@ -98,6 +124,7 @@ export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): C
       const round = arc && pts.every((p, i) => Math.abs(Math.hypot(p[0] - arc.c[0], p[1] - arc.c[1]) - arc.r) < 1e-6 && curves[i] && Math.abs(Math.hypot(curves[i]!.mid[0] - arc.c[0], curves[i]!.mid[1] - arc.c[1]) - arc.r) < 1e-6);
       return { hole: k > 0, pts, curves, ...(round ? { circle: { c: arc.c, r: arc.r } } : {}) };
     }))];
+    return { cuts, solid };
   } finally {
     shape.delete();
     finished?.delete();
@@ -149,17 +176,10 @@ function sees(f: Face, n: V3) {
   return at.some((a) => at.some((b) => dot(unit(f.normalAt(f.pointOnSurface(a, b)).toTuple() as V3), n) > 1e-3));
 }
 
-/**
- * `shape` as seen along `n`, flat: each of its faces looking that way (`front`; together they cover what is seen, round ones too)
- * pushed along -n past its lowest point, the faces where they all cross a plane there. Kept in `keep` for deleting.
- */
-function projected(shape: Shape3D, front: Face[], n: V3, keep: Shape3D[]): Face[] {
-  const [lo, hi] = shape.boundingBox.bounds as [V3, V3];
-  const along = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => dot([k & 1 ? hi[0] : lo[0], k & 2 ? hi[1] : lo[1], k & 4 ? hi[2] : lo[2]], n));
-  const [low, high] = [Math.min(...along), Math.max(...along)];
-  const down = new Vector(n.map((x) => -x * (high - low + 2)) as V3);
+/** The faces each pushed along `down` into a prism, fused; null: none gives a volume. */
+function prisms(faces: Face[], down: Vector): Shape3D | null {
   let all: Shape3D | null = null;
-  for (const f of front) {
+  for (const f of faces) {
     // a round face seen edge-on in places (a hole's wall) gives no volume, or a broken one: it adds nothing seen
     let prism: Shape3D | null = null;
     try {
@@ -172,28 +192,76 @@ function projected(shape: Shape3D, front: Face[], n: V3, keep: Shape3D[]): Face[
       if (prism !== all) prism?.delete();
     }
   }
+  return all;
+}
+
+/**
+ * `shape` as seen along `n`, flat: each of its faces looking that way (`front`; together they cover what is seen, round ones too)
+ * pushed along -n past its lowest point, less the same of `away`, the faces where they all cross a plane there. Kept in
+ * `keep` for deleting.
+ */
+function projected(shape: Shape3D, front: Face[], n: V3, keep: Shape3D[], away: Face[] = []): Face[] {
+  const [lo, hi] = shape.boundingBox.bounds as [V3, V3];
+  const along = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => dot([k & 1 ? hi[0] : lo[0], k & 2 ? hi[1] : lo[1], k & 4 ? hi[2] : lo[2]], n));
+  const [low, high] = [Math.min(...along), Math.max(...along)];
+  const down = new Vector(n.map((x) => -x * (high - low + 2)) as V3);
+  let all = prisms(front, down);
   if (!all) throw new Error('nothing of it faces that way');
+  const less = prisms(away, down);
+  if (less) {
+    const rest = all.cut(less);
+    [all, less].forEach((s) => s.delete());
+    all = rest;
+  }
   // a sheet square to n, 1 mm below the lowest point
   const size = 4 * Math.hypot(...sub(hi, lo)) + 10;
   const x = Math.abs(n[2]) > 0.999 ? ([1, 0, 0] as V3) : unit(cross([0, 0, 1], n));
   const sheet = (drawRectangle(size, size).sketchOnPlane(new Plane(n.map((v) => v * (low - 1)) as V3, x, n)) as Sketch).face();
-  const flat = all!.intersect(sheet);
-  all!.delete();
+  const flat = all.intersect(sheet);
+  [all, sheet].forEach((s) => s.delete());
   keep.push(flat);
   return facesOf(flat);
 }
 
-/** Where two faces of `front` meet at an angle: open lines, flat (`flatten`), drawn as marks (see `Cut`). */
-function creases(front: Face[], flatten: (p: V3) => P2): Cut[] {
-  const key = (e: Edge) => [e.startPoint, e.endPoint, e.pointAt(0.5)].map((p) => p.toTuple().map((v) => v.toFixed(4)).join(' ')).sort().join('|');
+/**
+ * The flat sides of `chosen` (of `flat`) slanted to it (less than 45° off square) that lie on one of `around`: over
+ * half of a 0.05 mm layer on their outside is in one.
+ */
+function against(chosen: Face, flat: Face[], n: V3, around: Shape3D[]): Face[] {
+  if (!around.length) return [];
+  const rim = new Set(chosen.edges.map(edgeKey));
+  return flat.filter((f) => {
+    const m = unit(f.normalAt(f.center).toTuple() as V3);
+    if (Math.abs(dot(m, n)) < 1e-6 || Math.abs(dot(m, n)) > Math.SQRT1_2 || !f.edges.some((e) => rim.has(edgeKey(e)))) return false;
+    const layer = basicFaceExtrusion(f.clone() as Face, new Vector(m.map((v) => v * 0.05) as V3)) as Shape3D;
+    try {
+      const covered = around.reduce((sum, other) => {
+        const hit = layer.intersect(other);
+        const v = measureVolume(hit);
+        hit.delete();
+        return sum + v;
+      }, 0);
+      return covered > measureVolume(layer) / 2;
+    } finally {
+      layer.delete();
+    }
+  });
+}
+
+/** An edge by its ends and middle (4 decimals), the same from both faces it bounds. */
+const edgeKey = (e: Edge) => [e.startPoint, e.endPoint, e.pointAt(0.5)].map((p) => p.toTuple().map((v) => v.toFixed(4)).join(' ')).sort().join('|');
+
+/** Where two faces of `front` meet at an angle (not on the edges `skip`): open lines, flat (`flatten`), drawn as marks (see `Cut`). */
+function creases(front: Face[], flatten: (p: V3) => P2, skip = new Set<string>()): Cut[] {
   const out: Cut[] = [];
   front.forEach((a, i) => {
     const na = unit(a.normalAt(a.center).toTuple() as V3);
-    const mine = new Set(a.edges.map(key));
+    const mine = new Set(a.edges.map(edgeKey));
     for (const b of front.slice(i + 1)) {
       if (dot(na, unit(b.normalAt(b.center).toTuple() as V3)) > 1 - 1e-6) continue;
       for (const e of b.edges) {
-        if (!mine.has(key(e))) continue;
+        const k = edgeKey(e);
+        if (!mine.has(k) || skip.has(k)) continue;
         const { pts, curves } = sidesOf(e, flatten);
         out.push({ hole: false, pts, curves, open: true, mark: true });
       }

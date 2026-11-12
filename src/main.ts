@@ -7583,8 +7583,8 @@ function meshesLeft() {
 const nothingToExport = () =>
   !selected.length && !history.current.bodies.some((b) => b.visible) ? 'No objects visible, toggle them on' : `Nothing to export: select bodies that build (tool bodies are part of their owner)${meshesLeft()}`;
 
-/** Exports bodies (default: `exportable`) as files (`extra`: a laser face and kerf per body). */
-async function exportBodies(format: ExportFormat, bodies = exportable(), extra: (b: Body) => Partial<ExportBody> = () => ({})) {
+/** Exports bodies (default: `exportable`) as files (`extra`: a laser face and kerf per body; `around`: bodies laser cuts stay out of besides them). */
+async function exportBodies(format: ExportFormat, bodies = exportable(), extra: (b: Body) => Partial<ExportBody> = () => ({}), around: Body[] = []) {
   if (!bodies.length) return fail(nothingToExport());
   const taken = new Map<string, number>();
   const nameOf = (b: Body) => {
@@ -7594,7 +7594,7 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
     return n > 1 ? `${base}_${n}` : base;
   };
   const names = bodies.map(nameOf);
-  const { files, failed } = await kernel.export(format, bodies.map((b, i) => ({ name: names[i], label: b.name, color: lookOf(history.current, b).color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })));
+  const { files, failed } = await kernel.export(format, bodies.map((b, i) => ({ name: names[i], label: b.name, color: lookOf(history.current, b).color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })), around.map((b) => ({ features: built.get(b.id)!, place: bodyPlace(b.id) })));
   const type = { stl: 'model/stl', '3mf': 'model/3mf', step: 'model/step', svg: 'image/svg+xml', dxf: 'image/vnd.dxf' }[format];
   // laser: one sheet of all, named after the body when it is one
   if ((format === 'svg' || format === 'dxf') && files.length) download(new Blob([files[0].data], { type }), `${bodies.length === 1 ? names[0] : project()}.${format}`);
@@ -7633,7 +7633,8 @@ async function exportPanel(kind: 'laser' | 'print') {
     close();
     if (kind === 'print') return void run(() => exportBodies(exportChoice.print, chosen));
     const kerf = length(exportChoice.kerf) ?? 0;
-    void run(() => exportBodies(exportChoice.laser, chosen, (b) => ({ face: faces.get(b.id), kerf })));
+    // the ones switched off still stand by them
+    void run(() => exportBodies(exportChoice.laser, chosen, (b) => ({ face: faces.get(b.id), kerf }), bodies.filter((b) => !on.has(b.id))));
   };
   const keys = (e: KeyboardEvent) => {
     if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return;

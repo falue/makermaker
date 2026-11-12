@@ -102,10 +102,11 @@ export class Kernel {
 
   /**
    * The files of an export (see the worker's export), and the names of the bodies that could not be made. Exports and
-   * checks build anew, all in the first worker: STEP files the other workers read, it reads again (once).
+   * checks build anew, all in the first worker: STEP files the other workers read, it reads again (once). `around`:
+   * bodies a laser cut must stay out of besides `bodies`.
    */
-  async export(format: ExportFormat, bodies: ExportBody[]): Promise<{ files: ExportFile[]; failed: string[] }> {
-    const answer = await this.ask(this.shards[0], { kind: 'export', format, id: this.nextAsk++, bodies });
+  async export(format: ExportFormat, bodies: ExportBody[], around: Pick<ExportBody, 'features' | 'place'>[] = []): Promise<{ files: ExportFile[]; failed: string[] }> {
+    const answer = await this.ask(this.shards[0], { kind: 'export', format, id: this.nextAsk++, bodies, around });
     return answer.kind === 'export' ? answer : { files: [], failed: [] };
   }
 

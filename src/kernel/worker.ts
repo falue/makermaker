@@ -6,11 +6,11 @@ import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
 import { dxfOf, sheetOf, sheetSvg, type Cut } from '../io/cutfile';
-import { laserCuts, withKerf } from './laser';
+import { laserPart, withKerf } from './laser';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
 import { exactSteps, type Exact } from './exact';
-import { areasOf, buildBody, cosmeticOf, dropBase, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BaseCache, type BuildFeature, type BodyMesh, type Finishing } from './build';
+import { areasOf, buildBody, cosmeticOf, dropBase, loadImports, meshBody, placeShape, unplaceShape, FeatureError, type AreaMesh, type BaseCache, type BuildFeature, type BodyMesh, type Finishing } from './build';
 import { solidChecks } from './exact';
 import { stepsKey } from './key';
 
@@ -30,7 +30,7 @@ type Shared = { ids: string[]; brep: string };
 export type Request =
   | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[]; tolerance: number }
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
-  | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[] }
+  | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
   | { kind: 'check'; id: number; bodies: ExportBody[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
   | { kind: 'clash'; id: number; ask: ClashAsk; extra: Shared[] }
@@ -194,7 +194,7 @@ async function handle(data: Job) {
     return postMessage({ kind: 'check', id: data.id, results } satisfies Response);
   }
   if (data.kind === 'export') {
-    for (const b of data.bodies) await loadImports(b.features);
+    for (const b of [...data.bodies, ...(data.around ?? [])]) await loadImports(b.features);
     const files: ExportFile[] = [];
     const failed: string[] = [];
     if (data.format === '3mf') {
@@ -226,14 +226,35 @@ async function handle(data: Job) {
       return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
     }
     if (data.format === 'svg' || data.format === 'dxf') {
-      // every piece on one sheet, named
-      const pieces: { name: string; cuts: Cut[] }[] = [];
-      for (const { name, label, features, face, kerf } of data.bodies)
+      // every piece on one sheet, named; the others (and `around`) in the world, for what a straight cut would push into
+      const world = [...data.bodies, ...(data.around ?? [])].map(({ features, place }) => {
         try {
-          pieces.push({ name: label ?? name, cuts: withKerf(laserCuts(features, face), kerf ?? 0) });
-        } catch (e) {
-          failed.push(`${label ?? name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
+          return placeShape(buildBody(features), place);
+        } catch {
+          return null;
         }
+      });
+      // `s` in body i's coordinates (a copy)
+      const into = (s: Shape3D, i: number) => unplaceShape(s.clone(), data.bodies[i].place);
+      const near = (all: (Shape3D | null)[], i: number) => all.flatMap((s, j) => (s && j !== i ? [into(s, i)] : []));
+      // twice: first each one's own sides, then each makes room for what the others' laser parts still push into it
+      const lasered: (Shape3D | null)[] = [];
+      const pieces: { name: string; cuts: Cut[] }[] = [];
+      for (const pass of [0, 1])
+        data.bodies.forEach(({ name, label, features, place, face, kerf }, i) => {
+          const [around, parts] = [near(world, i), pass ? near(lasered, i) : []];
+          try {
+            const { cuts, solid } = laserPart(features, face, around, parts);
+            if (pass) pieces.push({ name: label ?? name, cuts: withKerf(cuts, kerf ?? 0) }), solid.delete();
+            else lasered.push(placeShape(solid, place));
+          } catch (e) {
+            if (pass) failed.push(`${label ?? name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
+            else lasered.push(null);
+          } finally {
+            for (const s of [...around, ...parts]) s.delete();
+          }
+        });
+      for (const s of [...world, ...lasered]) s?.delete();
       if (pieces.length) {
         const sheet = sheetOf(pieces);
         const text = data.format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.map((p) => p.label));

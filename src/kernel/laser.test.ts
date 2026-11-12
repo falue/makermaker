@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
-import { setOC } from 'replicad';
+import { measureVolume, setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { BuildFeature } from './build';
+import { buildBody, type BuildFeature } from './build';
 import { area, bounds } from '../doc/profiles';
 import { dxfOf } from '../io/cutfile';
-import { laserCuts, laserSvg, withKerf } from './laser';
+import { laserCuts, laserPart, laserSvg, withKerf } from './laser';
 
 beforeAll(async () => setOC(await init({ wasmBinary: readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm')) })), 60_000);
 
@@ -77,6 +77,38 @@ describe('laserSvg', () => {
     expect(dxf).toContain('CIRCLE');
     expect(dxf.match(/VERTEX/g)?.length).toBe(4);
     expect(dxf.trim().endsWith('EOF')).toBe(true);
+  });
+});
+
+describe('laser parts beside other bodies', () => {
+  // side views (x, y; extruded 50 along z), seen from the top (y 8)
+  const side = (pts: [number, number][]): BuildFeature[] => [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts, r: 0, rot: 0 }], depth: 50, mode: 'add', through: false }];
+  const top = { at: [50, 8, 25] as [number, number, number], n: [0, 1, 0] as [number, number, number] };
+  const width = (features: BuildFeature[], around: BuildFeature[][] = [], parts: BuildFeature[][] = []) => {
+    const [a, p] = [around.map((f) => buildBody(f)), parts.map((f) => buildBody(f))];
+    const { cuts, solid } = laserPart(features, top, a, p);
+    [...a, ...p, solid].forEach((s) => s.delete());
+    const [x0, , x1] = bounds({ kind: 'polygon', pts: cuts.find((c) => !c.mark)!.pts, curves: cuts.find((c) => !c.mark)!.curves, r: 0, rot: 0 });
+    return { width: x1 - x0, marks: cuts.filter((c) => c.mark).length };
+  };
+
+  it('a slanted end lying on another body: cut at its inner edge, not marked', () => {
+    // seen from the top: the end runs out to x 103 below; the other body lies on it
+    const out = side([[0, 0], [103, 0], [100, 8], [0, 8]]);
+    expect(width(out)).toEqual({ width: expect.closeTo(103, 3), marks: 1 });
+    expect(width(out, [side([[103, 0], [120, 0], [120, 8], [100, 8]])])).toEqual({ width: expect.closeTo(100, 3), marks: 0 });
+    // undercut: the top reaches x 103, the other body fills below it
+    const under = side([[0, 0], [100, 0], [103, 8], [0, 8]]);
+    expect(width(under).width).toBeCloseTo(103, 3);
+    expect(width(under, [side([[100, 0], [120, 0], [120, 8], [103, 8]])]).width).toBeCloseTo(100, 3);
+  });
+
+  it('makes room for another laser part pushing into it; the part is the outline through the sheet', () => {
+    const plate = side([[0, 0], [100, 0], [100, 8], [0, 8]]);
+    expect(width(plate, [], [side([[95, 0], [110, 0], [110, 8], [95, 8]])]).width).toBeCloseTo(95, 3);
+    const { solid } = laserPart(side([[0, 0], [103, 0], [100, 8], [0, 8]]), top);
+    expect(measureVolume(solid)).toBeCloseTo(103 * 8 * 50, 2);
+    solid.delete();
   });
 });
 
