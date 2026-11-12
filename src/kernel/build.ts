@@ -109,8 +109,8 @@ export function dropBase(cache: BaseCache) {
 /**
  * Features run in order, except unbaked finishes: one on picked edges waits for the pushes and drafts after it (it
  * follows the faces they move) and runs before the next other step; one by a rule (all, top, ...) runs last, so it also
- * finishes edges of later steps. A baked finish stays in place. Mirrors run last, so finishes keep their picked edges.
- * `finishing` gets what the unbaked ones did and is checked for broken solids; `cache`: see `BaseCache`.
+ * finishes edges of later steps. A baked finish stays in place. A shell, coat or mirror takes the unbaked finishes
+ * before it along (a mirror also the modeled threads). `finishing` gets what the unbaked ones did and is checked for broken solids; `cache`: see `BaseCache`.
  */
 export function buildBody(features: BuildFeature[], finishing?: Finishing, cache?: BaseCache): Shape3D {
   const plan = frames(features.filter((f) => f.type !== 'boolean' && f.type !== 'fingers'));
@@ -127,14 +127,16 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
     shape?.delete();
     shape = next;
   };
-  // unbaked finishes wait (see above; their edges picked on the body before them), except those before a shell: it hollows them too
+  // unbaked finishes wait (see above; their edges picked on the body before them), except those before a shell, coat
+  // or mirror: they run before it, so it hollows or mirrors them too (a mirror: the modeled threads before it too)
   const early = new Set<string>();
-  const shelled = new Set(features.flatMap((s, n) => (s.type === 'shell' || s.type === 'coat' ? features.slice(0, n).map((f) => f.id) : [])));
+  const before = (types: BuildFeature['type'][]) => new Set(features.flatMap((s, n) => (types.includes(s.type) ? features.slice(0, n).map((f) => f.id) : [])));
+  const [shelled, mirrored] = [before(['shell', 'coat', 'mirror']), before(['mirror'])];
   const unbaked = (s: BuildFeature): s is Of<'finish'> => s.type === 'finish' && s.enabled && !s.baked && !shelled.has(s.id);
   const waits = (s: BuildFeature) => s.type === 'push' || s.type === 'draft' || (s.type === 'finish' && !(s.enabled && s.baked));
   // picked edges' finishes with another step to come: they run before it, one run (`queue`) at a time
   const inline = new Set(features.flatMap((s, n) => (unbaked(s) && typeof s.edges === 'object' && features.slice(n + 1).some((f) => !waits(f)) ? [s.id] : [])));
-  const late = (s: BuildFeature) => (unbaked(s) && !inline.has(s.id)) || (s.type === 'thread' && s.modeled) || s.type === 'mirror';
+  const late = (s: BuildFeature) => (unbaked(s) && !inline.has(s.id)) || (s.type === 'thread' && s.modeled && !mirrored.has(s.id));
   const kept = cache && finishing && features.some(late) ? cache : undefined;
   const key = kept && JSON.stringify(features.filter((s) => !late(s)), (k, v) => (k === 'data' ? undefined : v)); // a STEP file's text never changes
   try {
@@ -160,10 +162,20 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
           finishAll(queue);
           queue = [];
         }
-        if (s.type === 'shell' || s.type === 'coat') {
+        if (s.type === 'shell' || s.type === 'coat' || s.type === 'mirror') {
           const run = features.slice(0, n).filter((f): f is Of<'finish'> => f.type === 'finish' && f.enabled && !f.baked && !early.has(f.id));
           finishAll(run);
           for (const f of run) early.add(f.id);
+        }
+        if (s.type === 'mirror') {
+          for (const f of features.slice(0, n)) if (f.type === 'thread' && f.modeled && !early.has(f.id)) apply(f.id, (cur) => thread(cur, f), false), early.add(f.id);
+          apply(s.id, (cur) => cur!.clone().mirror(s.n, s.o), false);
+          if (finishing) {
+            finishing.bases = finishing.bases.map((b) => b.mirror(s.n, s.o));
+            // their lines where they are now (`mid` stays: left out edges are matched before the mirror)
+            const across = (p: V3) => sub(p, scale(norm(s.n), 2 * dot(sub(p, s.o), norm(s.n))));
+            finishing.edges = finishing.edges.map((e) => ({ ...e, pts: e.pts.map(across) }));
+          }
         }
         if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
         if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
@@ -192,13 +204,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
     }
     for (const s of features) if (s.type === 'finish' && late(s)) apply(s.id, (cur) => finish(cur, s, circles, finishing), false);
     // threads after the finishes: an edge rule (vertical, top …) would take the groove's hundreds of edges; cosmetic ones are drawn only (`cosmeticOf`)
-    for (const s of features) if (s.type === 'thread' && s.modeled) apply(s.id, (cur) => thread(cur, s), false);
-    // mirrors last: finishes keep working on the edges they were picked on
-    for (const s of features)
-      if (s.type === 'mirror') {
-        apply(s.id, (cur) => cur!.clone().mirror(s.n, s.o), false);
-        if (finishing) finishing.bases = finishing.bases.map((b) => b.mirror(s.n, s.o));
-      }
+    for (const s of features) if (s.type === 'thread' && late(s)) apply(s.id, (cur) => thread(cur, s), false);
   } catch (err) {
     (shape as Shape3D | null)?.delete();
     throw err;

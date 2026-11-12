@@ -331,6 +331,14 @@ describe('buildBody', () => {
     into.done();
   });
 
+  it('joins after a mirror where the join stands in the list', () => {
+    const pad: BuildFeature = { id: 'j', type: 'boolean', op: 'union', features: [{ ...base(10), id: 'p' } as BuildFeature], place: { ...STILL, offset: [-60, 0, 0] } };
+    const m = built([base(100), { id: 'm', type: 'mirror', o: [60, 0, 0], n: [1, 0, 0] } as BuildFeature, pad]);
+    expect(m.box.bounds[0][0]).toBeCloseTo(-65, 3); // the pad at -65..-55, not mirrored to 175..185
+    expect(m.box.bounds[1][0]).toBeCloseTo(170, 3);
+    m.done();
+  });
+
   it('mirrors a body across a plane', () => {
     const m = built([base(100), { id: 'm', type: 'mirror', o: [60, 0, 0], n: [1, 0, 0] } as BuildFeature]);
     expect(m.box.bounds[0][0]).toBeCloseTo(70, 3); // -50..50 mirrored at x = 60: 70..170
