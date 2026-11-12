@@ -929,7 +929,7 @@ export class Viewer implements ToolView {
           : this.edit?.next || this.edit?.armed
             ? this.editKey(e)
             : this.facePick
-              ? pressed(e, 'cancel') && (this.endFacePick(null), true)
+              ? (pressed(e, 'cancel') && (this.endFacePick(null), true)) || ((pressed(e, 'cycle') || pressed(e, 'cycleBack')) && this.stepFace(pressed(e, 'cycle') ? 1 : -1))
               : this.tool?.key(e);
         if (!used) return;
         e.preventDefault();
@@ -937,6 +937,16 @@ export class Viewer implements ToolView {
       },
       { capture: true },
     );
+  }
+
+  /** Tab while picking a face: the next face under the pointer (`step` -1: the one before) gets lit, a click takes it. */
+  private stepFace(step: number) {
+    if (!this.hover) return false;
+    const { clientX: x, clientY: y, shiftKey, ctrlKey, altKey, metaKey } = this.hover;
+    const d = this.faceDepth;
+    this.faceDepth = { n: Math.hypot(x - d.x, y - d.y) > 4 ? step : d.n + step, x, y };
+    this.renderer.domElement.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, shiftKey, ctrlKey, altKey, metaKey, bubbles: true }));
+    return true;
   }
 
   /** The running drawing tool (null: none, or a pull). */
@@ -1847,6 +1857,7 @@ export class Viewer implements ToolView {
   /** `quiet`: no face marking or crosshair: clicks are only kept from selecting (a drag still turns the view); `outlines`: sketch shapes clicked by their outline count too; `parts`: see `pickParts`. */
   pickFace(done: (face: PickedFace | null) => void, quiet = false, outlines: boolean | 'inside' = false, parts: Viewer['pickParts'] = null, planes = false) {
     this.facePick = done;
+    this.faceDepth.n = 0;
     this.quietPick = quiet;
     this.pickOutlines = outlines;
     this.pickParts = parts;
@@ -4584,9 +4595,17 @@ export class Viewer implements ToolView {
   /** The body face under the pointer, if it faces the camera (not a back face seen through a cut). */
   private frontHit(e: MouseEvent) {
     const ray = this.raycaster(e);
-    const hit = this.intersect(ray)[0];
-    return hit?.face && hit.face.normal.dot(ray.ray.direction) < 0 ? hit : undefined;
+    const hits = this.intersect(ray);
+    const front = (h?: THREE.Intersection) => !!h?.face && h.face.normal.dot(ray.ray.direction) < 0;
+    const { n, x, y } = this.faceDepth;
+    if (!this.facePick || !n || Math.hypot(e.clientX - x, e.clientY - y) > 4) return front(hits[0]) ? hits[0] : undefined;
+    // Tab while picking a face: the faces under the pointer, each once, nearest first
+    const faces = hits.filter((h, k) => front(h) && hits.findIndex((o) => o.object === h.object && faceOf(o) === faceOf(h)) === k);
+    return faces.length ? faces[((n % faces.length) + faces.length) % faces.length] : undefined;
   }
+
+  /** Tab while picking a face: how many faces under the pointer it looks past, while the pointer stays near (x, y). */
+  private faceDepth = { n: 0, x: 0, y: 0 };
 
   /** A face under the pointer, else the base plane facing the camera through the origin; the normal points away from the camera. */
   private pickFaceAt(e: PointerEvent) {
