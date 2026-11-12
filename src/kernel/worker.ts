@@ -1,7 +1,7 @@
 import { zipSync, strToU8 } from 'fflate';
 import init from 'replicad-opencascadejs';
 import wasmUrl from 'replicad-opencascadejs/wasm?url';
-import { exportSTEP, getOC, setOC, type Shape3D } from 'replicad';
+import { deserializeShape, exportSTEP, getOC, setOC, type Shape3D } from 'replicad';
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
@@ -9,7 +9,7 @@ import { dxfOf, sheetOf, sheetSvg, type Cut } from '../io/cutfile';
 import { laserCuts, withKerf } from './laser';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
-import { exactOf, type Exact } from './exact';
+import { exactSteps, type Exact } from './exact';
 import { areasOf, buildBody, cosmeticOf, dropBase, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BaseCache, type BuildFeature, type BodyMesh, type Finishing } from './build';
 import { solidChecks } from './exact';
 
@@ -17,19 +17,22 @@ import { solidChecks } from './exact';
  * export: one file per body: stl (binary, placed in the world) or svg / dxf (laser cuts of a flat face: `face`, else
  * its biggest; `kerf` allowed for); step and 3mf: one file with every body as a named part, placed in the world.
  * check: for 3D printing, whether each body is closed, manifold and sound, and its size.
+ * share: solids of this worker's bodies as text, for a clash check in another worker (its `extra`).
  */
 export type ExportFile = { name: string; data: ArrayBuffer };
 export type ExportFormat = 'stl' | '3mf' | 'svg' | 'dxf' | 'step';
 export type ExportBody = { name: string; /** shown on a laser sheet (`name`: for a file) */ label?: string; color: string; features: BuildFeature[]; place: Place; face?: { at: V3; n: V3 }; kerf?: number };
 export type PrintCheck = { name: string; closed: boolean; manifold: boolean; sound: boolean; size: V3; error?: string };
 type V3 = [number, number, number];
+type Shared = { id: string; brep: string };
 export type Request =
   | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[]; tolerance: number }
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
   | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[] }
   | { kind: 'check'; id: number; bodies: ExportBody[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
-  | { kind: 'clash'; id: number; ask: ClashAsk }
+  | { kind: 'clash'; id: number; ask: ClashAsk; extra: Shared[] }
+  | { kind: 'share'; id: number; bodies: string[] }
   | { kind: 'stopClash' }
   | { kind: 'forget'; bodies: string[] };
 export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string; max?: number };
@@ -40,6 +43,7 @@ export type Response =
   | { kind: 'check'; id: number; results: PrintCheck[] }
   | { kind: 'measure'; id: number; answers: MeasureAnswer[] }
   | { kind: 'clash'; id: number; result: ClashResult }
+  | { kind: 'share'; id: number; solids: Shared[] }
   | { kind: 'exact'; results: { id: string; exact: Exact | null }[] };
 
 const PRINT = { tolerance: 0.01, angularTolerance: 0.1 };
@@ -84,6 +88,13 @@ const solids = new Map<string, Solid>();
 /** Each body's solid before its last steps (see `BaseCache`). */
 const bases = new Map<string, BaseCache>();
 
+/** Builds running, and when the last one ended: exact numbers wait till builds rest (see `exactsWait`). */
+let building = 0;
+let built = 0;
+const exactsWait = 150;
+/** Builds still working out exact numbers; the last done marks 'exacts done' (for DevTools and scripts/bench-open.mjs). */
+let exacting = 0;
+
 /** A check runs in turns; only a stop gets in meanwhile (a build would take its solids away). */
 let checking = false;
 let stopCheck = false;
@@ -113,11 +124,20 @@ async function handle(data: Job) {
   }
   if (data.kind === 'clash') {
     [checking, stopCheck] = [true, false];
-    const result = await clashes(solids, data.ask, () => stopCheck);
+    const extra = data.extra.map(({ id, brep }) => [id, new Solid(deserializeShape(brep) as Shape3D)] as const);
+    const result = await clashes(new Map([...solids, ...extra]), data.ask, () => stopCheck);
+    for (const [, solid] of extra) solid.delete();
     checking = false;
     later.splice(0).forEach(take);
     const transfer = [...result.hits, ...result.zones, ...result.sweeps].flatMap((m) => [m.vertices.buffer as ArrayBuffer, m.indices.buffer as ArrayBuffer]);
     return postMessage({ kind: 'clash', id: data.id, result } satisfies Response, { transfer });
+  }
+  if (data.kind === 'share') {
+    const shared = data.bodies.flatMap((id) => {
+      const solid = solids.get(id);
+      return solid ? [{ id, brep: solid.shape.serialize() }] : [];
+    });
+    return postMessage({ kind: 'share', id: data.id, solids: shared } satisfies Response);
   }
   if (data.kind === 'measure') {
     const answers = data.asks.map((ask) => {
@@ -221,6 +241,8 @@ async function handle(data: Job) {
   }
   // a long build shows as it goes: what is ready goes out every so often
   const { tolerance } = data;
+  const start = performance.now();
+  building++;
   let results: BodyResult[] = [];
   let sent = performance.now();
   const send = (done: boolean) => {
@@ -285,19 +307,31 @@ async function handle(data: Job) {
     if (performance.now() - sent > 400) send(false);
   }
   send(true);
-  // the exact numbers after all meshes (a change shows sooner); none for a body built again or gone meanwhile (its
-  // solid replaced): a new build gets in between, as the worker lets messages in every so often
+  [building, built] = [building - 1, performance.now()];
+  // timings, only the latest kept: a mark 'exacts done' tells all of this and before is done
+  performance.clearMeasures('build');
+  performance.clearMarks('exacts done');
+  performance.measure('build', { start });
+  exacting++;
+  // the exact numbers after all meshes (a change shows sooner), in steps; none for a body built again or gone meanwhile
+  // (its solid replaced: dropped midway). A new build (the next lot, a drag's next step) goes first: these go on once
+  // builds rested `exactsWait` ms, and let messages in every so often
   let exacts: { id: string; exact: Exact | null }[] = [];
-  await new Promise((next) => setTimeout(next, 60)); // a drag's next build gets in first: these wait till it rests
-  let [posted, paused] = [performance.now(), performance.now()];
+  let [posted, paused] = [performance.now(), 0];
   for (const d of due) {
-    if (performance.now() - paused > 30) await new Promise((next) => setTimeout(next)), (paused = performance.now());
-    if (solids.get(d.to[0].id) !== d.solid) continue;
-    const exact = exactOf(d.solid.shape, d.later.faces, d.later.edges);
+    const steps = exactSteps(d.solid.shape, d.later.faces, d.later.edges);
+    let exact: Exact | null | undefined;
+    for (let step; exact === undefined; ) {
+      while (building || performance.now() - built < exactsWait || performance.now() - paused > 30) await new Promise((next) => setTimeout(next)), (paused = performance.now());
+      if (solids.get(d.to[0].id) !== d.solid) break;
+      if ((step = steps.next()).done) exact = step.value;
+    }
+    if (exact === undefined) continue;
     exacts.push(...d.to.filter((t) => solids.get(t.id) === t.solid).map((t) => ({ id: t.id, exact })));
     if (performance.now() - posted < 400) continue;
     postMessage({ kind: 'exact', results: exacts } satisfies Response);
     [exacts, posted] = [[], performance.now()];
   }
   if (exacts.length) postMessage({ kind: 'exact', results: exacts } satisfies Response);
+  if (--exacting === 0) performance.mark('exacts done');
 };

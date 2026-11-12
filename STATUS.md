@@ -10,6 +10,7 @@ npm run dev        # http://localhost:5173
 npm test           # unit tests incl. geometry kernel in Node
 npm run build      # typecheck + production build into dist/
 npm run preview    # serve dist/ (service worker active, works offline after first load)
+npx -p playwright node scripts/bench-open.mjs "testdata/LIO test with lights.mmk"   # opening times per number of geometry workers (dev server running)
 ```
 
 Chromium-based browsers only.
@@ -17,7 +18,7 @@ Chromium-based browsers only.
 ## Layout
 
 - `src/doc` – document model (plain immutable data), expressions with units, undo history
-- `src/kernel` – Replicad/OpenCascade build of bodies, runs in a Web Worker
+- `src/kernel` – Replicad/OpenCascade build of bodies, runs in several Web Workers (`Kernel` in client.ts)
 - `src/viewer` – three.js viewport
 - `src/ui` – panels
 - `src/io` – `.mmk` design file (ZIP: `document.json`, `history/`, and `blobs/`: long texts such as imported files and pictures, each stored once), file access
@@ -256,6 +257,7 @@ Survey of 2026-11-07; steps 1–6 built the same day. The solid itself (OpenCasc
 - The design opened or saved last opens again at start (its file handle kept in this browser, Chromium; New forgets it); when the browser wants permission first, a note in the top bar does it with one click.
 - Autosave toggle: writes into the open file a moment after each change (Chromium; no history snapshot, ⌘S adds one). Off for a new design (and the one at start); an opened file as last switched. An unsaved design offers once, after 10 undo steps, in the top bar (blue): a click saves it and turns autosave on.
 - Icons and toolbar in incase's style.
+- Geometry workers (2026-11-12, `Kernel` in src/kernel/client.ts): 2 from the start, up to one per core less one (at most 4) once 8 bodies wait; they stay. Each body is kept by the worker that built it (its solid for measuring, its earlier steps, its read STEP files) and goes back there; new bodies go to any free worker in lots, the biggest first (estimated by the size of its steps and STEP files). Linked copies and bodies with the same steps go together. Measure asks each worker for its own bodies; the clash check runs in the worker keeping most of them, the others' solids copied in as BRep text; export, print check and areas run in the first worker (STEP files others read, it reads again once). Exact numbers go in steps (`exactSteps`, a pause after each face and edge) once that worker's builds rested 150 ms, and stop midway for a body built again. `?workers=N` fixes the count (`scripts/bench-open.mjs`). Opening "LIO test with lights.mmk" (354 bodies, nearly all STEP; 10-core Mac): loader 9.5 → 4.1 s, all exact numbers 29 → 12 s; its biggest body alone (2.8 MB STEP: read 1.5 s, mesh 2 s, exact numbers 7.8 s) is the floor. shelve-bool 2.2 → 1.0 s, blowout 4.4 → 2.9 s.
 
 - Settings → 3D view → Surroundings: how everything else looks while a group's objects are selected (Group view: X-ray first, see-through all through each other) and while drawing in a sketch (Sketch view: Reduced opacity first, faded but hiding each other), or No effect; `surroundings` in the settings, `setSurroundings` in the view.
 

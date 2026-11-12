@@ -61,27 +61,40 @@ function byHash<T extends Face | Edge>(shape: Shape3D, kind: 'face' | 'edge'): M
  * The exact data of `shape` for the mesh groups it was meshed into (`faceIds`, `edgeIds`: their ids, the faces' and
  * edges' hash codes); null for a body of more than `most` faces (the mesh stands in, as for an imported mesh).
  */
-export function exactOf(shape: Shape3D, faceIds: number[], edgeIds: number[], most = EXACT_MOST, boxed = EXACT_BOXED): Exact | null {
+export function exactOf(...args: Parameters<typeof exactSteps>): Exact | null {
+  const steps = exactSteps(...args);
+  for (let step = steps.next(); ; step = steps.next()) if (step.done) return step.value;
+}
+
+/** `exactOf` in steps: it pauses after each face and edge (a big body takes seconds), for other work to get in. */
+export function* exactSteps(shape: Shape3D, faceIds: number[], edgeIds: number[], most = EXACT_MOST, boxed = EXACT_BOXED): Generator<void, Exact | null> {
   if (faceIds.length > most) return null;
   const oc = getOC();
   const faces = byHash<Face>(shape, 'face');
   const edges = byHash<Edge>(shape, 'edge');
+  yield;
   // the tight box takes seconds on thousands of faces (6 s on 8000): only below `boxed`
   let corners: [V3, V3] | null = null;
-  if (faceIds.length <= boxed) {
+  const measured = faceIds.length <= boxed;
+  if (measured) {
     const box = new oc.Bnd_Box();
     oc.BRepBndLib.AddOptimal(shape.wrapped, box, false, false);
     corners = [read(box.CornerMin()), read(box.CornerMax())];
     box.delete();
+    yield;
   }
-  const measured = faceIds.length <= boxed;
-  return {
-    faces: faceIds.map((id) => ({ ...faceOf(faces.get(id)), ...(measured ? measuredFace(faces.get(id)) : {}) })),
-    edges: edgeIds.map((id) => edgeOf(edges.get(id))),
-    volume: measureVolume(shape),
-    area: measureArea(shape),
-    box: corners,
-  };
+  const volume = measureVolume(shape);
+  yield;
+  const exact: Exact = { faces: [], edges: [], volume, area: measureArea(shape), box: corners };
+  for (const id of faceIds) {
+    yield;
+    exact.faces.push({ ...faceOf(faces.get(id)), ...(measured ? measuredFace(faces.get(id)) : {}) });
+  }
+  for (const id of edgeIds) {
+    yield;
+    exact.edges.push(edgeOf(edges.get(id)));
+  }
+  return exact;
 }
 
 /** A face's area and centre of mass, in one go (empty for none). */

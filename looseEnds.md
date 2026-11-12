@@ -127,6 +127,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - A live render view keeps the GPU busy for its whole render (~80 s on LIO at 468×810); it pauses while the main camera moves, but other extra views still turn at 15-30 fps meanwhile.
 - Every live render restart builds the tracer's BVH on the main thread (~0.95 s on LIO, the UI frozen meanwhile), even when only its camera turned: a kept tracer would skip it (camera) or refit it (moved body); three-mesh-bvh's worker could build it off the main thread.
 - The first click after loading still compiles two programs in an extra view (~0.1 s), not covered by `warmShaders`.
+- Geometry workers (2026-11-12): exact numbers of a big STEP body are slow, ~4 ms per face or edge (LIO's biggest, 411 faces and 1413 edges: 7.8 s); they pause between faces and edges, but its tight box (`AddOptimal`, ~2 s there) is one step that cannot, so a file opened or a drag right after LIO waits up to that long in that worker. Storing STEP bodies' meshes and exact numbers in the file would skip reading, meshing and these on opening.
+- Export, print check and areas run in the first worker: STEP files the other workers read, it reads again (once, ~3 s for LIO's) and then keeps twice in memory. The print check and STL export could go by worker instead.
 
 ## Tests
 - `build.test.ts` › "reports the failing feature instead of guessing" fails (seen 2026-11-09, already on 3c042fa): a 40 mm corner fillet on the 100×60 plate is no longer refused; the edge-by-edge search caps all four corners at ~30 mm and returns that.
