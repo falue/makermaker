@@ -154,7 +154,7 @@ function shapeTests(): Sketch[] {
 /**
  * Test pieces for joints: a box with a lid on a hinge along its back top edge (opens 0–110°; the lid a group: plate,
  * handle and a lip inside the box, swinging together), and a cabinet with a drawer that slides out of its open front
- * (0–35 mm).
+ * (0–35 mm), and a propeller spinning endlessly on a post (a revolve, 30 turns a minute).
  */
 function jointTests(): { bodies: Body[]; groups: Group[]; joints: Joint[] } {
   const hollow = (name: string, color: string, at: [number, number, number], w: number, h: number, depth: number, hole: Profile, holeDepth: number): Body => {
@@ -171,13 +171,16 @@ function jointTests(): { bodies: Body[]; groups: Group[]; joints: Joint[] } {
   const opening: Profile = { id: newId(), kind: 'rect', x: ex(0), y: ex(-2), w: ex(42), h: ex(38), r: ex(0), rot: ex(0) };
   const cabinet = hollow('Slide cabinet', '#a9bfd6', [40, 150, 0], 50, 40, 30, opening, 26);
   const drawer = solid('Slide drawer', '#c3d6a9', [40, 148, 5], [rect(40, 36)], 18);
+  const post = solid('Spin post', '#b9b9c4', [-40, 215, 0], [circle(0, 0, 10)], 14);
+  const propeller = solid('Spin propeller', '#e0a05a', [-40, 215, 14], [rect(50, 8)], 3);
   const deg = (v: number) => ex(v);
   const joints: Joint[] = [
     // along the back top edge, turning the lid's front up (-x: right-handed)
     { id: newId(), name: 'Hinge 1', kind: 'hinge', parent: box.id, children: [lid.id], axis: { at: [0, 15, 20], dir: [-1, 0, 0] }, min: deg(0), max: deg(110), value: deg(0), speed: ex(1) },
     { id: newId(), name: 'Slider 1', kind: 'slider', parent: cabinet.id, children: [drawer.id], axis: { at: [0, -20, 10], dir: [0, -1, 0] }, min: ex(0), max: ex(35), value: ex(0), speed: ex(1) },
+    { id: newId(), name: 'Revolve 1', kind: 'revolve', parent: post.id, children: [propeller.id], axis: { at: [0, 0, 0], dir: [0, 0, 1] }, min: deg(0), max: deg(360), value: deg(0), speed: ex(30) },
   ];
-  return { bodies: [box, plate, handle, lip, cabinet, drawer], groups: [lid], joints };
+  return { bodies: [box, plate, handle, lip, cabinet, drawer, post, propeller], groups: [lid], joints };
 }
 
 /** Test pieces for finger joints: two 4 mm boards meeting at a corner, overlapping in a 4 × 4 × 40 column. */

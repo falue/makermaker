@@ -455,14 +455,15 @@ export interface ImageRef {
  * A joint: `parent` (a body or group) stays, `children` (bodies or groups) move with it and along the joint: a hinge
  * turns them around `axis`, a slider moves them along it (a line through `at` along `dir`, in the parent's
  * coordinates); `value` (degrees or mm, between `min` and `max`) is where they are now, and modelling happens there;
- * playing it runs from `min` to `max` `speed` times as fast as the play time set in Settings. An attach does not move:
+ * playing it runs from `min` to `max` `speed` times as fast as the play time set in Settings. A revolve turns around
+ * `axis` endlessly: `value` its angle (0–360°), `speed` its turns per minute, `min` and `max` unused. An attach does not move:
  * its parent and children move and turn as one, whichever of them moves; `axis.at` is its anchor, where it shows;
  * `min`, `max`, `value`, `speed` and `axis.dir` are unused.
  */
 export interface Joint {
   id: string;
   name: string;
-  kind: 'hinge' | 'slider' | 'attach';
+  kind: 'hinge' | 'slider' | 'revolve' | 'attach';
   parent: string;
   children: string[];
   axis: { at: [number, number, number]; dir: [number, number, number] };
