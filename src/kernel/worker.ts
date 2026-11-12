@@ -12,6 +12,7 @@ import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
 import { exactSteps, type Exact } from './exact';
 import { areasOf, buildBody, cosmeticOf, dropBase, loadImports, meshBody, placeShape, FeatureError, type AreaMesh, type BaseCache, type BuildFeature, type BodyMesh, type Finishing } from './build';
 import { solidChecks } from './exact';
+import { stepsKey } from './key';
 
 /**
  * export: one file per body: stl (binary, placed in the world) or svg / dxf (laser cuts of a flat face: `face`, else
@@ -24,7 +25,8 @@ export type ExportFormat = 'stl' | '3mf' | 'svg' | 'dxf' | 'step';
 export type ExportBody = { name: string; /** shown on a laser sheet (`name`: for a file) */ label?: string; color: string; features: BuildFeature[]; place: Place; face?: { at: V3; n: V3 }; kerf?: number };
 export type PrintCheck = { name: string; closed: boolean; manifold: boolean; sound: boolean; size: V3; error?: string };
 type V3 = [number, number, number];
-type Shared = { id: string; brep: string };
+/** A solid as text, for the bodies `ids` (linked copies share one). */
+type Shared = { ids: string[]; brep: string };
 export type Request =
   | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[]; tolerance: number }
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
@@ -36,8 +38,10 @@ export type Request =
   | { kind: 'stopClash' }
   | { kind: 'forget'; bodies: string[] };
 export type BodyResult = { id: string; mesh: BodyMesh } | { id: string; error: string; featureId: string; max?: number };
+/** `twin`: built as body `twin` of the same build (a linked copy), mesh and all: the client copies its result. */
+export type Built = BodyResult | { id: string; twin: string };
 export type Response =
-  | { kind: 'build'; results: BodyResult[]; done: boolean }
+  | { kind: 'build'; results: Built[]; done: boolean }
   | { kind: 'areas'; id: number; areas: AreaMesh[] }
   | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] }
   | { kind: 'check'; id: number; results: PrintCheck[] }
@@ -83,8 +87,19 @@ function threeMf(parts: { name: string; points: number[]; triangles: number[] }[
 
 const ready = init({ locateFile: () => wasmUrl }).then(setOC);
 
-/** The last good solid of each body, for measuring (without its mesh: the view has that). */
+/** The last good solid of each body, for measuring (without its mesh: the view has that); linked copies share one. */
 const solids = new Map<string, Solid>();
+const users = new Map<Solid, number>();
+/** Body `id`'s solid is `solid` now (none: forgotten); one no body has any more is freed. */
+function keepSolid(id: string, solid?: Solid) {
+  const old = solids.get(id);
+  if (solid) solids.set(id, solid), users.set(solid, (users.get(solid) ?? 0) + 1);
+  else solids.delete(id);
+  if (!old) return;
+  const left = users.get(old)! - 1;
+  if (left) users.set(old, left);
+  else users.delete(old), old.delete();
+}
 /** Each body's solid before its last steps (see `BaseCache`). */
 const bases = new Map<string, BaseCache>();
 
@@ -114,8 +129,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
 async function handle(data: Job) {
   if (data.kind === 'forget') {
     for (const id of data.bodies) {
-      solids.get(id)?.delete();
-      solids.delete(id);
+      keepSolid(id);
       const base = bases.get(id);
       if (base) dropBase(base);
       bases.delete(id);
@@ -124,8 +138,8 @@ async function handle(data: Job) {
   }
   if (data.kind === 'clash') {
     [checking, stopCheck] = [true, false];
-    const extra = data.extra.map(({ id, brep }) => [id, new Solid(deserializeShape(brep) as Shape3D)] as const);
-    const result = await clashes(new Map([...solids, ...extra]), data.ask, () => stopCheck);
+    const extra = data.extra.map(({ ids, brep }) => [ids, new Solid(deserializeShape(brep) as Shape3D)] as const);
+    const result = await clashes(new Map([...solids, ...extra.flatMap(([ids, solid]) => ids.map((id) => [id, solid] as const))]), data.ask, () => stopCheck);
     for (const [, solid] of extra) solid.delete();
     checking = false;
     later.splice(0).forEach(take);
@@ -133,11 +147,12 @@ async function handle(data: Job) {
     return postMessage({ kind: 'clash', id: data.id, result } satisfies Response, { transfer });
   }
   if (data.kind === 'share') {
-    const shared = data.bodies.flatMap((id) => {
+    const by = new Map<Solid, string[]>();
+    for (const id of data.bodies) {
       const solid = solids.get(id);
-      return solid ? [{ id, brep: solid.shape.serialize() }] : [];
-    });
-    return postMessage({ kind: 'share', id: data.id, solids: shared } satisfies Response);
+      if (solid) by.set(solid, [...(by.get(solid) ?? []), id]);
+    }
+    return postMessage({ kind: 'share', id: data.id, solids: [...by].map(([solid, ids]) => ({ ids, brep: solid.shape.serialize() })) } satisfies Response);
   }
   if (data.kind === 'measure') {
     const answers = data.asks.map((ask) => {
@@ -243,7 +258,7 @@ async function handle(data: Job) {
   const { tolerance } = data;
   const start = performance.now();
   building++;
-  let results: BodyResult[] = [];
+  let results: Built[] = [];
   let sent = performance.now();
   const send = (done: boolean) => {
     const transfer = results.flatMap((r) => ('mesh' in r ? Object.values(r.mesh).flatMap((a) => (ArrayBuffer.isView(a) ? [a.buffer as ArrayBuffer] : [])) : []));
@@ -259,8 +274,7 @@ async function handle(data: Job) {
       try {
         const mesh = { ...meshBody(shape, finishing, tolerance, false), cosmetic: cosmeticOf(features) };
         getOC().BRepTools.Clean(shape.wrapped, true);
-        solids.get(id)?.delete();
-        solids.set(id, new Solid(shape));
+        keepSolid(id, new Solid(shape));
         return { id, mesh };
       } catch (err) {
         shape.delete();
@@ -272,9 +286,9 @@ async function handle(data: Job) {
       for (const b of finishing.bases) b.delete();
     }
   };
-  // the same steps (linked copies: their source's) are built once: the others get a copy of its mesh and solid
-  const made = new Map<string, { id: string; result: BodyResult }>();
-  const keys = data.bodies.map((b) => JSON.stringify(b.features, (k, v) => (k === 'data' ? undefined : v)));
+  // the same steps (linked copies: their source's) are built once: the others share its solid, and the client its mesh
+  const made = new Map<string, string>();
+  const keys = data.bodies.map((b) => stepsKey(b.features));
   const [seen, twice] = [new Set<string>(), new Set<string>()];
   for (const k of keys) (seen.has(k) ? twice : seen).add(k);
   // exact numbers still to work out: from a solid, for it and its twins (each with the solid it got)
@@ -285,20 +299,17 @@ async function handle(data: Job) {
     await loadImports(b.features);
     const key = keys[i];
     const twin = made.get(key);
-    const solid = twin && solids.get(twin.id);
-    if (twin && solid) {
-      solids.get(b.id)?.delete();
-      solids.set(b.id, new Solid(solid.shape.clone()));
-    }
-    const result = twin && (solid || 'error' in twin.result) ? { ...structuredClone(twin.result), id: b.id } : build(b);
-    // kept before it is sent: sending hands its arrays over
-    if (!twin && twice.has(key)) made.set(key, { id: b.id, result: structuredClone(result) });
-    if ('mesh' in result && result.mesh.later) {
-      const own = { id: b.id, solid: solids.get(b.id)! };
-      const group = twin && dueOf.get(key);
-      if (group) group.to.push(own);
-      else {
-        const d = { solid: own.solid, later: result.mesh.later, to: [own] };
+    let result: Built;
+    if (twin) {
+      const solid = solids.get(twin);
+      if (solid) keepSolid(b.id, solid);
+      result = { id: b.id, twin };
+      dueOf.get(key)?.to.push({ id: b.id, solid: solids.get(b.id)! });
+    } else {
+      result = build(b);
+      if (twice.has(key)) made.set(key, b.id);
+      if ('mesh' in result && result.mesh.later) {
+        const d = { solid: solids.get(b.id)!, later: result.mesh.later, to: [{ id: b.id, solid: solids.get(b.id)! }] };
         due.push(d);
         if (twice.has(key)) dueOf.set(key, d);
       }

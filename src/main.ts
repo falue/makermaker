@@ -494,11 +494,15 @@ const kernel = new Kernel((results, done) => {
   if (done) viewer.holdFit(false);
   if (done) viewer.liveChanged(), viewer.warmShaders();
   cutting?.refresh();
-  render();
+  renderSoon();
 }, (results) => {
   for (const { id, exact } of results) viewer.setExact(id, exact);
-  render(); // the info panel's values exact now
+  renderSoon(); // the info panel's values exact now
 });
+
+/** `render` before the next frame, once however many lots came in meanwhile (a big file sends dozens). */
+let renderFrame = 0;
+const renderSoon = () => (renderFrame ||= requestAnimationFrame(() => ((renderFrame = 0), render())));
 
 kernel.setTolerance(settings.meshDetail);
 
@@ -561,6 +565,7 @@ function update() {
   };
   // 1: own features (sketches on other bodies' faces wait for those faces; faces never depend on booleans)
   const own = new Map<string, Map<string, BuildFeature>>();
+  const sourceSteps = new Map<number, Resolved<Feature>[]>(); // a source's steps, resolved once for all its copies
   let pending = doc.bodies.flatMap((p, i) => {
     if (!still.has(p.id)) {
       const m = placed.get(p.id)!;
@@ -573,7 +578,8 @@ function update() {
     const before = exprErrors.size;
     // a linked copy: its source's steps (errors shown at the source), then its own; a finger joint belongs to its two bodies
     const k = p.link ? doc.bodies.findIndex((b) => b.id === p.link) : -1;
-    const shared = k >= 0 ? resolve(doc.bodies[k].features, lookup, `bodies.${k}.features`, exprErrors).filter((f) => f.type !== 'fingers') : [];
+    if (k >= 0 && !sourceSteps.has(k)) sourceSteps.set(k, resolve(doc.bodies[k].features, lookup, `bodies.${k}.features`, exprErrors).filter((f) => f.type !== 'fingers'));
+    const shared = sourceSteps.get(k) ?? [];
     const resolved = [...shared, ...resolve(p.features, lookup, `bodies.${i}.features`, exprErrors)];
     return exprErrors.size === before ? [{ id: p.id, resolved, at: bodyPlace(p.id) }] : [];
   });

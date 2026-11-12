@@ -2325,42 +2325,64 @@ export class Viewer implements ToolView {
       }
   }
 
+  /** Geometries made of a mesh (its solid, edges, cosmetic threads): linked copies get the same mesh and share them. */
+  private madeOf = new WeakMap<BodyMesh, THREE.BufferGeometry[]>();
+  /** How many bodies show each of those (freed at none). */
+  private geometryUsers = new Map<THREE.BufferGeometry, number>();
+
   setBody(id: string, mesh: BodyMesh) {
     const group = this.group(id);
     this.disposeChildren(group);
+    const made = this.madeOf.get(mesh);
+    const [geometry, edges, threads] = made && this.geometryUsers.has(made[0]) ? made : this.geometriesOf(mesh);
+    for (const g of [geometry, edges, threads]) if (g) this.geometryUsers.set(g, (this.geometryUsers.get(g) ?? 0) + 1);
+    const solid = Object.assign(new THREE.Mesh(geometry), { raycast: fastRaycast });
+    // `capped`: the middles of finished edges held at the largest size they take (orange while selected)
+    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes, exact: mesh.exact, capped: Object.values(mesh.capped).flat().map((c) => c.pts[4]) });
+    const lines = new THREE.LineSegments(edges);
+    lines.userData.edgeGroups = mesh.edgeGroups;
+    lines.userData.exact = mesh.exact; // its edges' curves, by edge group
+    group.add(solid, lines);
+    if (threads) {
+      // cosmetic threads: dashed, not picked
+      const thread = new THREE.LineSegments(threads, this.cosmeticMaterial);
+      thread.raycast = () => {};
+      group.add(thread);
+    }
+    this.dress(id);
+    if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
+    if (this.stepSel?.body === id) this.setStepMark(this.stepSel);
+    this.fitWaiting();
+    // once after a lot of bodies (each would go over all bodies)
+    if (!this.bodiesSet) {
+      this.bodiesSet = true;
+      queueMicrotask(() => {
+        this.bodiesSet = false;
+        this.markCapped();
+        this.applySection();
+      });
+    }
+  }
+  private bodiesSet = false;
+
+  /** A mesh's geometries: its solid, its edges (those unbaked finishes made light grey, the rest near black), its cosmetic threads (if any). */
+  private geometriesOf(mesh: BodyMesh): THREE.BufferGeometry[] {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
     if (mesh.uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(mesh.uvs, 2));
     geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
-    const solid = Object.assign(new THREE.Mesh(geometry), { raycast: fastRaycast });
-    // `capped`: the middles of finished edges held at the largest size they take (orange while selected)
-    Object.assign(solid.userData, { bodyId: id, faces: mesh.faces, corners: mesh.corners, finishFaces: mesh.finishFaces, finishes: mesh.finishes, exact: mesh.exact, capped: Object.values(mesh.capped).flat().map((c) => c.pts[4]) });
     const edges = new THREE.BufferGeometry();
     edges.setAttribute('position', new THREE.BufferAttribute(mesh.edges, 3));
-    // edges unbaked finishes made are light grey, the rest near black
     const colors = new Float32Array(mesh.edges.length);
     const [dark, light] = [new THREE.Color(0x2a2a2a), new THREE.Color(0xb4b4b4)];
     for (let k = 0; k < mesh.edgeGroups.length; k += 2)
       for (let i = mesh.edgeGroups[k]; i < mesh.edgeGroups[k] + mesh.edgeGroups[k + 1]; i++) colors.set((mesh.finishEdges[k / 2] ? light : dark).toArray(), i * 3);
     edges.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const lines = new THREE.LineSegments(edges);
-    lines.userData.edgeGroups = mesh.edgeGroups;
-    lines.userData.exact = mesh.exact; // its edges' curves, by edge group
-    group.add(solid, lines);
-    if (mesh.cosmetic?.length) {
-      // cosmetic threads: dashed, not picked
-      const thread = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(mesh.cosmetic, 3)), this.cosmeticMaterial);
-      thread.computeLineDistances();
-      thread.raycast = () => {};
-      group.add(thread);
-    }
-    this.dress(id);
-    this.markCapped();
-    if (this.finishSel?.body === id) this.setFinishMark(this.finishSel);
-    if (this.stepSel?.body === id) this.setStepMark(this.stepSel);
-    this.fitWaiting();
-    this.applySection();
+    const made = [geometry, edges];
+    if (mesh.cosmetic?.length) made.push(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(mesh.cosmetic, 3))).computeLineDistances().geometry);
+    this.madeOf.set(mesh, made);
+    return made;
   }
 
   /** While more bodies are coming the first frame waits for them. */
@@ -4965,8 +4987,13 @@ export class Viewer implements ToolView {
     return group;
   }
 
+  /** Empties a body's group: geometries it alone showed are freed (a glow lamp has none). */
   private disposeChildren(group: THREE.Group) {
-    for (const c of group.children) (c as THREE.Mesh).geometry?.dispose(); // a glow lamp has none
+    for (const g of new Set(group.children.flatMap((c) => (c as THREE.Mesh).geometry ?? []))) {
+      const left = (this.geometryUsers.get(g) ?? 1) - 1;
+      if (left) this.geometryUsers.set(g, left);
+      else this.geometryUsers.delete(g), g.dispose();
+    }
     group.clear();
   }
 

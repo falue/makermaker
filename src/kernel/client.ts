@@ -5,10 +5,11 @@ import type { ClashAsk, ClashResult } from './clash';
 import type { Exact } from './exact';
 import type { MeasureAnswer, MeasureAsk } from './measure';
 import type { BodyResult, ExportBody, ExportFile, ExportFormat, PrintCheck, Request, Response } from './worker';
+import { stepsKey } from './key';
 
 type BuildPart = Extract<Request, { kind: 'build' }>['bodies'][number];
-/** A geometry worker and the bodies it builds now. */
-type Shard = { worker: Worker; building: Set<string> };
+/** A geometry worker, the bodies it builds now, and its results so far (a linked copy takes its source's). */
+type Shard = { worker: Worker; building: Set<string>; built: Map<string, BodyResult> };
 
 /** The size of the STEP files in a body's steps (reading them takes most of a STEP body's build). */
 const stepSize = (features: BuildFeature[]): number =>
@@ -53,19 +54,26 @@ export class Kernel {
   }
 
   private spawn() {
-    const shard: Shard = { worker: new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }), building: new Set() };
+    const shard: Shard = { worker: new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }), building: new Set(), built: new Map() };
     shard.worker.onmessage = ({ data }: MessageEvent<Response>) => {
       if (data.kind === 'exact') return this.onExact(data.results);
       if (data.kind !== 'build') {
         this.asked.get(data.id)?.(data);
         return this.asked.delete(data.id);
       }
+      // a linked copy's result is its source's, the same mesh (the view shares it)
+      const results = data.results.map((r) => {
+        const full = 'twin' in r ? { ...shard.built.get(r.twin)!, id: r.id } : r;
+        shard.built.set(r.id, full);
+        return full;
+      });
       if (data.done) {
         shard.building.clear();
+        shard.built.clear();
         this.pump();
       }
       const done = data.done && !this.busy();
-      this.onResults(data.results, done);
+      this.onResults(results, done);
       if (done) this.idlers.splice(0).forEach((go) => go());
     };
     this.shards.push(shard);
@@ -164,7 +172,7 @@ export class Kernel {
     for (const [s, list] of gone) s.worker.postMessage({ kind: 'forget', bodies: list } satisfies Request);
     for (const id of this.waiting.keys()) if (!ids.has(id)) this.waiting.delete(id);
     for (const p of bodies) {
-      const key = JSON.stringify(p.features, (k, v) => (k === 'data' ? undefined : v)); // a STEP file's text never changes (megabytes)
+      const key = stepsKey(p.features);
       if (this.sent.get(p.id) === key) continue;
       this.sent.set(p.id, key);
       this.waiting.set(p.id, p);

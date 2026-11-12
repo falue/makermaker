@@ -36,7 +36,8 @@ export function onFaceOf(doc: Doc, tool: string, on: string): boolean {
 
 /** Whose a sketch is, in words: the body extruded from it, the body it lies on, or none (a free sketch). */
 export function whose(doc: Doc, sketch: string): string {
-  const owner = doc.bodies.find((b) => b.id === ownerOf(doc, sketch));
+  const id = ownerOf(doc, sketch);
+  const owner = doc.bodies.find((b) => b.id === id);
   if (!owner) return 'A free sketch: it belongs to no object (nothing is extruded from it, it lies on no face)';
   const extruded = owner.features.some((f) => sourceSketch(f) === sketch);
   return extruded ? `Belongs to ${owner.name}, which is extruded from it` : `Belongs to ${owner.name}: it lies on its face`;

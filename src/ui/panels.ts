@@ -1134,8 +1134,9 @@ function left(ctx: UIContext): Node[] {
     aids: [...aidHead('Sketches', sketchRows), ...aidHead('Work planes', planeRows), ...aidHead('Images', imageRows)],
     params: [...params, addParam],
   };
+  const tools = ownersOf(doc);
   const counts: Record<LeftTab, number> = {
-    objects: doc.bodies.filter((b) => !ownersOf(doc).has(b.id)).length + doc.groups.length,
+    objects: doc.bodies.filter((b) => !tools.has(b.id)).length + doc.groups.length,
     aids: doc.sketches.length + doc.planes.length + doc.images.length,
     params: Object.keys(doc.params).length,
   };

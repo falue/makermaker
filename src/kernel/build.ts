@@ -5,6 +5,7 @@ import { bakeTurn, bounds, centre, cornerCuts, cornerRadii, segments, curved, in
 import type { TopoDS_Shape } from 'replicad-opencascadejs';
 import { lineUses } from '../doc/arrangement';
 import { exactOf, type Exact } from './exact';
+import { stepsKey } from './key';
 import type { Resolved } from '../doc/resolve';
 import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/types';
 
@@ -138,7 +139,7 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
   const inline = new Set(features.flatMap((s, n) => (unbaked(s) && typeof s.edges === 'object' && features.slice(n + 1).some((f) => !waits(f)) ? [s.id] : [])));
   const late = (s: BuildFeature) => (unbaked(s) && !inline.has(s.id)) || (s.type === 'thread' && s.modeled && !mirrored.has(s.id));
   const kept = cache && finishing && features.some(late) ? cache : undefined;
-  const key = kept && JSON.stringify(features.filter((s) => !late(s)), (k, v) => (k === 'data' ? undefined : v)); // a STEP file's text never changes
+  const key = kept && stepsKey(features.filter((s) => !late(s)));
   try {
     const saved = kept?.key === key ? kept?.finishing : undefined;
     if (kept?.shape && saved) {
