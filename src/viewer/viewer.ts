@@ -3077,9 +3077,10 @@ export class Viewer implements ToolView {
     });
   }
 
-  /** The origin axes `px` long on screen at any zoom, at the origin (a group's own inside it). */
-  private sizeAxes(px = 60) {
-    const k = px / this.pixelsPerMm(new THREE.Vector3().setFromMatrixPosition(this.groupFrame)) / 30; // drawn 30 long
+  /** The origin axes at the origin (a group's own inside it): `mm` long, so they follow the zoom, but `min` to `max` px on screen. */
+  private sizeAxes(mm = 30, min = 24, max = 240) {
+    const ppm = this.pixelsPerMm(new THREE.Vector3().setFromMatrixPosition(this.groupFrame));
+    const k = THREE.MathUtils.clamp(mm * ppm, min, max) / ppm / 30; // drawn 30 long
     Object.assign(this.axes, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(this.groupFrame).scale(new THREE.Vector3(k, k, k));
   }
 
