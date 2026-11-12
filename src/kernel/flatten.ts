@@ -316,7 +316,39 @@ export function nets(faces: FlatFace[]): Island[] {
     islands[ia].folds.push(...islands[ib].folds, { a, b });
     islands[ib] = { faces: [], folds: [] };
   }
-  return islands.filter((i) => i.faces.length).map((i) => ({ faces: i.faces.map(({ face }) => ({ face, m: transform[face] })), folds: i.folds }));
+  // each net turned to lie in its smallest box, the long way across (a flat face's own axes point any way)
+  return islands
+    .filter((i) => i.faces.length)
+    .map((i) => {
+      const turn = upright(i.faces.flatMap(({ face }) => outlines[face].flat().map((n) => flatAt(face, n))));
+      return { faces: i.faces.map(({ face }) => ({ face, m: then(turn, transform[face]) })), folds: i.folds };
+    });
+}
+
+/** The turn (cos, sin, 0, 0) that sets `pts` in their smallest box (one side along a side of their hull), wider than high. */
+function upright(pts: P2[]): number[] {
+  // the convex hull, counter-clockwise (Andrew's monotone chain)
+  const sorted = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const turn = (o: P2, a: P2, b: P2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (ps: P2[]) => ps.reduce<P2[]>((h, p) => {
+    while (h.length > 1 && turn(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop();
+    return [...h, p];
+  }, []);
+  const hull = [...half(sorted).slice(0, -1), ...half([...sorted].reverse()).slice(0, -1)];
+  let best = { area: Infinity, c: 1, s: 0, wide: true };
+  hull.forEach((p, i) => {
+    const q = hull[(i + 1) % hull.length];
+    const l = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (l < 1e-9) return;
+    // turned by minus this side's angle: the side lies along x
+    const [c, s] = [(q[0] - p[0]) / l, -(q[1] - p[1]) / l];
+    const xs = hull.map(([x, y]) => c * x - s * y);
+    const ys = hull.map(([x, y]) => s * x + c * y);
+    const [w, h] = [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+    if (w * h < best.area - 1e-9) best = { area: w * h, c, s, wide: w >= h };
+  });
+  // a quarter turn more when it stands upright
+  return best.wide ? [best.c, best.s, 0, 0] : [-best.s, best.c, 0, 0];
 }
 
 /**

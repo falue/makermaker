@@ -85,4 +85,20 @@ describe('nets', () => {
     expect(Math.abs(loopArea(loops[0].pts))).toBeCloseTo(600, 6);
     expect(folds).toHaveLength(5);
   });
+  it('turns a net to lie level in its smallest box, the long way across', () => {
+    // a 40 × 10 face whose flat points came turned by 30° (a plane's own axes point any way)
+    const [c, s] = [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)];
+    const corners = [[0, 0], [40, 0], [40, 10], [0, 10]];
+    const face: FlatFace = {
+      pts: Float64Array.from(corners.flatMap(([x, y]) => [x, y, 0])),
+      tris: Uint32Array.from([0, 1, 2, 0, 2, 3]),
+      flat: Float64Array.from(corners.flatMap(([x, y]) => [c * x - s * y, s * x + c * y])),
+      edges: [],
+    };
+    const { loops } = netLines(nets([face])[0], [face]);
+    const xs = loops[0].pts.map((p) => p[0]);
+    const ys = loops[0].pts.map((p) => p[1]);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(40, 6);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(10, 6);
+  });
 });
