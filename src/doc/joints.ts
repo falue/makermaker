@@ -48,10 +48,13 @@ export function jointed(doc: Doc, local: Map<string, Matrix4>, value: (j: Joint)
 export function motion(j: Joint, parent: Matrix4, v: number): Matrix4 {
   if (j.kind === 'attach') return new Matrix4();
   const at = new Vector3(...j.axis.at).applyMatrix4(parent);
-  const dir = new Vector3(...j.axis.dir).transformDirection(parent);
+  const dir = turning(j, new Vector3(...j.axis.dir).transformDirection(parent));
   if (j.kind === 'slider') return new Matrix4().makeTranslation(dir.multiplyScalar(v));
   return new Matrix4().makeTranslation(at).multiply(new Matrix4().makeRotationAxis(dir, (v * Math.PI) / 180)).multiply(new Matrix4().makeTranslation(at.negate()));
 }
+
+/** The axis direction `dir` a joint turns around (right-handed): a revolve's the other way, so a positive RPM turns clockwise seen from the axis's tip. */
+export const turning = (j: Joint, dir: Vector3) => (j.kind === 'revolve' ? dir.negate() : dir);
 
 /** `joints` without objects `gone`: they leave as parts; a joint whose parent or every part went goes. */
 export const jointsWithout = (joints: Joint[], gone: Set<string>) =>

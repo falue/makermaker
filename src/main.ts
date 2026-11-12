@@ -13,7 +13,7 @@ import { EXACT_BOXED, EXACT_MOST } from './kernel/limits';
 import { closeButton, deleteButton, icon } from './ui/icons';
 import { contextMenu, type MenuItem } from './ui/menu';
 import { axisHtml, sizeHtml } from './ui/axes';
-import { jointed, jointsWithout } from './doc/joints';
+import { jointed, jointsWithout, turning } from './doc/joints';
 import { workFrame } from './doc/workplane';
 import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
@@ -5324,6 +5324,7 @@ function jointAxis(j: Joint) {
 function hingeRest(j: Joint) {
   if (!turns(j)) return null;
   const axis = jointAxis(j);
+  turning(j, axis.dir); // its angle counted the way it turns
   const moving = contents(history.current, j.children).filter((x) => history.current.bodies.some((b) => b.id === x));
   const ref = moving.map((x) => viewer.measure(x)?.box.getCenter(new Vector3())).find(Boolean);
   if (!ref) return null;
@@ -5481,7 +5482,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
       fields.get(key)!.focus();
     }, true);
   };
-  const kinds = { hinge: ['Hinge', 'Turns around the axis, Min to Max'], slider: ['Slider', 'Moves along the axis'], revolve: ['Revolve', 'Turns around the axis endlessly, at its RPM'] } as const;
+  const kinds = { hinge: ['Hinge', 'Turns around the axis, Min to Max'], slider: ['Slider', 'Moves along the axis'], revolve: ['Revolve', 'Turns around the axis endlessly, at its RPM (positive: clockwise seen from the tip of the axis)'] } as const;
   const choices = (['hinge', 'slider', 'revolve'] as const).map((k) => {
     const b = Object.assign(document.createElement('button'), { textContent: kinds[k][0], title: kinds[k][1], onclick: () => choose(k) });
     b.dataset.kind = k;

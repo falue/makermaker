@@ -456,7 +456,8 @@ export interface ImageRef {
  * turns them around `axis`, a slider moves them along it (a line through `at` along `dir`, in the parent's
  * coordinates); `value` (degrees or mm, between `min` and `max`) is where they are now, and modelling happens there;
  * playing it runs from `min` to `max` `speed` times as fast as the play time set in Settings. A revolve turns around
- * `axis` endlessly: `value` its angle (0–360°), `speed` its turns per minute, `min` and `max` unused. An attach does not move:
+ * `axis` endlessly, clockwise seen from the tip of `dir`: `value` its angle (0–360°), `speed` its turns per minute
+ * (negative: the other way), `min` and `max` unused. An attach does not move:
  * its parent and children move and turn as one, whichever of them moves; `axis.at` is its anchor, where it shows;
  * `min`, `max`, `value`, `speed` and `axis.dir` are unused.
  */

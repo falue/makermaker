@@ -20,14 +20,14 @@ describe('jointed', () => {
     expect(new Vector3().setFromMatrixPosition(placed.get(pin.id)!).x).toBeCloseTo(35); // slid 5 along x
     expect(problems).toHaveLength(1);
   });
-  it('turns the children of a revolve around its axis by its angle', () => {
+  it('turns the children of a revolve clockwise seen from its axis tip', () => {
     const doc = sampleDoc();
     const [plate, disc] = doc.bodies;
     const local = new Map([[plate.id, new Matrix4()], [disc.id, new Matrix4().makeTranslation(10, 0, 0)]]);
     const spin: Joint = { id: 'r', name: 'Revolve 1', kind: 'revolve', parent: plate.id, children: [disc.id], axis: { at: [0, 0, 0], dir: [0, 0, 1] }, min: { e: '0', u: 'mm' }, max: { e: '360', u: 'mm' }, value: { e: '0', u: 'mm' }, speed: { e: '30', u: 'mm' } };
     const { placed } = jointed({ ...doc, joints: [spin] }, local, () => 90);
     const p = new Vector3().setFromMatrixPosition(placed.get(disc.id)!);
-    expect([p.x, p.y]).toEqual([expect.closeTo(0), expect.closeTo(10)]);
+    expect([p.x, p.y]).toEqual([expect.closeTo(0), expect.closeTo(-10)]); // x to -y: clockwise seen from above
   });
 });
 
