@@ -24,6 +24,30 @@ describe('laserSvg', () => {
     expect(svg).toMatch(/<circle cx="[-\d.]+" cy="[-\d.]+" r="5"\/>/); // the hole kept a circle
   });
 
+  it('a plate with a part bent up at 45°: the whole of it as seen from its face, the bend as a mark', () => {
+    // side view (x, y; extruded 50 along z): a plate 100 long, 8 thick, its end turned up 45° for 40, a slot in that part
+    const [c, s] = [Math.SQRT1_2, Math.SQRT1_2];
+    const tip: [number, number] = [100 + 40 * c, 40 * s];
+    const inner: [number, number] = [tip[0] - 8 * s, tip[1] + 8 * c];
+    const crease = inner[0] - (inner[1] - 8) / s * c; // where the turned-up part's top meets the plate's top (y 8)
+    const bent: BuildFeature[] = [
+      { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[0, 0], [100, 0], tip, inner, [crease, 8], [0, 8]], r: 0, rot: 0 }], depth: 50, mode: 'add', through: false },
+    ];
+    const cuts = laserCuts(bent, { at: [50, 8, 25], n: [0, 1, 0] });
+    const outline = cuts.filter((k) => !k.mark && !k.hole);
+    expect(outline).toHaveLength(1);
+    const [x0, y0, x1, y1] = bounds({ kind: 'polygon', pts: outline[0].pts, curves: outline[0].curves, r: 0, rot: 0 });
+    expect(x1 - x0).toBeCloseTo(tip[0], 3); // 0 to the turned-up part's far end
+    expect(y1 - y0).toBeCloseTo(50, 3);
+    const marks = cuts.filter((k) => k.mark);
+    // the bend, and where the turned-up part's end (seen from above too) meets its top: across, 50 long, at their x (the face seen from outside: x runs back)
+    expect(marks).toHaveLength(2);
+    for (const m of marks) expect(Math.hypot(m.pts[1][0] - m.pts[0][0], m.pts[1][1] - m.pts[0][1])).toBeCloseTo(50, 3);
+    expect(marks.map((m) => Math.abs(m.pts[0][0] - x0)).sort((a, b) => a - b).map((d) => +d.toFixed(3))).toEqual([+(tip[0] - inner[0]).toFixed(3), +(tip[0] - crease).toFixed(3)]);
+    expect(withKerf(cuts, 1).find((k) => k.mark)).toBe(marks[0]); // a mark is drawn, not cut: no kerf
+    expect(dxfOf(cuts)).toMatch(/\nPOLYLINE\n8\nMARK\n62\n5\n/);
+  });
+
   it('takes a picked face, allows for the kerf and writes DXF', () => {
     const block: BuildFeature[] = [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 100, h: 60, r: 0, rot: 0 }, { id: 'c', kind: 'circle', x: 20, y: 10, d: 10 }], depth: 30, mode: 'add', through: false }];
     // its x 50 side: 60 × 30, no hole

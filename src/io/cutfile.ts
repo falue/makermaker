@@ -5,9 +5,10 @@ type P2 = [number, number];
 
 /**
  * One cut: a loop of corners with its sides' curves (side i from corner i to i + 1; arcs exact), or a circle (kept as
- * one); `hole`: inside the outline; `open`: a path from its first point to its last (a sketch's line), not closed.
+ * one); `hole`: inside the outline; `open`: a path from its first point to its last (a sketch's line), not closed;
+ * `mark`: a line drawn, not cut (where a slanted part meets the face: for sanding, for orientation).
  */
-export type Cut = { hole: boolean; pts: P2[]; curves: (Curve | null)[]; circle?: { c: P2; r: number }; open?: boolean };
+export type Cut = { hole: boolean; pts: P2[]; curves: (Curve | null)[]; circle?: { c: P2; r: number }; open?: boolean; mark?: boolean };
 
 /** A sketch's shapes (mm, in its plane) as cuts, y down as the writers take them: circles as one, lines open; construction lines left out. */
 export function sketchCuts(shapes: DrawnProfile[]): Cut[] {
@@ -74,11 +75,11 @@ function arcFlags(a: P2, c: Curve | null, b: P2) {
   return arc && { r: arc.r, large: Math.abs(arc.a1 - arc.a0) > Math.PI, rising: arc.a1 > arc.a0, turn: arc.a1 - arc.a0 };
 }
 
-/** An SVG of the cuts at 1:1 in mm (`margin` around them), red 1 pt lines (`stroke` mm), the labels in black; arcs as arcs, beziers as cubics. */
+/** An SVG of the cuts at 1:1 in mm (`margin` around them), red 1 pt lines (`stroke` mm), marks blue, the labels in black; arcs as arcs, beziers as cubics. */
 export function svgOf(cuts: Cut[], margin = 2, labels: Label[] = [], stroke = 25.4 / 72): string {
   const [x0, y0, x1, y1] = boxOf(cuts, labels);
   const [x, y, w, h] = [x0 - margin, y0 - margin, x1 - x0 + 2 * margin, y1 - y0 + 2 * margin];
-  const shapes = cuts.map((c) => {
+  const shape = (c: Cut) => {
     if (c.circle) return `<circle cx="${f(c.circle.c[0])}" cy="${f(c.circle.c[1])}" r="${f(c.circle.r)}"/>`;
     const sides = (c.open ? c.pts.slice(0, -1) : c.pts).map((a, i) => {
       const [b, k] = [c.pts[(i + 1) % c.pts.length], c.curves[i]];
@@ -88,29 +89,29 @@ export function svgOf(cuts: Cut[], margin = 2, labels: Label[] = [], stroke = 25
     });
     if (c.open) return `<path d="M${f(c.pts[0][0])} ${f(c.pts[0][1])}${sides.join('')}"/>`;
     return `<path d="M${f(c.pts[0][0])} ${f(c.pts[0][1])}${sides.slice(0, -1).join('')}${sides.at(-1)!.startsWith('L') ? '' : sides.at(-1)}Z"/>`;
-  });
+  };
+  const group = (colour: string, of: Cut[]) => (of.length ? `\n  <g fill="none" stroke="${colour}" stroke-width="${f(stroke)}">\n    ${of.map(shape).join('\n    ')}\n  </g>` : '');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${f(w)}mm" height="${f(h)}mm" viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}">
-  <g fill="none" stroke="#ff0000" stroke-width="${f(stroke)}">
-    ${shapes.join('\n    ')}
-  </g>${labels.length ? `\n  <g fill="#000000" font-family="sans-serif">\n    ${labels.map((l) => `<text x="${f(l.at[0])}" y="${f(l.at[1])}" font-size="${f(l.size)}">${xml(l.text)}</text>`).join('\n    ')}\n  </g>` : ''}
+<svg xmlns="http://www.w3.org/2000/svg" width="${f(w)}mm" height="${f(h)}mm" viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}">${group('#ff0000', cuts.filter((c) => !c.mark))}${group('#0000ff', cuts.filter((c) => c.mark))}${labels.length ? `\n  <g fill="#000000" font-family="sans-serif">\n    ${labels.map((l) => `<text x="${f(l.at[0])}" y="${f(l.at[1])}" font-size="${f(l.size)}">${xml(l.text)}</text>`).join('\n    ')}\n  </g>` : ''}
 </svg>
 `;
 }
 
 /**
  * A DXF (R12, mm) of the cuts on layer CUT in red: closed (or open) polylines (arcs as bulges, beziers as arcs within
- * 1 µm) and circles, y up as DXF has it; the labels as text on layer LABEL in black (colour 7: black on white).
+ * 1 µm) and circles, y up as DXF has it; marks on layer MARK in blue; the labels as text on layer LABEL in black
+ * (colour 7: black on white).
  */
 export function dxfOf(cuts: Cut[], labels: Label[] = []): string {
   const out: (string | number)[] = [0, 'SECTION', 2, 'HEADER', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC', 0, 'SECTION', 2, 'ENTITIES'];
   for (const c of cuts) {
+    const [layer, colour] = c.mark ? ['MARK', 5] : ['CUT', 1];
     if (c.circle) {
-      out.push(0, 'CIRCLE', 8, 'CUT', 62, 1, 10, f(c.circle.c[0]), 20, f(-c.circle.c[1]), 30, 0, 40, f(c.circle.r));
+      out.push(0, 'CIRCLE', 8, layer, 62, colour, 10, f(c.circle.c[0]), 20, f(-c.circle.c[1]), 30, 0, 40, f(c.circle.r));
       continue;
     }
-    out.push(0, 'POLYLINE', 8, 'CUT', 62, 1, 66, 1, 10, 0, 20, 0, 30, 0, 70, c.open ? 0 : 1);
-    const vertex = ([x, y]: P2, bulge = 0) => out.push(0, 'VERTEX', 8, 'CUT', 10, f(x), 20, f(-y), 30, 0, ...(bulge ? [42, +bulge.toFixed(9)] : []));
+    out.push(0, 'POLYLINE', 8, layer, 62, colour, 66, 1, 10, 0, 20, 0, 30, 0, 70, c.open ? 0 : 1);
+    const vertex = ([x, y]: P2, bulge = 0) => out.push(0, 'VERTEX', 8, layer, 10, f(x), 20, f(-y), 30, 0, ...(bulge ? [42, +bulge.toFixed(9)] : []));
     // a bulge: tan of a quarter of the arc's angle, counter-clockwise positive (y flipped: turned round)
     const bulge = (a: P2, k: Curve | null, b: P2) => {
       const arc = arcFlags(a, k, b);
@@ -126,7 +127,7 @@ export function dxfOf(cuts: Cut[], labels: Label[] = []): string {
       const fit = biarcs((t) => bez(t), (t) => bez(t, 1));
       fit.curves.forEach((c, j) => vertex(fit.pts[j], bulge(fit.pts[j], c, fit.pts[j + 1])));
     });
-    out.push(0, 'SEQEND', 8, 'CUT');
+    out.push(0, 'SEQEND', 8, layer);
   }
   for (const l of labels) out.push(0, 'TEXT', 8, 'LABEL', 62, 7, 10, f(l.at[0]), 20, f(-l.at[1]), 30, 0, 40, f(l.size), 1, l.text);
   out.push(0, 'ENDSEC', 0, 'EOF');

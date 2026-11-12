@@ -45,6 +45,10 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Bodies that are not boxes and meet only along an edge (no shared face) are refused; boxes meeting so still work. "The thinner one" behind a shared face is measured to the body's farthest corner, so an L-shaped body can count as thicker than it is there.
 - One Fingers count for all joints of a batch gives short joints the same number of tiny fingers (Finger length avoids it).
 
+## Laser export
+- Seen from the face (a body with slanted parts): only flat faces count, so a round face looking that way (a fillet, a slanted cylinder) adds nothing where no flat face covers it, and draws no blue line. A body with fillets or chamfers is still cut half way through its plate instead, its slanted parts left out.
+- The sheet is rows of boxes, not nested tightly, and has no size limit (a laser bed's).
+
 ## Shell
 - When OpenCascade's shell fails or is broken (some lofts), the body less its inside `t` in is used (`hollowedByOffset`): only flat open faces open that way, and a wall slanted at an open face keeps a lip there of the thickness times its slope.
 - A wall that does not fit shows as an error in the body's card; the Wall panel itself does not say so.
