@@ -78,6 +78,8 @@ export interface SketchResult {
 /** What the tool needs from the viewport. */
 export interface ToolView {
   el: HTMLElement;
+  /** The view's own controls on screen: labels keep clear of them. */
+  overlays(): Element[];
   /** Switches at the top left of the view (see `Viewer.toggles`). */
   toggles: HTMLElement;
   /** A group's origin (world) new sketches on a base plane count from (its base planes, turned with it); null: the world's. */
@@ -2180,6 +2182,7 @@ export class SketchTool implements Tool {
     }
     const els = labels.map(([text, , active, t, op]) => sizeLabel(text, active, t, op));
     this.labels.replaceChildren(...els);
+    const controls = this.view.overlays();
     labels.forEach(([, at, , , , out, leader], i) => {
       const [sx, sy] = this.view.toScreen(at);
       let [x, y] = [sx, sy];
@@ -2193,7 +2196,7 @@ export class SketchTool implements Tool {
           [x, y] = [x + ux * push, y + uy * push];
         }
       }
-      keepInside(els[i], x, y);
+      keepInside(els[i], x, y, true, undefined, 4, controls);
       if (!leader) return;
       // from the side's middle to where the label ended up, under it
       const [lx, ly] = [parseFloat(els[i].style.left) - sx, parseFloat(els[i].style.top) - sy];
@@ -2219,9 +2222,7 @@ export class SketchTool implements Tool {
     const c = screen(a.corner);
     const e = screen(a.end);
     const tip = this.host.cursorTipRect();
-    // the view's own controls (view cube, breadcrumb …) are in the way too
-    const controls = [...this.view.el.children].filter((o) => o !== this.labels && !(o instanceof HTMLCanvasElement) && (o as HTMLElement).offsetParent);
-    const taken = [...[...others, ...controls].map((o) => local(o.getBoundingClientRect())), ...(tip ? [local(tip)] : []), [e[0] - 12, e[1] - 12, e[0] + 12, e[1] + 12]];
+    const taken = [...[...others, ...this.view.overlays()].map((o) => local(o.getBoundingClientRect())), ...(tip ? [local(tip)] : []), [e[0] - 12, e[1] - 12, e[0] + 12, e[1] + 12]];
     // screen directions of the ray measured from and of the side; the angle between them, signed, the short way
     const ref = screen([a.corner[0] + Math.cos(a.base), a.corner[1] + Math.sin(a.base)]);
     const a0 = Math.atan2(ref[1] - c[1], ref[0] - c[0]);

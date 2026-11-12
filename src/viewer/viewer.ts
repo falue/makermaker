@@ -949,6 +949,11 @@ export class Viewer implements ToolView {
     return true;
   }
 
+  /** The view's own controls on screen (view cube, breadcrumb, buttons …): floating labels keep clear of them. */
+  overlays() {
+    return [...this.el.children].filter((o) => !(o instanceof HTMLCanvasElement) && !o.classList.contains('size-labels') && (o as HTMLElement).offsetParent);
+  }
+
   /** The running drawing tool (null: none, or a pull). */
   get activeTool() {
     return this.tool?.kind ?? null;

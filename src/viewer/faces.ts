@@ -95,7 +95,7 @@ export class FacePullTool implements Tool {
       innerHTML: caretHtml(this.look.label(this.value(), this.typed)),
     });
     this.labels.replaceChildren(el);
-    keepInside(el, x, y);
+    keepInside(el, x, y, true, undefined, 4, this.view.overlays());
     this.view.render();
   }
 }

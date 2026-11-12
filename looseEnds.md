@@ -74,6 +74,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Folded tool bodies count as tool bodies wherever those are told apart (`ownersOf`): Interference, Select all, the exports and the view skip them; `cad.measure` gives every body, tool bodies and folded ones too (as before).
 
 ## View
+- Size labels (drawing, pulling, pushing a face) move off the view's own controls (view cube, breadcrumb, buttons) the shortest way that still fits; where none fits they stay under it. Other floating notes (the move fields, the turn label) do not avoid them yet.
 - Tab through faces while a tool picks one: only Settings → Hotkeys and the command box say so, no tool's pointer note does yet.
 - The origin axes are 30 mm long, at least 24 and at most 240 px on screen (`sizeAxes`): the numbers were a guess.
 - The file name in the top bar cannot show the file's full path on hover: browsers give only the name (File System Access), a desktop wrapper could.
