@@ -171,8 +171,8 @@ function jointTests(): { bodies: Body[]; groups: Group[]; joints: Joint[] } {
   const opening: Profile = { id: newId(), kind: 'rect', x: ex(0), y: ex(-2), w: ex(42), h: ex(38), r: ex(0), rot: ex(0) };
   const cabinet = hollow('Slide cabinet', '#a9bfd6', [40, 150, 0], 50, 40, 30, opening, 26);
   const drawer = solid('Slide drawer', '#c3d6a9', [40, 148, 5], [rect(40, 36)], 18);
-  const post = solid('Spin post', '#b9b9c4', [-40, 215, 0], [circle(0, 0, 10)], 14);
-  const propeller = solid('Spin propeller', '#e0a05a', [-40, 215, 14], [rect(50, 8)], 3);
+  const post = solid('Spin post', '#b9b9c4', [-110, 340, 0], [circle(0, 0, 10)], 14);
+  const propeller = solid('Spin propeller', '#e0a05a', [-110, 340, 14], [rect(50, 8)], 3);
   const deg = (v: number) => ex(v);
   const joints: Joint[] = [
     // along the back top edge, turning the lid's front up (-x: right-handed)
@@ -193,10 +193,10 @@ function fingerTests(): Body[] {
  * the pocket in either, both change).
  */
 function linkTest(): Body[] {
-  const block = solid('Linked original', '#b8cfa1', [-40, 280, 0], [rect(30, 30)], 15);
+  const block = solid('Linked original', '#b8cfa1', [-40, 340, 0], [rect(30, 30)], 15);
   const pocket: Feature = { id: newId(), type: 'extrude', source: { kind: 'own', plane: { kind: 'cap', feature: block.features[0].id }, profiles: [circle(0, 0, 14)] }, depth: ex(-6), mode: 'cut', through: false };
   const original = { ...block, features: [...block.features, pocket] };
-  return [original, { ...solid('Linked copy', '#b8cfa1', [0, 280, 0], [], 15), link: original.id, features: [] }];
+  return [original, { ...solid('Linked copy', '#b8cfa1', [0, 340, 0], [], 15), link: original.id, features: [] }];
 }
 
 /**
@@ -204,10 +204,10 @@ function linkTest(): Body[] {
  * 6 mm sheet with one side bevelled 30° (a draft: the export shows it from its face, the angle as a blue line).
  */
 function laserTests(): Body[] {
-  const a = solid('Jointed board A', '#d8c3a5', [80, 262, 0], [rect(60, 4)], 40);
-  const b = solid('Jointed board B', '#c4b08f', [108, 280, 0], [rect(4, 40)], 40);
+  const a = solid('Jointed board A', '#d8c3a5', [80, 322, 0], [rect(60, 4)], 40);
+  const b = solid('Jointed board B', '#c4b08f', [108, 340, 0], [rect(4, 40)], 40);
   const fingers = (other: string, first: boolean): Feature => ({ id: newId(), type: 'fingers', body: other, count: ex(5), width: ex(0), from: null, first, clearance: ex(0) });
-  const sheet = solid('Bevelled sheet', '#c7a26b', [180, 280, 0], [rect(60, 40)], 6);
+  const sheet = solid('Bevelled sheet', '#c7a26b', [180, 340, 0], [rect(60, 40)], 6);
   const bevel: Feature = { id: newId(), type: 'draft', at: [30, 0, 3], n: [1, 0, 0], axis: { at: [30, -20, 0], dir: [0, 1, 0] }, angle: ex(30) };
   return [
     { ...a, features: [...a.features, fingers(b.id, true)] },
