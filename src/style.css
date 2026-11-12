@@ -2008,6 +2008,9 @@ button.primary.wide {
 .settings .hotkeys .key {
   display: inline-flex;
 }
+.settings .key-search {
+  flex: 1;
+}
 .settings .key-rec {
   width: 7em;
   text-align: center;

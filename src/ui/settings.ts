@@ -56,6 +56,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
   };
   const input = (props: object) => make('input', props) as HTMLInputElement;
   let s = settings;
+  let keyQuery = ''; // Hotkeys' search, kept while its chapter redraws
   const set = (next: Settings, redraw = true) => {
     s = next;
     localStorage.setItem(KEY, JSON.stringify(s));
@@ -305,14 +306,14 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
           };
           return field;
         };
-        const rows = CHAPTERS.flatMap((chapter) => [
-          make('tr', { className: 'chapter' }, make('th', { colSpan: 2 }, chapter)),
-          ...keys
+        const found: [HTMLElement, HTMLElement[]][] = []; // each chapter's head and rows, for the search
+        const rows = CHAPTERS.flatMap((chapter) => {
+          const members = keys
             .filter(([, k]) => k.chapter === chapter)
             .map(([action, k]) => {
               const combos = keysOf(action);
               const warn = combos.flatMap((c) => clash(action, c));
-              return make(
+              const row = make(
                 'tr',
                 { title: k.hint },
                 make('td', {}, k.name, ...(keysOf(action) !== k.default ? [make('span', { className: 'changed', title: 'Changed from its default' }, ' •')] : []), make('div', { className: 'hint' }, k.hint)),
@@ -338,8 +339,28 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
                   ...(warn.length ? [make('div', { className: 'warn' }, `Also: ${[...new Set(warn)].join(', ')}`)] : []),
                 ),
               );
-            }),
-        ]);
+              row.dataset.action = action;
+              return row;
+            });
+          const head = make('tr', { className: 'chapter' }, make('th', { colSpan: 2 }, chapter));
+          found.push([head, members]);
+          return [head, ...members];
+        });
+        // one character: where that key is used (with any modifiers); more: names, hints and keys that contain it
+        const search = input({ type: 'search', className: 'key-search', value: keyQuery, placeholder: 'Find a command, or a key (one letter: where it is used)', spellcheck: false });
+        const filter = () => {
+          keyQuery = search.value;
+          const q = keyQuery.length === 1 ? keyQuery.toLowerCase() : keyQuery.trim().toLowerCase();
+          const hits = (a: Action) =>
+            q.length === 1 ? keysOf(a).some((c) => c.key === q) : `${KEYS[a].name} ${KEYS[a].hint}`.toLowerCase().includes(q) || keysOf(a).some((c) => comboText(c).toLowerCase().includes(q));
+          for (const [head, members] of found) {
+            for (const tr of members) tr.hidden = !!q && !hits(tr.dataset.action as Action);
+            head.hidden = members.every((tr) => tr.hidden);
+          }
+        };
+        search.oninput = filter;
+        filter();
+        setTimeout(() => search.isConnected && search.focus());
         // the modifiers: what they mean at a click and while moving, each switched to another
         const roles = Object.entries(MODS) as [Role, (typeof MODS)[Role]][];
         const modRows = roles.map(([r, m]) => {
@@ -355,7 +376,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         return [
           make('h3', {}, 'Hotkeys'),
           make('p', { className: 'hint' }, 'Click a key and press the new one (with its modifiers); + adds one more, the bin drops one. Keys also used elsewhere are marked. They are kept in this browser.'),
-          make('div', { className: 'row' }, make('button', { textContent: 'Reset to defaults', title: 'Every key and modifier back as it came', onclick: () => (resetKeys(), draw()) })),
+          make('div', { className: 'row' }, search, make('button', { textContent: 'Reset to defaults', title: 'Every key and modifier back as it came', onclick: () => (resetKeys(), draw()) })),
           make('table', { className: 'hotkeys' }, make('tbody', {}, ...rows)),
           make('h3', {}, 'Modifiers'),
           make('p', { className: 'hint' }, 'At a click they change what is picked; while moving, how things move. Without one, a drag moves in steps that follow the zoom. Changing them can clash with the system or each other: the app warns, but lets you.'),
