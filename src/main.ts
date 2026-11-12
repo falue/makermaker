@@ -714,18 +714,22 @@ function update() {
   }
   // sketches in the world: base planes as they are, face sketches with their body
   const palette = [0x3b6fd8, 0x9b4dca, 0x0f9d8a, 0x5a8f29, 0xc2417a, 0x8a6d3b];
-  const shown: ViewSketch[] = doc.sketches.flatMap((s, i) => {
+  // hidden ones too, for their rows' hover light
+  const allSketches = doc.sketches.flatMap((s, i) => {
     const r = sketches.get(s.id);
     const p = r?.plane;
-    if (!r || !p || !s.visible || (hideAll.sketches && s.id !== sketching) || !shownIn(s.group)) return [];
+    if (!r || !p) return [];
+    const visible = s.visible && !(hideAll.sketches && s.id !== sketching) && shownIn(s.group);
     // a sketch moves with the body that extrudes it (its extrusion lies in that body's coordinates), else a base-plane one with its group
     const carrier = carrierOf(doc, s.id);
     const world = worldFrame(p);
     // (a carried sketch off a base plane lies in its carrier's group's coordinates, as the carrier's extrusion does)
     const carried = (c: string, f: Frame) => placeFrame(bodyPlace(c), p.kind === 'base' ? f : placeFrame(toPlace(parentPlace(c)), f, true));
     const frame = world && (carrier && bodyPlaces.has(carrier) ? carried(carrier, world) : p.kind === 'base' ? placeFrame(toPlace(groupPlace(s.group)), world) : world);
-    return frame ? [{ id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes, groups: s.groups }] : [];
+    return frame ? [{ visible, sketch: { id: s.id, color: palette[i % palette.length], frame, placement: p, shapes: r.shapes, groups: s.groups } satisfies ViewSketch }] : [];
   });
+  const shown = allSketches.flatMap((x) => (x.visible ? [x.sketch] : []));
+  viewer.hiddenSketches = allSketches.flatMap((x) => (x.visible ? [] : [x.sketch]));
   viewer.setCustomSections(
     doc.sections.flatMap((c, i) => {
       const offset = resolve(c.offset, lookup, `sections.${i}.offset`, exprErrors);

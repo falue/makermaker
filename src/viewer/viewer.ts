@@ -347,6 +347,8 @@ export class Viewer implements ToolView {
   /** End faces of extrusions, where sketches can start. */
   /** Visible sketches (world frames) and the selected one with its selected shapes. */
   sketches: ViewSketch[] = [];
+  /** Hidden sketches, placed: only for a list row's hover light. */
+  hiddenSketches: ViewSketch[] = [];
   /** `rect`: its rectangle in its own coordinates (u0, v0, u1, v1). */
   workPlanes: { id: string; name: string; frame: Frame; rect: [number, number, number, number] }[] = [];
   private workMark = new THREE.Group();
@@ -1746,7 +1748,7 @@ export class Viewer implements ToolView {
   lightSketch(id: string | null) {
     for (const o of this.sketchHover.children) ((o as LineSegments2).geometry.dispose(), ((o as LineSegments2).material as THREE.Material).dispose());
     this.sketchHover.clear();
-    const s = id ? this.sketches.find((k) => k.id === id) : undefined;
+    const s = id ? [...this.sketches, ...this.hiddenSketches].find((k) => k.id === id) : undefined;
     for (const q of s?.shapes ?? []) this.sketchHover.add(outline(q, s!.frame, 0xff8c1a, false, 1.5, 3));
     this.sketchHover.traverse((o) => (o.renderOrder = 1e6));
     this.render();
@@ -3250,7 +3252,7 @@ export class Viewer implements ToolView {
 
   /** Outlines bodies orange (hovered in the list; none: clears it); off the view, an arrow at its edge points to them. */
   lightBodies(ids: string[]) {
-    this.hovered = ids.filter((id) => this.bodies.has(id) && !this.hidden.has(id));
+    this.hovered = ids.filter((id) => this.bodies.has(id)); // hidden ones too: their outline shows where they are
     this.render();
   }
 
@@ -3349,7 +3351,7 @@ export class Viewer implements ToolView {
       [0xe5 / 255, 0x48 / 255, 0x4d / 255],
     );
     // hovered in the list: orange, a temporary mark
-    this.outline(this.hovered.filter((id) => !this.hidden.has(id)).flatMap((id) => (this.bodies.get(id)?.children[0] as THREE.Mesh | undefined) ?? []), [1, 0x8c / 255, 0x1a / 255]);
+    this.outline(this.hovered.flatMap((id) => (this.bodies.get(id)?.children[0] as THREE.Mesh | undefined) ?? []), [1, 0x8c / 255, 0x1a / 255]);
   }
 
   /** The silhouette of `solids` outlined in `rgb` (0..1) over the picture. */
