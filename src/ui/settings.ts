@@ -408,7 +408,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     dialog.remove();
   };
   const esc = (e: KeyboardEvent) => pressed(e, 'cancel') && (e.stopImmediatePropagation(), close());
-  const shown = document.getElementById('version'); // the bottom bar's (filled in by vite.config.ts)
+  const shown = document.getElementById('version'); // hidden in the footer (filled in by vite.config.ts)
   const dialog = make(
     'div',
     {
