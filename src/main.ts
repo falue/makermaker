@@ -1243,6 +1243,24 @@ function selectAll() {
   showSelection();
 }
 
+/** What is selected, counted for the footer ("2 Bodies, 1 Sketch", "1 Edge"; none: ''). */
+function selectionCount() {
+  const doc = history.current;
+  const count = (n: number, one: string, many: string) => (n ? `${n} ${n > 1 ? many : one}` : '');
+  if (pickedPart) return pickedPart.kind === 'face' ? count(pickedPart.count ?? 1, 'Face', 'Faces') : count(pickedPart.count ?? 1, 'Edge', 'Edges');
+  if (shapeSel.length) return count(shapeSel.length, 'Shape', 'Shapes');
+  const kinds: [{ id: string }[], string, string][] = [
+    [doc.bodies, 'Body', 'Bodies'],
+    [doc.sketches, 'Sketch', 'Sketches'],
+    [doc.groups, 'Group', 'Groups'],
+    [doc.planes, 'Work plane', 'Work planes'],
+    [doc.images, 'Image', 'Images'],
+    [doc.joints, 'Joint', 'Joints'],
+    [doc.sections, 'Section', 'Sections'],
+  ];
+  return kinds.map(([list, one, many]) => count(selected.filter((id) => list.some((x) => x.id === id)).length, one, many)).filter(Boolean).join(', ');
+}
+
 /** Areas and volumes one unit up (mm → cm², cm³), else the numbers get long: the unit's name and size (mm). */
 const UP: Record<Unit, [string, number]> = { mm: ['cm', 10], cm: ['dm', 100], m: ['m', 1000], in: ['ft', 304.8], ft: ['ft', 304.8] };
 
@@ -7242,6 +7260,7 @@ function render() {
     status,
     busy: [...new Set([...reading].filter(([id]) => doc.bodies.some((b) => b.id === id)).map(([, r]) => `Reading ${r.name}`)), ...busy],
     shapes: shapeSel,
+    count: selectionCount(),
     active: pending?.tool ?? (toolMode === 'pull' && !viewer.activeTool ? 'extrude' : toolMode === 'plane' ? 'sketch' : viewer.activeTool),
     // the tool's own notes show in the top bar (see showNote); the footer has the hints for what is selected
     hint:

@@ -39,6 +39,8 @@ export interface UIContext {
   busy: string[];
   /** Selected shapes of the selected sketch. */
   shapes: string[];
+  /** What is selected, counted ("2 Bodies"; none: ''): the footer's left end. */
+  count: string;
   /** The active tool, as named in the toolbar (a shape kind, 'extrude', 'sketch', 'boolean', ...). */
   active: string | null;
   /** Replaces the hint bar text while a tool runs. */
@@ -421,6 +423,7 @@ export function renderUI(ctx: UIContext) {
   paintPair();
   $('right').replaceChildren(...right(ctx));
   // the footer: the hints for what is selected (`base`: a running tool's own keys stand there meanwhile, see main's showHint)
+  $('hint-count').textContent = ctx.count;
   const foot = $('hint-text');
   foot.dataset.base = axisHtml(ctx.hint ?? (ctx.sketching ? SKETCH_HINT : hint(ctx.selected.length, ctx.shapes.length))).replace(/\[(.+?)\]/g, '<kbd>$1</kbd>');
   foot.innerHTML = foot.dataset.base;

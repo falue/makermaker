@@ -666,6 +666,12 @@ section .bake.on {
   color: var(--muted);
   font-size: 12px;
 }
+#hint-count {
+  color: var(--text);
+}
+#hint-count:not(:empty) {
+  margin-right: 12px;
+}
 #hint-text {
   flex: 1;
   min-width: 0;
