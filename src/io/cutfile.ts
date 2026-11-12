@@ -45,23 +45,25 @@ function moved(c: Cut, dx: number, dy: number): Cut {
   return { ...c, pts: c.pts.map(m), curves, ...(c.circle ? { circle: { c: m(c.circle.c), r: c.circle.r } } : {}) };
 }
 
+/** A piece placed on a sheet: its cuts and its name over them. */
+export type Placed = { label: Label; cuts: Cut[] };
+
 /**
  * Pieces side by side on one sheet: in rows, tallest first, the rows about as wide as the sheet is tall; `gap` mm
  * between them, each one's name `text` mm high over its top left.
  */
-export function sheetOf(pieces: { name: string; cuts: Cut[] }[], gap = 5, text = 4): { cuts: Cut[]; labels: Label[] } {
+export function sheetOf(pieces: { name: string; cuts: Cut[] }[], gap = 10, text = 4): Placed[] {
   const sized = pieces.filter((p) => p.cuts.length).map((p) => {
     const [x0, y0, x1, y1] = boxOf(p.cuts);
     return { ...p, x0, y0, w: x1 - x0, h: y1 - y0 + text + 1 };
   });
   const area = sized.reduce((n, p) => n + (p.w + gap) * (p.h + gap), 0);
   const width = Math.max(...sized.map((p) => p.w), Math.sqrt(area));
-  const out: { cuts: Cut[]; labels: Label[] } = { cuts: [], labels: [] };
+  const out: Placed[] = [];
   let [x, y, row] = [0, 0, 0];
   for (const p of sized.sort((a, b) => b.h - a.h)) {
     if (x > 0 && x + p.w > width) [x, y, row] = [0, y + row + gap, 0];
-    out.labels.push({ at: [x, y + text], text: p.name, size: text });
-    out.cuts.push(...p.cuts.map((c) => moved(c, x - p.x0, y + text + 1 - p.y0)));
+    out.push({ label: { at: [x, y + text], text: p.name, size: text }, cuts: p.cuts.map((c) => moved(c, x - p.x0, y + text + 1 - p.y0)) });
     [x, row] = [x + p.w + gap, Math.max(row, p.h)];
   }
   return out;
@@ -75,26 +77,45 @@ function arcFlags(a: P2, c: Curve | null, b: P2) {
   return arc && { r: arc.r, large: Math.abs(arc.a1 - arc.a0) > Math.PI, rising: arc.a1 > arc.a0, turn: arc.a1 - arc.a0 };
 }
 
-/** An SVG of the cuts at 1:1 in mm (`margin` around them), red 1 pt lines (`stroke` mm), marks blue, the labels in black; arcs as arcs, beziers as cubics. */
-export function svgOf(cuts: Cut[], margin = 2, labels: Label[] = [], stroke = 25.4 / 72): string {
-  const [x0, y0, x1, y1] = boxOf(cuts, labels);
-  const [x, y, w, h] = [x0 - margin, y0 - margin, x1 - x0 + 2 * margin, y1 - y0 + 2 * margin];
-  const shape = (c: Cut) => {
-    if (c.circle) return `<circle cx="${f(c.circle.c[0])}" cy="${f(c.circle.c[1])}" r="${f(c.circle.r)}"/>`;
-    const sides = (c.open ? c.pts.slice(0, -1) : c.pts).map((a, i) => {
-      const [b, k] = [c.pts[(i + 1) % c.pts.length], c.curves[i]];
-      const arc = arcFlags(a, k, b);
-      if (arc) return `A${f(arc.r)} ${f(arc.r)} 0 ${+arc.large} ${+arc.rising} ${f(b[0])} ${f(b[1])}`;
-      return k && 'c1' in k ? `C${f(k.c1[0])} ${f(k.c1[1])} ${f(k.c2[0])} ${f(k.c2[1])} ${f(b[0])} ${f(b[1])}` : `L${f(b[0])} ${f(b[1])}`;
-    });
-    if (c.open) return `<path d="M${f(c.pts[0][0])} ${f(c.pts[0][1])}${sides.join('')}"/>`;
-    return `<path d="M${f(c.pts[0][0])} ${f(c.pts[0][1])}${sides.slice(0, -1).join('')}${sides.at(-1)!.startsWith('L') ? '' : sides.at(-1)}Z"/>`;
-  };
-  const group = (colour: string, of: Cut[]) => (of.length ? `\n  <g fill="none" stroke="${colour}" stroke-width="${f(stroke)}">\n    ${of.map(shape).join('\n    ')}\n  </g>` : '');
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${f(w)}mm" height="${f(h)}mm" viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}">${group('#ff0000', cuts.filter((c) => !c.mark))}${group('#0000ff', cuts.filter((c) => c.mark))}${labels.length ? `\n  <g fill="#000000" font-family="sans-serif">\n    ${labels.map((l) => `<text x="${f(l.at[0])}" y="${f(l.at[1])}" font-size="${f(l.size)}">${xml(l.text)}</text>`).join('\n    ')}\n  </g>` : ''}
+/** One cut as an SVG element: arcs as arcs, beziers as cubics. */
+function svgShape(c: Cut) {
+  if (c.circle) return `<circle cx="${f(c.circle.c[0])}" cy="${f(c.circle.c[1])}" r="${f(c.circle.r)}"/>`;
+  const sides = (c.open ? c.pts.slice(0, -1) : c.pts).map((a, i) => {
+    const [b, k] = [c.pts[(i + 1) % c.pts.length], c.curves[i]];
+    const arc = arcFlags(a, k, b);
+    if (arc) return `A${f(arc.r)} ${f(arc.r)} 0 ${+arc.large} ${+arc.rising} ${f(b[0])} ${f(b[1])}`;
+    return k && 'c1' in k ? `C${f(k.c1[0])} ${f(k.c1[1])} ${f(k.c2[0])} ${f(k.c2[1])} ${f(b[0])} ${f(b[1])}` : `L${f(b[0])} ${f(b[1])}`;
+  });
+  if (c.open) return `<path d="M${f(c.pts[0][0])} ${f(c.pts[0][1])}${sides.join('')}"/>`;
+  return `<path d="M${f(c.pts[0][0])} ${f(c.pts[0][1])}${sides.slice(0, -1).join('')}${sides.at(-1)!.startsWith('L') ? '' : sides.at(-1)}Z"/>`;
+}
+
+/** Cuts red and marks blue, each kind in a group of its own (`stroke` mm wide), indented by `pad`. */
+function svgCuts(cuts: Cut[], stroke: number, pad: string) {
+  const group = (colour: string, of: Cut[]) => (of.length ? `\n${pad}<g fill="none" stroke="${colour}" stroke-width="${f(stroke)}">\n${pad}  ${of.map(svgShape).join(`\n${pad}  `)}\n${pad}</g>` : '');
+  return group('#ff0000', cuts.filter((c) => !c.mark)) + group('#0000ff', cuts.filter((c) => c.mark));
+}
+
+/** An SVG document `margin` around `box` (min x, min y, max x, max y; mm) holding `body`. */
+const svgFile = ([x0, y0, x1, y1]: number[], margin: number, body: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${f(x1 - x0 + 2 * margin)}mm" height="${f(y1 - y0 + 2 * margin)}mm" viewBox="${f(x0 - margin)} ${f(y0 - margin)} ${f(x1 - x0 + 2 * margin)} ${f(y1 - y0 + 2 * margin)}">${body}
 </svg>
 `;
+
+/** An SVG of the cuts at 1:1 in mm (`margin` around them): red 1 pt lines (`stroke` mm), marks blue. */
+export const svgOf = (cuts: Cut[], margin = 2, stroke = 25.4 / 72) => svgFile(boxOf(cuts), margin, svgCuts(cuts, stroke, '  '));
+
+/** An SVG of a sheet (see `sheetOf`): each piece a group (named by its id) of its cuts and its name in black. */
+export function sheetSvg(pieces: Placed[], margin = 2, stroke = 25.4 / 72): string {
+  const taken = new Set<string>();
+  const id = (name: string) => {
+    const base = name.replace(/[^\w-]+/g, '_').replace(/^(?=\d|-|$)/, 'p');
+    let out = base;
+    for (let k = 2; taken.has(out); k++) out = `${base}_${k}`;
+    return taken.add(out), out;
+  };
+  const groups = pieces.map(({ label: l, cuts }) => `\n  <g id="${id(l.text)}">${svgCuts(cuts, stroke, '    ')}\n    <text x="${f(l.at[0])}" y="${f(l.at[1])}" font-size="${f(l.size)}" font-family="sans-serif" fill="#000000">${xml(l.text)}</text>\n  </g>`);
+  return svgFile(boxOf(pieces.flatMap((p) => p.cuts), pieces.map((p) => p.label)), margin, groups.join(''));
 }
 
 /**

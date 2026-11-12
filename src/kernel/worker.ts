@@ -5,7 +5,7 @@ import { exportSTEP, getOC, setOC, type Shape3D } from 'replicad';
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
-import { dxfOf, sheetOf, svgOf, type Cut } from '../io/cutfile';
+import { dxfOf, sheetOf, sheetSvg, type Cut } from '../io/cutfile';
 import { laserCuts, withKerf } from './laser';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
@@ -200,8 +200,9 @@ async function handle(data: Job) {
           failed.push(`${label ?? name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
         }
       if (pieces.length) {
-        const { cuts, labels } = sheetOf(pieces);
-        files.push({ name: 'sheet', data: new TextEncoder().encode(data.format === 'svg' ? svgOf(cuts, 2, labels) : dxfOf(cuts, labels)).buffer as ArrayBuffer });
+        const sheet = sheetOf(pieces);
+        const text = data.format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.map((p) => p.label));
+        files.push({ name: 'sheet', data: new TextEncoder().encode(text).buffer as ArrayBuffer });
       }
       return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
     }

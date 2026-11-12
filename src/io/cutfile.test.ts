@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dxfOf, sheetOf, sketchCuts, svgOf, type Cut } from './cutfile';
+import { dxfOf, sheetOf, sheetSvg, sketchCuts, svgOf, type Cut } from './cutfile';
 
 describe('sketch drawings', () => {
   const shapes = [
@@ -28,7 +28,8 @@ describe('sketch drawings', () => {
   });
   it('lays pieces out on one sheet, each named over its top left, 1 pt lines, the names in black', () => {
     const square = (w: number): Cut[] => [{ hole: false, pts: [[0, 0], [w, 0], [w, w], [0, w]], curves: [null, null, null, null] }];
-    const { cuts, labels } = sheetOf([{ name: 'small', cuts: square(10) }, { name: 'big & tall', cuts: square(30) }]);
+    const sheet = sheetOf([{ name: 'small', cuts: square(10) }, { name: 'big & tall', cuts: square(30) }]);
+    const [cuts, labels] = [sheet.flatMap((p) => p.cuts), sheet.map((p) => p.label)];
     expect(labels.map((l) => l.text)).toEqual(['big & tall', 'small']); // tallest first
     const box = (c: Cut) => [Math.min(...c.pts.map((p) => p[0])), Math.min(...c.pts.map((p) => p[1])), Math.max(...c.pts.map((p) => p[0])), Math.max(...c.pts.map((p) => p[1]))];
     const [a, b] = cuts.map(box);
@@ -38,9 +39,12 @@ describe('sketch drawings', () => {
       expect(l.at[0]).toBeCloseTo(x0, 6); // at its left
       expect(l.at[1]).toBeLessThan(y0); // over its top (y down)
     });
-    const svg = svgOf(cuts, 2, labels);
+    expect(Math.max(b[0] - a[2], a[0] - b[2], b[1] - a[3], a[1] - b[3])).toBeGreaterThanOrEqual(10 - 1e-9); // 10 mm apart at least
+    // each piece a group of its cuts and its name
+    const svg = sheetSvg(sheet);
     expect(svg).toContain('stroke-width="0.3528"');
-    expect(svg).toMatch(/<g fill="#000000"[^>]*>\s*<text[^>]*>big &amp; tall<\/text>/);
+    expect(svg).toMatch(/<g id="big_tall">\s*<g fill="none" stroke="#ff0000"[^>]*>\s*<path[^>]*\/>\s*<\/g>\s*<text[^>]*fill="#000000">big &amp; tall<\/text>\s*<\/g>/);
+    expect(svg.match(/<g id=/g)).toHaveLength(2);
     expect(dxfOf(cuts, labels)).toMatch(/\nTEXT\n8\nLABEL\n62\n7\n/);
   });
 });
