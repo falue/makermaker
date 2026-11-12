@@ -1792,6 +1792,10 @@ button.primary.wide {
   margin: 4px 0;
 }
 
+.settings .version {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
 .settings .columns {
   display: grid;
   grid-template-columns: 150px 1fr;

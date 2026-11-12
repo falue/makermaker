@@ -387,6 +387,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
     dialog.remove();
   };
   const esc = (e: KeyboardEvent) => pressed(e, 'cancel') && (e.stopImmediatePropagation(), close());
+  const shown = document.getElementById('version'); // the bottom bar's (filled in by vite.config.ts)
   const dialog = make(
     'div',
     {
@@ -396,7 +397,7 @@ export function openSettings(settings: Settings, changed: (next: Settings) => vo
         if (e.target === dialog) close();
       },
     },
-    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Settings'), closeButton('Close (Esc)', close)), make('div', { className: 'columns' }, nav, body)),
+    make('div', { className: 'box' }, make('div', { className: 'head' }, make('h2', {}, 'Settings'), closeButton('Close (Esc)', close)), make('div', { className: 'columns' }, nav, body), make('p', { className: 'version hint', textContent: shown?.textContent ?? '', title: shown?.title ?? '' })),
   );
   addEventListener('keydown', esc, { capture: true });
   document.body.append(dialog);
