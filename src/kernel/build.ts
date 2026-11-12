@@ -775,12 +775,12 @@ function spaceLine(f: Frame, { pts, z }: { pts: [number, number][]; z?: number[]
 function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
   if (!shape) throw new Error('nothing to hollow yet');
   if (!(s.thickness > 0)) throw new Error('the wall thickness must be greater than 0');
-  if (s.open.length) return shape.shell(s.thickness, (f) => f.either(s.open.map((p) => (g: typeof f) => g.near(p, ON_FACE))));
+  if (s.open.length) return hollowed(shape, s.thickness, new FaceFinder().either(s.open.map((p) => (g: FaceFinder) => g.near(p, ON_FACE))).find(shape));
   const flat = shape.faces.filter((f) => f.geomType === 'PLANE').sort((a, b) => measureArea(b) - measureArea(a))[0];
   if (!flat) throw new Error('a closed shell needs a flat face (or pick faces to leave open)');
   const at = flat.center;
   const n = flat.normalAt(at);
-  const hollow = shape.shell(s.thickness, (f) => f.containsPoint(at.toTuple()));
+  const hollow = hollowed(shape, s.thickness, [flat]);
   // the wall that face was: the body within the thickness of it
   const b = shape.boundingBox;
   const far = 2 * Math.hypot(b.width, b.height, b.depth) + 10;
@@ -791,7 +791,36 @@ function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
   return joined(hollow, wall, 'add');
 }
 
-/** `shape` grown by `by` on all sides (`round`: the same distance everywhere; else sharp corners, a box stays a box). */
+/**
+ * `shape` hollowed to walls `t` thick, `open` faces left open. Adjacent faces only are intersected first, failing that all
+ * against all: a face that gets too narrow for the walls then goes (OpenCascade otherwise hands back the body unchanged).
+ * A broken result, or one not smaller than `shape`, does not count.
+ */
+function hollowed(shape: Shape3D, t: number, open: BRepFace[]): Shape3D {
+  const oc = getOC();
+  const before = measureVolume(shape);
+  for (const all of [false, true]) {
+    const faces = new oc.NCollection_List_TopoDS_Shape();
+    for (const f of open) faces.Append(f.wrapped);
+    const maker = new oc.BRepOffsetAPI_MakeThickSolid();
+    const progress = new oc.Message_ProgressRange();
+    try {
+      maker.MakeThickSolidByJoin(shape.wrapped, faces, -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, all, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, progress);
+      const out = cast(maker.Shape()) as Shape3D;
+      const v = measureVolume(out);
+      if (valid(out) && v > 0 && v < before - 1e-6) return out;
+      out.delete();
+    } catch {
+      // the next way, if any
+    } finally {
+      faces.delete();
+      maker.delete();
+      progress.delete();
+    }
+  }
+  throw new Error(`walls ${t} mm thick do not fit: try thinner ones`);
+}
+
 /**
  * `shape` grown by `by` (`round`: rounded edges, else sharp). Holes and concave rounds `by` or less in radius go first (see
  * `withoutSmallHollows`); then adjacent faces only are intersected, failing that all against all (a gap that closes). A

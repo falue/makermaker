@@ -41,6 +41,9 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Assumed for the sphere's ways: three points give the smallest ball (three alone do not fix one), four the exact one. "Three planes and a centre or diameter": after the third plane, the pointer sets where its centre lies (snaps count) or a typed Ø sets the size. A sphere is plain numbers afterwards: it does not follow the points or planes. No Python command of its own yet: `cad.sphere` takes a centre and diameter. T and M do not reach into its Ø field yet.
 - `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
+## Shell
+- A wall that does not fit shows as an error in the body's card; the Wall panel itself does not say so.
+
 ## Coat
 - Growing fills holes and cuts back concave rounds smaller than the thickness only where they are plain cylinders: torus corners, spheres and spline rounds smaller than it can still make it fail. The montage block in testdata/türkartenleser 4.mmk (the case reported 2026-11-12) was not tried again in the app: it builds only there.
 - A concave round is cut back over its whole length along its axis: one whose ends are cut at an angle can lose a sliver beside them before growing.

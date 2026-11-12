@@ -364,6 +364,16 @@ describe('buildBody', () => {
     closed.done();
   });
 
+  it('hollows with walls wider than a narrow face: that face goes; walls that do not fit say so', () => {
+    // a shelf's side: its 8 mm top beside the slant vanishes inside walls over ~6.9 mm
+    const shelf = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[9.21216, 0], [200, 0], [200, 80], [192, 80], [9.21216, 20]], r: 0, rot: 0 }], depth: 200, mode: 'add', through: false } as BuildFeature;
+    const whole = measureVolume(buildBody([shelf]));
+    const per = [7, 8, 12].map((t) => measureVolume(buildBody([shelf, { id: 'h', type: 'shell', thickness: t, open: [[100, 0, 100]] } as BuildFeature])) / t);
+    for (const v of per) expect(v).toBeLessThan(whole / 10); // hollow: about its walls' area per mm
+    expect(per[0]).toBeGreaterThan(per[2]); // thicker walls meet inside: a little less per mm
+    expect(() => buildBody([shelf, { id: 'h', type: 'shell', thickness: 150, open: [[100, 0, 100]] } as BuildFeature])).toThrow(/do not fit/);
+  });
+
   it('hollows a chamfered body with its chamfers inside too, and a bulged one', () => {
     const chamfer = { id: 'c', type: 'finish', mode: 'chamfer', size: 6, edges: 'vertical', enabled: true, baked: false, skip: [] } as BuildFeature;
     const shell = { id: 'h', type: 'shell', thickness: 2, open: [[0, 0, 20]] } as BuildFeature;
