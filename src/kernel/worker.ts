@@ -4,8 +4,9 @@ import wasmUrl from 'replicad-opencascadejs/wasm?url';
 import { deserializeShape, exportSTEP, getOC, setOC, type Shape3D } from 'replicad';
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
-import type { Place } from '../doc/frames';
-import { dxfOf, sheetOf, sheetSvg, type Cut } from '../io/cutfile';
+import { placed, type Place } from '../doc/frames';
+import { dxfOf, sheetOf, sheetSvg, type Cut, type Label } from '../io/cutfile';
+import { legend, type Anchor } from './legend';
 import { laserPart, withKerf } from './laser';
 import { unwrap, type UnwrapPiece } from './unwrap';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
@@ -37,6 +38,7 @@ export type Request =
   | { kind: 'check'; id: number; bodies: ExportBody[] }
   | { kind: 'unwrap'; id: number; bodies: Pick<ExportBody, 'name' | 'features'>[] }
   | { kind: 'laser'; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
+  | { kind: 'legend'; id: number; bodies: Pick<ExportBody, 'features' | 'place'>[]; anchors: (Anchor & { body: number })[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
   | { kind: 'clash'; id: number; ask: ClashAsk; extra: Shared[] }
   | { kind: 'share'; id: number; bodies: string[] }
@@ -51,7 +53,8 @@ export type Response =
   | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] }
   | { kind: 'check'; id: number; results: PrintCheck[] }
   | { kind: 'unwrap'; id: number; results: Unwrapped[] }
-  | { kind: 'laser'; id: number; pieces: { name: string; cuts: Cut[] }[]; failed: string[] }
+  | { kind: 'laser'; id: number; pieces: Piece[]; failed: string[] }
+  | { kind: 'legend'; id: number; piece: Piece | null }
   | { kind: 'measure'; id: number; answers: MeasureAnswer[] }
   | { kind: 'clash'; id: number; result: ClashResult }
   | { kind: 'share'; id: number; solids: Shared[] }
@@ -59,9 +62,23 @@ export type Response =
 
 const PRINT = { tolerance: 0.01, angularTolerance: 0.1 };
 
+/** A sheet's piece: its name, cuts and texts (a key's numbers). */
+export type Piece = { name: string; cuts: Cut[]; notes?: Label[] };
+
+/** The key drawing of `shapes` (placed) as one more piece, named Key; none when it cannot be drawn. */
+function keyPiece(shapes: Shape3D[], anchors: Anchor[]): Piece[] {
+  try {
+    const key = legend(shapes, anchors);
+    return key ? [{ name: 'Key', ...key }] : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * The laser pieces of `bodies`, named (their label), kerf allowed for; the others (and `around`) in the world, for
- * what a straight cut would push into. Those that cannot be made go into `failed`, with why.
+ * The laser pieces of `bodies`, numbered and named (their label), kerf allowed for, and a key drawing of them with the
+ * numbers on their faces (the last piece); the others (and `around`) in the world, for what a straight cut would push
+ * into. Those that cannot be made go into `failed`, with why.
  */
 function laserPieces(bodies: ExportBody[], others: Pick<ExportBody, 'features' | 'place'>[] = [], failed: string[]) {
   const world = [...bodies, ...others].map(({ features, place }) => {
@@ -76,13 +93,19 @@ function laserPieces(bodies: ExportBody[], others: Pick<ExportBody, 'features' |
   const near = (all: (Shape3D | null)[], i: number) => all.flatMap((s, j) => (s && j !== i ? [into(s, i)] : []));
   // twice: first each one's own sides, then each makes room for what the others' laser parts still push into it
   const lasered: (Shape3D | null)[] = [];
-  const pieces: { name: string; cuts: Cut[] }[] = [];
+  const pieces: Piece[] = [];
+  const anchors: Anchor[] = [];
   for (const pass of [0, 1])
     bodies.forEach(({ name, label, features, place, face, kerf }, i) => {
       const [around, parts] = [near(world, i), pass ? near(lasered, i) : []];
       try {
-        const { cuts, solid } = laserPart(features, face, around, parts);
-        if (pass) pieces.push({ name: label ?? name, cuts: withKerf(cuts, kerf ?? 0) }), solid.delete();
+        const { cuts, solid, anchor } = laserPart(features, face, around, parts);
+        if (pass) {
+          const n = pieces.length + 1;
+          pieces.push({ name: `${n} ${label ?? name}`, cuts: withKerf(cuts, kerf ?? 0) });
+          anchors.push({ n, at: placed(place, anchor.at), dir: placed(place, anchor.dir, true) });
+          solid.delete();
+        }
         else lasered.push(placeShape(solid, place));
       } catch (e) {
         if (pass) failed.push(`${label ?? name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
@@ -91,8 +114,9 @@ function laserPieces(bodies: ExportBody[], others: Pick<ExportBody, 'features' |
         for (const s of [...around, ...parts]) s.delete();
       }
     });
+  const key = keyPiece(world.slice(0, bodies.length).filter((s): s is Shape3D => !!s), anchors);
   for (const s of [...world, ...lasered]) s?.delete();
-  return { pieces };
+  return { pieces: [...pieces, ...key] };
 }
 
 /** A placed body's triangles for printing, its points merged where they meet (to 0.01 µm). */
@@ -241,6 +265,21 @@ async function handle(data: Job) {
     const failed: string[] = [];
     return postMessage({ kind: 'laser', id: data.id, ...laserPieces(data.bodies, data.around, failed), failed } satisfies Response);
   }
+  if (data.kind === 'legend') {
+    for (const b of data.bodies) await loadImports(b.features);
+    // anchors given in their body's coordinates
+    const shapes = data.bodies.flatMap(({ features, place }) => {
+      try {
+        return [placeShape(buildBody(features), place)];
+      } catch {
+        return [];
+      }
+    });
+    const anchors = data.anchors.map(({ n, body, at, dir }) => ({ n, at: placed(data.bodies[body].place, at), dir: placed(data.bodies[body].place, dir, true) }));
+    const piece = keyPiece(shapes, anchors)[0] ?? null;
+    for (const s of shapes) s.delete();
+    return postMessage({ kind: 'legend', id: data.id, piece } satisfies Response);
+  }
   if (data.kind === 'unwrap') {
     for (const b of data.bodies) await loadImports(b.features);
     const results = data.bodies.map(({ name, features }): Unwrapped => {
@@ -292,7 +331,7 @@ async function handle(data: Job) {
       const { pieces } = laserPieces(data.bodies, data.around, failed);
       if (pieces.length) {
         const sheet = sheetOf(pieces);
-        const text = data.format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.map((p) => p.label));
+        const text = data.format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.flatMap((p) => [p.label, ...p.notes]));
         files.push({ name: 'sheet', data: new TextEncoder().encode(text).buffer as ArrayBuffer });
       }
       return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });

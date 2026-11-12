@@ -38,13 +38,13 @@ import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import type { Exact } from './kernel/exact';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
-import { dxfOf, previewSvg, sheetOf, sheetSvg, sketchCuts, svgOf, type Cut } from './io/cutfile';
+import { dxfOf, previewSvg, sheetOf, sheetSvg, sketchCuts, svgOf } from './io/cutfile';
 import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature, CappedEdge, Sweep } from './kernel/build';
 import { Kernel } from './kernel/client';
 import { canUseFolders, recall, remember } from './io/scriptFolder';
 import { openVersions, type Picture } from './ui/versions';
-import type { ExportBody, ExportFormat, PrintCheck, Unwrapped } from './kernel/worker';
+import type { ExportBody, ExportFormat, Piece, PrintCheck, Unwrapped } from './kernel/worker';
 import { commands, COPY_TIP, measureButton, renderUI, scrub, showRenderProgress, showTab, tabOf, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { explodeTree } from './viewer/explode';
@@ -7673,13 +7673,17 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     if (kind === 'unwrap' && !unwrappedSheet(chosen).length) return fail(chosen.some((b) => !unwraps.has(b.id)) ? 'Still unwrapping: a moment' : 'Nothing unwrapped to export');
     close();
     if (kind === 'print') return void run(() => exportBodies(exportChoice.print, chosen));
-    if (kind === 'unwrap') {
-      const sheet = unwrappedSheet(chosen);
-      const format = exportChoice.unwrap;
-      const text = format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.map((p) => p.label));
-      download(new Blob([text], { type: format === 'svg' ? 'image/svg+xml' : 'image/vnd.dxf' }), `${chosen.length === 1 ? chosen[0].name.replace(/[^\w.-]+/g, '_') || 'body' : project()}_unwrapped.${format}`);
-      return notify(`Exported ${sheet.length} flat piece${sheet.length === 1 ? '' : 's'} of ${chosen.length} bod${chosen.length === 1 ? 'y' : 'ies'} as one ${format.toUpperCase()} file`);
-    }
+    if (kind === 'unwrap')
+      return void run(async () => {
+        // the key drawing too, waited for if it is still being drawn
+        const key = await unwrapKey(chosen).piece;
+        const pieces = unwrappedPieces(chosen);
+        const sheet = sheetOf([...pieces, ...(key ? [key] : [])]);
+        const format = exportChoice.unwrap;
+        const text = format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.flatMap((p) => [p.label, ...p.notes]));
+        download(new Blob([text], { type: format === 'svg' ? 'image/svg+xml' : 'image/vnd.dxf' }), `${chosen.length === 1 ? chosen[0].name.replace(/[^\w.-]+/g, '_') || 'body' : project()}_unwrapped.${format}`);
+        notify(`Exported ${pieces.length} flat piece${pieces.length === 1 ? '' : 's'} of ${chosen.length} bod${chosen.length === 1 ? 'y' : 'ies'}${key ? ' and a key drawing' : ''} as one ${format.toUpperCase()} file`);
+      });
     const kerf = length(exportChoice.kerf) ?? 0;
     // the ones switched off still stand by them
     void run(() => exportBodies(exportChoice.laser, chosen, (b) => ({ face: faces.get(b.id), kerf }), bodies.filter((b) => !on.has(b.id))));
@@ -7693,12 +7697,27 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   };
   // the checks for printing, filled in when they come
   const checks = new Map<string, PrintCheck>();
-  // the bodies unwrapped, filled in when they come; their pieces on one sheet, named after the body (numbered if several)
+  // the bodies unwrapped, filled in when they come; their pieces numbered across the sheet, each named after its body
   const unwraps = new Map<string, Unwrapped>();
-  const unwrappedPieces = (of: Body[]) => of.flatMap((b) => (unwraps.get(b.id)?.pieces ?? []).map((p, i, all) => ({ name: all.length > 1 ? `${b.name} ${i + 1}` : b.name, ...p })));
+  const unwrappedPieces = (of: Body[]) =>
+    of.flatMap((body) => (unwraps.get(body.id)?.pieces ?? []).map((p) => ({ ...p, body }))).map((p, i) => ({ ...p, name: `${i + 1} ${p.body.name}` }));
   const unwrappedSheet = (of: Body[]) => sheetOf(unwrappedPieces(of));
+  // the key drawing of the ones switched on, with each piece's number on its face: asked once per set (all unwrapped)
+  let keyAsked: { key: string; piece: Promise<Piece | null>; done?: Piece | null } = { key: '', piece: Promise.resolve(null) };
+  const unwrapKey = (chosen: Body[]) => {
+    const key = JSON.stringify(chosen.map((b) => b.id));
+    if (key === keyAsked.key || chosen.some((b) => !unwraps.has(b.id))) return keyAsked;
+    const at = new Map(chosen.map((b, i) => [b.id, i]));
+    const anchors = unwrappedPieces(chosen).map((p, i) => ({ n: i + 1, body: at.get(p.body.id)!, ...p.anchor }));
+    const asked: typeof keyAsked = { key, piece: kernel.legend(chosen.map((b) => ({ features: built.get(b.id)!, place: bodyPlace(b.id) })), anchors) };
+    void asked.piece.then((piece) => {
+      asked.done = piece;
+      if (keyAsked === asked && box.isConnected) showPreview();
+    });
+    return (keyAsked = asked);
+  };
   // the laser pieces of the ones switched on, made anew when what goes in changes (the latest asked wins)
-  let lasered: { pieces: { name: string; cuts: Cut[] }[]; failed: string[] } | null = null;
+  let lasered: { pieces: Piece[]; failed: string[] } | null = null;
   let laserKey = '';
   let kerfTimer = 0;
   const laserAsk = () => {
@@ -7718,9 +7737,11 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   // what comes out, below the rows: the pieces of the ones switched on as they will lie on the sheet
   const preview = Object.assign(document.createElement('div'), { className: 'sheet-preview' });
   const showPreview = () => {
-    // unwrapped faces are shaded by their stretch; laser pieces have none
-    const unwrapped = kind === 'unwrap' ? unwrappedPieces(bodies.filter((b) => on.has(b.id))) : [];
-    const pieces = kind === 'laser' ? (lasered?.pieces ?? []) : unwrapped;
+    // unwrapped faces are shaded by their stretch; laser pieces have none; the key drawing last, once it is there
+    const shown = bodies.filter((b) => on.has(b.id));
+    const unwrapped = kind === 'unwrap' ? unwrappedPieces(shown) : [];
+    const key = kind === 'unwrap' && unwrapped.length ? unwrapKey(shown) : null;
+    const pieces = kind === 'laser' ? (lasered?.pieces ?? []) : [...unwrapped, ...(key?.done ? [key.done] : [])];
     const sheet = sheetOf(pieces);
     preview.hidden = !sheet.length && !lasered?.failed.length;
     preview.innerHTML = sheet.length ? previewSvg(sheet, unwrapped.map((p) => p.faces)) : '';

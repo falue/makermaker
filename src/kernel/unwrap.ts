@@ -3,8 +3,27 @@ import type { TopoDS_Edge } from 'replicad-opencascadejs';
 import type { Cut } from '../io/cutfile';
 import { facingOut, lscm, netLines, nets, stretchOf, type FlatFace, type P2 } from './flatten';
 
-/** One net of a body: its outline cut (red) and folds (green marks), y down; each face's loops and stretch, for a preview. */
-export type UnwrapPiece = { cuts: Cut[]; faces: { loops: P2[][]; stretch: number }[] };
+/**
+ * One net of a body: its outline cut (red) and folds (green marks), y down; each face's loops and stretch, for a
+ * preview; `anchor`: a point well inside its biggest face and the way that face looks (body coordinates), for a key.
+ */
+export type UnwrapPiece = { cuts: Cut[]; faces: { loops: P2[][]; stretch: number }[]; anchor: { at: V3; dir: V3 } };
+
+type V3 = [number, number, number];
+
+/** A face's area, and its biggest triangle's middle and outward normal (unit): a point well inside it. */
+function inside({ pts, tris }: FlatFace) {
+  let best = { at: [0, 0, 0] as V3, dir: [0, 0, 1] as V3, area: -1, total: 0 };
+  for (let t = 0; t < tris.length; t += 3) {
+    const [a, b, c] = [tris[t], tris[t + 1], tris[t + 2]].map((i) => [pts[3 * i], pts[3 * i + 1], pts[3 * i + 2]]);
+    const [u, v] = [b.map((x, k) => x - a[k]), c.map((x, k) => x - a[k])];
+    const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const area = Math.hypot(n[0], n[1], n[2]) / 2;
+    best.total += area;
+    if (area > best.area) best = { ...best, at: a.map((x, k) => (x + b[k] + c[k]) / 3) as V3, dir: n.map((x) => x / (2 * area)) as V3, area };
+  }
+  return best;
+}
 
 /** How fine faces are meshed to be flattened: mm off the true face at most, and radians per step round a curve. */
 const MESH = { linear: 0.05, angular: 0.2 };
@@ -104,13 +123,15 @@ export function unwrap(shape: Shape3D): { pieces: UnwrapPiece[]; stretch: number
     stretch.push(kind === 'PLANE' || kind === 'CYLINDRE' || kind === 'CONE' ? 0 : stretchOf(flatFace));
   }
   for (const same of known.values()) for (const e of same) e.delete();
+  const points = faces.map(inside);
   const pieces = nets(faces).map((island) => {
     const { loops, folds, regions } = netLines(island, faces);
     const cuts: Cut[] = [
       ...loops.map((l): Cut => ({ hole: l.hole, pts: l.pts, curves: l.pts.map(() => null), ...(l.closed ? {} : { open: true }) })),
       ...folds.map((pts): Cut => ({ hole: false, pts, curves: pts.map(() => null), open: true, mark: true })),
     ];
-    return { cuts, faces: regions.map((r) => ({ loops: r.loops, stretch: stretch[r.face] })) };
+    const { at, dir } = points[island.faces.reduce((a, b) => (points[b.face].total > points[a.face].total ? b : a)).face];
+    return { cuts, faces: regions.map((r) => ({ loops: r.loops, stretch: stretch[r.face] })), anchor: { at, dir } };
   });
   return { pieces, stretch: Math.max(0, ...stretch) };
 }

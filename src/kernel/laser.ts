@@ -52,6 +52,21 @@ function loopOf(w: Wire, flat: (p: V3) => P2): { pts: P2[]; curves: ({ mid: P2 }
 }
 
 /** The faces of a shape. */
+/** A point well inside a face (its middle may lie in a hole): the middle of its mesh's biggest triangle. */
+function insidePoint(face: Face): V3 {
+  new (getOC().BRepMesh_IncrementalMesh)(face.wrapped, 0.5, false, 0.5, false).delete();
+  const t = face.triangulation();
+  if (!t) return face.center.toTuple() as V3;
+  const p = (i: number): V3 => [t.vertices[3 * i], t.vertices[3 * i + 1], t.vertices[3 * i + 2]];
+  let best: [V3, number] = [face.center.toTuple() as V3, -1];
+  for (let k = 0; k < t.trianglesIndexes.length; k += 3) {
+    const [a, b, c] = [p(t.trianglesIndexes[k]), p(t.trianglesIndexes[k + 1]), p(t.trianglesIndexes[k + 2])];
+    const area = Math.hypot(...cross(sub(b, a), sub(c, a)));
+    if (area > best[1]) best = [[0, 1, 2].map((j) => (a[j] + b[j] + c[j]) / 3) as V3, area];
+  }
+  return best[0];
+}
+
 function facesOf(shape: Shape3D): Face[] {
   return new FaceFinder().find(shape);
 }
@@ -75,7 +90,7 @@ export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): C
  * the part as seen there is cut back to the side's inner edge (a mark there becomes the cut); where one of `parts`
  * (other bodies' laser parts) pushes into this body, the part as seen there is cut away to make room.
  */
-export function laserPart(features: BuildFeature[], face?: { at: V3; n: V3 }, around: Shape3D[] = [], parts: Shape3D[] = []): { cuts: Cut[]; solid: Shape3D } {
+export function laserPart(features: BuildFeature[], face?: { at: V3; n: V3 }, around: Shape3D[] = [], parts: Shape3D[] = []): { cuts: Cut[]; solid: Shape3D; anchor: { at: V3; dir: V3 } } {
   const shape = buildBody(features.filter((f) => f.type !== 'finish'));
   const finished = features.some((f) => f.type === 'finish') ? buildBody(features) : null;
   const slices: Shape3D[] = [];
@@ -124,7 +139,7 @@ export function laserPart(features: BuildFeature[], face?: { at: V3; n: V3 }, ar
       const round = arc && pts.every((p, i) => Math.abs(Math.hypot(p[0] - arc.c[0], p[1] - arc.c[1]) - arc.r) < 1e-6 && curves[i] && Math.abs(Math.hypot(curves[i]!.mid[0] - arc.c[0], curves[i]!.mid[1] - arc.c[1]) - arc.r) < 1e-6);
       return { hole: k > 0, pts, curves, ...(round ? { circle: { c: arc.c, r: arc.r } } : {}) };
     }))];
-    return { cuts, solid };
+    return { cuts, solid, anchor: { at: insidePoint(chosen), dir: n } };
   } finally {
     shape.delete();
     finished?.delete();

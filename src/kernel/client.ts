@@ -4,8 +4,8 @@ import type { AreaMesh, BuildFeature } from './build';
 import type { ClashAsk, ClashResult } from './clash';
 import type { Exact } from './exact';
 import type { MeasureAnswer, MeasureAsk } from './measure';
-import type { Cut } from '../io/cutfile';
-import type { BodyResult, ExportBody, ExportFile, ExportFormat, PrintCheck, Request, Response, Unwrapped } from './worker';
+import type { Anchor } from './legend';
+import type { BodyResult, ExportBody, ExportFile, ExportFormat, Piece, PrintCheck, Request, Response, Unwrapped } from './worker';
 import { stepsKey } from './key';
 
 type BuildPart = Extract<Request, { kind: 'build' }>['bodies'][number];
@@ -112,9 +112,15 @@ export class Kernel {
   }
 
   /** The laser pieces of `bodies`, as an export would cut them (see the worker's `laserPieces`): for a preview. */
-  async laser(bodies: ExportBody[], around: Pick<ExportBody, 'features' | 'place'>[] = []): Promise<{ pieces: { name: string; cuts: Cut[] }[]; failed: string[] }> {
+  async laser(bodies: ExportBody[], around: Pick<ExportBody, 'features' | 'place'>[] = []): Promise<{ pieces: Piece[]; failed: string[] }> {
     const answer = await this.ask(this.shards[0], { kind: 'laser', id: this.nextAsk++, bodies, around });
     return answer.kind === 'laser' ? answer : { pieces: [], failed: [] };
+  }
+
+  /** A key drawing of `bodies` with numbers pointing to `anchors` (in their body's coordinates) as a sheet piece; null: none. */
+  async legend(bodies: Pick<ExportBody, 'features' | 'place'>[], anchors: (Anchor & { body: number })[]): Promise<Piece | null> {
+    const answer = await this.ask(this.shards[0], { kind: 'legend', id: this.nextAsk++, bodies, anchors });
+    return answer.kind === 'legend' ? answer.piece : null;
   }
 
   /** Each body unwrapped into flat nets (see the worker's `unwrap`). */
