@@ -46,6 +46,19 @@ describe('laserSvg', () => {
     expect(marks.map((m) => Math.abs(m.pts[0][0] - x0)).sort((a, b) => a - b).map((d) => +d.toFixed(3))).toEqual([+(tip[0] - inner[0]).toFixed(3), +(tip[0] - crease).toFixed(3)]);
     expect(withKerf(cuts, 1).find((k) => k.mark)).toBe(marks[0]); // a mark is drawn, not cut: no kerf
     expect(dxfOf(cuts)).toMatch(/\nPOLYLINE\n8\nMARK\n62\n5\n/);
+    // filleted all round: rounded corners, the same two lines (as modelled); the far end's square corner, standing at 45°,
+    // rounded by 1: the round's centre √2 back from it along x, its arc 1 out from there, so √2 - 1 shorter (that round
+    // turns away from the view half way: only its half that looks this way counts)
+    const round = laserCuts([...bent, { id: 'f', type: 'finish', mode: 'fillet', size: 1, edges: 'all', enabled: true, baked: false, skip: [] } as BuildFeature], { at: [50, 8, 25], n: [0, 1, 0] });
+    const o = round.filter((k) => !k.mark && !k.hole);
+    expect(o).toHaveLength(1);
+    const [r0, , r1] = bounds({ kind: 'polygon', pts: o[0].pts, curves: o[0].curves, r: 0, rot: 0 });
+    expect(r1 - r0).toBeCloseTo(tip[0] - (Math.SQRT2 - 1), 3);
+    expect(o[0].curves.some(Boolean)).toBe(true);
+    expect(round.filter((k) => k.mark)).toHaveLength(2);
+    // a flat plate chamfered on top: its outline, no lines
+    const plate = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 100, h: 60, r: 0, rot: 0 }], depth: 4, mode: 'add', through: false } as BuildFeature;
+    expect(laserCuts([plate, { id: 'f', type: 'finish', mode: 'chamfer', size: 1, edges: 'all', enabled: true, baked: false, skip: [] } as BuildFeature]).filter((k) => k.mark)).toHaveLength(0);
   });
 
   it('takes a picked face, allows for the kerf and writes DXF', () => {

@@ -1,4 +1,4 @@
-import { basicFaceExtrusion, drawRectangle, FaceFinder, measureArea, Plane, Vector, type Edge, type Face, type Shape3D, type Sketch, type Wire } from 'replicad';
+import { basicFaceExtrusion, cast, drawRectangle, FaceFinder, getOC, measureArea, measureVolume, Plane, Vector, type Edge, type Face, type Shape3D, type Sketch, type Wire } from 'replicad';
 import { arcOf, biarcs, offsetPath } from '../doc/profiles';
 import { svgOf, type Cut } from '../io/cutfile';
 import { buildBody, type BuildFeature } from './build';
@@ -58,9 +58,9 @@ function facesOf(shape: Shape3D): Face[] {
 
 /**
  * A body's cuts for the laser: a flat face (the one through body point `at` facing `n`; else its biggest) with its
- * holes, at 1:1 in mm; with fillets or chamfers, the finished body cut half way through its plate there (rounded
- * corners show, rounded or chamfered faces' edges do not shrink it); with flat faces at an angle to it (a slanted part), the whole
- * body as seen from the face, where those faces meet as marks. Looking at the face from outside; x as level as possible.
+ * holes, at 1:1 in mm; with fillets, chamfers or flat faces at an angle to it (a slanted part), the whole finished body
+ * as seen from the face (rounded corners show, rounded or chamfered edges do not shrink it), where its flat faces meet
+ * at an angle (as modelled, before fillets and chamfers) as marks. Looking at the face from outside; x as level as possible.
  */
 export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): Cut[] {
   const shape = buildBody(features.filter((f) => f.type !== 'finish'));
@@ -80,20 +80,14 @@ export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): C
     const flatten = (p: V3): P2 => [dot(sub(p, o), u), -dot(sub(p, o), v)];
     let cut: Face[] = [chosen];
     let marks: Cut[] = [];
-    // faces looking the same way, some at an angle to it (a slanted part): the whole body as seen from the face
-    const front = flat.filter((f) => dot(unit(f.normalAt(f.center).toTuple() as V3), n) > 1e-6);
-    if (!finished && front.some((f) => dot(unit(f.normalAt(f.center).toTuple() as V3), n) < 1 - 1e-6)) {
-      cut = projected(shape, front, n, slices);
-      marks = creases(front, flatten);
-    } else if (finished) {
-      // the plate: down to the nearest flat face facing the other way
-      const depth = Math.min(...flat.filter((f) => dot(unit(f.normalAt(f.center).toTuple() as V3), n) < -0.999).map((f) => dot(sub(o, f.center.toTuple() as V3), n)).filter((d) => d > 1e-6));
-      if (Number.isFinite(depth)) {
-        const size = 2 * Math.hypot(...sub(shape.boundingBox.bounds[1] as V3, shape.boundingBox.bounds[0] as V3));
-        const sheet = (drawRectangle(size, size).sketchOnPlane(new Plane(sub(o, n.map((x) => (x * depth) / 2) as V3), u, n)) as Sketch).face();
-        slices.push(finished.clone().intersect(sheet));
-        cut = facesOf(slices[0]); // flattened square to n: as if on the face
-      }
+    // a body with fillets, chamfers or faces at an angle to it (a slanted part): the whole of it as seen from the face
+    const whole = finished ?? shape;
+    const front = facesOf(whole).flatMap((f) => seen(f, n));
+    const square = (f: Face) => f.geomType === 'PLANE' && dot(unit(f.normalAt(f.center).toTuple() as V3), n) > 1 - 1e-6;
+    if (finished || flat.some((f) => sees(f, n) && !square(f))) {
+      cut = projected(whole, front, n, slices);
+      // the angles as modelled: not where fillets and chamfers meet
+      marks = creases(flat.filter((f) => sees(f, n)), flatten);
     }
     // the outlines and each one's holes (both calls use up the face they are called on)
     return [...marks, ...cut.flatMap((f) => [f.clone().outerWire(), ...f.clone().innerWires()].map((w, k): Cut => {
@@ -112,7 +106,51 @@ export function laserCuts(features: BuildFeature[], face?: { at: V3; n: V3 }): C
 }
 
 /**
- * `shape` as seen along `n`, flat: each of its faces looking that way (`front`; together they cover what is seen)
+ * What of `f` looks along `n`: a flat face whole or not at all; a cylinder or sphere cut where it turns away (the plane
+ * through its axis or centre, square to `n`), the parts that look that way; another round face whole if some of it does
+ * (seen from both sides it can come to nothing: see `projected`).
+ */
+function seen(f: Face, n: V3): Face[] {
+  if (f.geomType !== 'CYLINDRE' && f.geomType !== 'SPHERE') return sees(f, n) ? [f] : [];
+  const oc = getOC();
+  const surface = new oc.BRepAdaptor_Surface(f.wrapped, false);
+  const xyz = (p: { X(): number; Y(): number; Z(): number }): V3 => [p.X(), p.Y(), p.Z()];
+  let at: V3;
+  let m: V3 = n;
+  if (f.geomType === 'SPHERE') at = xyz(surface.Sphere().Location());
+  else {
+    const ax = surface.Cylinder().Axis();
+    const a = unit(xyz(ax.Direction()));
+    at = xyz(ax.Location());
+    m = sub(n, a.map((v) => v * dot(n, a)) as V3); // square to the axis
+  }
+  surface.delete();
+  if (Math.hypot(...m) < 1e-6) return []; // a cylinder along n: seen edge-on
+  m = unit(m);
+  const size = 4 * Math.hypot(f.boundingBox.width, f.boundingBox.height, f.boundingBox.depth) + 10;
+  const x = Math.abs(m[2]) > 0.999 ? ([1, 0, 0] as V3) : unit(cross([0, 0, 1], m));
+  const blade = (drawRectangle(size, size).sketchOnPlane(new Plane(at, x, m)) as Sketch).face();
+  const [args, tools] = [new oc.NCollection_List_TopoDS_Shape(), new oc.NCollection_List_TopoDS_Shape()];
+  args.Append(f.wrapped);
+  tools.Append(blade.wrapped);
+  const splitter = new oc.BRepAlgoAPI_Splitter();
+  splitter.SetArguments(args);
+  splitter.SetTools(tools);
+  splitter.Build();
+  const parts = splitter.HasErrors() ? [f] : facesOf(cast(splitter.Shape()) as Shape3D);
+  [splitter, args, tools, blade].forEach((o) => o.delete());
+  return parts.filter((p) => dot(unit(p.normalAt(p.pointOnSurface(0.5, 0.5)).toTuple() as V3), n) > 1e-6);
+}
+
+/** Whether some of `f` looks along `n` (a flat face all of it; a round one at any of 25 points over it). */
+function sees(f: Face, n: V3) {
+  if (f.geomType === 'PLANE') return dot(unit(f.normalAt(f.center).toTuple() as V3), n) > 1e-6;
+  const at = [0.02, 0.25, 0.5, 0.75, 0.98];
+  return at.some((a) => at.some((b) => dot(unit(f.normalAt(f.pointOnSurface(a, b)).toTuple() as V3), n) > 1e-3));
+}
+
+/**
+ * `shape` as seen along `n`, flat: each of its faces looking that way (`front`; together they cover what is seen, round ones too)
  * pushed along -n past its lowest point, the faces where they all cross a plane there. Kept in `keep` for deleting.
  */
 function projected(shape: Shape3D, front: Face[], n: V3, keep: Shape3D[]): Face[] {
@@ -122,11 +160,19 @@ function projected(shape: Shape3D, front: Face[], n: V3, keep: Shape3D[]): Face[
   const down = new Vector(n.map((x) => -x * (high - low + 2)) as V3);
   let all: Shape3D | null = null;
   for (const f of front) {
-    const prism = basicFaceExtrusion(f.clone() as Face, down) as Shape3D;
-    const next: Shape3D = all ? all.fuse(prism) : prism;
-    if (all) (all.delete(), prism.delete());
-    all = next;
+    // a round face seen edge-on in places (a hole's wall) gives no volume, or a broken one: it adds nothing seen
+    let prism: Shape3D | null = null;
+    try {
+      prism = basicFaceExtrusion(f.clone() as Face, down) as Shape3D;
+      if (!(Math.abs(measureVolume(prism)) > 1e-6)) throw new Error('flat');
+      const next: Shape3D = all ? all.fuse(prism) : prism;
+      if (all) (all.delete(), prism.delete());
+      all = next;
+    } catch {
+      if (prism !== all) prism?.delete();
+    }
   }
+  if (!all) throw new Error('nothing of it faces that way');
   // a sheet square to n, 1 mm below the lowest point
   const size = 4 * Math.hypot(...sub(hi, lo)) + 10;
   const x = Math.abs(n[2]) > 0.999 ? ([1, 0, 0] as V3) : unit(cross([0, 0, 1], n));
