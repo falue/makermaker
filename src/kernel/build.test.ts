@@ -728,6 +728,7 @@ describe('loft', () => {
     for (const sections of [[section(-6, 36), section(-70, 120)], [section(-70, 120), section(-6, 36)]]) {
       const shape = buildBody([{ id: 'l', type: 'loft', sections, ruled: false } as unknown as BuildFeature, shell]);
       expect(shape.faces.length).toBeGreaterThan(3); // walls, inside and out, and the rim
+      expect(measureVolume(shape)).toBeLessThan(50000); // hollow: of the solid's ~335000 only its walls
       shape.delete();
     }
   });

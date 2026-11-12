@@ -798,7 +798,7 @@ function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
  */
 function hollowed(shape: Shape3D, t: number, open: BRepFace[]): Shape3D {
   const oc = getOC();
-  const before = measureVolume(shape);
+  const before = Math.abs(measureVolume(shape)); // an inside-out solid (a loft picked backwards) counts negative
   for (const all of [false, true]) {
     const faces = new oc.NCollection_List_TopoDS_Shape();
     for (const f of open) faces.Append(f.wrapped);
@@ -807,8 +807,8 @@ function hollowed(shape: Shape3D, t: number, open: BRepFace[]): Shape3D {
     try {
       maker.MakeThickSolidByJoin(shape.wrapped, faces, -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, all, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, progress);
       const out = cast(maker.Shape()) as Shape3D;
-      const v = measureVolume(out);
-      if (valid(out) && v > 0 && v < before - 1e-6) return out;
+      const v = Math.abs(measureVolume(out));
+      if (valid(out) && v > 1e-9 && v < before - 1e-6) return out;
       out.delete();
     } catch {
       // the next way, if any
@@ -818,7 +818,45 @@ function hollowed(shape: Shape3D, t: number, open: BRepFace[]): Shape3D {
       progress.delete();
     }
   }
+  const out = hollowedByOffset(shape, t, open);
+  if (out && valid(out)) return out;
+  out?.delete();
   throw new Error(`walls ${t} mm thick do not fit: try thinner ones`);
+}
+
+/**
+ * The other way (OpenCascade's shell fails on some lofts): `shape` less its inside, `t` in from its faces; each open
+ * face opened by the inside's face across from it pushed out through the wall (a wall slanted there keeps a lip of
+ * `t` times its slope). Null: no inside, or an open face without one across.
+ */
+function hollowedByOffset(shape: Shape3D, t: number, open: BRepFace[]): Shape3D | null {
+  const oc = getOC();
+  const maker = new oc.BRepOffsetAPI_MakeOffsetShape();
+  const progress = new oc.Message_ProgressRange();
+  let inside: Shape3D;
+  try {
+    maker.PerformByJoin(shape.wrapped, -t, 1e-6, oc.BRepOffset_Mode.BRepOffset_Skin, true, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false, progress);
+    inside = cast(maker.Shape()) as Shape3D;
+  } catch {
+    return null;
+  } finally {
+    maker.delete();
+    progress.delete();
+  }
+  let hole = inside;
+  for (const f of open) {
+    const [c, n] = [f.center, f.normalAt()];
+    const across = inside.faces.find((g) => g.geomType === 'PLANE' && g.normalAt().dot(n) > 1 - 1e-6 && Math.abs(g.center.sub(c).dot(n) + t) < 1e-3);
+    if (f.geomType !== 'PLANE' || !across) return hole.delete(), null;
+    const next = joined(hole, basicFaceExtrusion(across.clone() as BRepFace, n.multiply(2 * t)) as Shape3D, 'add');
+    hole.delete();
+    hole = next;
+  }
+  try {
+    return shape.cut(hole);
+  } finally {
+    hole.delete();
+  }
 }
 
 /**
