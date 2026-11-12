@@ -55,6 +55,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Seen once by hand (2026-11-08): "Extrude: memory access out of bounds" (a WebAssembly error out of the kernel). Steps to reproduce unknown yet.
 
 ## Combining shapes
+- Fillets and chamfers on picked edges now run before the next join or cut after them (2026-11-12): older files whose picked finish came before a cut that should have been rounded along keep that cut sharp now (only rules round later cuts). The broken-solid note has not been seen yet on a real file: the one case found (testdata/türkartenleser.mmk, a chamfer after holes) no longer breaks. Each step's check costs a little per build (not timed on big bodies; a body of one step, as an imported STEP part, is not checked).
 - History rows should all open their step's tool (user, 2026-11-07: no editing in the right column but the main L W H / X Y Z fields). Done for Thread, Bulge, Draft and Box joint; Extrude, Cut / Join, Push, Shell, Coat, Revolve, Loft, Sweep, Mirror, Split, Piece, Sphere and Fillets still show their card below the row: their tools have no edit mode for an existing step yet.
 - Not built yet: a face pulled on a body offers no New body (its Push step joins or cuts by the direction).
 - Not built yet: clicking a face selects only extrusion and boolean steps; Push, revolve and the other steps only from Object history.

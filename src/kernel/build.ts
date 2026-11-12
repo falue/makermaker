@@ -34,6 +34,8 @@ export interface BodyMesh {
   finishFaces: Int32Array;
   /** Edges unbaked finishes worked on: the feature and a point on the edge (its middle; `skip` takes these). */
   finishes: { feature: string; mid: V3 }[];
+  /** The first step that left a broken solid (see `Finishing.broken`). */
+  broken?: string;
   /** By finish: how many of its picked edges could not be found any more. */
   lostEdges: Record<string, number>;
   /** By finish: its edges held at the largest size they take (see `Finishing.capped`). */
@@ -54,8 +56,11 @@ type V3 = [number, number, number];
 
 /** What unbaked finishes start from and which edges they work on (sampled points), filled by `buildBody`. */
 export interface Finishing {
-  base: Shape3D | null;
-  edges: { feature: string; size: number; mid: V3; pts: V3[] }[];
+  /** The solid before each run of unbaked finishes; an edge's `base` is its run's. */
+  bases: Shape3D[];
+  edges: { feature: string; size: number; mid: V3; pts: V3[]; base: number }[];
+  /** The first step that left a broken solid from a sound one (OpenCascade does not always fail). */
+  broken?: string;
   /** By finish: how many of its picked edges could not be found any more. */
   lost?: Record<string, number>;
   /** By finish: its edges that could not take its size, each at the largest it takes (`max`), with its faces' normals (as picked edges store them). */
@@ -97,27 +102,39 @@ export interface BaseCache {
 /** Lets go of what `cache` holds. */
 export function dropBase(cache: BaseCache) {
   cache.shape?.delete();
-  cache.finishing?.base?.delete();
+  for (const b of cache.finishing?.bases ?? []) b.delete();
   for (const k of Object.keys(cache) as (keyof BaseCache)[]) delete cache[k];
 }
 
 /**
- * Features run in order, except unbaked finishes: they run last, so they also finish edges of later booleans (and
- * mirrors after them, so finishes keep their picked edges). A baked finish stays in place: a later boolean cuts through it. `finishing` gets what the unbaked ones did; `cache`: see `BaseCache`.
+ * Features run in order, except unbaked finishes: one on picked edges waits for the pushes and drafts after it (it
+ * follows the faces they move) and runs before the next other step; one by a rule (all, top, ...) runs last, so it also
+ * finishes edges of later steps. A baked finish stays in place. Mirrors run last, so finishes keep their picked edges.
+ * `finishing` gets what the unbaked ones did and is checked for broken solids; `cache`: see `BaseCache`.
  */
 export function buildBody(features: BuildFeature[], finishing?: Finishing, cache?: BaseCache): Shape3D {
   const plan = frames(features.filter((f) => f.type !== 'boolean' && f.type !== 'fingers'));
   const circles: Circle[] = [];
   let shape: Shape3D | null = null;
-  const apply = (id: string, fn: (s: Shape3D | null) => Shape3D) => {
+  // the first step to break a sound solid is told (a lone step, as a big STEP file, is not checked); finishes check themselves
+  let sound = !!finishing && features.length > 1;
+  const apply = (id: string, fn: (s: Shape3D | null) => Shape3D, check = true) => {
     const next = run(id, () => fn(shape));
+    if (sound && check && !valid(next)) {
+      sound = false;
+      if (shape) finishing!.broken = id;
+    }
     shape?.delete();
     shape = next;
   };
-  // finishes run last (their edges picked on the body before them), except those before a shell: it hollows them too
+  // unbaked finishes wait (see above; their edges picked on the body before them), except those before a shell: it hollows them too
   const early = new Set<string>();
   const shelled = new Set(features.flatMap((s, n) => (s.type === 'shell' || s.type === 'coat' ? features.slice(0, n).map((f) => f.id) : [])));
-  const late = (s: BuildFeature) => (s.type === 'finish' && s.enabled && !s.baked && !shelled.has(s.id)) || (s.type === 'thread' && s.modeled) || s.type === 'mirror';
+  const unbaked = (s: BuildFeature): s is Of<'finish'> => s.type === 'finish' && s.enabled && !s.baked && !shelled.has(s.id);
+  const waits = (s: BuildFeature) => s.type === 'push' || s.type === 'draft' || (s.type === 'finish' && !(s.enabled && s.baked));
+  // picked edges' finishes with another step to come: they run before it, one run (`queue`) at a time
+  const inline = new Set(features.flatMap((s, n) => (unbaked(s) && typeof s.edges === 'object' && features.slice(n + 1).some((f) => !waits(f)) ? [s.id] : [])));
+  const late = (s: BuildFeature) => (unbaked(s) && !inline.has(s.id)) || (s.type === 'thread' && s.modeled) || s.type === 'mirror';
   const kept = cache && finishing && features.some(late) ? cache : undefined;
   const key = kept && JSON.stringify(features.filter((s) => !late(s)), (k, v) => (k === 'data' ? undefined : v)); // a STEP file's text never changes
   try {
@@ -125,17 +142,29 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
     if (kept?.shape && saved) {
       shape = kept.shape.clone();
       circles.push(...kept.circles!);
-      Object.assign(finishing!, { base: saved.base?.clone() ?? null, lost: saved.lost && { ...saved.lost }, capped: saved.capped && { ...saved.capped } });
+      Object.assign(finishing!, { bases: saved.bases.map((b) => b.clone()), broken: saved.broken, lost: saved.lost && { ...saved.lost }, capped: saved.capped && { ...saved.capped } });
       finishing!.edges.push(...saved.edges);
     } else {
+      // a run of unbaked finishes, from the solid as it is now
+      const finishAll = (run: Of<'finish'>[]) => {
+        if (run.length && finishing) finishing.bases.push(shape!.clone());
+        for (const f of run) apply(f.id, (cur) => finish(cur, f, circles, finishing), false);
+      };
+      let queue: Of<'finish'>[] = [];
       for (const [n, s] of features.entries()) {
-        if (s.type === 'shell' || s.type === 'coat')
-          for (const f of features.slice(0, n))
-            if (f.type === 'finish' && f.enabled && !f.baked && !early.has(f.id)) {
-              if (finishing && !finishing.base) finishing.base = shape!.clone();
-              apply(f.id, (cur) => finish(cur, f, circles, finishing));
-              early.add(f.id);
-            }
+        if (inline.has(s.id)) {
+          queue.push(s as Of<'finish'>);
+          continue;
+        }
+        if (!waits(s)) {
+          finishAll(queue);
+          queue = [];
+        }
+        if (s.type === 'shell' || s.type === 'coat') {
+          const run = features.slice(0, n).filter((f): f is Of<'finish'> => f.type === 'finish' && f.enabled && !f.baked && !early.has(f.id));
+          finishAll(run);
+          for (const f of run) early.add(f.id);
+        }
         if (s.type === 'extrude') apply(s.id, (cur) => extrude(cur, s, plan.get(s.id), circles));
         if (s.type === 'sphere') apply(s.id, (cur) => sphere(cur, s));
         if (s.type === 'step') apply(s.id, (cur) => step(cur, s));
@@ -151,30 +180,40 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
         if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
         if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
         if (s.type === 'piece') apply(s.id, (cur) => piece(cur, s));
-        if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles, undefined, finishing));
+        if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles, undefined, finishing), false);
       }
       if (!shape) throw new FeatureError(features[0]?.id ?? '', 'a body needs an added extrusion');
-      if (finishing && !finishing.base) finishing.base = (shape as Shape3D).clone();
+      if (finishing && features.some((s) => s.type === 'finish' && late(s))) finishing.bases.push((shape as Shape3D).clone());
       if (kept) {
         dropBase(kept);
         const now = finishing!;
-        Object.assign(kept, { key, shape: (shape as Shape3D).clone(), circles: [...circles], finishing: { base: now.base?.clone() ?? null, edges: [...now.edges], lost: now.lost && { ...now.lost }, capped: now.capped && { ...now.capped } } });
+        Object.assign(kept, { key, shape: (shape as Shape3D).clone(), circles: [...circles], finishing: { bases: now.bases.map((b) => b.clone()), broken: now.broken, edges: [...now.edges], lost: now.lost && { ...now.lost }, capped: now.capped && { ...now.capped } } });
       }
     }
-    for (const s of features) if (s.type === 'finish' && late(s)) apply(s.id, (cur) => finish(cur, s, circles, finishing));
+    for (const s of features) if (s.type === 'finish' && late(s)) apply(s.id, (cur) => finish(cur, s, circles, finishing), false);
     // threads after the finishes: an edge rule (vertical, top …) would take the groove's hundreds of edges; cosmetic ones are drawn only (`cosmeticOf`)
-    for (const s of features) if (s.type === 'thread' && s.modeled) apply(s.id, (cur) => thread(cur, s));
+    for (const s of features) if (s.type === 'thread' && s.modeled) apply(s.id, (cur) => thread(cur, s), false);
     // mirrors last: finishes keep working on the edges they were picked on
     for (const s of features)
       if (s.type === 'mirror') {
-        apply(s.id, (cur) => cur!.clone().mirror(s.n, s.o));
-        if (finishing?.base) finishing.base = finishing.base.mirror(s.n, s.o);
+        apply(s.id, (cur) => cur!.clone().mirror(s.n, s.o), false);
+        if (finishing) finishing.bases = finishing.bases.map((b) => b.mirror(s.n, s.o));
       }
   } catch (err) {
     (shape as Shape3D | null)?.delete();
     throw err;
   }
   return shape;
+}
+
+/** Whether OpenCascade finds `shape` sound (it can hand back a broken solid instead of failing). */
+function valid(shape: Shape3D) {
+  const check = new (getOC().BRepCheck_Analyzer)(shape.wrapped, true, false, false);
+  try {
+    return check.IsValid();
+  } finally {
+    check.delete();
+  }
 }
 
 /** Distance from `p` to a polyline (points; `pairs`: separate segments a-b, c-d, ...). */
@@ -199,12 +238,19 @@ export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05
   const opts = { tolerance, angularTolerance: Math.max(0.1, tolerance * 4) };
   const m = shape.mesh(opts);
   const e = shape.meshEdges(opts);
-  // an edge the finishes made lies on no edge of the shape before them (no unbaked finish: none, skip the costly check)
-  const before = finishing?.edges.length ? finishing.base?.meshEdges(opts).lines : undefined;
   const point = (xyz: ArrayLike<number>, i: number): V3 => [xyz[i * 3], xyz[i * 3 + 1], xyz[i * 3 + 2]];
-  const finishEdges = new Uint8Array(e.edgeGroups.map((g) => +(!!before && toLine(point(e.lines, g.start + (g.count >> 1)), before, true) > 0.05)));
   // a finish face lies wholly within its size of the edge it replaced
   const lines = finishing?.edges.map((f) => f.pts.flat()) ?? [];
+  // an edge a finish made lies that near an edge it finished, on no edge of the solid its run started from
+  const baseLines = new Map<number, ArrayLike<number>>();
+  const linesOf = (b: number) => baseLines.get(b) ?? baseLines.set(b, finishing!.bases[b].meshEdges(opts).lines).get(b)!;
+  const finishEdges = new Uint8Array(
+    e.edgeGroups.map((g) => {
+      const p = point(e.lines, g.start + (g.count >> 1));
+      const runs = new Set(finishing?.edges.flatMap((f, k) => (toLine(p, lines[k], false) <= f.size * 1.5 + 0.05 ? [f.base] : [])));
+      return +[...runs].some((b) => toLine(p, linesOf(b), true) > 0.05);
+    }),
+  );
   const finishFaces = new Int32Array(
     m.faceGroups.map((g) => {
       if (!lines.length) return -1;
@@ -235,6 +281,7 @@ export function meshBody(shape: Shape3D, finishing?: Finishing, tolerance = 0.05
     edgeGroups: new Uint32Array(e.edgeGroups.flatMap((g) => [g.start, g.count])),
     finishEdges,
     finishFaces,
+    ...(finishing?.broken ? { broken: finishing.broken } : {}),
     finishes: finishing?.edges.map(({ feature, mid }) => ({ feature, mid })) ?? [],
     lostEdges: finishing?.lost ?? {},
     capped: finishing?.capped ?? {},
@@ -1332,7 +1379,7 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
   if (!count) throw new Error(now ? 'the picked edges are gone' : `no edges match "${s.edges}"`);
   const line = (e: Edge) => Array.from({ length: 9 }, (_, i) => at(e, i / 8));
   const finished = (sizes: number[]) => {
-    for (const [k, e] of picked.entries()) finishing?.edges.push({ feature: s.id, size: sizes[k], mid: at(e, 0.5), pts: line(e) });
+    for (const [k, e] of picked.entries()) finishing?.edges.push({ feature: s.id, size: sizes[k], mid: at(e, 0.5), pts: line(e), base: finishing.bases.length - 1 });
   };
   // `size` of each edge it is given (null: not finished)
   const each = (size: (e: Edge) => number | null) => (s.mode === 'fillet' ? shape.fillet(size) : shape.chamfer(size));
@@ -1351,10 +1398,7 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
   // OpenCascade can hand back a broken solid instead of failing: sound only if valid and within the body's box (a
   // fillet or chamfer only takes from corners or fills them, never reaches beyond)
   const sound = (out: Shape3D) => {
-    const check = new (getOC().BRepCheck_Analyzer)(out.wrapped, true, false, false);
-    const valid = check.IsValid();
-    check.delete();
-    if (!valid) return false;
+    if (!valid(out)) return false;
     const [lo, hi] = bounds();
     const [a, b] = out.boundingBox.bounds;
     return [0, 1, 2].every((k) => a[k] > lo[k] - 1e-3 && b[k] < hi[k] + 1e-3);
@@ -1370,7 +1414,12 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
     }
   };
   try {
+    // broken from a sound solid: as if it failed (a broken one to start with stays as it was)
     const out = sized(s.size);
+    if (!valid(out) && valid(shape)) {
+      out.delete();
+      throw new Error('broken');
+    }
     finished(picked.map(() => s.size));
     return out;
   } catch {
@@ -1423,7 +1472,7 @@ function finish(shape: Shape3D | null, s: Of<'finish'>, circles: Circle[], finis
       out.delete();
     }
     finished(picked.map(() => s.size));
-    throw new FeatureError(s.id, `${s.mode} on ${count} edges failed (size too large?${s.baked ? '' : ' Bake it to leave edges of later cuts sharp'})`, common || undefined);
+    throw new FeatureError(s.id, `${s.mode} on ${count} edges failed (size too large?${s.baked || typeof s.edges === 'object' ? '' : ' Bake it to leave edges of later cuts sharp'})`, common || undefined);
   }
 }
 

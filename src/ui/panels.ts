@@ -1899,18 +1899,22 @@ function finishParts(ctx: UIContext, body: Body, feature: Extract<Feature, { typ
       ? select<keyof typeof rules | 'picked'>('picked', { picked: `Picked (${picked})`, ...rules }, (r) => r !== 'picked' && setFeature({ ...feature, edges: r }))
       : select<keyof typeof rules>(feature.edges, rules, (r) => setFeature({ ...feature, edges: r }));
   edges.title = 'Which edges: all, the top or bottom ones, the vertical ones, or those picked on the body';
-  const bake = h(
-    'button',
-    {
-      className: `bake${feature.baked ? ' on' : ''}`,
-      title: feature.baked ? 'Baked: stays where it is, so later cuts go through it. Click: Unbake it (it finishes later cuts again)' : 'Click: Bake it: later cuts go through it instead of being finished too',
-      onclick: () => setFeature({ ...feature, baked: !feature.baked }),
-    },
-    feature.baked ? 'Baked' : 'Bake',
-  );
+  // picked edges are finished where the step stands anyway: Bake is for rules (and to unbake older files)
+  const bake =
+    picked && !feature.baked
+      ? null
+      : h(
+          'button',
+          {
+            className: `bake${feature.baked ? ' on' : ''}`,
+            title: feature.baked ? 'Baked: stays where it is, so later cuts go through it. Click: Unbake it (it finishes later cuts again)' : 'Click: Bake it: later cuts go through it instead of being finished too',
+            onclick: () => setFeature({ ...feature, baked: !feature.baked }),
+          },
+          feature.baked ? 'Baked' : 'Bake',
+        );
   const on = feature.enabled ? [] : [h('input', { type: 'checkbox', checked: false, title: 'Click: Switch it on again', onchange: () => setFeature({ ...feature, enabled: true }) })];
   return [
-    h('div', { className: 'row finish' }, ...on, exprField(ctx, `${at}.size`, feature.mode === 'fillet' ? 'Radius' : 'Chamfer', false, { value: feature.size, set: (x, live) => ctx.setFinishSize(`${at}.size`.split('.'), x, feature.mode, live), error: ctx.exprErrors.get(`${at}.size`) }), edges, bake, remove),
+    h('div', { className: 'row finish' }, ...on, exprField(ctx, `${at}.size`, feature.mode === 'fillet' ? 'Radius' : 'Chamfer', false, { value: feature.size, set: (x, live) => ctx.setFinishSize(`${at}.size`.split('.'), x, feature.mode, live), error: ctx.exprErrors.get(`${at}.size`) }), edges, ...(bake ? [bake] : []), remove),
     ...(feature.skip.length ? [h('div', { className: 'listed' }, h('span', { className: 'hint' }, `${feature.skip.length} edge${feature.skip.length > 1 ? 's' : ''} left out`), button('Restore', () => setFeature({ ...feature, skip: [] }), 'Click: Finish the left-out edges again'))] : []),
     ...(lost ? [h('p', { className: 'error', title: COPY_TIP }, `${lost} of ${picked} picked edges ${lost > 1 ? 'are' : 'is'} gone: an edit changed ${lost > 1 ? 'them' : 'it'} too much. Pick ${lost > 1 ? 'them' : 'it'} again.`)] : []),
     // edges that cannot take the size: held at the largest they take (orange on the body)

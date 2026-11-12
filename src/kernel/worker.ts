@@ -223,8 +223,8 @@ async function handle(data: Job) {
     sent = performance.now();
   };
   const build = ({ id, features }: Extract<Request, { kind: 'build' }>['bodies'][number]): BodyResult => {
+    const finishing: Finishing = { bases: [], edges: [] };
     try {
-      const finishing: Finishing = { base: null, edges: [] };
       if (!bases.has(id)) bases.set(id, {});
       const shape = buildBody(features, finishing, bases.get(id));
       try {
@@ -236,11 +236,11 @@ async function handle(data: Job) {
       } catch (err) {
         shape.delete();
         throw err;
-      } finally {
-        finishing.base?.delete();
       }
     } catch (err) {
       return err instanceof FeatureError ? { id, error: err.message, featureId: err.featureId, max: err.max } : { id, error: String(err), featureId: '' };
+    } finally {
+      for (const b of finishing.bases) b.delete();
     }
   };
   // the same steps (linked copies: their source's) are built once: the others get a copy of its mesh and solid

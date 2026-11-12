@@ -110,22 +110,22 @@ describe('buildBody', () => {
     const block = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 30, h: 20, r: 0, rot: 0 }, { id: 'c', kind: 'circle', x: 0, y: 0, d: 6.6468 }], depth: 10, mode: 'add', through: false } as BuildFeature;
     const fillet = { id: 'f', type: 'finish', mode: 'fillet', size: 3, edges: 'vertical', enabled: true, baked: false, skip: [] } as BuildFeature;
     const thread = { id: 't', type: 'thread', at: [0, 0, 10], dir: [0, 0, -1], r: 3.3234, inside: true, size: 'M8', d: 8, pitch: 1.25, length: 10, modeled: true } as BuildFeature;
-    const finishing: Finishing = { base: null, edges: [] };
+    const finishing: Finishing = { bases: [], edges: [] };
     const shape = buildBody([block, fillet, thread], finishing);
     expect(finishing.edges).toHaveLength(4);
     shape.delete();
-    finishing.base?.delete();
+    for (const b of finishing.bases) b.delete();
   }, 60000);
 
   it('a fillet too big for some edges holds those at the largest they take, the others as asked (as sketch corners)', () => {
     // a slab whose corner is cut by a 2 mm slanted side: its two upright edges there take far less than 8 mm
     const slab = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[0, 0], [40, 0], [40, 20], [2, 20], [0, 18]], r: 0, rot: 0 }], depth: 5, mode: 'add', through: false } as BuildFeature;
     const fillet = { id: 'f', type: 'finish', mode: 'fillet', size: 8, edges: 'vertical', enabled: true, baked: false, skip: [] } as BuildFeature;
-    const finishing: Finishing = { base: null, edges: [] };
+    const finishing: Finishing = { bases: [], edges: [] };
     const shape = buildBody([slab, fillet], finishing);
     const volume = measureVolume(shape);
     shape.delete();
-    finishing.base?.delete();
+    for (const b of finishing.bases) b.delete();
     const capped = finishing.capped?.f ?? [];
     expect(capped).toHaveLength(2); // the two beside the short side
     for (const c of capped) {
@@ -142,7 +142,7 @@ describe('buildBody', () => {
     const { getOC } = await import('replicad');
     const plate = { id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 40, h: 40, r: 0, rot: 0 }], depth: 4, mode: 'add', through: false } as BuildFeature;
     const fillet = { id: 'f', type: 'finish', mode: 'fillet', size: 32, edges: 'all', enabled: true, baked: false, skip: [] } as BuildFeature;
-    const finishing: Finishing = { base: null, edges: [] };
+    const finishing: Finishing = { bases: [], edges: [] };
     let shape;
     try {
       shape = buildBody([plate, fillet], finishing);
@@ -150,7 +150,7 @@ describe('buildBody', () => {
       expect(e).toBeInstanceOf(FeatureError); // too big even edge by edge: an error, not a broken body
       return;
     } finally {
-      finishing.base?.delete();
+      for (const b of finishing.bases) b.delete();
     }
     const check = new (getOC().BRepCheck_Analyzer)(shape.wrapped, true, false, false);
     expect(check.IsValid()).toBe(true);
@@ -639,14 +639,14 @@ describe('buildBody', () => {
   });
 
   it('marks the faces and edges an unbaked finish made', () => {
-    const finishing: Finishing = { base: null, edges: [] };
+    const finishing: Finishing = { bases: [], edges: [] };
     const shape = buildBody([base(100), corners], finishing);
     const m = meshBody(shape, finishing);
     expect(m.finishes.length).toBe(4); // the vertical corner edges
     expect([...m.finishFaces].filter((k) => k >= 0).length).toBe(4); // one round face each
     expect([...m.finishEdges].filter(Boolean).length).toBe(8); // their tangent edges
     shape.delete();
-    finishing.base?.delete();
+    for (const b of finishing.bases) b.delete();
   });
 
   it('builds regular polygons and spheres', () => {
@@ -666,13 +666,13 @@ describe('buildBody', () => {
     const steps = (size: number) => [base(100, 20), early, { id: 'h', type: 'shell', thickness: 2, open: [[0, 0, 20]] } as BuildFeature, { id: 'c', type: 'finish', mode: 'chamfer', size, edges: 'top', enabled: true, baked: false, skip: [] } as BuildFeature];
     const cache: BaseCache = {};
     for (const size of [0.5, 0.8]) {
-      const [kept, fresh]: Finishing[] = [{ base: null, edges: [] }, { base: null, edges: [] }];
+      const [kept, fresh]: Finishing[] = [{ bases: [], edges: [] }, { bases: [], edges: [] }];
       const a = buildBody(steps(size), kept, cache);
       const b = buildBody(steps(size), fresh);
       expect(measureVolume(a)).toBeCloseTo(measureVolume(b), 6);
       expect(a.faces.length).toBe(b.faces.length);
       expect(kept.edges.length).toBe(fresh.edges.length);
-      for (const s of [a, b, kept.base, fresh.base]) s?.delete();
+      for (const s of [a, b, ...kept.bases, ...fresh.bases]) s.delete();
     }
     expect(cache.key).toBeDefined();
     dropBase(cache);
@@ -729,16 +729,48 @@ describe('picked edges', () => {
     expect(() => buildBody([base(40), gone])).toThrow('picked edges are gone');
   });
 
+  it('runs before a later join or cut, after a later push', () => {
+    // the right top edge of a 40 × 60 × 4 block, chamfered 3: a pad joined into that corner afterwards stays whole
+    const along = [[20, -30, 4], [20, 0, 4], [20, 30, 4]] as [number, number, number][];
+    const chamfer: BuildFeature = { id: 'c', type: 'finish', mode: 'chamfer', size: 3, edges: { pts: [along] }, enabled: true, baked: false, skip: [] };
+    const pad: BuildFeature = { id: 'j', type: 'boolean', op: 'union', features: [{ id: 'p', type: 'extrude', plane: ground, profiles: [{ id: 'r', kind: 'rect', x: 18, y: 0, w: 4, h: 10, r: 0, rot: 0 }], depth: 4, mode: 'add', through: false } as BuildFeature], place: STILL };
+    const volume = (features: BuildFeature[]) => {
+      const shape = buildBody(features);
+      const v = measureVolume(shape);
+      shape.delete();
+      return v;
+    };
+    // the chamfer takes 4.5 mm² along 60; the pad brings back 4.5 along its 10
+    expect(volume([base(40), chamfer, pad])).toBeCloseTo(40 * 60 * 4 - 4.5 * 60 + 4.5 * 10, 3);
+    // pushed up 2 after the chamfer: it chamfers the new top edge
+    const push: BuildFeature = { id: 'u', type: 'push', at: [0, 0, 4], n: [0, 0, 1], distance: 2 } as BuildFeature;
+    expect(volume([base(40), { ...chamfer, edges: { pts: [along], normals: [[[1, 0, 0], [0, 0, 1]]] } }, push])).toBeCloseTo(40 * 60 * 6 - 4.5 * 60, 3);
+  });
+
+  it('marks only its own edges when a cut comes after it', () => {
+    const fillet = one('fillet');
+    const away: BuildFeature = { id: 'h', type: 'boolean', op: 'subtract', features: [{ ...hole, id: 'hp', profiles: [{ id: 'c', kind: 'circle', x: -10, y: -10, d: 5 }], mode: 'add', through: false, depth: 4 } as BuildFeature], place: STILL };
+    const marks = (features: BuildFeature[]) => {
+      const finishing: Finishing = { bases: [], edges: [] };
+      const shape = buildBody(features, finishing);
+      const m = meshBody(shape, finishing);
+      shape.delete();
+      for (const b of finishing.bases) b.delete();
+      return [...m.finishEdges].filter(Boolean).length;
+    };
+    expect(marks([base(40), fillet, away])).toBe(marks([base(40), fillet]));
+  });
+
   describe('after an edit', () => {
     const at = (x: number, z: number) => [[x, -30, z], [x, 0, z], [x, 30, z]] as [number, number, number][];
     // the edge along the block's right top, picked on the first block
     const right = (x: number, z: number): BuildFeature => ({ id: 'p', type: 'finish', mode: 'chamfer', size: 1, edges: { pts: [at(x, z)], normals: [[[1, 0, 0], [0, 0, 1]]] }, enabled: true, baked: false, skip: [] });
     const finishedAt = (features: BuildFeature[]) => {
-      const finishing: Finishing = { base: null, edges: [] };
+      const finishing: Finishing = { bases: [], edges: [] };
       const shape = buildBody(features, finishing);
       const m = meshBody(shape, finishing);
       shape.delete();
-      finishing.base?.delete();
+      for (const b of finishing.bases) b.delete();
       return { mids: finishing.edges.map((e) => e.mid.map((v) => +v.toFixed(3))), lost: m.lostEdges, faces: m.faces.length / 2 };
     };
 
@@ -889,7 +921,7 @@ describe('curved sides in finishes', () => {
     through: false,
   });
   it('the vertical rule takes real corners, not the seams', () => {
-    const finishing: Finishing = { base: null, edges: [] };
+    const finishing: Finishing = { bases: [], edges: [] };
     const shape = buildBody([rounded(), { id: 'f', type: 'finish', mode: 'fillet', size: 2, edges: 'vertical', enabled: true, baked: false, skip: [] } as BuildFeature], finishing);
     expect(finishing.edges.length).toBe(2);
     expect(finishing.edges.every((e) => e.mid[0] < 1)).toBe(true);

@@ -131,6 +131,8 @@ let solid = new Set<string>();
 let toolMode: 'direct' | 'draw' | 'pull' | 'plane' | null = null;
 let exprErrors = new Map<string, string>();
 const kernelErrors = new Map<string, { featureId: string; error: string }>();
+/** By body: the step that left its solid broken in the last build (it still shows). */
+const brokenSteps = new Map<string, string>();
 /** By body: how many separate solids its last build was in. */
 const pieceCounts = new Map<string, number>();
 /** Bodies that cannot be built because of a linked sketch, from the last update. */
@@ -478,6 +480,8 @@ const kernel = new Kernel((results, done) => {
     if (!here.has(r.id)) continue; // deleted while it was built
     if ('mesh' in r) {
       kernelErrors.delete(r.id);
+      if (r.mesh.broken) brokenSteps.set(r.id, r.mesh.broken);
+      else brokenSteps.delete(r.id);
       lostEdges.set(r.id, r.mesh.lostEdges);
       cappedEdges.set(r.id, r.mesh.capped);
       pieceCounts.set(r.id, r.mesh.pieces ?? 1);
@@ -736,6 +740,7 @@ function update() {
   );
   const ids = new Set(doc.bodies.map((p) => p.id));
   for (const id of kernelErrors.keys()) if (!ids.has(id)) kernelErrors.delete(id);
+  for (const id of brokenSteps.keys()) if (!ids.has(id)) brokenSteps.delete(id);
   for (const id of positions.keys()) if (!ids.has(id)) positions.delete(id), bodyPlaces.delete(id);
   selected = selected.filter((id) => ids.has(id) || [...doc.sketches, ...doc.groups, ...doc.planes, ...doc.images].some((o) => o.id === id));
   if (isolated && !ids.has(isolated.body)) isolated = null;
@@ -7182,7 +7187,7 @@ function render() {
     doc: cutting ? { ...doc, bodies: doc.bodies.filter((b) => !cutting!.chunks.includes(b.id)) } : doc,
     selected,
     exprErrors,
-    kernelErrors: new Map([...kernelErrors, ...linkErrors].filter(([id]) => !cutting || ![...cutting.bodies, ...cutting.chunks].includes(id))),
+    kernelErrors: new Map([...[...brokenSteps].map(([id, featureId]) => [id, { featureId, error: 'it leaves a broken solid, so the steps after it may come out wrong' }] as const), ...kernelErrors, ...linkErrors].filter(([id]) => !cutting || ![...cutting.bodies, ...cutting.chunks].includes(id))),
     lostEdges: (body, feature) => lostEdges.get(body)?.[feature] ?? 0,
     capped: (body, feature) => cappedEdges.get(body)?.[feature] ?? [],
     splitCapped,
