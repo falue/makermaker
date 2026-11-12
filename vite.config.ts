@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { createReadStream, readFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
 
@@ -30,9 +31,19 @@ const precache = (): Plugin => ({
   },
 });
 
+// The version in the bottom bar: package.json's, then the commit count (counts up with every commit); hover: commit and date.
+const version = (): Plugin => {
+  const git = (args: string) => execSync(`git ${args}`, { encoding: 'utf8' }).trim();
+  const own = JSON.parse(readFileSync('package.json', 'utf8')).version;
+  return {
+    name: 'version',
+    transformIndexHtml: (html) => html.replace('%VERSION%', `v${own}-${git('rev-list --count HEAD')}`).replace('%COMMIT%', git('log -1 --format="%h, %cs"')),
+  };
+};
+
 export default defineConfig({
   base: './',
-  plugins: [pyodide(), precache()],
+  plugins: [pyodide(), precache(), version()],
   worker: { format: 'es' },
   optimizeDeps: { exclude: ['replicad-opencascadejs', 'pyodide'] },
   build: { target: 'es2022' },
