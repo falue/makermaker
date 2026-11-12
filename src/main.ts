@@ -7675,9 +7675,9 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     if (kind === 'print') return void run(() => exportBodies(exportChoice.print, chosen));
     if (kind === 'unwrap')
       return void run(async () => {
-        // the key drawing too, waited for if it is still being drawn
-        const key = await unwrapKey(chosen).piece;
+        // the key drawing too (one piece needs none), waited for if it is still being drawn
         const pieces = unwrappedPieces(chosen);
+        const key = pieces.length > 1 ? await unwrapKey(chosen).piece : null;
         const sheet = sheetOf([...pieces, ...(key ? [key] : [])]);
         const format = exportChoice.unwrap;
         const text = format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.flatMap((p) => [p.label, ...p.notes]));
@@ -7697,10 +7697,10 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   };
   // the checks for printing, filled in when they come
   const checks = new Map<string, PrintCheck>();
-  // the bodies unwrapped, filled in when they come; their pieces numbered across the sheet, each named after its body
+  // the bodies unwrapped, filled in when they come; their pieces numbered across the sheet (one alone: not), each named after its body
   const unwraps = new Map<string, Unwrapped>();
   const unwrappedPieces = (of: Body[]) =>
-    of.flatMap((body) => (unwraps.get(body.id)?.pieces ?? []).map((p) => ({ ...p, body }))).map((p, i) => ({ ...p, name: `${i + 1} ${p.body.name}` }));
+    of.flatMap((body) => (unwraps.get(body.id)?.pieces ?? []).map((p) => ({ ...p, body }))).map((p, i, all) => ({ ...p, name: all.length > 1 ? `${i + 1} ${p.body.name}` : p.body.name }));
   const unwrappedSheet = (of: Body[]) => sheetOf(unwrappedPieces(of));
   // the key drawing of the ones switched on, with each piece's number on its face: asked once per set (all unwrapped)
   let keyAsked: { key: string; piece: Promise<Piece | null>; done?: Piece | null } = { key: '', piece: Promise.resolve(null) };
@@ -7737,10 +7737,10 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   // what comes out, below the rows: the pieces of the ones switched on as they will lie on the sheet
   const preview = Object.assign(document.createElement('div'), { className: 'sheet-preview' });
   const showPreview = () => {
-    // unwrapped faces are shaded by their stretch; laser pieces have none; the key drawing last, once it is there
+    // unwrapped faces are shaded by their stretch; laser pieces have none; the key drawing last, once it is there (one piece needs none)
     const shown = bodies.filter((b) => on.has(b.id));
     const unwrapped = kind === 'unwrap' ? unwrappedPieces(shown) : [];
-    const key = kind === 'unwrap' && unwrapped.length ? unwrapKey(shown) : null;
+    const key = kind === 'unwrap' && unwrapped.length > 1 ? unwrapKey(shown) : null;
     const pieces = kind === 'laser' ? (lasered?.pieces ?? []) : [...unwrapped, ...(key?.done ? [key.done] : [])];
     const sheet = sheetOf(pieces);
     preview.hidden = !sheet.length && !lasered?.failed.length;
