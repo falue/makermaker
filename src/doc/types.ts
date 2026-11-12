@@ -167,7 +167,7 @@ export type BulgeFeature = {
 };
 
 /**
- * A box joint with another body: where the two overlap is cut into `count` fingers across its longest side (`width`
+ * A finger joint with another body: where the two overlap is cut into `count` fingers across its longest side (`width`
  * set above 0: fingers exactly that long from the overlap's low end, the rest at the other end; `from` set: from that
  * point (world) both ways), every other one taken from each body, so they interlock. Both bodies have one; the `first`
  * keeps the first finger, and its count, width, point and `clearance` (the gap between mating fingers, half from each side; none: 0) count for both.

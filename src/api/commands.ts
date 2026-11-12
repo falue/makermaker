@@ -56,7 +56,7 @@ export function coatAsBody(doc: Doc, i: number, coat: CoatFeature, linked = fals
   return { doc: listedAfter({ ...doc, bodies: [...doc.bodies, body], joints }, [[o.id, body.id]]), id: body.id };
 }
 
-/** A box joint's fingers for an overlap `long` by `thick`: each about five thicknesses long, rounded up to an odd number so both ends match, 3 at least. */
+/** A finger joint's fingers for an overlap `long` by `thick`: each about five thicknesses long, rounded up to an odd number so both ends match, 3 at least. */
 export function fingersFor(long: number, thick: number) {
   const n = Math.ceil(long / (5 * thick) - 1e-9);
   return Math.max(3, n % 2 ? n : n + 1);

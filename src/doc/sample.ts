@@ -180,7 +180,7 @@ function jointTests(): { bodies: Body[]; groups: Group[]; joints: Joint[] } {
   return { bodies: [box, plate, handle, lip, cabinet, drawer], groups: [lid], joints };
 }
 
-/** Test pieces for box joints: two 4 mm boards meeting at a corner, overlapping in a 4 × 4 × 40 column. */
+/** Test pieces for finger joints: two 4 mm boards meeting at a corner, overlapping in a 4 × 4 × 40 column. */
 function fingerTests(): Body[] {
   return [solid('Joint board A', '#d8c3a5', [120, 132, 0], [rect(60, 4)], 40), solid('Joint board B', '#c4b08f', [148, 150, 0], [rect(4, 40)], 40)];
 }

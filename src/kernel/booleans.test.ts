@@ -28,7 +28,7 @@ const zoo: Record<string, BuildFeature[]> = {
   bulged: [box(), bulge],
   drafted: [box(), draft],
   jointed: [box(), fingers],
-  // shelled, box jointed and bulged at once
+  // shelled, finger jointed and bulged at once
   monster: [box(), bulge, fingers, shell],
   revolved: [f({ id: 'r', type: 'revolve', plane: ground, profiles: [{ id: 'q', kind: 'rect', x: 12, y: 0, w: 10, h: 30, r: 0, rot: 0 }], axis: { at: [0, 0], dir: [0, 1] }, angle: 360, mode: 'add' })],
   // revolved, then drafted on a flat face of it is not possible: a revolve with a flat end drafted instead
@@ -82,5 +82,5 @@ describe('booleans', () => {
         }
       }
       expect(failed).toEqual([]);
-    }, a === 'monster' ? 900_000 : 300_000); // monster is built anew for each of its 15 cuts (bulge, box joint, shell): about 7 minutes
+    }, a === 'monster' ? 900_000 : 300_000); // monster is built anew for each of its 15 cuts (bulge, finger joint, shell): about 7 minutes
 });

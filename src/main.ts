@@ -571,7 +571,7 @@ function update() {
       viewer.setPlacement(p.id, at, turn);
     }
     const before = exprErrors.size;
-    // a linked copy: its source's steps (errors shown at the source), then its own; a box joint belongs to its two bodies
+    // a linked copy: its source's steps (errors shown at the source), then its own; a finger joint belongs to its two bodies
     const k = p.link ? doc.bodies.findIndex((b) => b.id === p.link) : -1;
     const shared = k >= 0 ? resolve(doc.bodies[k].features, lookup, `bodies.${k}.features`, exprErrors).filter((f) => f.type !== 'fingers') : [];
     const resolved = [...shared, ...resolve(p.features, lookup, `bodies.${i}.features`, exprErrors)];
@@ -631,7 +631,7 @@ function update() {
         return f && placeFrame(p.kind === 'cap' && p.body === id ? at : toPlace(parentPlace(id)), f, true);
       };
       for (const s of resolved) {
-        if (s.type === 'boolean' || s.type === 'fingers' || s.type === 'mesh') continue; // meshes are shown as they are; booleans and box joints take other bodies (below)
+        if (s.type === 'boolean' || s.type === 'fingers' || s.type === 'mesh') continue; // meshes are shown as they are; booleans and finger joints take other bodies (below)
         const b = toBuild(s, id, sketches, faceOf, cutterFrame);
         if (b === null) return true; // wait for the other body
         if (typeof b === 'string') return (progress = true), linkErrors.set(id, { featureId: s.id, error: `Cannot build: ${b}` }), false;
@@ -652,7 +652,7 @@ function update() {
   // 2: booleans take their tool bodies' full features, placed as the tool sits in the body's coordinates
   built.clear();
   const full = new Map<string, BuildFeature[] | string>();
-  // `bare`: without its box joints (what a box joint with it takes: they would need each other)
+  // `bare`: without its finger joints (what a finger joint with it takes: they would need each other)
   const fullOf = (id: string, path: string[] = [], bare = false): BuildFeature[] | string => {
     const done = full.get(bare ? `${id} bare` : id);
     if (done) return done;
@@ -4040,16 +4040,16 @@ function offsetShapes(sketch: string) {
 }
 
 /**
- * Box joint: bodies that overlap or touch (selected, or clicked next; Shift-click more, Enter) cut each other into
+ * Finger joint: bodies that overlap or touch (selected, or clicked next; Shift-click more, Enter) cut each other into
  * interlocking fingers across each overlap's longest side, for gluing sheets; then its panel (see `fingersPanel`).
  * More (a whole box): every pair that meets gets one, the earlier selected keeping the end fingers; the panel sets them all.
  */
-function boxJoint() {
+function fingerJoint() {
   const doc = history.current;
   const ids = selected.filter((id) => doc.bodies.some((b) => b.id === id));
   if (ids.length < 2) {
     const picked: string[] = ids.slice(0, 1);
-    const run = () => (cancelPending(), boxJoint());
+    const run = () => (cancelPending(), fingerJoint());
     pending = {
       tool: 'boolean',
       pick(id, how) {
@@ -4060,12 +4060,12 @@ function boxJoint() {
       },
       apply: () => picked.length >= 2 && run(),
     };
-    toolHint = 'Box joint: click the two bodies that overlap or touch · Shift-click more (a whole box) · [Enter] Finalize · [Esc] Abort';
+    toolHint = 'Finger joint: click the two bodies that overlap or touch · Shift-click more (a whole box) · [Enter] Finalize · [Esc] Abort';
     return render();
   }
   const pairs = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b, fingerPair(a, b)] as const));
   const made = pairs.filter((p): p is readonly [string, string, number] => typeof p[2] === 'number');
-  if (!made.length) return fail(ids.length === 2 ? (pairs[0][2] as string) : `Box joint: none of the ${ids.length} bodies meet another. Move them onto or into each other`);
+  if (!made.length) return fail(ids.length === 2 ? (pairs[0][2] as string) : `Finger joint: none of the ${ids.length} bodies meet another. Move them onto or into each other`);
   const step = (body: string, first: boolean, count: number): Feature => ({ id: newId(), type: 'fingers', body, count: ex(String(count)), width: len(0), from: null, first, clearance: len(0) });
   const added = new Map<string, Feature[]>();
   for (const [a, b, count] of made) {
@@ -4078,7 +4078,7 @@ function boxJoint() {
   fingersPanel(...steps[0], true, steps.slice(1));
 }
 
-/** Box joint between bodies `a` and `b`: the number of fingers to start with, or why they cannot have one. */
+/** Finger joint between bodies `a` and `b`: the number of fingers to start with, or why they cannot have one. */
 function fingerPair(a: string, b: string): number | string {
   const doc = history.current;
   // in the first one's coordinates, as the kernel cuts them: plates turned together (a slant) measure true
@@ -4088,18 +4088,18 @@ function fingerPair(a: string, b: string): number | string {
   const sides: number[] = meet.isEmpty() ? [] : meet.getSize(new Vector3()).toArray();
   const flat = sides.filter((x) => x <= 1e-3).length;
   const names = `${doc.bodies.find((x) => x.id === a)?.name} and ${doc.bodies.find((x) => x.id === b)?.name}`;
-  if (!sides.length) return `Box joint: ${names} do not touch. Move one onto or into the other`;
-  if (flat > 2) return `Box joint: ${names} meet only at a corner. Put one onto or into the other`;
+  if (!sides.length) return `Finger joint: ${names} do not touch. Move one onto or into the other`;
+  if (flat > 2) return `Finger joint: ${names} meet only at a corner. Put one onto or into the other`;
   // only touching: they must stand square to each other (each one's axes along the other's)
   const turn = new Matrix4().extractRotation((bodyPlaces.get(a) ?? new Matrix4()).clone().invert().multiply(bodyPlaces.get(b) ?? new Matrix4())).elements;
-  if (flat && turn.some((x) => Math.abs(x) > 1e-6 && Math.abs(Math.abs(x) - 1) > 1e-6)) return `Box joint: ${names} only touch and stand slanted to each other. Turn them square, or move one into the other`;
+  if (flat && turn.some((x) => Math.abs(x) > 1e-6 && Math.abs(Math.abs(x) - 1) > 1e-6)) return `Finger joint: ${names} only touch and stand slanted to each other. Turn them square, or move one into the other`;
   // the material: the thinner one along the meeting's short side (it may only touch or partly reach in)
   const k = sides.indexOf(Math.min(...sides));
   return fingersFor(Math.max(...sides), Math.min(boxA.getSize(new Vector3()).getComponent(k), boxB.getSize(new Vector3()).getComponent(k)));
 }
 
 /**
- * A box joint's panel, on the step that holds its values for both bodies (the first's; `id` of either leads there):
+ * A finger joint's panel, on the step that holds its values for both bodies (the first's; `id` of either leads there):
  * Fingers (1 or more, equal ones) or Finger length (above 0: exactly that long, from the overlap's low end or From a
  * point clicked, both ways; the count then empties); each shows what the other makes. Live; `fresh`: Esc leaves
  * nothing, else Esc puts it back. `more`: other joints ([body, step id]) set to the same values (no From point then).
@@ -4188,7 +4188,7 @@ function fingersPanel(body: string, id: string, fresh = false, more: [string, st
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
     },
-    `Box joint${more.length ? `, all ${joints.length}` : ''}: how many fingers · or a finger length (exact; the count empties) · the clearance between fingers${more.length ? '' : ' · From point: the fingers count from there'} · [Enter] keeps ${more.length ? 'them' : 'it'} · [Esc] Abort`,
+    `Finger joint${more.length ? `, all ${joints.length}` : ''}: how many fingers · or a finger length (exact; the count empties) · the clearance between fingers${more.length ? '' : ' · From point: the fingers count from there'} · [Enter] keeps ${more.length ? 'them' : 'it'} · [Esc] Abort`,
     more.length ? [] : [fromButton, clearFrom],
   );
   status();
@@ -7416,7 +7416,7 @@ function render() {
     calibrate,
     editPlane: (id) => planePanel(id),
     measureTool: () => measureTool(),
-    boxJoint,
+    fingerJoint,
     editBulge: bulgePanel,
     editFingers: fingersPanel,
     lightBodies: (ids) => viewer.lightBodies(ids ? contents(history.current, ids) : []),

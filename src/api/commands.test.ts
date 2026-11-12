@@ -92,7 +92,7 @@ describe('move', () => {
   });
 });
 
-describe('box joint fingers', () => {
+describe('finger joint fingers', () => {
   it('each about five thicknesses long, rounded up to an odd number, 3 at least', () => {
     expect(fingersFor(80, 5)).toBe(5); // 3.2: up to 5, 16 mm each
     expect(fingersFor(125, 5)).toBe(5); // exactly 5

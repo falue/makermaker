@@ -12,7 +12,7 @@ import type { Area, BooleanOp, BuildIn, Curve, EdgeRule, Profile } from '../doc/
 /** A joint's way: turning about or sliding along an axis, `amount` degrees or mm (above 0). */
 export type Sweep = { kind: 'hinge' | 'slider'; at: [number, number, number]; dir: [number, number, number]; amount: number };
 export type BooleanBuild = { id: string; type: 'boolean'; op: BooleanOp; features: BuildFeature[]; place: Place; grow?: number; sweep?: Sweep };
-/** A box joint as the kernel builds it: the other body's features (without its box joint) where it sits, the finger count or width, which fingers stay. */
+/** A finger joint as the kernel builds it: the other body's features (without its finger joint) where it sits, the finger count or width, which fingers stay. */
 export type FingersBuild = { id: string; type: 'fingers'; features: BuildFeature[]; place: Place; count: number; width: number; from?: V3; first: boolean; clearance?: number };
 export type BuildFeature = Resolved<BuildIn> | BooleanBuild | FingersBuild;
 type Of<T extends BuildFeature['type']> = Extract<BuildFeature, { type: T }>;
@@ -1052,7 +1052,7 @@ export const rise = (t: number, k: number) => 1 - Math.pow(1 - t, k >= 0 ? 1 + k
 const fullness = (k: number) => Math.max(-4, Math.min(4, k));
 
 /**
- * A box joint: where the body and the other overlap, sliced across the overlap's longest side into fingers (`width`
+ * A finger joint: where the body and the other overlap, sliced across the overlap's longest side into fingers (`width`
  * above 0: exactly that long from the low end, or from `from` both ways, the rest at the ends; else `count` equal
  * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`), each cut
  * `clearance` / 2 wider on both sides. Two standing square to each other where one only touches (a face or an edge) or

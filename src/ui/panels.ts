@@ -150,14 +150,14 @@ export interface UIContext {
   lightPlane(id: string | null): void;
   /** Opens a bulge's panel (`body` holds it). */
   editBulge(body: string, feature: string): void;
-  /** A box joint's panel (either body's step). */
+  /** A finger joint's panel (either body's step). */
   editFingers(body: string, feature: string): void;
   /** Opens a work plane's panel. */
   editPlane(id: string): void;
   /** Measure: an edge's length or two points' distances (see main's measureTool). */
   measureTool(): void;
-  /** Box joint: bodies that overlap or touch cut into interlocking fingers, each pair that meets (see main's boxJoint). */
-  boxJoint(): void;
+  /** Finger joint: bodies that overlap or touch cut into interlocking fingers, each pair that meets (see main's fingerJoint). */
+  fingerJoint(): void;
   /** Outlines objects orange in the view, a temporary mark (hovered in the list; groups: their contents; null: none). */
   lightBodies(ids: string[] | null): void;
   /** One linked copy gets its own steps and leaves the others. */
@@ -824,7 +824,7 @@ function booleanMenu(ctx: UIContext) {
   ];
   return [
     ...ops.map(([op, label, title]) => menuItem(op, label, title, () => ctx.boolean(op))),
-    menuItem('fingers', 'Box joint', 'Bodies that overlap or touch cut into interlocking fingers (two, or a whole box: each pair that meets): for gluing sheets together', ctx.boxJoint),
+    menuItem('fingers', 'Finger joint', 'Bodies that overlap or touch cut into interlocking fingers (two, or a whole box: each pair that meets): for gluing sheets together', ctx.fingerJoint),
   ];
 }
 
@@ -834,7 +834,7 @@ function booleanTools(ctx: UIContext, picked = () => {}) {
     ['subtract', 'Cut: the others cut the first'],
     ['intersect', 'Intersect: only where all of them overlap'],
   ];
-  return [...ops.map(([op, title]) => tool(op, title, () => (picked(), ctx.boolean(op)))), tool('fingers', 'Box joint: the bodies cut into interlocking fingers where they overlap or touch (several: each pair that meets)', () => (picked(), ctx.boxJoint()))];
+  return [...ops.map(([op, title]) => tool(op, title, () => (picked(), ctx.boolean(op)))), tool('fingers', 'Finger joint: the bodies cut into interlocking fingers where they overlap or touch (several: each pair that meets)', () => (picked(), ctx.fingerJoint()))];
 }
 
 /** Rows of the custom sections, in the section panel: on/off, name, offset, flip, delete; its turn and what it turns around. */
@@ -1078,9 +1078,9 @@ function left(ctx: UIContext): Node[] {
         : r.copies === undefined
           ? [h('span', { className: 'icon linked-mark', innerHTML: icon('link'), title: `${shares} · listed in their own groups · ${fromMenu}` })]
           : [h('button', { className: 'icon linked-mark', innerHTML: icon('link'), title: `${shares} · click: ${r.copies ? 'Fold them away' : 'Show them under it'} · ${fromMenu}`, onclick: () => ctx.toggleFold(`copies:${p.id}`) })];
-    // a box joint: its button opens its panel
+    // a finger joint: its button opens its panel
     const finger = p.features.find((f) => f.type === 'fingers');
-    const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Box joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];
+    const joint = finger ? [h('button', { className: 'icon', innerHTML: icon('fingers'), title: `Finger joint with ${doc.bodies.find((b) => b.id === (finger as { body: string }).body)?.name ?? 'a deleted body'}: click to edit it`, onclick: () => ctx.editFingers(p.id, finger.id) })] : [];
     const el = row(id, depth, false, listItem(id, selectedClass(id), (how) => ctx.deselectAgain(id, how) || ctx.select(id, how), swatch, nameOf(id, p.name, ['bodies', String(i), 'name'])), marked([...linked, ...joint, ...sketch, ...bools, ...jointMark(id)]), tool, ...toolEye);
     return [el, ...(sketchesOpen ? own.filter((k) => !keep || matches(k.name) || matches(p.name)).map((k) => sketchRow(k, depth + 1)) : [])];
   });
@@ -2063,7 +2063,7 @@ function featureCard(ctx: UIContext, body: Body, feature: Feature, at: string, s
       return h(
         'section',
         {},
-        h('h4', {}, 'Box joint', button('✎', () => ctx.editFingers(body.id, feature.id), 'Edit it in its panel: fingers, finger length, clearance, from a point'), remove),
+        h('h4', {}, 'Finger joint', button('✎', () => ctx.editFingers(body.id, feature.id), 'Edit it in its panel: fingers, finger length, clearance, from a point'), remove),
         ...(feature.first
           ? [h('div', { className: 'row' }, exprField(ctx, `${at}.count`, 'Fingers', true), f('width', 'Finger length'), exprField(ctx, `${at}.clearance`, 'Clearance', false, { value: feature.clearance ?? { e: '0', u: ctx.doc.units }, set: (x, live) => ctx.setValue([...at.split('.'), 'clearance'], x, live), error: ctx.exprErrors.get(`${at}.clearance`) }))]
           : []),

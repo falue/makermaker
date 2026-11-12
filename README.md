@@ -16,7 +16,7 @@ It runs on your computer, also offline, and keeps your designs in ordinary files
 - **More ways to make solids**: revolve a profile around an axis, loft through shapes on several sketches, sweep a shape along a path, bulge a face into a smooth dome or a shaft into a vase, hollow a body into walls (shell), offset outlines, mirror shapes and bodies.
 - **Real threads**: click a hole's or shaft's edge and get an ISO metric thread cut into it, ready to print.
 - **Round, chamfer, cut and join**: fillets and chamfers stay editable; bodies cut, join or intersect each other and stay movable while they do.
-- **Repeat and fit**: patterns (grid, around an axis), linked copies that change together, box joints between two boards, a coat that thickens a body all round, draft angles on faces.
+- **Repeat and fit**: patterns (grid, around an axis), linked copies that change together, finger joints between two boards, a coat that thickens a body all round, draft angles on faces.
 - **Cut in two**: split a body along a plane (turned around any edge), a sketch line or shape, a ball or a cylinder; keep both halves or just one.
 - **Type instead of fiddling**: every number can be a unit or a formula with named values (`2*$ply + 10`); change `$ply` once and everything that uses it follows. Names complete as you type.
 - **Snap to what matters**: corners, centres, middles, crossings, evenly spaced points along any line, and guide lines that extend an edge across the whole view.

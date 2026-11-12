@@ -41,7 +41,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Assumed for the sphere's ways: three points give the smallest ball (three alone do not fix one), four the exact one. "Three planes and a centre or diameter": after the third plane, the pointer sets where its centre lies (snaps count) or a typed Ø sets the size. A sphere is plain numbers afterwards: it does not follow the points or planes. No Python command of its own yet: `cad.sphere` takes a centre and diameter. T and M do not reach into its Ø field yet.
 - `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
-## Box joint
+## Finger joint
 - Bodies that are not boxes and meet only along an edge (no shared face) are refused; boxes meeting so still work. "The thinner one" behind a shared face is measured to the body's farthest corner, so an L-shaped body can count as thicker than it is there.
 - One Fingers count for all joints of a batch gives short joints the same number of tiny fingers (Finger length avoids it).
 
@@ -70,7 +70,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Deleting a body whose linked copies take over its steps (`unlinkedFrom`) also deletes its tool bodies, so the heirs lose those cuts and joins (seen while building `withOwnTools`, 2026-11-12; not changed).
 - Mirror's own copies of tool bodies tested only through Duplicate in the app (same `withOwnTools`); the Mirror tool itself was not clicked through.
 - Fillets and chamfers on picked edges now run before the next join or cut after them (2026-11-12): older files whose picked finish came before a cut that should have been rounded along keep that cut sharp now (only rules round later cuts). The broken-solid note has not been seen yet on a real file: the one case found (testdata/türkartenleser.mmk, a chamfer after holes) no longer breaks. Each step's check costs a little per build (not timed on big bodies; a body of one step, as an imported STEP part, is not checked).
-- History rows should all open their step's tool (user, 2026-11-07: no editing in the right column but the main L W H / X Y Z fields). Done for Thread, Bulge, Draft and Box joint; Extrude, Cut / Join, Push, Shell, Coat, Revolve, Loft, Sweep, Mirror, Split, Piece, Sphere and Fillets still show their card below the row: their tools have no edit mode for an existing step yet.
+- History rows should all open their step's tool (user, 2026-11-07: no editing in the right column but the main L W H / X Y Z fields). Done for Thread, Bulge, Draft and Finger joint; Extrude, Cut / Join, Push, Shell, Coat, Revolve, Loft, Sweep, Mirror, Split, Piece, Sphere and Fillets still show their card below the row: their tools have no edit mode for an existing step yet.
 - Not built yet: a face pulled on a body offers no New body (its Push step joins or cuts by the direction).
 - Not built yet: clicking a face selects only extrusion and boolean steps; Push, revolve and the other steps only from Object history.
 - Not built yet: the laser and SVG / DXF outlines leave fillets out, so a body rounded by fillets cuts with sharp corners (they should take the upright edges' fillets along).
