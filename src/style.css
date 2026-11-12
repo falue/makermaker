@@ -1,4 +1,6 @@
 :root {
+  /* drawers sliding open and shut */
+  --slide: 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   --bg: #f7f7f5;
   --panel: #ffffff;
   --line: #deded9;
@@ -856,11 +858,15 @@ body.scrubbing * {
   display: flex;
   flex-direction: column;
   transform: translateY(calc(100% - var(--tab)));
-  transition: transform 0.12s ease-out;
+  transition: transform var(--slide), bottom var(--slide);
   pointer-events: none;
 }
 .drawer.open {
   transform: none;
+}
+.resizing .drawer,
+.resizing .drawers-right {
+  transition: none;
 }
 .drawer[hidden] {
   display: none;
@@ -879,6 +885,7 @@ body.scrubbing * {
   position: absolute;
   right: 10px;
   bottom: calc(var(--drawers-up, 0px) + var(--joints-up, 0px));
+  transition: bottom var(--slide);
   z-index: 5;
   display: flex;
   align-items: flex-end;
@@ -897,9 +904,11 @@ body.scrubbing * {
   right: 0;
   top: 100%;
   visibility: hidden;
+  transition: visibility 0s var(--slide); /* gone once slid down */
 }
 .drawers-right .drawer.open > :not(.drawer-tab) {
   visibility: visible;
+  transition: none;
 }
 .drawer-tab {
   display: flex;
@@ -917,7 +926,7 @@ body.scrubbing * {
   height: 10px;
   fill: none;
   stroke: currentColor;
-  transition: transform 0.12s;
+  transition: transform var(--slide);
 }
 .drawer.open .drawer-tab svg {
   transform: rotate(90deg);
@@ -2880,8 +2889,15 @@ section > h4 .segmented button {
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
+.terminal {
+  transition: transform var(--slide), visibility 0s;
+}
+/* shut: slid down out of the view, gone once there */
 .terminal[hidden] {
-  display: none;
+  display: flex;
+  transform: translateY(100%);
+  visibility: hidden;
+  transition: transform var(--slide), visibility 0s var(--slide);
 }
 .terminal-grip {
   flex: none;

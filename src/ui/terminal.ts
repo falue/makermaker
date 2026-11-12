@@ -298,12 +298,13 @@ export function pythonTerminal(parent: HTMLElement, tabs: HTMLElement, api: Term
   const lift = () => parent.style.setProperty('--drawers-up', box.hidden ? '0px' : `${box.offsetHeight}px`);
   grip.onpointerdown = (down) => {
     grip.setPointerCapture(down.pointerId);
+    parent.classList.add('resizing'); // the drawers on top follow at once, not sliding
     const start = box.offsetHeight;
     grip.onpointermove = (m) => {
       box.style.height = `${Math.max(120, Math.min(parent.clientHeight - 60, start + down.clientY - m.clientY))}px`;
       lift();
     };
-    grip.onpointerup = () => (grip.onpointermove = grip.onpointerup = null);
+    grip.onpointerup = () => (parent.classList.remove('resizing'), (grip.onpointermove = grip.onpointerup = null));
   };
 
   const toggle = (open = box.hidden) => {
