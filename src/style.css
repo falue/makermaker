@@ -3581,8 +3581,8 @@ body.nav-held canvas {
 body.nav-held.nav-orbit canvas {
   cursor: all-scroll;
 }
-/* the unfold export's look at what comes out: on paper white, lines a pixel wide at any size */
-.unfold-preview {
+/* the laser and unfold exports' look at what comes out: on paper white, lines a pixel wide at any size */
+.sheet-preview {
   margin: 6px 0;
   max-height: 40vh;
   border: 1px solid var(--line);
@@ -3590,11 +3590,11 @@ body.nav-held.nav-orbit canvas {
   background: #ffffff;
   overflow: hidden;
 }
-.unfold-preview svg {
+.sheet-preview svg {
   display: block;
   width: 100%;
   max-height: 40vh;
 }
-.unfold-preview :is(path, circle) {
+.sheet-preview :is(path, circle) {
   vector-effect: non-scaling-stroke;
 }

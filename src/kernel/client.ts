@@ -4,6 +4,7 @@ import type { AreaMesh, BuildFeature } from './build';
 import type { ClashAsk, ClashResult } from './clash';
 import type { Exact } from './exact';
 import type { MeasureAnswer, MeasureAsk } from './measure';
+import type { Cut } from '../io/cutfile';
 import type { BodyResult, ExportBody, ExportFile, ExportFormat, PrintCheck, Request, Response, Unfolded } from './worker';
 import { stepsKey } from './key';
 
@@ -108,6 +109,12 @@ export class Kernel {
   async export(format: ExportFormat, bodies: ExportBody[], around: Pick<ExportBody, 'features' | 'place'>[] = []): Promise<{ files: ExportFile[]; failed: string[] }> {
     const answer = await this.ask(this.shards[0], { kind: 'export', format, id: this.nextAsk++, bodies, around });
     return answer.kind === 'export' ? answer : { files: [], failed: [] };
+  }
+
+  /** The laser pieces of `bodies`, as an export would cut them (see the worker's `laserPieces`): for a preview. */
+  async laser(bodies: ExportBody[], around: Pick<ExportBody, 'features' | 'place'>[] = []): Promise<{ pieces: { name: string; cuts: Cut[] }[]; failed: string[] }> {
+    const answer = await this.ask(this.shards[0], { kind: 'laser', id: this.nextAsk++, bodies, around });
+    return answer.kind === 'laser' ? answer : { pieces: [], failed: [] };
   }
 
   /** Each body unfolded into flat nets (see the worker's `unfold`). */

@@ -36,6 +36,7 @@ export type Request =
   | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
   | { kind: 'check'; id: number; bodies: ExportBody[] }
   | { kind: 'unfold'; id: number; bodies: Pick<ExportBody, 'name' | 'features'>[] }
+  | { kind: 'laser'; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
   | { kind: 'clash'; id: number; ask: ClashAsk; extra: Shared[] }
   | { kind: 'share'; id: number; bodies: string[] }
@@ -50,12 +51,49 @@ export type Response =
   | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] }
   | { kind: 'check'; id: number; results: PrintCheck[] }
   | { kind: 'unfold'; id: number; results: Unfolded[] }
+  | { kind: 'laser'; id: number; pieces: { name: string; cuts: Cut[] }[]; failed: string[] }
   | { kind: 'measure'; id: number; answers: MeasureAnswer[] }
   | { kind: 'clash'; id: number; result: ClashResult }
   | { kind: 'share'; id: number; solids: Shared[] }
   | { kind: 'exact'; results: { id: string; exact: Exact | null }[] };
 
 const PRINT = { tolerance: 0.01, angularTolerance: 0.1 };
+
+/**
+ * The laser pieces of `bodies`, named (their label), kerf allowed for; the others (and `around`) in the world, for
+ * what a straight cut would push into. Those that cannot be made go into `failed`, with why.
+ */
+function laserPieces(bodies: ExportBody[], others: Pick<ExportBody, 'features' | 'place'>[] = [], failed: string[]) {
+  const world = [...bodies, ...others].map(({ features, place }) => {
+    try {
+      return placeShape(buildBody(features), place);
+    } catch {
+      return null;
+    }
+  });
+  // `s` in body i's coordinates (a copy)
+  const into = (s: Shape3D, i: number) => unplaceShape(s.clone(), bodies[i].place);
+  const near = (all: (Shape3D | null)[], i: number) => all.flatMap((s, j) => (s && j !== i ? [into(s, i)] : []));
+  // twice: first each one's own sides, then each makes room for what the others' laser parts still push into it
+  const lasered: (Shape3D | null)[] = [];
+  const pieces: { name: string; cuts: Cut[] }[] = [];
+  for (const pass of [0, 1])
+    bodies.forEach(({ name, label, features, place, face, kerf }, i) => {
+      const [around, parts] = [near(world, i), pass ? near(lasered, i) : []];
+      try {
+        const { cuts, solid } = laserPart(features, face, around, parts);
+        if (pass) pieces.push({ name: label ?? name, cuts: withKerf(cuts, kerf ?? 0) }), solid.delete();
+        else lasered.push(placeShape(solid, place));
+      } catch (e) {
+        if (pass) failed.push(`${label ?? name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
+        else lasered.push(null);
+      } finally {
+        for (const s of [...around, ...parts]) s.delete();
+      }
+    });
+  for (const s of [...world, ...lasered]) s?.delete();
+  return { pieces };
+}
 
 /** A placed body's triangles for printing, its points merged where they meet (to 0.01 µm). */
 function printMesh(shape: Shape3D) {
@@ -198,6 +236,11 @@ async function handle(data: Job) {
     });
     return postMessage({ kind: 'check', id: data.id, results } satisfies Response);
   }
+  if (data.kind === 'laser') {
+    for (const b of [...data.bodies, ...(data.around ?? [])]) await loadImports(b.features);
+    const failed: string[] = [];
+    return postMessage({ kind: 'laser', id: data.id, ...laserPieces(data.bodies, data.around, failed), failed } satisfies Response);
+  }
   if (data.kind === 'unfold') {
     for (const b of data.bodies) await loadImports(b.features);
     const results = data.bodies.map(({ name, features }): Unfolded => {
@@ -246,35 +289,7 @@ async function handle(data: Job) {
       return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
     }
     if (data.format === 'svg' || data.format === 'dxf') {
-      // every piece on one sheet, named; the others (and `around`) in the world, for what a straight cut would push into
-      const world = [...data.bodies, ...(data.around ?? [])].map(({ features, place }) => {
-        try {
-          return placeShape(buildBody(features), place);
-        } catch {
-          return null;
-        }
-      });
-      // `s` in body i's coordinates (a copy)
-      const into = (s: Shape3D, i: number) => unplaceShape(s.clone(), data.bodies[i].place);
-      const near = (all: (Shape3D | null)[], i: number) => all.flatMap((s, j) => (s && j !== i ? [into(s, i)] : []));
-      // twice: first each one's own sides, then each makes room for what the others' laser parts still push into it
-      const lasered: (Shape3D | null)[] = [];
-      const pieces: { name: string; cuts: Cut[] }[] = [];
-      for (const pass of [0, 1])
-        data.bodies.forEach(({ name, label, features, place, face, kerf }, i) => {
-          const [around, parts] = [near(world, i), pass ? near(lasered, i) : []];
-          try {
-            const { cuts, solid } = laserPart(features, face, around, parts);
-            if (pass) pieces.push({ name: label ?? name, cuts: withKerf(cuts, kerf ?? 0) }), solid.delete();
-            else lasered.push(placeShape(solid, place));
-          } catch (e) {
-            if (pass) failed.push(`${label ?? name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
-            else lasered.push(null);
-          } finally {
-            for (const s of [...around, ...parts]) s.delete();
-          }
-        });
-      for (const s of [...world, ...lasered]) s?.delete();
+      const { pieces } = laserPieces(data.bodies, data.around, failed);
       if (pieces.length) {
         const sheet = sheetOf(pieces);
         const text = data.format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.map((p) => p.label));

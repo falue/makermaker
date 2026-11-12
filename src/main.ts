@@ -38,7 +38,7 @@ import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import type { Exact } from './kernel/exact';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
-import { dxfOf, previewSvg, sheetOf, sheetSvg, sketchCuts, svgOf } from './io/cutfile';
+import { dxfOf, previewSvg, sheetOf, sheetSvg, sketchCuts, svgOf, type Cut } from './io/cutfile';
 import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature, CappedEdge, Sweep } from './kernel/build';
 import { Kernel } from './kernel/client';
@@ -7697,6 +7697,35 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
   const unfolds = new Map<string, Unfolded>();
   const unfoldedPieces = (of: Body[]) => of.flatMap((b) => (unfolds.get(b.id)?.pieces ?? []).map((p, i, all) => ({ name: all.length > 1 ? `${b.name} ${i + 1}` : b.name, ...p })));
   const unfoldedSheet = (of: Body[]) => sheetOf(unfoldedPieces(of));
+  // the laser pieces of the ones switched on, made anew when what goes in changes (the latest asked wins)
+  let lasered: { pieces: { name: string; cuts: Cut[] }[]; failed: string[] } | null = null;
+  let laserKey = '';
+  let kerfTimer = 0;
+  const laserAsk = () => {
+    const chosen = bodies.filter((b) => on.has(b.id));
+    const key = JSON.stringify([chosen.map((b) => b.id), [...faces], exportChoice.kerf]);
+    if (key === laserKey) return;
+    laserKey = key;
+    if (!chosen.length) return (lasered = null), showPreview();
+    const kerf = length(exportChoice.kerf) ?? 0;
+    const off = bodies.filter((b) => !on.has(b.id)).map((b) => ({ features: built.get(b.id)!, place: bodyPlace(b.id) }));
+    void kernel.laser(chosen.map((b) => ({ name: b.id, label: b.name, color: b.color, features: built.get(b.id)!, place: bodyPlace(b.id), face: faces.get(b.id), kerf })), off).then((r) => {
+      if (key !== laserKey || !box.isConnected) return;
+      lasered = r;
+      showPreview();
+    });
+  };
+  // what comes out, below the rows: the pieces of the ones switched on as they will lie on the sheet
+  const preview = Object.assign(document.createElement('div'), { className: 'sheet-preview' });
+  const showPreview = () => {
+    // unfolded faces are shaded by their stretch; laser pieces have none
+    const unfolded = kind === 'unfold' ? unfoldedPieces(bodies.filter((b) => on.has(b.id))) : [];
+    const pieces = kind === 'laser' ? (lasered?.pieces ?? []) : unfolded;
+    const sheet = sheetOf(pieces);
+    preview.hidden = !sheet.length && !lasered?.failed.length;
+    preview.innerHTML = sheet.length ? previewSvg(sheet, unfolded.map((p) => p.faces)) : '';
+    if (kind === 'laser' && lasered?.failed.length) preview.append(Object.assign(document.createElement('p'), { className: 'error', textContent: `Could not make: ${lasered.failed.join(', ')}` }));
+  };
   const rows = () =>
     bodies.map((b) => {
       const tick = Object.assign(document.createElement('input'), { type: 'checkbox', checked: on.has(b.id), onchange: () => (tick.checked ? on.add(b.id) : on.delete(b.id), draw()) });
@@ -7738,7 +7767,11 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
     return el;
   };
   const draw = () => {
-    const kerf = Object.assign(document.createElement('input'), { value: exportChoice.kerf, title: 'Kerf: how wide the beam cuts; the outline moves out by half, holes in, so the part comes out true', oninput: () => (exportChoice.kerf = kerf.value) });
+    const kerf = Object.assign(document.createElement('input'), {
+      value: exportChoice.kerf,
+      title: 'Kerf: how wide the beam cuts; the outline moves out by half, holes in, so the part comes out true',
+      oninput: () => ((exportChoice.kerf = kerf.value), clearTimeout(kerfTimer), (kerfTimer = window.setTimeout(laserAsk, 300))),
+    });
     Object.assign(kerf.dataset, { complete: '', noMeasure: '' });
     const formats =
       kind === 'print' ? segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v)) : segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice[kind], (v) => (exportChoice[kind] = v));
@@ -7754,14 +7787,9 @@ async function exportPanel(kind: 'laser' | 'print' | 'unfold') {
     const allRow = Object.assign(document.createElement('label'), { className: 'export-row' });
     allRow.append(all, Object.assign(document.createElement('span'), { className: 'name', textContent: every ? 'Unselect all' : 'Select all' }));
     box.querySelector('.export-rows')!.append(...(bodies.length > 1 ? [allRow] : []), ...rows());
-    // what comes out: the pieces of the ones switched on, as they will lie on the sheet
-    const shown = bodies.filter((b) => on.has(b.id));
-    const sheet = kind === 'unfold' ? unfoldedSheet(shown) : [];
-    if (sheet.length) {
-      const pieces = unfoldedPieces(shown);
-      const preview = Object.assign(document.createElement('div'), { className: 'unfold-preview', innerHTML: previewSvg(sheet, pieces.map((p) => p.faces)) });
-      box.insertBefore(preview, box.querySelector('.export-foot'));
-    }
+    if (kind !== 'print') box.insertBefore(preview, foot);
+    showPreview();
+    if (kind === 'laser') laserAsk();
     showNote(); // the hint row back
     atTop(box);
   };
