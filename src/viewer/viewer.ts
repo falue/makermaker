@@ -3193,6 +3193,7 @@ export class Viewer implements ToolView {
     const open = new Map<number, number>();
     const pairs: number[] = [];
     const count = geo.attributes.position.count;
+    const weld = geo.userData.weld as Uint32Array | undefined; // corners doubled for texture coordinates: their originals
     // not in one plane (to float precision: 1e-6 is some 0.06°, far below how much a meshed curve turns)
     const bent = (o: number, t: number) => {
       const [x, y, z, X, Y, Z] = [normals[o * 3], normals[o * 3 + 1], normals[o * 3 + 2], normals[t * 3], normals[t * 3 + 1], normals[t * 3 + 2]];
@@ -3205,7 +3206,8 @@ export class Viewer implements ToolView {
       const [vx, vy, vz] = [pos[c * 3] - pos[a * 3], pos[c * 3 + 1] - pos[a * 3 + 1], pos[c * 3 + 2] - pos[a * 3 + 2]];
       normals.set([uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx], t * 3);
       for (const [p, q] of [[a, b], [b, c], [c, a]]) {
-        const key = Math.min(p, q) * count + Math.max(p, q);
+        const [i, j] = weld ? [weld[p], weld[q]] : [p, q];
+        const key = Math.min(i, j) * count + Math.max(i, j);
         const other = open.get(key);
         if (other === undefined) open.set(key, t);
         else (open.delete(key), bent(other, t) && pairs.push(p, q, other, t));
