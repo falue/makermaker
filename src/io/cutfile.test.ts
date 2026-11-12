@@ -39,7 +39,7 @@ describe('sketch drawings', () => {
       expect(l.at[0]).toBeCloseTo(x0, 6); // at its left
       expect(l.at[1]).toBeLessThan(y0); // over its top (y down)
     });
-    expect(Math.max(b[0] - a[2], a[0] - b[2], b[1] - a[3], a[1] - b[3])).toBeGreaterThanOrEqual(10 - 1e-9); // 10 mm apart at least
+    expect(Math.max(b[0] - a[2], a[0] - b[2], b[1] - a[3], a[1] - b[3])).toBeGreaterThanOrEqual(20 - 1e-9); // 20 mm apart at least
     // each piece a group of its cuts and its name
     const svg = sheetSvg(sheet);
     expect(svg).toContain('stroke-width="0.3528"');

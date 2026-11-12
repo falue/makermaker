@@ -52,7 +52,7 @@ export type Placed = { label: Label; cuts: Cut[] };
  * Pieces side by side on one sheet: in rows, tallest first, the rows about as wide as the sheet is tall; `gap` mm
  * between them, each one's name `text` mm high over its top left.
  */
-export function sheetOf(pieces: { name: string; cuts: Cut[] }[], gap = 10, text = 4): Placed[] {
+export function sheetOf(pieces: { name: string; cuts: Cut[] }[], gap = 20, text = 4): Placed[] {
   const sized = pieces.filter((p) => p.cuts.length).map((p) => {
     const [x0, y0, x1, y1] = boxOf(p.cuts);
     return { ...p, x0, y0, w: x1 - x0, h: y1 - y0 + text + 1 };
