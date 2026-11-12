@@ -331,6 +331,14 @@ describe('buildBody', () => {
     into.done();
   });
 
+  it('merges faces a hair off flush after a join, as if flush', () => {
+    // a plate under the 100 × 60 block, its end 0.16 µm short of the block's (float noise from a picked work plane)
+    const plate = (off: number): BuildFeature => ({ id: 'j', type: 'boolean', op: 'union', features: [{ ...base(100, 2), id: 'p', profiles: [{ id: 'r', kind: 'rect', x: 50, y: off / 2, w: 200, h: 60 - off, r: 0, rot: 0 }] } as BuildFeature], place: { ...STILL, offset: [0, 0, -2] } });
+    const [flush, near] = [built([base(100), plate(0)]), built([base(100), plate(1.6e-7)])];
+    expect(near.faces).toBe(flush.faces);
+    [flush, near].forEach((x) => x.done());
+  });
+
   it('joins after a mirror where the join stands in the list', () => {
     const pad: BuildFeature = { id: 'j', type: 'boolean', op: 'union', features: [{ ...base(10), id: 'p' } as BuildFeature], place: { ...STILL, offset: [-60, 0, 0] } };
     const m = built([base(100), { id: 'm', type: 'mirror', o: [60, 0, 0], n: [1, 0, 0] } as BuildFeature, pad]);

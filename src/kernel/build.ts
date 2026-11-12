@@ -1270,17 +1270,29 @@ function joined(shape: Shape3D | null, tool: Shape3D, mode: 'add' | 'cut'): Shap
 }
 
 /**
- * `shape` joined with, cut by or intersected with `tool`. Merging the result's faces afterwards (replicad's simplify)
- * can fail where the operation itself worked (a modelled thread's many faces beside a ball's cut): then without it.
+ * `shape` joined with, cut by or intersected with `tool`, its faces merged afterwards where they lie in one surface,
+ * also when float noise left them a hair apart (`MERGE`), so no stray edge stays. Merging can fail where the operation
+ * itself worked (a modelled thread's many faces beside a ball's cut): then unmerged.
  */
 function combined(shape: Shape3D, tool: Shape3D, op: 'union' | 'subtract' | 'intersect'): Shape3D {
-  const run = (simplify: boolean) => (op === 'union' ? shape.fuse(tool, { simplify }) : op === 'subtract' ? shape.cut(tool, { simplify }) : shape.intersect(tool, { simplify }));
+  const raw = op === 'union' ? shape.fuse(tool, { simplify: false }) : op === 'subtract' ? shape.cut(tool, { simplify: false }) : shape.intersect(tool, { simplify: false });
+  const merge = new (getOC().ShapeUpgrade_UnifySameDomain)(raw.wrapped, true, true, false);
   try {
-    return run(true);
+    merge.SetLinearTolerance(MERGE.mm);
+    merge.SetAngularTolerance(MERGE.rad);
+    merge.Build();
+    const out = cast(merge.Shape()) as Shape3D;
+    raw.delete();
+    return out;
   } catch {
-    return run(false);
+    return raw;
+  } finally {
+    merge.delete();
   }
 }
+
+/** How far apart (mm, radians) two faces may lie and still merge into one: well below anything drawn or printed. */
+const MERGE = { mm: 1e-5, rad: 1e-8 };
 
 /** Keeps one side of the cutter (see `SplitFeature`): the body against a solid that fills that side far beyond it. */
 function split(shape: Shape3D | null, s: Of<'split'>): Shape3D {
