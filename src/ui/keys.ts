@@ -131,9 +131,9 @@ export function keyOf(e: KeyboardEvent) {
 /** A key press `send` makes for `action`. */
 type Sent = KeyboardEvent & { action?: Action };
 
-/** Runs `action` as its key would (also one with no key): a keydown that `pressed` takes for it alone. */
-export function send(action: Action) {
-  document.body.dispatchEvent(Object.assign(new KeyboardEvent('keydown', { bubbles: true, cancelable: true }), { action }));
+/** Runs `action` as its key would (also one with no key): a keydown at `to` that `pressed` takes for it alone. */
+export function send(action: Action, to: Element = document.body) {
+  to.dispatchEvent(Object.assign(new KeyboardEvent('keydown', { bubbles: true, cancelable: true }), { action }));
 }
 
 /** Whether `e` is one of `action`'s keys. */

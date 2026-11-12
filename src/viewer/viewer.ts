@@ -36,7 +36,7 @@ import { axisHtml, sizeHtml } from '../ui/axes';
 import { caret, caretHtml, restOf, selectTyped } from '../ui/complete';
 import type { Settings } from '../ui/settings';
 import { divideMore, edgeKey, FRONT, linePoints, outline, planeHit, shape2d, sideKey, snapLines, SketchTool, uvOf, type Target, type Tool, type ToolHost, type ToolKind, type ToolMode, type ToolView, type ViewSketch } from './sketch';
-import { picksFace, pressed, role, toggles, type ModEvent } from '../ui/keys';
+import { picksFace, pressed, role, send, toggles, type ModEvent } from '../ui/keys';
 import { keepInside } from '../ui/inside';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
@@ -865,6 +865,8 @@ export class Viewer implements ToolView {
       if (shape) return this.host.enterShape(shape.sketch, shape.shape);
       const f = hit && this.finishAt(hit);
       if (f) this.host.pickFinish({ body: hit.object.userData.bodyId, feature: f.feature, mid: null });
+      // on empty space: Confirm, as its key would; later, so a tool's field has its focus back (see the move fields' refocus)
+      if (!hit) setTimeout(() => send('confirm', document.activeElement ?? undefined));
     });
     // right-click on a body: its menu (Ctrl+click on macOS is a right-click too: no menu then, the browser's never)
     canvas.addEventListener('contextmenu', (e) => {
