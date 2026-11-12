@@ -1,1 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="2.5" width="7" height="6" rx="1.2"/><path d="M10.5 8.5l1 1.5h1l1-1.5M12 10v7M10.5 17.5l-2.5-4M10.5 18l-3.5-2M13.5 17.5l3.5-5.5M13.5 18l5-4"/><path class="faint" d="M3.5 18h7M13.5 18h7"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+
+  <polyline class="faint" points="16 3 16 9 8 9 8 3" />
+  <polyline class="faint" points="10 9 11 12 13 12 14 9" />
+  <line class="faint" x1="14" y1="20" x2="21" y2="20" />
+  <line class="faintXXX" x1="12" y1="13.9" x2="12" y2="21.9" />
+  <line class="faint" x1="9.8" y1="19.5" x2="7.2" y2="15.5" />
+  <line class="faint" x1="9.8" y1="20" x2="6.2" y2="18" />
+  <line class="faint" x1="14" y1="19.5" x2="17.5" y2="14" />
+  <line class="faint" x1="14" y1="20" x2="19" y2="16" />
+  <line class="faint" x1="3" y1="20" x2="10" y2="20" />
+</svg>
