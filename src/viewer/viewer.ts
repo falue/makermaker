@@ -3275,7 +3275,8 @@ export class Viewer implements ToolView {
 
   /** Outlines bodies orange (hovered in the list; none: clears it); off the view, an arrow at its edge points to them. */
   lightBodies(ids: string[]) {
-    this.hovered = ids.filter((id) => this.bodies.has(id)); // hidden ones too: their outline shows where they are
+    // hidden ones too, their outline shows where they are; not hidden tool bodies (folded into their body's cut)
+    this.hovered = ids.filter((id) => this.bodies.has(id) && !(this.cutters.has(id) && this.hidden.has(id)));
     this.render();
   }
 
