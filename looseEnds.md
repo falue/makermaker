@@ -46,6 +46,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - One Fingers count for all joints of a batch gives short joints the same number of tiny fingers (Finger length avoids it).
 
 ## Laser export
+- Open question (user, 2026-11-13): whether the laser export should have the sheet preview at all (built 2026-11-13, like the Unwrap export's). Decide: keep it, or drop it to keep the laser panel small.
 - Seen from the face: a round face that turns away from the view part way counts only its seen part for cylinders and spheres; a torus or spline face doing that is left out (where no other face covers it the outline can come out a little small). Green lines come only where flat faces of the body as modelled meet, not at fillets or chamfers.
 - The sheet is rows of boxes, not nested tightly, and has no size limit (a laser bed's).
 - Fitting pieces together: only the bodies in the panel's list count, and only flat sides along the cut face's rim; a miter (two sides each lying on the other) cuts both back, leaving a gap at the corner. A piece makes room only for laser parts after their own sides are settled (two passes, not repeated). Every body is built three times for it (export time not measured on big files).
