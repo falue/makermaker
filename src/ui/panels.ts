@@ -228,6 +228,7 @@ export interface UIContext {
   /** Downloads STL files (3D print) or SVG outlines (laser) of the selected (else shown) bodies. */
   exportPrint(): void;
   exportLaser(): void;
+  exportUnfold(): void;
   exportStep(): void;
   /** Snapshot: downloads the view as a PNG (and keeps it in the renders). */
   renderImage(): void;
@@ -583,6 +584,7 @@ const TIPS = {
   versions: 'Versions: go back in time: the saved versions of this file, shown with a click, restored if you like',
   print: 'Export for 3D print: the selected bodies (else all shown ones), each checked (closed, manifold, sound, its size), as placed in the world: one STL each (several zipped) or one 3MF',
   laser: 'Export for the laser: the selected bodies (else all shown ones) listed, switch any off; each the outline of a flat face (its biggest, or one clicked) at 1:1 without fillets and chamfers, kerf allowed for; SVG or DXF, several zipped',
+  unfold: 'Export unfolded: the selected bodies (else all shown ones) laid out flat at 1:1 for paper, card or cloth: flat faces as they are, cylinders and cones rolled out exactly, other curved faces flattened with a little stretch (shown in orange); faces joined into nets where they fold flat; SVG or DXF, cuts red, folds green',
 };
 
 /** The File menu of the top bar is open. */
@@ -608,6 +610,7 @@ function fileMenu(ctx: UIContext) {
     menuItem('export', 'Export STEP…', TIPS.export, ctx.exportStep),
     menuItem('print', 'Export for 3D print…', TIPS.print, ctx.exportPrint),
     menuItem('laser', 'Export for the laser…', TIPS.laser, ctx.exportLaser),
+    menuItem('unfold', 'Export unfolded…', TIPS.unfold, ctx.exportUnfold),
   ];
 }
 
@@ -651,6 +654,7 @@ function topbar(ctx: UIContext): Node[] {
     h('span', { className: `status${ctx.statusError && ctx.status ? ' error' : ''}` }, ctx.status),
     tool('print', TIPS.print, ctx.exportPrint),
     tool('laser', TIPS.laser, ctx.exportLaser),
+    tool('unfold', TIPS.unfold, ctx.exportUnfold),
     tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),
     tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),
     tool('material', 'Materials: pick, change and save looks; import and export', () => ctx.openMaterials()),

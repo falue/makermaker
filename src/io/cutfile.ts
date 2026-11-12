@@ -45,17 +45,18 @@ function moved(c: Cut, dx: number, dy: number): Cut {
   return { ...c, pts: c.pts.map(m), curves, ...(c.circle ? { circle: { c: m(c.circle.c), r: c.circle.r } } : {}) };
 }
 
-/** A piece placed on a sheet: its cuts and its name over them. */
-export type Placed = { label: Label; cuts: Cut[] };
+/** A piece placed on a sheet: its cuts and its name over them; `shift`: how far it was moved there; `from`: its place among the pieces given. */
+export type Placed = { label: Label; cuts: Cut[]; shift: P2; from: number };
 
 /**
  * Pieces side by side on one sheet: in rows, tallest first, the rows about as wide as the sheet is tall; `gap` mm
  * between them, each one's name `text` mm high over its top left.
  */
 export function sheetOf(pieces: { name: string; cuts: Cut[] }[], gap = 20, text = 4): Placed[] {
-  const sized = pieces.filter((p) => p.cuts.length).map((p) => {
+  const sized = pieces.flatMap((p, from) => {
+    if (!p.cuts.length) return [];
     const [x0, y0, x1, y1] = boxOf(p.cuts);
-    return { ...p, x0, y0, w: x1 - x0, h: y1 - y0 + text + 1 };
+    return [{ ...p, from, x0, y0, w: x1 - x0, h: y1 - y0 + text + 1 }];
   });
   const area = sized.reduce((n, p) => n + (p.w + gap) * (p.h + gap), 0);
   const width = Math.max(...sized.map((p) => p.w), Math.sqrt(area));
@@ -63,7 +64,8 @@ export function sheetOf(pieces: { name: string; cuts: Cut[] }[], gap = 20, text 
   let [x, y, row] = [0, 0, 0];
   for (const p of sized.sort((a, b) => b.h - a.h)) {
     if (x > 0 && x + p.w > width) [x, y, row] = [0, y + row + gap, 0];
-    out.push({ label: { at: [x, y + text], text: p.name, size: text }, cuts: p.cuts.map((c) => moved(c, x - p.x0, y + text + 1 - p.y0)) });
+    const shift: P2 = [x - p.x0, y + text + 1 - p.y0];
+    out.push({ label: { at: [x, y + text], text: p.name, size: text }, cuts: p.cuts.map((c) => moved(c, ...shift)), shift, from: p.from });
     [x, row] = [x + p.w + gap, Math.max(row, p.h)];
   }
   return out;
@@ -155,3 +157,19 @@ export function dxfOf(cuts: Cut[], labels: Label[] = []): string {
   return out.join('\n') + '\n';
 }
 
+
+/**
+ * A sheet drawn to look at (not to cut): each piece's faces filled (`faces`, by the pieces given to `sheetOf`: white, more
+ * orange the more they stretch, full at 10 %), its cuts dark red, its folds dashed green, its name; lines one pixel
+ * wide at any size.
+ */
+export function previewSvg(pieces: Placed[], faces: { loops: P2[][]; stretch: number }[][]): string {
+  const shade = (s: number) => `hsl(24 95% ${Math.round(100 - Math.min(1, s / 0.1) * 38)}%)`;
+  const path = (loops: P2[][], [dx, dy]: P2) => loops.map((l) => `M${l.map(([x, y]) => `${f(x + dx)} ${f(y + dy)}`).join('L')}Z`).join('');
+  const fills = pieces.flatMap((p) => (faces[p.from] ?? []).map((g) => `<path d="${path(g.loops, p.shift)}" fill="${shade(g.stretch)}" fill-rule="evenodd"/>`));
+  const lines = (mark: boolean) => pieces.flatMap((p) => p.cuts.filter((c) => !!c.mark === mark).map(svgShape)).join('');
+  const labels = pieces.map(({ label: l }) => `<text x="${f(l.at[0])}" y="${f(l.at[1])}" font-size="${f(l.size)}" font-family="sans-serif" fill="#333">${xml(l.text)}</text>`);
+  const [x0, y0, x1, y1] = boxOf(pieces.flatMap((p) => p.cuts), pieces.map((p) => p.label));
+  const m = Math.max(x1 - x0, y1 - y0) * 0.02;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(x0 - m)} ${f(y0 - m)} ${f(x1 - x0 + 2 * m)} ${f(y1 - y0 + 2 * m)}">${fills.join('')}<g fill="none" stroke="#b42318" stroke-width="1">${lines(false)}</g><g fill="none" stroke="#16a34a" stroke-width="1" stroke-dasharray="4 3">${lines(true)}</g>${labels.join('')}</svg>`;
+}

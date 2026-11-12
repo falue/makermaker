@@ -216,6 +216,12 @@ function laserTests(): Body[] {
   ];
 }
 
+/** A test piece for the unfold export: a lamp shade (a cone cut off, revolved), rolled out exactly round its apex. */
+function unfoldTest(): Body {
+  const shade: Profile = { id: newId(), kind: 'polygon', pts: [[0, 0], [22, 0], [12, 30], [0, 30]], r: ex(0), rot: ex(0) };
+  return { ...solid('Unfold me: lamp shade', '#f2e2b8', [-110, 410, 0], [], 0), features: [{ id: newId(), type: 'revolve', source: { kind: 'own', plane: { kind: 'base', axis: 'xz', offset: ex(0) }, profiles: [shade] }, axis: { at: [0, 0], dir: [0, 1] }, angle: ex(360), mode: 'add' }] };
+}
+
 /** A test piece for work planes: one along a 60 mm edge, turned 30° around it, free of the other pieces. */
 function slantedPlane(): WorkPlane {
   const at: [number, number, number] = [-130, 150, 20];
@@ -306,7 +312,7 @@ export function sampleDoc(): Doc {
     schema: 32,
     units: 'mm',
     params: { $ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies, stepsTest(), ...turned.bodies, ...linkTest(), ...laserTests()],
+    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies, stepsTest(), ...turned.bodies, ...linkTest(), ...laserTests(), unfoldTest()],
     sketches: [
       outline,
       {

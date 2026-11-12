@@ -3581,3 +3581,20 @@ body.nav-held canvas {
 body.nav-held.nav-orbit canvas {
   cursor: all-scroll;
 }
+/* the unfold export's look at what comes out: on paper white, lines a pixel wide at any size */
+.unfold-preview {
+  margin: 6px 0;
+  max-height: 40vh;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #ffffff;
+  overflow: hidden;
+}
+.unfold-preview svg {
+  display: block;
+  width: 100%;
+  max-height: 40vh;
+}
+.unfold-preview :is(path, circle) {
+  vector-effect: non-scaling-stroke;
+}

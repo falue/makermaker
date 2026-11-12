@@ -4,7 +4,7 @@ import type { AreaMesh, BuildFeature } from './build';
 import type { ClashAsk, ClashResult } from './clash';
 import type { Exact } from './exact';
 import type { MeasureAnswer, MeasureAsk } from './measure';
-import type { BodyResult, ExportBody, ExportFile, ExportFormat, PrintCheck, Request, Response } from './worker';
+import type { BodyResult, ExportBody, ExportFile, ExportFormat, PrintCheck, Request, Response, Unfolded } from './worker';
 import { stepsKey } from './key';
 
 type BuildPart = Extract<Request, { kind: 'build' }>['bodies'][number];
@@ -108,6 +108,12 @@ export class Kernel {
   async export(format: ExportFormat, bodies: ExportBody[], around: Pick<ExportBody, 'features' | 'place'>[] = []): Promise<{ files: ExportFile[]; failed: string[] }> {
     const answer = await this.ask(this.shards[0], { kind: 'export', format, id: this.nextAsk++, bodies, around });
     return answer.kind === 'export' ? answer : { files: [], failed: [] };
+  }
+
+  /** Each body unfolded into flat nets (see the worker's `unfold`). */
+  async unfold(bodies: Pick<ExportBody, 'name' | 'features'>[]): Promise<Unfolded[]> {
+    const answer = await this.ask(this.shards[0], { kind: 'unfold', id: this.nextAsk++, bodies });
+    return answer.kind === 'unfold' ? answer.results : [];
   }
 
   /** For 3D printing: whether each body is closed, manifold and sound, and its size. */

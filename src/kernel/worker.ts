@@ -7,6 +7,7 @@ import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
 import { dxfOf, sheetOf, sheetSvg, type Cut } from '../io/cutfile';
 import { laserPart, withKerf } from './laser';
+import { unfold, type UnfoldPiece } from './unfold';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
 import { exactSteps, type Exact } from './exact';
@@ -23,6 +24,8 @@ import { stepsKey } from './key';
 export type ExportFile = { name: string; data: ArrayBuffer };
 export type ExportFormat = 'stl' | '3mf' | 'svg' | 'dxf' | 'step';
 export type ExportBody = { name: string; /** shown on a laser sheet (`name`: for a file) */ label?: string; color: string; features: BuildFeature[]; place: Place; face?: { at: V3; n: V3 }; kerf?: number };
+/** A body unfolded (see `unfold`); `error`: why it could not be. */
+export type Unfolded = { name: string; pieces: UnfoldPiece[]; stretch: number; error?: string };
 export type PrintCheck = { name: string; closed: boolean; manifold: boolean; sound: boolean; size: V3; error?: string };
 type V3 = [number, number, number];
 /** A solid as text, for the bodies `ids` (linked copies share one). */
@@ -32,6 +35,7 @@ export type Request =
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
   | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
   | { kind: 'check'; id: number; bodies: ExportBody[] }
+  | { kind: 'unfold'; id: number; bodies: Pick<ExportBody, 'name' | 'features'>[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
   | { kind: 'clash'; id: number; ask: ClashAsk; extra: Shared[] }
   | { kind: 'share'; id: number; bodies: string[] }
@@ -45,6 +49,7 @@ export type Response =
   | { kind: 'areas'; id: number; areas: AreaMesh[] }
   | { kind: 'export'; id: number; files: ExportFile[]; failed: string[] }
   | { kind: 'check'; id: number; results: PrintCheck[] }
+  | { kind: 'unfold'; id: number; results: Unfolded[] }
   | { kind: 'measure'; id: number; answers: MeasureAnswer[] }
   | { kind: 'clash'; id: number; result: ClashResult }
   | { kind: 'share'; id: number; solids: Shared[] }
@@ -192,6 +197,21 @@ async function handle(data: Job) {
       }
     });
     return postMessage({ kind: 'check', id: data.id, results } satisfies Response);
+  }
+  if (data.kind === 'unfold') {
+    for (const b of data.bodies) await loadImports(b.features);
+    const results = data.bodies.map(({ name, features }): Unfolded => {
+      let shape: Shape3D | undefined;
+      try {
+        shape = buildBody(features);
+        return { name, ...unfold(shape) };
+      } catch (e) {
+        return { name, pieces: [], stretch: 0, error: e instanceof Error ? e.message : `OpenCascade error ${e}` };
+      } finally {
+        shape?.delete();
+      }
+    });
+    return postMessage({ kind: 'unfold', id: data.id, results } satisfies Response);
   }
   if (data.kind === 'export') {
     for (const b of [...data.bodies, ...(data.around ?? [])]) await loadImports(b.features);
