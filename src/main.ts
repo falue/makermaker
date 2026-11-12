@@ -4069,19 +4069,24 @@ function fingerJoint() {
     toolHint = 'Finger joint: click the two bodies that overlap or touch · Shift-click more (a whole box) · [Enter] Finalize · [Esc] Abort';
     return render();
   }
-  const pairs = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b, fingerPair(a, b)] as const));
+  // a pair joined already keeps its joint (the step of its first body), the panel sets it again: never two joints on one pair
+  const joint = (a: string, b: string) =>
+    ([[a, b], [b, a]] as const).flatMap(([x, y]) => (doc.bodies.find((q) => q.id === x)?.features.filter((f) => f.type === 'fingers' && f.body === y && f.first) ?? []).map((f) => [x, f.id] as [string, string]))[0];
+  const all = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b] as const));
+  const kept = all.map(([a, b]) => joint(a, b)).filter((j): j is [string, string] => !!j);
+  const pairs = all.filter(([a, b]) => !joint(a, b)).map(([a, b]) => [a, b, fingerPair(a, b)] as const);
   const made = pairs.filter((p): p is readonly [string, string, number] => typeof p[2] === 'number');
-  if (!made.length) return fail(ids.length === 2 ? (pairs[0][2] as string) : `Finger joint: none of the ${ids.length} bodies meet another. Move them onto or into each other`);
+  if (!made.length && !kept.length) return fail(ids.length === 2 ? (pairs[0][2] as string) : `Finger joint: none of the ${ids.length} bodies meet another. Move them onto or into each other`);
   const step = (body: string, first: boolean, count: number): Feature => ({ id: newId(), type: 'fingers', body, count: ex(String(count)), width: len(0), from: null, first, clearance: len(0) });
   const added = new Map<string, Feature[]>();
   for (const [a, b, count] of made) {
     added.set(a, [...(added.get(a) ?? []), step(b, true, count)]);
     added.set(b, [...(added.get(b) ?? []), step(a, false, count)]);
   }
-  commit({ ...doc, bodies: doc.bodies.map((x) => (added.has(x.id) ? { ...x, features: [...x.features, ...added.get(x.id)!] } : x)) });
-  // each joint by its first body's new step
-  const steps = made.map(([a, b]) => [a, added.get(a)!.find((f) => f.type === 'fingers' && f.body === b)!.id] as [string, string]);
-  fingersPanel(...steps[0], true, steps.slice(1));
+  if (made.length) commit({ ...doc, bodies: doc.bodies.map((x) => (added.has(x.id) ? { ...x, features: [...x.features, ...added.get(x.id)!] } : x)) });
+  // each joint by its first body's step (new or kept)
+  const steps = [...made.map(([a, b]) => [a, added.get(a)!.find((f) => f.type === 'fingers' && f.body === b)!.id] as [string, string]), ...kept];
+  fingersPanel(...steps[0], made.length > 0, steps.slice(1));
 }
 
 /** Finger joint between bodies `a` and `b`: the number of fingers to start with, or why they cannot have one. */
