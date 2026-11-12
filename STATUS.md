@@ -286,6 +286,7 @@ Collected from [GOAL.md](GOAL.md) and the design talks; roughly in the order the
 - **Real light units** (stretch goal): for now glow strength and the sun are made-up numbers. Real ones: a glow's light in lumens (candela = lm / 4π, 1 / distance², not tied to the body's size, × 10⁶ as the scene is in mm), the sun and sky in lux, and an exposure like a camera's, the same in the 3D view and renders.
 - **Nicer renders**: materials and lighting choices for the path traced render, Mitsuba 3 through a local helper (deferred); screenshot turntable and dolly clips.
 - **Laser export, nesting**: several parts laid out on one sheet (face choice, DXF and kerf are built).
+- **Fabric patterns**: flatten a curved face into a cutting pattern for cloth on the laser, like a tailor's pattern. The plan: "Fabric pattern plan" below.
 - **Imports**: meshes in booleans and exports; DXF blocks (INSERT) and SVG text.
 - **Materials, further**: sheet thickness (left out for now): a value expressions can use, a change resizes linked geometry, mismatches shown; shadows from the sun in the 3D view.
 - **Recovery copy**: a copy in the browser's storage a moment after each change, offered when the app starts after a crash or power cut (the close warning only covers closing and reloading).
@@ -448,6 +449,28 @@ Each step is usable on its own.
 2. Should resizing a view always change its scale? This plan says yes, and a scale can also be typed.
 3. Only one title block preset for now, with your own name or logo as a setting?
 4. Should dimensions (step 5) come in the first usable version? A drawing without sizes is of limited use, so this plan would do steps 1 to 3, then 5, then 4.
+
+### Fabric pattern plan
+
+Not built yet. A curved face (or several joined faces) flattened into a pattern to cut from fabric on the laser.
+
+#### Two kinds of faces
+
+- **Curved one way** (cylinder, cone, an extruded curve, a band bent one way): rolls out flat with no stretch. Unrolled exactly from the real face (arc length becomes a straight distance); no library.
+- **Curved both ways** (dome, sphere, fillet corners, bulges): cannot lie flat without stretch, darts or seams. The face is meshed (the worker meshes faces already), flattened with LSCM (keeps angles, fast) and relaxed with ARAP (keeps lengths, which matters for cloth). The pattern is coloured by stretch, so it shows where the fabric pulls.
+
+#### Steps
+
+1. **Exact unroll** of faces curved one way. Most practical pieces (sleeves, cones, bands); no dependency.
+2. **LSCM + ARAP** for faces curved both ways: either [OpenABF](https://github.com/educelab/OpenABF) (ABF++ / LSCM, one C++ header plus Eigen, Apache 2.0) compiled to wasm plus our own ARAP pass, or both written in TypeScript (a few hundred lines plus a sparse solver). Either is a new dependency or a sizeable piece: needs the user's OK.
+3. **Cuts and darts drawn by hand** as lines on the face, as a tailor does; the solver needs each piece cut open into one sheet without holes.
+4. **Output** through the laser export (SVG / DXF); seam allowance as an offset of the outline (offset exists).
+
+#### Later
+
+- **Automatic cut suggestions**: [OptCuts](https://github.com/liminchen/OptCuts) (MIT, C++: Eigen, old libigl, Triangle) places the shortest cuts within a stretch bound. A wasm build is about 1–2 days: a new entry point in place of its viewer-tangled `main.cpp`, TBB loops made serial, arrays in place of files, Emscripten build in a worker. Try it natively on a real face first: its speed single-threaded in wasm is unmeasured, and it was made for textures (angle-and-area stretch, cuts wherever shortest, no grain, symmetry or darts).
+- Grain direction, symmetric seams, notches to match seams.
+- Reference: FreeCAD's Unwrap Face (LSCM then relax on OpenCascade faces, LGPL) for the face → mesh → flat → outline steps; [Computational Pattern Making from 3D Garment Models](https://opus.lib.uts.edu.au/bitstream/10453/159497/2/computational-pattern-making-paper.pdf) (SIGGRAPH 2022) for darts, seams and grain (no code found).
 
 ### Design notes
 
