@@ -2326,6 +2326,7 @@ export class Viewer implements ToolView {
   }
 
   setBody(id: string, mesh: BodyMesh) {
+    this.sceneMm = null;
     const group = this.group(id);
     this.disposeChildren(group);
     const geometry = new THREE.BufferGeometry();
@@ -2398,6 +2399,7 @@ export class Viewer implements ToolView {
       this.disposeChildren(group);
       this.scene.remove(group);
       this.bodies.delete(id);
+      this.sceneMm = null;
     }
     this.applySection();
   }
@@ -3093,10 +3095,14 @@ export class Viewer implements ToolView {
     });
   }
 
-  /** The origin axes at the origin (a group's own inside it): `mm` long, so they follow the zoom, but `min` to `max` px on screen. */
-  private sizeAxes(mm = 30, min = 24, max = 240) {
+  /** The bodies' box diagonal (mm) for the origin axes' size; null: to be measured again (a body built or gone). */
+  private sceneMm: number | null = null;
+
+  /** The origin axes at the origin (a group's own inside it): `share` of the bodies' box diagonal long, at least `mm`, so they follow the zoom like the model; never under `min` px on screen. */
+  private sizeAxes(share = 0.1, mm = 30, min = 24) {
+    this.sceneMm ??= this.allBox().getSize(new THREE.Vector3()).length();
     const ppm = this.pixelsPerMm(new THREE.Vector3().setFromMatrixPosition(this.groupFrame));
-    const k = THREE.MathUtils.clamp(mm * ppm, min, max) / ppm / 30; // drawn 30 long
+    const k = Math.max(Math.max(mm, share * this.sceneMm) * ppm, min) / ppm / 30; // drawn 30 long
     Object.assign(this.axes, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.copy(this.groupFrame).scale(new THREE.Vector3(k, k, k));
   }
 

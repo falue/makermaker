@@ -81,7 +81,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 ## View
 - Size labels (drawing, pulling, pushing a face) move off the view's own controls (view cube, breadcrumb, buttons) the shortest way that still fits; where none fits they stay under it. Other floating notes (the move fields, the turn label) do not avoid them yet.
 - Tab through faces while a tool picks one: only Settings → Hotkeys and the command box say so, no tool's pointer note does yet.
-- The origin axes are 30 mm long, at least 24 and at most 240 px on screen (`sizeAxes`): the numbers were a guess.
+- The origin axes are a tenth of the bodies' box diagonal long (at least 30 mm), never under 24 px on screen (`sizeAxes`): the numbers were a guess. Their size is measured again when a body is built or deleted, not while one is only moved.
 - The file name in the top bar cannot show the file's full path on hover: browsers give only the name (File System Access), a desktop wrapper could.
 - After the view cube was dragged over the top or bottom, the camera stays upside down until a cube side, a corner or Home: orbiting the view itself meanwhile feels the other way round sideways, and the view's own orbit still stops at the poles.
 - Dragging a body or sketch shapes opens the move fields at the first step; an image's open only on letting go (its fields have no gizmo for the drag to write).
