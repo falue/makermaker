@@ -292,6 +292,25 @@ describe('buildBody', () => {
     uprightLoose.delete();
   });
 
+  it('joints walls that only touch along a slanted edge: fingers across the slant, nothing outside the two', async () => {
+    const { measureVolume } = await import('replicad');
+    // a shelf's end (8 thick) and its slanted top wall (8 thick) standing on it, as a shell split into walls
+    const [A, B] = [[9.21216, 20], [192, 80]];
+    const L = Math.hypot(B[0] - A[0], B[1] - A[1]);
+    const n = [(B[1] - A[1]) / L, -(B[0] - A[0]) / L].map((v) => v * 8);
+    const end = { id: 'e', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'polygon', pts: [[9.21216, 0], [200, 0], [200, 80], [192, 80], [9.21216, 20]], r: 0, rot: 0 }], depth: 8, mode: 'add', through: false } as BuildFeature;
+    const top = { id: 't', type: 'extrude', plane: { ...ground, offset: 8 }, profiles: [{ id: 'q', kind: 'polygon', pts: [A, B, [B[0] + n[0], B[1] + n[1]], [A[0] + n[0], A[1] + n[1]]], r: 0, rot: 0 }], depth: 184, mode: 'add', through: false } as BuildFeature;
+    const joint = (features: BuildFeature[], first: boolean) => ({ id: 'f', type: 'fingers', features, place: { offset: [0, 0, 0], axis: [0, 0, 1], angle: 0 }, count: 5, width: 0, first }) as BuildFeature;
+    const [e0, t0] = [buildBody([end]), buildBody([top])];
+    const [e1, t1] = [buildBody([end, joint([top], true)]), buildBody([top, joint([end], false)])];
+    const strip = L * 8 * 8; // the meeting place: the top wall's end through the end's 8
+    expect(measureVolume(e1) + measureVolume(t1)).toBeCloseTo(measureVolume(e0) + measureVolume(t0), 0); // what one gives up, the other gets
+    expect(measureVolume(t1) - measureVolume(t0)).toBeCloseTo((2 / 5) * strip, -1); // fingers 2 and 4 of 5 into the end
+    expect(measureVolume(e1.clone().intersect(t1))).toBeLessThan(1e-3);
+    const both = e0.fuse(t0);
+    expect(measureVolume(e1.fuse(t1).cut(both))).toBeLessThan(1e-3); // nothing beyond the two walls
+  });
+
   it('keeps one piece of a body in separate pieces, in order along x', async () => {
     const { measureVolume } = await import('replicad');
     // two blocks apart in one extrusion: 10 wide at x -20, 20 wide at x 20

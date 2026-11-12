@@ -1071,38 +1071,57 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   const partly = [0, 1, 2].some((a) => !holds(a));
   let base = shape;
   let overlap: Shape3D;
-  if (!partly || !square(s.place)) overlap = shape.clone().intersect(other);
-  else {
+  if (partly && square(s.place) && boxy(shape) && boxy(other)) {
+    // two boxes: the meeting place through the thinner one, both grown to it
     const thin = (a: number) => (ha[a] - la[a] < hb[a] - lb[a] ? [la[a], ha[a]] : [lb[a], hb[a]]);
     const range = [0, 1, 2].map((a) => (holds(a) ? [Math.max(la[a], lb[a]), Math.min(ha[a], hb[a])] : thin(a)));
     overlap = makeBox(range.map((r) => r[0]) as V3, range.map((r) => r[1]) as V3) as unknown as Shape3D;
     base = shape.fuse(overlap);
+  } else {
+    overlap = shape.clone().intersect(other);
+    // only touching (walls split apart, say): the face they share, through the thinner one there; both grown to it
+    if (measureVolume(overlap) < 1e-3) {
+      overlap.delete();
+      overlap = contact(shape, other) ?? (other.delete(), throwNoOverlap());
+      base = shape.fuse(overlap);
+    }
   }
   other.delete();
   try {
-    const box = overlap.boundingBox;
-    const [lo, hi] = box.bounds;
-    const k = [0, 1, 2].reduce((best, a) => (hi[a] - lo[a] > hi[best] - lo[best] ? a : best), 0);
-    const length = hi[k] - lo[k];
-    if (!(length > 1e-6)) throw new Error('the two bodies do not overlap: a slanted one must reach into the other, or both stand square to each other');
-    // the slices along k: [start, end, index]; index 0 is the first finger
+    // across the overlap's longest straight edge (a box: its longest side)
+    const pts = overlap.edges.flatMap((e) => [e.startPoint, e.endPoint]);
+    const along = (d: Vector) => pts.map((p) => p.dot(d));
+    const span = (d: Vector) => Math.max(...along(d)) - Math.min(...along(d));
+    const dirs = overlap.edges.filter((e) => e.geomType === 'LINE' && e.length > 1e-6).map((e) => {
+      const d = e.endPoint.sub(e.startPoint).normalized();
+      const k = [d.x, d.y, d.z].reduce((m, v, i, all) => (Math.abs(v) > Math.abs(all[m]) + 1e-9 ? i : m), 0);
+      return [d.x, d.y, d.z][k] < 0 ? d.multiply(-1) : d; // its biggest part positive: the low end stays low
+    });
+    const d = [...dirs, new Vector([1, 0, 0]), new Vector([0, 1, 0]), new Vector([0, 0, 1])].reduce((best, v) => (span(v) > span(best) + 1e-6 ? v : best));
+    const [lo, hi] = [Math.min(...along(d)), Math.max(...along(d))];
+    const length = hi - lo;
+    if (!(length > 1e-6)) throwNoOverlap();
+    // the slices along d: [start, end, index]; index 0 is the first finger
     const slices: [number, number, number][] = [];
     if (s.width > 0) {
-      const start = s.from ? Math.max(lo[k], Math.min(hi[k], s.from[k])) : lo[k];
-      for (let j = -Math.ceil((start - lo[k]) / s.width - 1e-9); start + j * s.width < hi[k] - 1e-9; j++) slices.push([Math.max(lo[k], start + j * s.width), Math.min(hi[k], start + (j + 1) * s.width), j]);
+      const start = s.from ? Math.max(lo, Math.min(hi, new Vector(s.from).dot(d))) : lo;
+      for (let j = -Math.ceil((start - lo) / s.width - 1e-9); start + j * s.width < hi - 1e-9; j++) slices.push([Math.max(lo, start + j * s.width), Math.min(hi, start + (j + 1) * s.width), j]);
     } else {
       const n = Math.max(1, Math.round(s.count));
-      for (let i = 0; i < n; i++) slices.push([lo[k] + (length * i) / n, lo[k] + (length * (i + 1)) / n, i]);
+      for (let i = 0; i < n; i++) slices.push([lo + (length * i) / n, lo + (length * (i + 1)) / n, i]);
     }
-    // the slices this body gives up (every other one): a box across the overlap for each
-    const pad = 1;
+    // the slices this body gives up (every other one): a slab across the overlap for each
+    const c = (s.clearance ?? 0) / 2;
+    const middle = new Vector(overlap.boundingBox.center);
+    const big = overlap.boundingBox.width + overlap.boundingBox.height + overlap.boundingBox.depth + 10;
+    const x = (Math.abs(d.z) < 0.9 ? new Vector([0, 0, 1]) : new Vector([1, 0, 0])).cross(d).normalized().multiply(big);
+    const y = d.cross(x);
     let cut: Shape3D | null = null;
     for (const [from, to, i] of slices) {
       if (Math.abs(i % 2) !== (s.first ? 1 : 0)) continue;
-      const [a, b] = [lo.map((v) => v - pad) as V3, hi.map((v) => v + pad) as V3];
-      const c = (s.clearance ?? 0) / 2;
-      [a[k], b[k]] = [from - c, to + c];
-      cut = joined(cut, makeBox(a, b) as unknown as Shape3D, 'add');
+      const o = middle.add(d.multiply(from - c - middle.dot(d)));
+      const square = makePolygon([o.sub(x).sub(y), o.add(x).sub(y), o.add(x).add(y), o.sub(x).add(y)].map((v) => v.toTuple()));
+      cut = joined(cut, basicFaceExtrusion(square, d.multiply(to - from + 2 * c)) as Shape3D, 'add');
     }
     if (!cut) return base.clone();
     const away = overlap.clone().intersect(cut);
@@ -1112,6 +1131,43 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
     overlap.delete();
     if (base !== shape) base.delete();
   }
+}
+
+function throwNoOverlap(): never {
+  throw new Error('the two bodies do not overlap: a slanted one must reach into the other, or both stand square to each other');
+}
+
+/** Whether `shape` is its own bounding box (a plate or block standing square). */
+function boxy(shape: Shape3D) {
+  const b = shape.boundingBox;
+  const v = b.width * b.height * b.depth;
+  return v > 0 && Math.abs(measureVolume(shape) - v) < 1e-6 * v + 1e-6;
+}
+
+/**
+ * Where `a` and `b` only touch, face to face: each flat face of one lying on a flat face of the other, pushed through
+ * the thinner of the two there (how far it reaches behind that face), within it. Null: no such faces.
+ */
+function contact(a: Shape3D, b: Shape3D): Shape3D | null {
+  // how far `s` reaches behind its face at `at` facing `n`
+  const depth = (s: Shape3D, at: Vector, n: Vector) => Math.max(...s.edges.flatMap((e) => [e.startPoint, e.endPoint]).map((p) => at.sub(p).dot(n)));
+  let out: Shape3D | null = null;
+  for (const fa of a.faces) {
+    if (fa.geomType !== 'PLANE') continue;
+    const [ca, na] = [fa.center, fa.normalAt()];
+    for (const fb of b.faces) {
+      if (fb.geomType !== 'PLANE') continue;
+      const [cb, nb] = [fb.center, fb.normalAt()];
+      if (na.dot(nb) > -1 + 1e-6 || Math.abs(cb.sub(ca).dot(na)) > EPS) continue;
+      // into the thinner one: the other's face pushed through it, what of it lies inside
+      const [da, db] = [depth(a, ca, na), depth(b, cb, nb)];
+      const [into, face, n, far] = da <= db ? [a, fb, na, da] : [b, fa, nb, db];
+      const zone = (basicFaceExtrusion(face.clone() as BRepFace, n.multiply(-far)) as Shape3D).intersect(into);
+      if (measureVolume(zone) > 1e-3) out = joined(out, zone, 'add');
+      else zone.delete();
+    }
+  }
+  return out;
 }
 
 /** Whether a placement turns axes onto axes. */

@@ -41,7 +41,12 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Assumed for the sphere's ways: three points give the smallest ball (three alone do not fix one), four the exact one. "Three planes and a centre or diameter": after the third plane, the pointer sets where its centre lies (snaps count) or a typed Ø sets the size. A sphere is plain numbers afterwards: it does not follow the points or planes. No Python command of its own yet: `cad.sphere` takes a centre and diameter. T and M do not reach into its Ø field yet.
 - `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
+## Box joint
+- Bodies that are not boxes and meet only along an edge (no shared face) are refused; boxes meeting so still work. "The thinner one" behind a shared face is measured to the body's farthest corner, so an L-shaped body can count as thicker than it is there.
+- One Fingers count for all joints of a batch gives short joints the same number of tiny fingers (Finger length avoids it).
+
 ## Shell
+- When OpenCascade's shell fails or is broken (some lofts), the body less its inside `t` in is used (`hollowedByOffset`): only flat open faces open that way, and a wall slanted at an open face keeps a lip there of the thickness times its slope.
 - A wall that does not fit shows as an error in the body's card; the Wall panel itself does not say so.
 
 ## Coat
