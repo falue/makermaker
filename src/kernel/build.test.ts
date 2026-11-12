@@ -311,6 +311,22 @@ describe('buildBody', () => {
     expect(measureVolume(e1.fuse(t1).cut(both))).toBeLessThan(1e-3); // nothing beyond the two walls
   });
 
+  it('a joint fits its partner whatever joints came before it', async () => {
+    const { makeBox, measureVolume } = await import('replicad');
+    // a front (x 0..100) beside a side (x 100..108): their joint grows the front into the corner; a top 4 into both
+    const front = { id: 'a', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'rect', x: 50, y: 4, w: 100, h: 8, r: 0, rot: 0 }], depth: 20, mode: 'add', through: false } as BuildFeature;
+    const side = { id: 'b', type: 'extrude', plane: ground, profiles: [{ id: 'q', kind: 'rect', x: 104, y: 25, w: 8, h: 50, r: 0, rot: 0 }], depth: 20, mode: 'add', through: false } as BuildFeature;
+    const top = { id: 'c', type: 'extrude', plane: { ...ground, offset: 16 }, profiles: [{ id: 'q', kind: 'rect', x: 54, y: 25, w: 108, h: 50, r: 0, rot: 0 }], depth: 8, mode: 'add', through: false } as BuildFeature;
+    const joint = (id: string, features: BuildFeature[], first: boolean) => ({ id, type: 'fingers', features, place: { offset: [0, 0, 0], axis: [0, 0, 1], angle: 0 }, count: 4, width: 0, first }) as BuildFeature;
+    const f1 = buildBody([front, joint('s', [side], true), joint('t', [top], true)]);
+    const t1 = buildBody([top, joint('f', [front], false)]);
+    // their meeting place: the front's top (x 0..100, not the corner it grew into) through the top's 8
+    const place = makeBox([0, 0, 16], [100, 8, 24]);
+    expect(measureVolume(f1.clone().intersect(t1))).toBeLessThan(1e-3);
+    expect(measureVolume(f1.fuse(t1).intersect(place))).toBeCloseTo(100 * 8 * 8, 0);
+    [f1, t1, place].forEach((s) => s.delete());
+  });
+
   it('keeps one piece of a body in separate pieces, in order along x', async () => {
     const { measureVolume } = await import('replicad');
     // two blocks apart in one extrusion: 10 wide at x -20, 20 wide at x 20

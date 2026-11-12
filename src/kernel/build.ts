@@ -117,6 +117,9 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
   const plan = frames(features.filter((f) => f.type !== 'boolean' && f.type !== 'fingers'));
   const circles: Circle[] = [];
   let shape: Shape3D | null = null;
+  // the body up to a finger joint without the finger joints before it, where it is worked out (as its other body is);
+  // `steps`: how many other steps it holds
+  let bare: { steps: number; shape: Shape3D } | undefined;
   // the first step to break a sound solid is told (a lone step, as a big STEP file, is not checked); finishes check themselves
   let sound = !!finishing && features.length > 1;
   const apply = (id: string, fn: (s: Shape3D | null) => Shape3D, check = true) => {
@@ -191,7 +194,11 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
         if (s.type === 'bulge') apply(s.id, (cur) => bulge(cur, s));
         if (s.type === 'push') apply(s.id, (cur) => push(cur, s));
         if (s.type === 'draft' && s.angle) apply(s.id, (cur) => draft(cur, s)); // 0: as if it were not there
-        if (s.type === 'fingers') apply(s.id, (cur) => fingers(cur, s));
+        if (s.type === 'fingers') {
+          const before = features.slice(0, n).filter((f) => f.type !== 'fingers');
+          if (bare?.steps !== before.length) bare?.shape.delete(), (bare = { steps: before.length, shape: buildBody(before) });
+          apply(s.id, (cur) => fingers(cur, s, bare!.shape));
+        }
         if (s.type === 'piece') apply(s.id, (cur) => piece(cur, s));
         if (s.type === 'finish' && s.enabled && s.baked) apply(s.id, (cur) => finish(cur, s, circles, undefined, finishing), false);
       }
@@ -209,6 +216,8 @@ export function buildBody(features: BuildFeature[], finishing?: Finishing, cache
   } catch (err) {
     (shape as Shape3D | null)?.delete();
     throw err;
+  } finally {
+    bare?.shape.delete();
   }
   return shape;
 }
@@ -1064,12 +1073,13 @@ const fullness = (k: number) => Math.max(-4, Math.min(4, k));
  * ones), every other one cut from the body (the first, or the one starting at `from`, kept if `first`), each cut
  * `clearance` / 2 wider on both sides. Two standing square to each other where one only touches (a face or an edge) or
  * partly reaches into the other (boxes, along an axis): the joint fills the whole meeting place, through the thinner one
- * there along each such axis, both grown.
+ * there along each such axis, both grown. Worked out from the body without its finger joints (`bare`), as the other is
+ * taken: both get the same place and fingers, whatever joints came first.
  */
-function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
+function fingers(shape: Shape3D | null, s: Of<'fingers'>, bare: Shape3D): Shape3D {
   if (!shape) throw new Error('nothing to joint yet');
   const other = placeShape(buildBody(s.features), s.place);
-  const [[la, ha], [lb, hb]] = [shape.boundingBox.bounds, other.boundingBox.bounds];
+  const [[la, ha], [lb, hb]] = [bare.boundingBox.bounds, other.boundingBox.bounds];
   const gaps = [0, 1, 2].map((a) => Math.max(lb[a] - ha[a], la[a] - hb[a]));
   if (gaps.some((g) => g > EPS)) throw new Error('the two bodies do not touch: move one onto or into the other');
   if (gaps.every((g) => g > -EPS)) throw new Error('the two bodies meet only at a corner: put one onto or into the other');
@@ -1078,18 +1088,21 @@ function fingers(shape: Shape3D | null, s: Of<'fingers'>): Shape3D {
   const partly = [0, 1, 2].some((a) => !holds(a));
   let base = shape;
   let overlap: Shape3D;
-  if (partly && square(s.place) && boxy(shape) && boxy(other)) {
-    // two boxes: the meeting place through the thinner one, both grown to it
-    const thin = (a: number) => (ha[a] - la[a] < hb[a] - lb[a] ? [la[a], ha[a]] : [lb[a], hb[a]]);
+  if (partly && square(s.place) && boxy(bare) && boxy(other)) {
+    // two boxes: the meeting place through the thinner one (as thick: the lower one), both grown to it
+    const thin = (a: number) => {
+      const [wa, wb] = [ha[a] - la[a], hb[a] - lb[a]];
+      return (Math.abs(wa - wb) > EPS ? wa < wb : la[a] < lb[a]) ? [la[a], ha[a]] : [lb[a], hb[a]];
+    };
     const range = [0, 1, 2].map((a) => (holds(a) ? [Math.max(la[a], lb[a]), Math.min(ha[a], hb[a])] : thin(a)));
     overlap = makeBox(range.map((r) => r[0]) as V3, range.map((r) => r[1]) as V3) as unknown as Shape3D;
     base = shape.fuse(overlap);
   } else {
-    overlap = shape.clone().intersect(other);
+    overlap = bare.clone().intersect(other);
     // only touching (walls split apart, say): the face they share, through the thinner one there; both grown to it
     if (measureVolume(overlap) < 1e-3) {
       overlap.delete();
-      overlap = contact(shape, other) ?? (other.delete(), throwNoOverlap());
+      overlap = contact(bare, other) ?? (other.delete(), throwNoOverlap());
       base = shape.fuse(overlap);
     }
   }
@@ -1168,7 +1181,9 @@ function contact(a: Shape3D, b: Shape3D): Shape3D | null {
       if (na.dot(nb) > -1 + 1e-6 || Math.abs(cb.sub(ca).dot(na)) > EPS) continue;
       // into the thinner one: the other's face pushed through it, what of it lies inside
       const [da, db] = [depth(a, ca, na), depth(b, cb, nb)];
-      const [into, face, n, far] = da <= db ? [a, fb, na, da] : [b, fa, nb, db];
+      // as thick: into the one the face's normal points out of along its first axis it has (either way round the same)
+      const first = [na.x, na.y, na.z].find((v) => Math.abs(v) > 1e-9) ?? 0;
+      const [into, face, n, far] = (Math.abs(da - db) > EPS ? da < db : first > 0) ? [a, fb, na, da] : [b, fa, nb, db];
       const zone = (basicFaceExtrusion(face.clone() as BRepFace, n.multiply(-far)) as Shape3D).intersect(into);
       if (measureVolume(zone) > 1e-3) out = joined(out, zone, 'add');
       else zone.delete();
