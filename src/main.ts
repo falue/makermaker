@@ -4476,8 +4476,10 @@ function onPlane(id: string) {
 /** A frame at `o` with normal `n`, its x level (square to Z; looking along Z: X). */
 function frameOn(o: Vector3, n: Vector3, x = new Vector3(0, 0, 1).cross(n)): Frame {
   if (x.lengthSq() < 1e-6) x.set(1, 0, 0);
-  x.normalize();
-  return { o: o.toArray(), x: x.toArray(), y: n.clone().cross(x).toArray(), n: n.toArray() };
+  // float noise rounded off (a face's centre of mass, a mesh's single precision): drawn on it, a shape lies flush with the faces it was taken from
+  const round = (v: Vector3, k: number) => v.set(...(v.toArray().map((c) => Math.round(c * k) / k) as V3));
+  const [dir, up] = [round(x.clone().normalize(), 1e9).normalize(), round(n.clone().normalize(), 1e9).normalize()];
+  return { o: round(o.clone(), 1e6).toArray(), x: dir.toArray(), y: up.clone().cross(dir).toArray(), n: up.toArray() };
 }
 
 /** The corners of a sketch's shapes' boxes (world): what a plane on it covers. */
