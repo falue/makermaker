@@ -1135,7 +1135,7 @@ function apart(doc: Doc, ids: string[]): { doc: Doc; made: string[] } {
     next = { ...next, bodies: [...next.bodies.map((x) => (x.id === id ? { ...x, features: [...x.features, piece(0)] } : x)), ...copies] };
     pairs.push(...copies.map((c): [string, string] => [id, c.id]));
   }
-  return { doc: listedAfter(next, pairs), made: pairs.map(([, c]) => c) };
+  return { doc: listedAfter(withOwnTools(next, pairs.map(([, c]) => c)), pairs), made: pairs.map(([, c]) => c) };
 }
 
 /** Shows only body `id` (its tool bodies stay as they are); for the isolated body: shows what was shown before. */
@@ -1726,7 +1726,7 @@ function unlinkCopy(id: string) {
   const doc = history.current;
   const i = doc.bodies.findIndex((b) => b.id === id);
   const src = doc.bodies.find((b) => b.id === doc.bodies[i]?.link);
-  if (src) commit(setIn(doc, ['bodies', String(i)], { ...doc.bodies[i], link: null, features: [...structuredClone(src.features), ...doc.bodies[i].features] }));
+  if (src) commit(withOwnTools(setIn(doc, ['bodies', String(i)], { ...doc.bodies[i], link: null, features: [...structuredClone(src.features), ...doc.bodies[i].features] }), [id]));
 }
 
 /**
@@ -1745,20 +1745,27 @@ function breakLinks(source: string) {
     return { ...b, ...own, ...(b.group === src.group ? { group: group.id, order: undefined } : {}) };
   });
   selected = [group.id];
-  commit({ ...doc, bodies, groups: [...doc.groups, group] });
+  commit(withOwnTools({ ...doc, bodies, groups: [...doc.groups, group] }, doc.bodies.filter((b) => b.link === source).map((b) => b.id)));
 }
 
 /** Copies `copies` of bodies `sources` (pairwise) made linked copies of them (`on`), or independent with all their steps. */
 function relinked(doc: Doc, sources: string[], copies: string[], on: boolean): Doc {
-  return {
+  // their own tool bodies go (linked: cut as the source is), and come back as copies when unlinked
+  const owner = ownersOf(doc);
+  const gone = new Set<string>();
+  const drop = (id: string) => owner.forEach((o, tool) => o === id && !gone.has(tool) && (gone.add(tool), drop(tool)));
+  copies.forEach(drop);
+  const next = {
     ...doc,
-    bodies: doc.bodies.map((b) => {
+    bodies: doc.bodies.flatMap((b) => {
+      if (gone.has(b.id)) return [];
       const src = doc.bodies.find((x) => x.id === sources[copies.indexOf(b.id)]);
-      if (!src) return b;
+      if (!src) return [b];
       const shared = doc.bodies.find((x) => x.id === src.link)?.features ?? [];
-      return on ? { ...b, link: src.link ?? src.id, features: structuredClone(src.link ? src.features : []) } : { ...b, link: null, features: structuredClone([...shared, ...src.features]) };
+      return [on ? { ...b, link: src.link ?? src.id, features: structuredClone(src.link ? src.features : []) } : { ...b, link: null, features: structuredClone([...shared, ...src.features]) }];
     }),
   };
+  return on ? next : withOwnTools(next, copies);
 }
 
 /** Moves a copy of the selection by `by` (one undo step): shapes in their sketch, else bodies and sketches (`linked`: linked copies). */
@@ -1777,7 +1784,7 @@ function copyMoved(by: Vector3, linked: boolean) {
   } else {
     const { bodies, sketches, pairs } = copiesOf(moved.bodies.filter((b) => selected.includes(b.id)), moved.sketches.filter((s) => selected.includes(s.id)), ' copy', linked);
     selected = [...bodies, ...sketches].map((c) => c.id);
-    history.replace(listedAfter({ ...before, bodies: [...before.bodies, ...bodies], sketches: [...before.sketches, ...sketches] }, pairs));
+    history.replace(listedAfter(withOwnTools({ ...before, bodies: [...before.bodies, ...bodies], sketches: [...before.sketches, ...sketches] }, bodies.map((b) => b.id)), pairs));
   }
   update();
 }
@@ -1975,10 +1982,11 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
     return { body: b, from, a: doc0.bodies[stepsOf(doc0, b)].id, chunk: { ...copy, color: newBody(doc0.bodies.length + 1 + k, []).color, features: [...copy.features, split(b, -1)] } as Body };
   });
   const ofA = (id: string) => parts.find((q) => q.a === id);
-  history.push(listedAfter({ ...doc0, bodies: doc0.bodies.flatMap((x) => {
+  const chunked = { ...doc0, bodies: doc0.bodies.flatMap((x) => {
     const own = ofA(x.id) ? { ...x, features: [...x.features, split(ofA(x.id)!.body, 1)] } : x;
     return [own, ...parts.filter((q) => q.body === x.id).map((q) => q.chunk)];
-  }) }, parts.map((q) => [q.body, q.chunk.id])));
+  }) };
+  history.push(listedAfter(withOwnTools(chunked, parts.map((q) => q.chunk.id)), parts.map((q) => [q.body, q.chunk.id])));
   const chunkIds = parts.map((q) => q.chunk.id);
   // a body the cut does not cross (an error in its build or its chunk's) stays as it is: faded, no error shown
   const refresh = () => {
@@ -2782,7 +2790,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
       made.push(...pairs);
       return bodies.map((b, n) => ({ ...b, ...placementIn(parentPlace(sources[n]), move.clone().multiply(start.get(sources[n])!)) }));
     });
-    let next = listedAfter({ ...doc0, bodies: [...doc0.bodies, ...copies] }, made);
+    let next = listedAfter(withOwnTools({ ...doc0, bodies: [...doc0.bodies, ...copies] }, copies.map((c) => c.id)), made);
     // unlinked grid: the originals and their copies in one group "Grid", where the first original was
     if (mode === 'grid' && !linkedCopies && copies.length) {
       const first = doc0.bodies.find((b) => b.id === sources[0])!;
@@ -2955,7 +2963,7 @@ function mirrorTool() {
       return { ...c, features: [...c.features, { id: newId(), type: 'mirror' as const, o: unplaced(pl, point.toArray()), n: unplaced(pl, normal.toArray(), true) }] };
     });
     selected = made.map((b) => b.id);
-    commit(listedAfter({ ...doc, bodies: [...doc.bodies, ...made] }, pairs));
+    commit(listedAfter(withOwnTools({ ...doc, bodies: [...doc.bodies, ...made] }, made.map((b) => b.id)), pairs));
   };
   // a face Alt-picked first is the plane (with nothing else selected: its own body mirrored across it)
   const face = viewer.pickedFaceItems()[0];
@@ -4860,9 +4868,9 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
       made = copies.map((q) => q.id);
       return setIn(doc0, ['sketches', String(k), 'shapes'], [...doc0.sketches[k].shapes, ...copies]);
     }
-    const { bodies, pairs } = copiesOf(t.bodies.filter((b) => selected.includes(b.id)), [], ' copy', linkedCopies);
+    const { bodies, pairs } = copiesOf(t.bodies.filter((b) => selected.includes(b.id)), [], ' copy', linkedCopies, t);
     made = bodies.map((b) => b.id);
-    return listedAfter({ ...doc0, bodies: [...doc0.bodies, ...bodies] }, pairs);
+    return listedAfter(withOwnTools({ ...doc0, bodies: [...doc0.bodies, ...bodies] }, made), pairs);
   };
   let angle = 0;
   let typed = false; // a typed angle: the pointer no longer turns it
@@ -7067,8 +7075,7 @@ function duplicate() {
  * sketch is linked to that copy (its shapes and areas too). `linked`: the bodies are linked copies (sharing their
  * source's steps, keeping only their own); else a linked body's copy gets all its steps.
  */
-function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string, linked = false) {
-  const doc = history.current;
+function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string, linked = false, doc = history.current) {
   const shared = (b: Body) => doc.bodies.find((s) => s.id === b.link)?.features ?? [];
   bodies = bodies.map((b) => (linked ? { ...b, link: b.link ?? b.id, features: b.link ? b.features : [] } : { ...b, link: null, features: [...shared(b), ...b.features] }));
   const ids = new Map<string, string>(); // old id → new, for bodies, their features, sketches, their shapes and sub-groups
@@ -7103,10 +7110,47 @@ function copiesOf(bodies: Body[], sketches: Sketch[], suffix: string, linked = f
   return { bodies: bodyCopies, sketches: sketchCopies, pairs: bodies.map((p, k): [string, string] => [p.id, bodyCopies[k].id]) };
 }
 
+/**
+ * `doc` with the tool bodies that bodies `ids` cut or join with but another body owns (a copy's: its source's) copied
+ * for them, sitting by them as the originals sit by their owner, and so on for those tools' own: a copy moved takes
+ * its tools along. Linked copies stay as they are (cut as their source is), and so do linked booleans.
+ */
+function withOwnTools(doc: Doc, ids: string[]): Doc {
+  const owners = ownersOf(doc);
+  const lookup = paramLookup(doc.params);
+  const bodies = [...doc.bodies];
+  const local = new Map<string, Matrix4>(); // the tool copies' placements (in their body's group)
+  const localOf = (b: Body) => {
+    const [at, r] = [resolve(b.position, lookup, '', new Map()), resolve(b.rotation, lookup, '', new Map())];
+    return local.get(b.id) ?? ([...at, r.rx, r.ry, r.rz].every(Number.isFinite) ? new Matrix4().compose(new Vector3(...at), turnOf(r), new Vector3(1, 1, 1)) : null);
+  };
+  const todo = [...ids];
+  for (let id = todo.shift(); id; id = todo.shift()) {
+    const i = bodies.findIndex((b) => b.id === id);
+    const b = bodies[i];
+    const at = b && !b.link ? localOf(b) : null;
+    if (!at) continue;
+    const features = b.features.map((f) => {
+      const owner = f.type === 'boolean' && !f.linked ? owners.get(f.body) : undefined;
+      const src = owner && owner !== b.id ? doc.bodies.find((x) => x.id === (f as { body: string }).body) : undefined;
+      const [by, place] = [owner && bodyPlaces.get(owner), src && bodyPlaces.get(src.id)];
+      if (!src || !by || !place) return f;
+      const m = at.clone().multiply(by.clone().invert().multiply(place));
+      const [copy] = copiesOf([src], [], '', false, doc).bodies;
+      bodies.push({ ...copy, group: b.group, ...placementIn(new Matrix4(), m) });
+      local.set(copy.id, m);
+      todo.push(copy.id);
+      return { ...f, body: copy.id };
+    });
+    bodies[i] = { ...b, features };
+  }
+  return { ...doc, bodies };
+}
+
 /** Adds copies (see `copiesOf`), selects them and opens the move fields at `start` (mm), to type where they go. */
 function placeCopies({ bodies, sketches, pairs }: ReturnType<typeof copiesOf>, start: Vec3, made?: { sources: string[]; copies: string[] }, doc = history.current) {
   selected = [...bodies, ...sketches].map((c) => c.id);
-  commit(listedAfter({ ...doc, bodies: [...doc.bodies, ...bodies], sketches: [...doc.sketches, ...sketches] }, pairs));
+  commit(listedAfter(withOwnTools({ ...doc, bodies: [...doc.bodies, ...bodies], sketches: [...doc.sketches, ...sketches] }, bodies.map((b) => b.id)), pairs));
   if (selected.length) moveAlong(0, true, start, made);
 }
 

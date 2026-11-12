@@ -3,6 +3,7 @@
 Smaller things left open by finished work. Kept up to date with each change; bigger features are in STATUS.md's Planned list.
 
 ## To do (user list, 2026-11-11)
+- Reminder for the user (2026-11-12): in testdata/türkartenleser-2.mmk delete "montage block wand mirrored" (it was made before copies got their own tool bodies, so it shares the original's and does not build), then mirror, move and join again.
 
 ## Lines and polygons
 - What follows a changed side moves along rigidly; a polygon's last point stays, so the side before it takes up the change. A shape closed in another way than that (its last side meant to stay at an angle, say) can shift differently than wanted. Only sides changed through a formula do this: dragging a point moves that point.
@@ -55,6 +56,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Seen once by hand (2026-11-08): "Extrude: memory access out of bounds" (a WebAssembly error out of the kernel). Steps to reproduce unknown yet.
 
 ## Combining shapes
+- Deleting a body whose linked copies take over its steps (`unlinkedFrom`) also deletes its tool bodies, so the heirs lose those cuts and joins (seen while building `withOwnTools`, 2026-11-12; not changed).
+- Mirror's own copies of tool bodies tested only through Duplicate in the app (same `withOwnTools`); the Mirror tool itself was not clicked through.
 - Fillets and chamfers on picked edges now run before the next join or cut after them (2026-11-12): older files whose picked finish came before a cut that should have been rounded along keep that cut sharp now (only rules round later cuts). The broken-solid note has not been seen yet on a real file: the one case found (testdata/türkartenleser.mmk, a chamfer after holes) no longer breaks. Each step's check costs a little per build (not timed on big bodies; a body of one step, as an imported STEP part, is not checked).
 - History rows should all open their step's tool (user, 2026-11-07: no editing in the right column but the main L W H / X Y Z fields). Done for Thread, Bulge, Draft and Box joint; Extrude, Cut / Join, Push, Shell, Coat, Revolve, Loft, Sweep, Mirror, Split, Piece, Sphere and Fillets still show their card below the row: their tools have no edit mode for an existing step yet.
 - Not built yet: a face pulled on a body offers no New body (its Push step joins or cuts by the direction).
