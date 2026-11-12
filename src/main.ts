@@ -2537,13 +2537,17 @@ function angleControl(o: { input: HTMLInputElement; axis: () => { at: Vector3; d
  * decimals go when the field is left); `step`: its scrub step per px; `title`: what label and field say on hover.
  * `change` gets the texts as typed (live, valid ones), `finish` whether to keep them (Enter or ✓; Esc: not).
  */
-function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; step?: number; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = [], before: HTMLElement[] = []) {
+function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3) => number | number[]; raw?: boolean; int?: boolean; step?: number; title?: string }[], change: (texts: string[]) => void, finish: (ok: boolean) => void, hint: string, extra: HTMLElement[] = [], before: HTMLElement[] = [], wait = 300) {
   const u = history.current.units;
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   const inputs = fields.map((f) => Object.assign(document.createElement('input'), { value: f.value, spellcheck: false }));
   let last = inputs[0];
   const valid = (k: number) => (fields[k].int ? Number.isFinite(Number(inputs[k].value || '0')) : length(inputs[k].value || '0') !== null);
-  const emit = () => inputs.every((_, k) => valid(k)) && change(inputs.map((i) => i.value || '0'));
+  // typed: `wait` ms for the next key, so "16" builds once, not "1" first; scrubbing and To object at once, Enter now
+  let typed = 0;
+  const emit = () => (clearTimeout(typed), (typed = 0), inputs.every((_, k) => valid(k)) && change(inputs.map((i) => i.value || '0')));
+  const later = () => (clearTimeout(typed), (typed = window.setTimeout(emit, wait)));
+  const now = () => typed && emit();
   const aim = (k = inputs.indexOf(last)) => {
     const f = fields[k];
     if (!f.reach) return;
@@ -2567,9 +2571,9 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     const input = inputs[k];
     input.dataset.complete = '';
     if (f.raw) input.dataset.noMeasure = ''; // an angle, not a length
-    input.oninput = () => (input.classList.toggle('invalid', !valid(k)), emit());
+    input.oninput = (e) => (input.classList.toggle('invalid', !valid(k)), e instanceof InputEvent ? later() : emit());
     input.onfocus = () => (last = input);
-    if (f.int) input.onblur = () => input.value !== '' && valid(k) && String(Math.round(Number(input.value))) !== input.value && ((input.value = String(Math.round(Number(input.value)))), emit());
+    if (f.int) input.onblur = () => (now(), input.value !== '' && valid(k)) && String(Math.round(Number(input.value))) !== input.value && ((input.value = String(Math.round(Number(input.value)))), emit());
     input.onkeydown = (e) => {
       if (f.reach && wantsT(e, input)) e.preventDefault(), aim(k);
     };
@@ -2581,6 +2585,8 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     return [cell(label, input, ...tools)];
   });
   const end = (ok: boolean) => {
+    if (ok) now();
+    else clearTimeout(typed);
     viewer.aiming = null;
     viewer.cancelFacePick();
     centred.disconnect();
