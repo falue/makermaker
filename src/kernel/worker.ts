@@ -5,7 +5,7 @@ import { exportSTEP, getOC, setOC, type Shape3D } from 'replicad';
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import type { Place } from '../doc/frames';
-import { dxfOf, svgOf } from '../io/cutfile';
+import { dxfOf, sheetOf, svgOf, type Cut } from '../io/cutfile';
 import { laserCuts, withKerf } from './laser';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
@@ -20,7 +20,7 @@ import { solidChecks } from './exact';
  */
 export type ExportFile = { name: string; data: ArrayBuffer };
 export type ExportFormat = 'stl' | '3mf' | 'svg' | 'dxf' | 'step';
-export type ExportBody = { name: string; color: string; features: BuildFeature[]; place: Place; face?: { at: V3; n: V3 }; kerf?: number };
+export type ExportBody = { name: string; /** shown on a laser sheet (`name`: for a file) */ label?: string; color: string; features: BuildFeature[]; place: Place; face?: { at: V3; n: V3 }; kerf?: number };
 export type PrintCheck = { name: string; closed: boolean; manifold: boolean; sound: boolean; size: V3; error?: string };
 type V3 = [number, number, number];
 export type Request =
@@ -190,16 +190,22 @@ async function handle(data: Job) {
       for (const p of parts) p.shape.delete();
       return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
     }
-    for (const { name, features, place, face, kerf } of data.bodies) {
-      if (data.format === 'svg' || data.format === 'dxf') {
+    if (data.format === 'svg' || data.format === 'dxf') {
+      // every piece on one sheet, named
+      const pieces: { name: string; cuts: Cut[] }[] = [];
+      for (const { name, label, features, face, kerf } of data.bodies)
         try {
-          const cuts = withKerf(laserCuts(features, face), kerf ?? 0);
-          files.push({ name, data: new TextEncoder().encode(data.format === 'svg' ? svgOf(cuts) : dxfOf(cuts)).buffer as ArrayBuffer });
+          pieces.push({ name: label ?? name, cuts: withKerf(laserCuts(features, face), kerf ?? 0) });
         } catch (e) {
-          failed.push(`${name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
+          failed.push(`${label ?? name} (${e instanceof Error ? e.message : `OpenCascade error ${e}`})`);
         }
-        continue;
+      if (pieces.length) {
+        const { cuts, labels } = sheetOf(pieces);
+        files.push({ name: 'sheet', data: new TextEncoder().encode(data.format === 'svg' ? svgOf(cuts, 2, labels) : dxfOf(cuts, labels)).buffer as ArrayBuffer });
       }
+      return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
+    }
+    for (const { name, features, place } of data.bodies) {
       let shape;
       try {
         shape = placeShape(buildBody(features), place);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dxfOf, sketchCuts, svgOf } from './cutfile';
+import { dxfOf, sheetOf, sketchCuts, svgOf, type Cut } from './cutfile';
 
 describe('sketch drawings', () => {
   const shapes = [
@@ -22,7 +22,25 @@ describe('sketch drawings', () => {
     const [line] = sketchCuts(shapes);
     expect(svgOf([line])).toMatch(/<path d="M0 0L10 0L10 -5"\/>/);
     const dxf = dxfOf([line]).split('\n');
-    expect(dxf[dxf.indexOf('POLYLINE') + 12]).toBe('0'); // flag 70: open
+    const at = dxf.indexOf('POLYLINE');
+    expect(dxf[at + dxf.slice(at).indexOf('70') + 1]).toBe('0'); // flag 70: open
     expect(dxf.filter((l) => l === 'VERTEX')).toHaveLength(3);
+  });
+  it('lays pieces out on one sheet, each named over its top left, 1 pt lines, the names in black', () => {
+    const square = (w: number): Cut[] => [{ hole: false, pts: [[0, 0], [w, 0], [w, w], [0, w]], curves: [null, null, null, null] }];
+    const { cuts, labels } = sheetOf([{ name: 'small', cuts: square(10) }, { name: 'big & tall', cuts: square(30) }]);
+    expect(labels.map((l) => l.text)).toEqual(['big & tall', 'small']); // tallest first
+    const box = (c: Cut) => [Math.min(...c.pts.map((p) => p[0])), Math.min(...c.pts.map((p) => p[1])), Math.max(...c.pts.map((p) => p[0])), Math.max(...c.pts.map((p) => p[1]))];
+    const [a, b] = cuts.map(box);
+    expect(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1]).toBe(true); // apart
+    labels.forEach((l, i) => {
+      const [x0, y0] = box(cuts[i]);
+      expect(l.at[0]).toBeCloseTo(x0, 6); // at its left
+      expect(l.at[1]).toBeLessThan(y0); // over its top (y down)
+    });
+    const svg = svgOf(cuts, 2, labels);
+    expect(svg).toContain('stroke-width="0.3528"');
+    expect(svg).toMatch(/<g fill="#000000"[^>]*>\s*<text[^>]*>big &amp; tall<\/text>/);
+    expect(dxfOf(cuts, labels)).toMatch(/\nTEXT\n8\nLABEL\n62\n7\n/);
   });
 });

@@ -7582,12 +7582,15 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
     taken.set(base, n);
     return n > 1 ? `${base}_${n}` : base;
   };
-  const { files, failed } = await kernel.export(format, bodies.map((b) => ({ name: nameOf(b), color: lookOf(history.current, b).color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })));
+  const names = bodies.map(nameOf);
+  const { files, failed } = await kernel.export(format, bodies.map((b, i) => ({ name: names[i], label: b.name, color: lookOf(history.current, b).color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })));
   const type = { stl: 'model/stl', '3mf': 'model/3mf', step: 'model/step', svg: 'image/svg+xml', dxf: 'image/vnd.dxf' }[format];
-  if ((format === 'step' || format === '3mf') && files.length) download(new Blob([files[0].data], { type }), `${project()}.${format}`);
+  // laser: one sheet of all, named after the body when it is one
+  if ((format === 'svg' || format === 'dxf') && files.length) download(new Blob([files[0].data], { type }), `${bodies.length === 1 ? names[0] : project()}.${format}`);
+  else if ((format === 'step' || format === '3mf') && files.length) download(new Blob([files[0].data], { type }), `${project()}.${format}`);
   else if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
   else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, new Uint8Array(f.data)])))]), `${project()}_${format}.zip`);
-  notify(`Exported ${format === 'step' || format === '3mf' ? `${bodies.length - failed.length} bodies as one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}${meshesLeft()}`, failed.length > 0);
+  notify(`Exported ${format === 'step' || format === '3mf' || format === 'svg' || format === 'dxf' ? `${bodies.length - failed.length} bodies as one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}${meshesLeft()}`, failed.length > 0);
 }
 
 /** The export panels' choices, this session. */
