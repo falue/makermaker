@@ -19,7 +19,7 @@ export type ClashAsk = {
 export type ClashHit = { a: string; b: string; volume: number; joint?: string; value?: number; closest?: number; vertices: Float32Array; indices: Uint32Array };
 /** The clearance zone around a body, in the world. */
 export type ClashZone = { id: string; vertices: Float32Array; indices: Uint32Array };
-/** `sweeps`: the space what a joint moves goes through. */
+/** `sweeps`: the space what a joint moves goes through; `failed`: bodies that could not grow (no zone; their distances measured instead, on a joint's way only overlaps). */
 export type ClashResult = { hits: ClashHit[]; zones: ClashZone[]; sweeps: ClashZone[]; failed: string[]; stopped?: boolean };
 
 export const pairKey = (a: string, b: string) => [a, b].sort().join(' ');
@@ -127,10 +127,12 @@ export async function clashes(solids: Map<string, Solid>, ask: ClashAsk, stopped
     const wide = local ? at(local, pg) : real;
     try {
       const hit = shared(wide, other);
-      if (!hit) return;
+      // not grown (it could not be): the real distance tells, with only an overlap to show
+      const closest = !(ask.clearance > 0) ? undefined : hit ? (local ? measureDistanceBetween(real, other) : 0) : local ? Infinity : measureDistanceBetween(real, other);
+      if (!hit && !(closest! < ask.clearance)) return;
       seen.add(pairKey(a, b));
-      out.hits.push({ a: g, b: o, volume: hit.volume, ...(local ? { closest: measureDistanceBetween(real, other) } : {}), ...meshed(hit.common) });
-      hit.common.delete();
+      out.hits.push({ a: g, b: o, volume: hit?.volume ?? 0, ...(closest === undefined ? {} : { closest }), ...(hit ? meshed(hit.common) : { vertices: new Float32Array(), indices: new Uint32Array() }) });
+      hit?.common.delete();
     } finally {
       real.delete();
       other.delete();
@@ -156,8 +158,8 @@ export async function clashes(solids: Map<string, Solid>, ask: ClashAsk, stopped
         placed.delete();
         if (of.has(m.id) && pieces.length) out.sweeps.push({ id: m.id, ...merged(pieces.map(meshed)) });
         for (const b of inReach) {
-          const local = ask.clearance > 0 ? grown(b.id) : solids.get(b.id)!.shape;
-          if (!local) continue;
+          // not grown (it could not be): at least what it overlaps on the way
+          const local = (ask.clearance > 0 && grown(b.id)) || solids.get(b.id)!.shape;
           const other = hold(at(local, b.place));
           const parts: ReturnType<typeof meshed>[] = [];
           let volume = 0;

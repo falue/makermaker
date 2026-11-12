@@ -3712,9 +3712,10 @@ function clashTool() {
     check('Cut with clearance', state.cutWide, 'Cut … leaves the clearance as a gap. Off: the other body exactly as it is', (v) => (state.cutWide = v)),
   );
   const note = Object.assign(document.createElement('p'), { className: 'hint' });
+  const problem = Object.assign(document.createElement('p'), { className: 'error', hidden: true });
   const list = Object.assign(document.createElement('div'), { className: 'clash-list' });
   const stopCheck = Object.assign(panelButton('Stop', 'Click: Stop checking: what it found so far stays', () => kernel.stopClash()), { hidden: true });
-  box.append(head, row, note, stopCheck, list);
+  box.append(head, row, note, problem, stopCheck, list);
   document.body.append(box);
   const name = (id: string) => history.current.bodies.find((b) => b.id === id)?.name ?? '?';
   const jointName = (id?: string) => history.current.joints.find((j) => j.id === id);
@@ -3781,8 +3782,9 @@ function clashTool() {
     note.textContent = [
       result.stopped ? `Stopped: ${hits.length} found so far` : !of.length ? 'Select the bodies to check, or check Everything.' : hits.length ? `${hits.length} found` : c ? `All clear: nothing within ${distance(c)}` : 'All clear: no overlaps',
       left ? `${left} left out (hidden, or a mesh)` : '',
-      result.failed.length ? `Could not grow ${result.failed.map(name).join(', ')} by that much` : '',
     ].filter(Boolean).join(' · ');
+    problem.hidden = !result.failed.length;
+    problem.textContent = `${result.failed.map(name).join(', ')} cannot grow by ${distance(c)}: no zone shown, its distances measured instead${ask.motions.length ? ' (on a joint\'s way only overlaps count)' : ''}`;
     draw();
     render();
   };

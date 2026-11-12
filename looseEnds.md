@@ -34,6 +34,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - While a long build runs, a picked point waits up to 1.5 s for the solid, then takes the mesh's point (the Distance measure shows it with ~).
 
 ## Interference and clearance
+- A body that cannot grow by the clearance has no zone in the view, and on a joint's way only its overlaps count (no clearance there).
 - "From 30°" comes from steps (hinges 3°, sliders 1 mm, at most 60), so the start can be up to a step late. The sweep: flat faces sliding are exact; curved bodies and hinges also stand at each step (3°, 1 mm, at most 60), so a wall thinner than a step could slip past a curved part only if that part is thinner than a step too, and a cut along a joint has ridges of hundredths of a mm. A long slider (over 60 mm) has bigger steps. Big curved files: not timed.
 - Deleting a body that makes a linked cut removes the cut. A and B cutting each other is refused with the usual build error.
 - Large documents on Everything can take a while, and the worker builds nothing meanwhile (Stop ends it between two tests; one long boolean or a slow grow still has to finish first). Not measured on big files.
@@ -41,6 +42,8 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - `await cad.check` keeps what the run did so far as its own undo step, because solids have to be built for it: a script with checks can be more than one undo step.
 
 ## Coat
+- Growing fills holes and cuts back concave rounds smaller than the thickness only where they are plain cylinders: torus corners, spheres and spline rounds smaller than it can still make it fail. The montage block in testdata/türkartenleser 4.mmk (the case reported 2026-11-12) was not tried again in the app: it builds only there.
+- A concave round is cut back over its whole length along its axis: one whose ends are cut at an angle can lose a sliver beside them before growing.
 - Excluding a flat face removes what grew out of it over the face's own box and a margin; where another part of the body rises right beside that face, its coat there can get cut too.
 - Only flat faces can be excluded. Meshes cannot be coated.
 - Attach: a group as one of its objects moving by itself does not take the others along (a body does). The anchor only shows where it is: Rotate still asks for its point. Joint swap (⇅ in a joint's panel) keeps the motion between the two, so the whole assembly can shift when the joint is not at 0.

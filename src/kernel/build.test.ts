@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
-import { measureVolume, setOC } from 'replicad';
+import { makeBox, measureVolume, setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { STILL } from '../doc/frames';
-import { areasOf, buildBody, dropBase, FeatureError, meshBody, type BaseCache, type BooleanBuild, type BuildFeature, type Finishing } from './build';
+import { areasOf, buildBody, dropBase, FeatureError, grownShape, meshBody, type BaseCache, type BooleanBuild, type BuildFeature, type Finishing } from './build';
 
 const wasm = readFileSync(createRequire(import.meta.url).resolve('replicad-opencascadejs/wasm'));
 
@@ -980,8 +980,17 @@ describe('coat', () => {
       s.delete();
     }
   });
-  it('too much says so', () => {
-    const holed: BuildFeature = { ...cube, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 60, h: 40, r: 0, rot: 0 }, { id: 'h', kind: 'circle', x: 0, y: 0, d: 20 }], depth: 20 } as BuildFeature;
-    expect(() => buildBody([holed, coat({ thickness: 12, corners: 'round' })])).toThrow(/cannot grow/);
+  it('a hole it closes: as if it were not there', () => {
+    const plate: BuildFeature = { ...cube, profiles: [{ id: 'r', kind: 'rect', x: 0, y: 0, w: 60, h: 40, r: 0, rot: 0 }], depth: 20 } as BuildFeature;
+    const holed = { ...plate, profiles: [...(plate as { profiles: object[] }).profiles, { id: 'h', kind: 'circle', x: 0, y: 0, d: 20 }] } as BuildFeature;
+    for (const corners of ['round', 'sharp'])
+      expect(measureVolume(buildBody([holed, coat({ thickness: 12, corners })]))).toBeCloseTo(measureVolume(buildBody([plate, coat({ thickness: 12, corners })])), 1);
+  });
+  it('a gap it closes, a concave round smaller than it: as if they were not there', () => {
+    const slotted = makeBox([0, 0, 0], [20, 20, 10]).cut(makeBox([5, -1, 2], [5.3, 21, 11]));
+    expect(measureVolume(grownShape(slotted, 1, false))).toBeCloseTo(22 * 22 * 12, 2);
+    const l = () => makeBox([0, 0, 0], [20, 20, 5]).fuse(makeBox([0, 0, 0], [5, 20, 20]));
+    const rounded = l().fillet(0.5, (e) => e.inDirection('Y').containsPoint([5, 10, 5]));
+    for (const round of [true, false]) expect(measureVolume(grownShape(rounded, 1, round))).toBeCloseTo(measureVolume(grownShape(l(), 1, round)), 2);
   });
 });

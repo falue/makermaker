@@ -792,19 +792,78 @@ function shell(shape: Shape3D | null, s: Of<'shell'>): Shape3D {
 }
 
 /** `shape` grown by `by` on all sides (`round`: the same distance everywhere; else sharp corners, a box stays a box). */
+/**
+ * `shape` grown by `by` (`round`: rounded edges, else sharp). Holes and concave rounds `by` or less in radius go first (see
+ * `withoutSmallHollows`); then adjacent faces only are intersected, failing that all against all (a gap that closes). A
+ * broken result, or one no bigger than before, does not count.
+ */
 export function grownShape(shape: Shape3D, by: number, round: boolean): Shape3D {
   const oc = getOC();
-  const maker = new oc.BRepOffsetAPI_MakeOffsetShape();
-  const progress = new oc.Message_ProgressRange();
+  const base = withoutSmallHollows(shape, by);
+  const before = measureVolume(base);
   try {
-    maker.PerformByJoin(shape.wrapped, by, 1e-6, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, round ? oc.GeomAbs_JoinType.GeomAbs_Arc : oc.GeomAbs_JoinType.GeomAbs_Intersection, false, progress);
-    return cast(maker.Shape()) as Shape3D;
-  } catch {
-    throw new Error(`it cannot grow by ${by} mm: try less (a hole may close, or corners meet)`);
+    for (const all of [false, true]) {
+      const maker = new oc.BRepOffsetAPI_MakeOffsetShape();
+      const progress = new oc.Message_ProgressRange();
+      try {
+        maker.PerformByJoin(base.wrapped, by, 1e-6, oc.BRepOffset_Mode.BRepOffset_Skin, all, false, round ? oc.GeomAbs_JoinType.GeomAbs_Arc : oc.GeomAbs_JoinType.GeomAbs_Intersection, false, progress);
+        const out = cast(maker.Shape()) as Shape3D;
+        if (valid(out) && measureVolume(out) > before) return out;
+        out.delete();
+      } catch {
+        // the next way, if any
+      } finally {
+        maker.delete();
+        progress.delete();
+      }
+    }
   } finally {
-    maker.delete();
-    progress.delete();
+    if (base !== shape) base.delete();
   }
+  throw new Error(`it cannot grow by ${by} mm: try less (corners may meet)`);
+}
+
+/**
+ * `shape` without its holes and concave rounds (cylinders) of radius `by` or less: holes filled, rounds cut back to their
+ * corner. Grown by `by` they fill up anyway, so the grown shape stays the same, but OpenCascade's offset fails on them
+ * or gets them wrong. `shape` itself when it has none.
+ */
+function withoutSmallHollows(shape: Shape3D, by: number): Shape3D {
+  const oc = getOC();
+  let out = shape;
+  for (const f of shape.faces) {
+    if (f.geomType !== 'CYLINDRE') continue;
+    const surface = new oc.BRepAdaptor_Surface(f.wrapped, false);
+    const cyl = surface.Cylinder();
+    const r = cyl.Radius();
+    const ax = cyl.Position();
+    const [o, d, x, y] = [ax.Location(), ax.Direction(), ax.XDirection(), ax.YDirection()].map((p) => new Vector([p.X(), p.Y(), p.Z()]));
+    surface.delete();
+    const { uMin, uMax, vMin, vMax } = f.UVBounds;
+    const at = (u: number, v: number) => o.add(x.multiply(r * Math.cos(u))).add(y.multiply(r * Math.sin(u))).add(d.multiply(v));
+    const mid = at((uMin + uMax) / 2, (vMin + vMax) / 2);
+    // concave: its outward normal points to the axis
+    if (r > by + 1e-9 || f.normalAt(mid).dot(o.add(d.multiply((vMin + vMax) / 2)).sub(mid)) <= 0) continue;
+    const base = o.add(d.multiply(vMin));
+    const rod = makeCylinder(r, vMax - vMin, base.toTuple(), d.toTuple()) as Shape3D;
+    const span = uMax - uMin;
+    let next: Shape3D;
+    if (span >= Math.PI - 1e-6) next = out.fuse(rod); // a hole or a slot's end: filled
+    else {
+      // a round in a corner: the corner (where its sides' tangents meet) back, what lies between it and the round goes
+      const u = (uMin + uMax) / 2;
+      const corner = base.add(x.multiply(Math.cos(u)).add(y.multiply(Math.sin(u))).multiply(r / Math.cos(span / 2)));
+      const wedge = basicFaceExtrusion(makePolygon([corner.toTuple(), at(uMin, vMin).toTuple(), base.toTuple(), at(uMax, vMin).toTuple()]), d.multiply(vMax - vMin)) as Shape3D;
+      const fill = wedge.cut(rod);
+      next = out.cut(fill);
+      wedge.delete();
+      fill.delete();
+    }
+    rod.delete();
+    if (out !== shape) out.delete();
+    out = next;
+  }
+  return out;
 }
 
 function coat(shape: Shape3D | null, s: Of<'coat'>): Shape3D {
