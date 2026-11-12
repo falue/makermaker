@@ -188,6 +188,34 @@ function fingerTests(): Body[] {
   return [solid('Joint board A', '#d8c3a5', [120, 132, 0], [rect(60, 4)], 40), solid('Joint board B', '#c4b08f', [148, 150, 0], [rect(4, 40)], 40)];
 }
 
+/**
+ * A test piece for linked copies: a block with a pocket and its linked copy beside it (the copy shares its steps: edit
+ * the pocket in either, both change).
+ */
+function linkTest(): Body[] {
+  const block = solid('Linked original', '#b8cfa1', [-40, 280, 0], [rect(30, 30)], 15);
+  const pocket: Feature = { id: newId(), type: 'extrude', source: { kind: 'own', plane: { kind: 'cap', feature: block.features[0].id }, profiles: [circle(0, 0, 14)] }, depth: ex(-6), mode: 'cut', through: false };
+  const original = { ...block, features: [...block.features, pocket] };
+  return [original, { ...solid('Linked copy', '#b8cfa1', [0, 280, 0], [], 15), link: original.id, features: [] }];
+}
+
+/**
+ * Test pieces for the laser export: two 4 mm boards finger jointed at a corner (as Joint board A and B, joined), and a
+ * 6 mm sheet with one side bevelled 30° (a draft: the export shows it from its face, the angle as a blue line).
+ */
+function laserTests(): Body[] {
+  const a = solid('Jointed board A', '#d8c3a5', [80, 262, 0], [rect(60, 4)], 40);
+  const b = solid('Jointed board B', '#c4b08f', [108, 280, 0], [rect(4, 40)], 40);
+  const fingers = (other: string, first: boolean): Feature => ({ id: newId(), type: 'fingers', body: other, count: ex(5), width: ex(0), from: null, first, clearance: ex(0) });
+  const sheet = solid('Bevelled sheet', '#c7a26b', [180, 280, 0], [rect(60, 40)], 6);
+  const bevel: Feature = { id: newId(), type: 'draft', at: [30, 0, 3], n: [1, 0, 0], axis: { at: [30, -20, 0], dir: [0, 1, 0] }, angle: ex(30) };
+  return [
+    { ...a, features: [...a.features, fingers(b.id, true)] },
+    { ...b, features: [...b.features, fingers(a.id, false)] },
+    { ...sheet, features: [...sheet.features, bevel] },
+  ];
+}
+
 /** A test piece for work planes: one along a 60 mm edge, turned 30° around it, free of the other pieces. */
 function slantedPlane(): WorkPlane {
   const at: [number, number, number] = [-130, 150, 20];
@@ -201,7 +229,8 @@ export const emptyDoc = (units: Unit = 'mm'): Doc => ({ schema: 32, units, param
  * A playground: a plate drawn as a sketch (the holes are circles inside the rectangle), a disc built from own shapes,
  * and overlapping pieces to try booleans on: a pin through the plate, a block over its back edge with a ball on its
  * corner (both in a group), a hex nut sunk into the disc, a free sketch on the front plane that no body uses yet, and
- * test pieces for newer features (finishes, booleans, cuts, loft and revolve, joints, a slanted work plane).
+ * test pieces for newer features (finishes, booleans, cuts, loft and revolve, joints, a slanted work plane, linked
+ * copies, laser export).
  */
 export function sampleDoc(): Doc {
   const split = splitTest();
@@ -277,7 +306,7 @@ export function sampleDoc(): Doc {
     schema: 32,
     units: 'mm',
     params: { $ply: ex('4mm') },
-    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies, stepsTest(), ...turned.bodies],
+    bodies: [plate, disc, pin, block, ball, nut, ...materialTests, ...edgeTests(), ...cutTest(), split.body, ...hinged.bodies, bulgeTest(), ...fingerTests(), ...coatTests(), ...attached.bodies, ...clash.bodies, stepsTest(), ...turned.bodies, ...linkTest(), ...laserTests()],
     sketches: [
       outline,
       {
