@@ -6011,7 +6011,7 @@ export class Viewer implements ToolView {
     // below the cube: click it, then a face, and the camera looks straight at that face
     const look = Object.assign(document.createElement('button'), {
       className: 'tool',
-      title: 'Look at a face: click this, then a face, or a face first, then this (Esc cancels)',
+      title: 'Look at a face: click this, then a face, or a face first, then this (Esc: Abort)',
       innerHTML: icon('look'),
       onclick: () => this.lookAtFace(eye),
     });

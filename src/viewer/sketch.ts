@@ -575,7 +575,7 @@ export class SketchTool implements Tool {
       // straight back to the point before: a side on top of the last one (two points: no area to close)
       const mode = this.drawMode()?.id;
       if (!closes && ph.pts.length >= 2 && mode !== 'bezier' && mode !== 'arc' && near(ph.pts.length - 2))
-        return this.host.hint('That runs straight back along the last side: click another point · [Esc] cancels'), true;
+        return this.host.hint('That runs straight back along the last side: click another point · [Esc] Abort'), true;
       // a bezier point goes in when let go: a drag first pulls its handles
       if (this.drawMode()?.id === 'bezier') ph.held = { at: closes ? ph.pts[0] : at, px: [e.clientX, e.clientY], pull: null, adds: true, closes };
       else {
@@ -777,11 +777,11 @@ export class SketchTool implements Tool {
     if (this.drawMode()?.id === 'planes') {
       if (ph.planes.length === 3) return this.ballDone(ph);
       const under = this.planeUnder(e);
-      if (!under) return ph.planes.length || (this.phase = { kind: 'hover' }), this.host.hint('Not flat: click a flat face or work plane · [Esc] cancels');
+      if (!under) return ph.planes.length || (this.phase = { kind: 'hover' }), this.host.hint('Not flat: click a flat face or work plane · [Esc] Abort');
       ph.planes.push({ at: under.at, n: under.n });
       if (ph.planes.length === 3 && !ballsInCorner(ph.planes)) {
         ph.planes.pop();
-        return this.host.hint('These three planes meet in no one point: click another · [Esc] cancels');
+        return this.host.hint('These three planes meet in no one point: click another · [Esc] Abort');
       }
       this.view.markFace();
     } else {
@@ -789,7 +789,7 @@ export class SketchTool implements Tool {
       if (!at) return ph.pts.length || (this.phase = { kind: 'hover' }), undefined;
       const real = this.view.pointAt(e) ? ((await this.view.truePointAt(e)) ?? at) : at;
       if (this.phase !== ph) return;
-      if (ph.pts.some((p) => p.distanceTo(real) < 1e-6)) return this.host.hint('That point was clicked already: click another · [Esc] cancels');
+      if (ph.pts.some((p) => p.distanceTo(real) < 1e-6)) return this.host.hint('That point was clicked already: click another · [Esc] Abort');
       ph.pts.push(real);
       ph.cur = null;
       if (ph.pts.length === BALL_POINTS[this.drawMode()!.id]) return this.ballDone(ph);
@@ -802,7 +802,7 @@ export class SketchTool implements Tool {
     const ball = this.ballNow(ph);
     if (!ball) {
       ph.pts.pop();
-      return this.host.hint(ph.planes.length ? 'Move away from the corner, or type its diameter · [Esc] cancels' : 'These points lie on one line or plane: no ball goes through them. Click another · [Esc] cancels');
+      return this.host.hint(ph.planes.length ? 'Move away from the corner, or type its diameter · [Esc] Abort' : 'These points lie on one line or plane: no ball goes through them. Click another · [Esc] Abort');
     }
     this.view.aimAt(null);
     this.host.ball({ center: ball.center.toArray() as V3, d: ball.d, typed: ph.typed && this.host.length(ph.typed) !== null ? ph.typed : undefined });
@@ -875,8 +875,8 @@ export class SketchTool implements Tool {
     if (!m || clicks + 1 >= m.clicks) return this.shapeDone();
     if (m.lines) {
       const line = this.lineUV(ph.target);
-      if (!line) return this.host.hint('Circle tangent to two lines: click the second line · [Esc] cancels');
-      if (ph.lines.length && !bisector(ph.lines[0], line, ph.cur)) return this.host.hint('That line runs along the first: click one that crosses it · [Esc] cancels');
+      if (!line) return this.host.hint('Circle tangent to two lines: click the second line · [Esc] Abort');
+      if (ph.lines.length && !bisector(ph.lines[0], line, ph.cur)) return this.host.hint('That line runs along the first: click one that crosses it · [Esc] Abort');
       ph.lines.push(line);
     } else ph.pts.push(ph.cur);
     ph.dragged = false;
@@ -933,7 +933,7 @@ export class SketchTool implements Tool {
     // To object while drawing a shape: the next click's distance goes into the size being typed (not a polygon's sides)
     if (ph.kind === 'shape' && pressed(e, 'toObject') && !(this.kind === 'ngon' && ph.axis === 1) && !inName(ph.typed[ph.axis] ?? '')) {
       this.reaching = true;
-      this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
+      this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] Abort');
       this.aim(this.view.aimHere());
       return true;
     }
@@ -1030,7 +1030,7 @@ export class SketchTool implements Tool {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
-        this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
+        this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] Abort');
         return this.aim(this.view.aimHere()), true;
       } else if (pressed(e, 'confirm')) this.commit();
       else if (!pullKey(e, ph, onBody(ph.target))) return false;
@@ -1058,7 +1058,7 @@ export class SketchTool implements Tool {
 
   private hoverHint(target?: Target) {
     if (this.ballMode()) return this.ballHint();
-    if (this.mode?.kind === 'plane') return `${target?.sketch ? 'Click: Open this sketch' : `Click ${target ? target.name : 'a top face or empty space'} to draw on it`} · [Esc] cancels`;
+    if (this.mode?.kind === 'plane') return `${target?.sketch ? 'Click: Open this sketch' : `Click ${target ? target.name : 'a top face or empty space'} to draw on it`} · [Esc] Abort`;
     const m = this.drawMode();
     const how = this.kind === 'line' ? ({ polygon: 'Click points', bezier: 'Click points, drag to pull handles', arc: 'Click a start and an end, then the bulge' }[m?.id ?? ''] ?? 'Click two points') : m?.lines ? 'Click a line' : m && m.clicks > 2 ? 'Click three times' : 'Drag (or click twice)';
     const modes = m ? ` · ${m.name} ([Alt], or the tool's button again: the next mode)` : '';
@@ -1794,7 +1794,7 @@ export class SketchTool implements Tool {
     if (mode === 'arc' && ph.pts.length === 1 && !ph.arcEnd) {
       [ph.arcEnd, ph.typed, ph.axis, ph.arc] = [closes ? ph.pts[0] : at, [], 0, null];
       ph.cur = ph.arcEnd;
-      return this.host.hint('Arc: move to its bulge and click, or type its diameter, [Enter] · [Esc] cancels');
+      return this.host.hint('Arc: move to its bulge and click, or type its diameter, [Enter] · [Esc] Abort');
     }
     const end = closes ? ph.pts[0] : at;
     if (mode === 'arc' && closes && ph.pts.length > 1) {
@@ -1930,7 +1930,7 @@ export class SketchTool implements Tool {
     if (ph.kind !== 'shape') return;
     const profile = this.shape(ph);
     const size = profile.kind === 'rect' ? Math.min(profile.w, profile.h) : profile.kind === 'polygon' || profile.kind === 'line' ? 1 : profile.d;
-    if (!(size > 0)) return this.host.hint('Too small: drag further or type a size · [Esc] cancels');
+    if (!(size > 0)) return this.host.hint('Too small: drag further or type a size · [Esc] Abort');
     const [a, b] = ph.typed.map((t) => (this.typed(t) === undefined ? undefined : t));
     if (this.kind === 'sphere' && profile.kind === 'circle') {
       // drawn from its centre: the ball's centre is where dragging started, on the plane
@@ -2277,7 +2277,7 @@ function extruded(ps: DrawnProfile[], f: Frame, from: number, to: number) {
 /** What the pointer's note calls a tangent circle's bisector. */
 const BISECTOR = 'on bisector';
 
-const SHAPE_HINT = 'Drag to size, or type it · [Tab] other side or number of sides · [Alt] another drawing mode for this shape · [Shift] square / 15° · [Ctrl] precise · [Enter] or click: done · [Esc] cancels';
+const SHAPE_HINT = 'Drag to size, or type it · [Tab] other side or number of sides · [Alt] another drawing mode for this shape · [Shift] square / 15° · [Ctrl] precise · [Enter] or click: done · [Esc] Abort';
 
 /** A drawing mode: its name, how many clicks it takes, whether it starts on lines, the hint after the first click; its pictogram is icon `<shape>-<id>`. */
 type Mode = { id: string; name: string; clicks: number; lines?: true; next?: string };
@@ -2286,8 +2286,8 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
   rect: [
     { id: 'corners', name: 'Rectangle: two corners', clicks: 2 },
     { id: 'centre', name: 'Rectangle: from the centre', clicks: 2 },
-    { id: 'turned', name: 'Rectangle: turned (a side, then its width)', clicks: 3, next: 'Turned rectangle: click the side\'s other end, then the width · [Esc] cancels' },
-    { id: 'turnedCentre', name: 'Rectangle: turned, from the centre (a direction, then its size)', clicks: 3, next: 'Turned rectangle from its centre: click a point it points to, then its size · [Esc] cancels' },
+    { id: 'turned', name: 'Rectangle: turned (a side, then its width)', clicks: 3, next: 'Turned rectangle: click the side\'s other end, then the width · [Esc] Abort' },
+    { id: 'turnedCentre', name: 'Rectangle: turned, from the centre (a direction, then its size)', clicks: 3, next: 'Turned rectangle from its centre: click a point it points to, then its size · [Esc] Abort' },
   ],
   sphere: [
     { id: 'centre', name: 'Sphere: centre and radius, on a plane', clicks: 2 },
@@ -2299,8 +2299,8 @@ const MODES: Partial<Record<ToolKind, Mode[]>> = {
   circle: [
     { id: 'centre', name: 'Circle: centre and radius', clicks: 2 },
     { id: 'diameter', name: 'Circle: two points across', clicks: 2 },
-    { id: 'three', name: 'Circle: through three points', clicks: 3, next: 'Circle through three points: click the second, then the third · [Esc] cancels' },
-    { id: 'tangent', name: 'Circle: tangent to two lines', clicks: 3, lines: true, next: 'Tangent circle: click the second line, then where it lies (its size) · [Esc] cancels' },
+    { id: 'three', name: 'Circle: through three points', clicks: 3, next: 'Circle through three points: click the second, then the third · [Esc] Abort' },
+    { id: 'tangent', name: 'Circle: tangent to two lines', clicks: 3, lines: true, next: 'Tangent circle: click the second line, then where it lies (its size) · [Esc] Abort' },
   ],
   line: [
     { id: 'single', name: 'Line: one line per two clicks', clicks: 2 },
@@ -2411,7 +2411,7 @@ function lineHint(mode?: string) {
   if (mode === 'bezier') return `Click: a smooth point, drag: pull its handles · [Shift] handle in angle steps, [Ctrl] precise · ${end}`;
   if (mode === 'arc') return `Click the arc's end, or type its diameter · [Tab] its angle, [Enter] · [Shift] angle steps · ${end}`;
   const how = 'or type a length · [Tab] the angle, [Enter] · [Shift] angle steps, [Ctrl] precise (near a circle or curve: tangent to it) · [B] on a line: measure the angle from it';
-  return mode === 'polygon' ? `Click the next point, ${how} · ${end}` : `Click the end point, ${how} · [Alt] or [L] next mode · [Esc] cancels`;
+  return mode === 'polygon' ? `Click the next point, ${how} · ${end}` : `Click the end point, ${how} · [Alt] or [L] next mode · [Esc] Abort`;
 }
 /** An angle (radians) in degrees, the short way: -180 to 180. */
 const deg = (rad: number) => ((((rad * 180) / Math.PI + 180) % 360) + 360) % 360 - 180;

@@ -235,7 +235,7 @@ export class ExtrudeTool implements Tool {
         // the next click picks how far: the pointer shows again for it
         this.reaching = true;
         this.view.unlockPointer();
-        this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] cancels');
+        this.host.hint('To object: click a corner, edge or face · its distance goes into the size (type on to calculate with it) · [Esc] Abort');
         return this.aim(this.view.aimHere()), true;
       }
       if (this.roundFace() && e.key === roleKeyName('centre')) return (p.tap ||= !e.repeat), true;

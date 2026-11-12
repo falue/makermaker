@@ -415,7 +415,7 @@ const viewer = new Viewer(document.getElementById('viewport')!, {
         if (phase === 'done') stopTool(), render();
       },
       {
-        hint: 'Drag up: fillet, down: chamfer · [Shift] coarse · [Ctrl] precise · type a size (minus: chamfer) · release or [Enter]: done · [Esc] puts it back',
+        hint: 'Drag up: fillet, down: chamfer · [Shift] coarse · [Ctrl] precise · type a size (minus: chamfer) · release or [Enter]: done · [Esc] Abort',
         label: (mm, typed) => `${mm >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(mm).toFixed(2) : caret(typed)}`,
         endOnUp: true,
       },
@@ -1095,7 +1095,7 @@ function applyBoolean(op: BooleanOp) {
         applyBoolean(op);
       },
     };
-    toolHint = `Click the body that keeps the result · then the ones to ${{ union: 'join', subtract: 'cut it', intersect: 'intersect' }[op]} · [Enter] applies · [Esc] cancels`;
+    toolHint = `Click the body that keeps the result · then the ones to ${{ union: 'join', subtract: 'cut it', intersect: 'intersect' }[op]} · [Enter] applies · [Esc] Abort`;
     return showSelection();
   }
   const [target, ...tools] = ids;
@@ -1470,7 +1470,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
         if (selected.length) moveAlong(first, all, start);
       },
     };
-    toolHint = `Click what to move${all ? '' : ` along ${'XYZ'[first]}`} · Shift / ${MAC ? '⌘' : 'Ctrl'}-click several, then [Enter] · [Esc] cancels`;
+    toolHint = `Click what to move${all ? '' : ` along ${'XYZ'[first]}`} · Shift / ${MAC ? '⌘' : 'Ctrl'}-click several, then [Enter] · [Esc] Abort`;
     return render();
   }
   const fields: (HTMLInputElement | null)[] = [null, null, null];
@@ -1654,7 +1654,7 @@ function moveAlong(first: number, all = false, start: Vec3 = [0, 0, 0], made?: {
   const linkedLabel = Object.assign(document.createElement('label'), { title: 'Copies are linked copies: they share their steps, editing one edits all of them', hidden: !made });
   linkedLabel.append(linked, 'Linked');
   // copies made already (Duplicate, paste): no Copy; Linked only while their sources are there
-  box.append(toObject, fromTo, ...(made ? [] : [copyLabel]), ...(made && !made.sources.length ? [] : [linkedLabel]), panelButton('✓', 'Move it (Enter); Esc leaves it', () => confirm()));
+  box.append(toObject, fromTo, ...(made ? [] : [copyLabel]), ...(made && !made.sources.length ? [] : [linkedLabel]), panelButton('✓', 'Move it (Enter); Esc: Abort', () => confirm()));
   if (all) [2, 1, 0].forEach(open); // all three, then the cursor goes to `first`
   open(first);
   show();
@@ -1888,7 +1888,7 @@ function cutTool(note = '') {
   if (face && bodies.length > 1) bodies = bodies.filter((b) => b !== face.body);
   if (!bodies.length) {
     pending = { tool: 'cut', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), cutTool()) };
-    toolHint = 'Click the body to cut · [Esc] cancels';
+    toolHint = 'Click the body to cut · [Esc] Abort';
     return render();
   }
   [selected, shapeSel] = [bodies, []];
@@ -1938,7 +1938,7 @@ function cutTool(note = '') {
     const y = n.clone().cross(x);
     viewer.showCut([[o.clone().sub(x).sub(y), o.clone().add(x).sub(y), o.clone().add(x).add(y), o.clone().sub(x).add(y)]]);
   };
-  toolHint = note + 'Click where to cut · [Esc] done · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Shift]-click a body: cut it too, or not · [Esc] cancels';
+  toolHint = note + 'Click where to cut · [Esc] done · a face, work plane or empty space: straight, on its plane · a sketch line or shape: along it · a ball or cylinder: along its surface · [Shift]-click a body: cut it too, or not · [Esc] Abort';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
@@ -2018,7 +2018,7 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
   };
   cutting = { chunks: chunkIds, bodies, refresh };
   [selected, shapeSel] = [bodies, []];
-  const hint = `Cut${bodies.length > 1 ? ` ${bodies.length} bodies` : ''}: set the offset, pick what stays · type or scrub it, T: to object${cutter.kind === 'plane' ? ' · the turn (Set axis: what it turns around)' : ''} · [Enter] cuts, then the next · [Esc] leaves them as they were`;
+  const hint = `Cut${bodies.length > 1 ? ` ${bodies.length} bodies` : ''}: set the offset, pick what stays · type or scrub it, T: to object${cutter.kind === 'plane' ? ' · the turn (Set axis: what it turns around)' : ''} · [Enter] cuts, then the next · [Esc] Abort`;
   toolHint = hint;
   /** The chunks cut by the cutter as typed, those to be deleted see-through red; the cutting surface shown. */
   const show = () => {
@@ -2253,7 +2253,7 @@ function cutPanel(bodies: string[], cutters: Map<string, SplitFeature['cutter']>
       ? [cell(...turnField, angles!.buttons()), Object.assign(document.createElement('button'), { className: 'set-axis', textContent: 'Set axis', title: 'Click an edge or line (the plane turns around it) or a circle (around its centre)', onclick: setAxis })]
       : []),
     segmented,
-    panelButton('✓', 'Click: Cut, then the next cut can start (Enter); Esc leaves the bodies as they were', () => void finish(true)),
+    panelButton('✓', 'Click: Cut, then the next cut can start (Enter); Esc: Abort', () => void finish(true)),
   );
   choose(keep);
   atTop(box);
@@ -2276,7 +2276,7 @@ function revolveTool() {
   const chosen = own.filter((q) => shapeSel.includes(q.id));
   const shapes = chosen.length ? chosen : own;
   if (!s || !shapes.length) {
-    toolHint = 'Revolve: click a closed sketch shape · inside or its outline · [Esc] cancels';
+    toolHint = 'Revolve: click a closed sketch shape · inside or its outline · [Esc] Abort';
     render();
     return viewer.pickFace((face) => {
       toolHint = null;
@@ -2307,7 +2307,7 @@ function revolveTool() {
   }
   const picked = pickedAxis();
   if (picked) return viewer.dropPicked(), around(picked);
-  toolHint = "Revolve: click the axis · a sketch line or a body edge in the shapes' plane · [Esc] cancels";
+  toolHint = "Revolve: click the axis · a sketch line or a body edge in the shapes' plane · [Esc] Abort";
   render();
   viewer.pickAxis(around, (a) => (tips.cursorTip(a ? `${a.what}\nClick: the shapes turn around it` : null), viewer.showAxis(a, new Vector3(...f.o), 200)));
 }
@@ -2368,10 +2368,10 @@ function revolvePanel(sketch: string, shapes: string[], axis: { at: [number, num
     e.preventDefault();
     finish(pressed(e, 'confirm'));
   };
-  box.append(cell(label, input, angles.buttons()), panelButton('✓', 'Keep it (Enter); Esc leaves nothing', () => finish(true)));
+  box.append(cell(label, input, angles.buttons()), panelButton('✓', 'Keep it (Enter); Esc: Abort', () => finish(true)));
   document.body.append(box);
   atTop(box);
-  toolHint = 'Type or scrub the angle, or turn it with its button · [Enter] Finalize · [Esc] leaves nothing';
+  toolHint = 'Type or scrub the angle, or turn it with its button · [Enter] Finalize · [Esc] Abort';
   render();
   angles.show();
   setTimeout(() => (input.focus(), input.select()));
@@ -2416,7 +2416,7 @@ function angleControl(o: { input: HTMLInputElement; axis: () => { at: Vector3; d
     if (!click) return;
     viewer.cancelFacePick();
     [picks, before, hintBefore] = [true, input.value, toolHint];
-    toolHint = `Move around the axis to turn · click keeps it · ${angleKeys()} · [Esc] puts it back`;
+    toolHint = `Move around the axis to turn · click keeps it · ${angleKeys()} · [Esc] Abort`;
     render();
     viewer.pickFace((face) => {
       if (!picks) return;
@@ -2451,7 +2451,7 @@ function angleControl(o: { input: HTMLInputElement; axis: () => { at: Vector3; d
         done();
       }, true);
     };
-    toolHint = 'To object: click where it is now, then where it goes · their angle goes into the field · [Esc] cancels';
+    toolHint = 'To object: click where it is now, then where it goes · their angle goes into the field · [Esc] Abort';
     render();
     next();
   };
@@ -2596,7 +2596,7 @@ function valuePanel(fields: { label: string; value: string; reach?: (p: Vector3)
     end(pressed(e, 'confirm'));
   };
   // the most important first: `fields` in order, then `extra`; `before` only when a choice matters more than any value
-  box.append(...before, ...cells, ...extra, panelButton('✓', 'Keep it (Enter); Esc drops it', () => end(true)));
+  box.append(...before, ...cells, ...extra, panelButton('✓', 'Keep it (Enter); Esc: Abort', () => end(true)));
   document.body.append(box);
   atTop(box);
   // centred again when its width changes (fields shown or hidden after it opened)
@@ -2706,14 +2706,14 @@ function patternTool(mode: 'around' | 'grid' = pickedAxis() ? 'around' : 'grid')
         else render();
       },
     };
-    toolHint = 'Pattern: click the bodies to repeat (a second click drops it) or a sketch · [Enter] Finalize · [Esc] cancels';
+    toolHint = 'Pattern: click the bodies to repeat (a second click drops it) or a sketch · [Enter] Finalize · [Esc] Abort';
     return render();
   }
   if (mode === 'around') {
     // an edge Alt-picked first is the axis
     const picked = pickedAxis();
     if (picked) return viewer.dropPicked(), patternPanel(sources, 'around', picked, on);
-    toolHint = on ? 'Pattern around: click the centre · a circle or arc (its centre), a point, or an edge through the sketch · [Esc] cancels' : 'Pattern around: click the axis · an edge or line, a circle (its centre) or a point (Z through it) · [Esc] cancels';
+    toolHint = on ? 'Pattern around: click the centre · a circle or arc (its centre), a point, or an edge through the sketch · [Esc] Abort' : 'Pattern around: click the axis · an edge or line, a circle (its centre) or a point (Z through it) · [Esc] Abort';
     render();
     return viewer.pickAxis(
       (a) => {
@@ -2882,7 +2882,7 @@ function patternPanel(sources: string[], mode: 'around' | 'grid', axis?: TurnAxi
         });
   // sketch shapes are not linked
   const extra = [...(mode === 'around' ? [checkbox('Turn copies', 'Copies turn with the pattern (else only move)', true, (on) => ((turnCopies = on), apply()))] : []), ...(on ? [] : [link])];
-  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] Finalize · [Esc] leaves nothing' : `Pattern grid: counts and gaps · along ${axes.join(' / ')}, the gap between copies (or Overall), a turn per copy · [Enter] Finalize · [Esc] leaves nothing`, extra, [switcher]);
+  const panel = valuePanel(fields, change, (ok) => (angles?.end(), ok ? render() : history.current !== doc0 ? undo() : render()), mode === 'around' ? 'Pattern around: how many, over how many degrees · counting the original · [Enter] Finalize · [Esc] Abort' : `Pattern grid: counts and gaps · along ${axes.join(' / ')}, the gap between copies (or Overall), a turn per copy · [Enter] Finalize · [Esc] Abort`, extra, [switcher]);
   // between the fields: Overall before the distances, Set axis before the angle
   panel.inputs[mode === 'around' ? 1 : dims].parentElement!.before(overallBox ?? setAxis);
   texts = fields.map((f) => f.value);
@@ -2951,7 +2951,7 @@ function mirrorTool() {
     // an edge Alt-picked first is the line
     const line = pickedAxis();
     if (line) return viewer.dropPicked(), across(line);
-    toolHint = 'Mirror: click the line or edge to mirror across · [Esc] cancels';
+    toolHint = 'Mirror: click the line or edge to mirror across · [Esc] Abort';
     render();
     return viewer.pickAxis(across, (a) => (tips.cursorTip(a ? `${a.what}\nClick: mirror across it` : null), viewer.showAxis(a, a?.at, 60)));
   }
@@ -2972,7 +2972,7 @@ function mirrorTool() {
         else render();
       },
     };
-    toolHint = 'Mirror: click the bodies to mirror (a second click drops it) · [Enter] Finalize · or select sketch shapes first · [Esc] cancels';
+    toolHint = 'Mirror: click the bodies to mirror (a second click drops it) · [Enter] Finalize · or select sketch shapes first · [Esc] Abort';
     return render();
   }
   const mirrored = (point: Vector3, normal: Vector3) => {
@@ -2990,7 +2990,7 @@ function mirrorTool() {
   // a face Alt-picked first is the plane (with nothing else selected: its own body mirrored across it)
   const face = viewer.pickedFaceItems()[0];
   if (face) return viewer.dropPicked(), mirrored(face.point, face.n);
-  toolHint = 'Mirror: click the face to mirror across · empty space: the base plane facing you · [Esc] cancels';
+  toolHint = 'Mirror: click the face to mirror across · empty space: the base plane facing you · [Esc] Abort';
   render();
   const option = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel' });
   option.append(checkbox('Linked', 'The mirrored copies are linked copies: they share their steps, editing one edits all of them', linkedCopies, (on) => (linkedCopies = on)));
@@ -3020,7 +3020,7 @@ function threadTool() {
   if (own) return viewer.dropPicked(), threadPanel(own.f.body, own.t!);
   const face = chosen.find((f) => f.round);
   if (face) return viewer.dropPicked(), threadOn(face.body, face.round!, face.point);
-  toolHint = 'Thread: click a round face · of a hole or a shaft · or a thread: edit it · [Esc] cancels';
+  toolHint = 'Thread: click a round face · of a hole or a shaft · or a thread: edit it · [Esc] Abort';
   render();
   viewer.pickFace((face) => {
     toolHint = null;
@@ -3248,7 +3248,7 @@ function threadPanel(body: string, id: string, fresh = false) {
     ],
     write,
     (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
-    `Thread ${feature.inside ? 'in a hole: Modelled or Pilot (tap-drill hole)' : 'on a shaft: Modelled or Plain'} · pick its size · Custom: type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] Finalize · [Esc] ${fresh ? 'leaves nothing' : 'puts it back'}`,
+    `Thread ${feature.inside ? 'in a hole: Modelled or Pilot (tap-drill hole)' : 'on a shaft: Modelled or Plain'} · pick its size · Custom: type Ø and pitch · ${circle ? `the ${where} fits it` : `its circle is not found: the ${where} stays as it is`} · its length (T: to a point) · [Enter] Finalize · [Esc] Abort`,
     [],
     [kinds, systems, pick],
   );
@@ -3274,7 +3274,7 @@ function bulgeTool() {
   const last = viewer.lastFaceItem();
   const face = viewer.pickedFaceItems()[0] ?? (last && selected.includes(last.body) ? last : null);
   if (face) return viewer.dropPicked(), bulgeOn(face);
-  toolHint = 'Bulge: click a face or sketch shape · a flat face domes, a round one swells · a closed sketch shape: a dome of its own · [Esc] cancels';
+  toolHint = 'Bulge: click a face or sketch shape · a flat face domes, a round one swells · a closed sketch shape: a dome of its own · [Esc] Abort';
   render();
   viewer.pickFace(
     (picked) => {
@@ -3296,7 +3296,7 @@ function draftTool() {
   const last = viewer.lastFaceItem();
   const face = viewer.pickedFaceItems()[0] ?? (last && selected.includes(last.body) ? last : null);
   if (face) return viewer.dropPicked(), draftOn(face);
-  toolHint = 'Draft: click the face to draft (a flat one) · [Esc] cancels';
+  toolHint = 'Draft: click the face to draft (a flat one) · [Esc] Abort';
   render();
   viewer.pickFace((picked) => {
     toolHint = null;
@@ -3420,7 +3420,7 @@ function draftPanel(body: string, id: string, fresh = false, degPerPx = 0.2) {
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
     },
-    'Draft: drag the body up / down or type the angle (inward; negative: outward) · [Shift] angle steps, [A] / [Shift A] finer / coarser, [Ctrl] precise · Set axis: the hinge it turns about (its bottom side first) · [Enter] Finalize · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    'Draft: drag the body up / down or type the angle (inward; negative: outward) · [Shift] angle steps, [A] / [Shift A] finer / coarser, [Ctrl] precise · Set axis: the hinge it turns about (its bottom side first) · [Enter] Finalize · [Esc] Abort',
     [setAxis],
   );
   const angles = angleControl({ input: panel.inputs[0], axis: hinge, idle: () => !picking });
@@ -3564,7 +3564,7 @@ function bulgePanel(body: string, id: string, fresh = false) {
     ],
     write,
     (ok) => (ok ? render() : fresh || history.current !== doc0 ? undo() : render()),
-    'Bulge: where its peak is · X / Y / Z from the middle; across the face: its height (negative: a dent) · T: the height to a point · Fullness: -4 pointy, 0 pillow, 1 dome, 4 flat top · [Enter] Finalize · [Esc] ' + (fresh ? 'leaves nothing' : 'puts it back'),
+    'Bulge: where its peak is · X / Y / Z from the middle; across the face: its height (negative: a dent) · T: the height to a point · Fullness: -4 pointy, 0 pillow, 1 dome, 4 flat top · [Enter] Finalize · [Esc] Abort',
   );
 }
 
@@ -3584,7 +3584,7 @@ function offsetTool() {
   const body = faces[0]?.body ?? selected.find((id) => history.current.bodies.some((b) => b.id === id));
   if (!body) {
     pending = { tool: 'shell', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), offsetTool()) };
-    toolHint = 'Offset: select sketch shapes first · or click a body to hollow it (shell) · [Esc] cancels';
+    toolHint = 'Offset: select sketch shapes first · or click a body to hollow it (shell) · [Esc] Abort';
     return render();
   }
   // the shell shows at once (closed, 2 mm walls); each face clicked opens live; one undo step
@@ -3598,7 +3598,7 @@ function offsetTool() {
   const keys = (e: KeyboardEvent) => pressed(e, 'confirm') && (e.stopImmediatePropagation(), e.preventDefault(), walls());
   const stop = () => ((ended = true), removeEventListener('keydown', keys, { capture: true }), viewer.cancelFacePick());
   const next = () => {
-    toolHint = `Shell: click the faces to leave open · ${open.length} so far; none: closed, hollow inside · [Enter] then the wall thickness · [Esc] leaves nothing`;
+    toolHint = `Shell: click the faces to leave open · ${open.length} so far; none: closed, hollow inside · [Enter] then the wall thickness · [Esc] Abort`;
     render();
     viewer.pickFace((face) => {
       if (ended) return;
@@ -3614,7 +3614,7 @@ function offsetTool() {
   const walls = () => {
     stop();
     const u = history.current.units;
-    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[u]), reach: nearestSide, title: 'Wall: how thick · T: the distance from a point to the nearest side of the body' }], ([t]) => (history.replace(setIn(history.current, [...path, 'thickness'], { e: t, u })), update()), (ok) => (ok ? render() : undo()), 'Shell: the wall thickness · type or scrub it · [Enter] Finalize · [Esc] leaves nothing');
+    valuePanel([{ label: 'Wall', value: fmt(2 / UNITS[u]), reach: nearestSide, title: 'Wall: how thick · T: the distance from a point to the nearest side of the body' }], ([t]) => (history.replace(setIn(history.current, [...path, 'thickness'], { e: t, u })), update()), (ok) => (ok ? render() : undo()), 'Shell: the wall thickness · type or scrub it · [Enter] Finalize · [Esc] Abort');
   };
   addEventListener('keydown', keys, { capture: true });
   next();
@@ -3852,7 +3852,7 @@ function coatTool() {
   const owners = [...new Set((face ? [face.body] : contents(doc, selected)).map((id) => stepsOf(doc, id)))].filter((i) => i >= 0);
   if (!owners.length) {
     pending = { tool: 'shell', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), coatTool()) };
-    toolHint = 'Coat: click a body · [Esc] cancels';
+    toolHint = 'Coat: click a body · [Esc] Abort';
     return render();
   }
   const flat = face && (face.mesh.userData.exact as Exact | null | undefined)?.faces[face.index]?.kind === 'plane';
@@ -3983,7 +3983,7 @@ function coatPanel(body: string, feature: string, isNew = false, also: { body: s
     };
     next();
   };
-  const hint = `Coat${also.length ? ` ${also.length + 1} bodies` : ''}: how thick, live · sharp or round corners${also.length ? '' : ' · faces to exclude · new body: a skin around it'} · [Enter] Finalize · [Esc] drops it`;
+  const hint = `Coat${also.length ? ` ${also.length + 1} bodies` : ''}: how thick, live · sharp or round corners${also.length ? '' : ' · faces to exclude · new body: a skin around it'} · [Enter] Finalize · [Esc] Abort`;
   const panel = valuePanel(
     [{ label: 'Thickness', value: start.f.thickness.e, title: 'How much thicker, on all sides' }],
     ([t]) => picking || set({ thickness: { e: t, u: history.current.units } }),
@@ -4023,7 +4023,7 @@ function offsetShapes(sketch: string) {
       if (q.kind === 'line' && p.kind === 'line') return { ...q, id, pts: roundPts(beside(p.pts, d)) };
       return { ...q, id };
     });
-  const hint = 'Offset: how far outside · type or scrub it; negative: inside, a line: to its left · [Enter] Finalize · [Esc] leaves nothing';
+  const hint = 'Offset: how far outside · type or scrub it; negative: inside, a line: to its left · [Enter] Finalize · [Esc] Abort';
   const apply = (d: number) => {
     const shapes = made(d);
     const kept = shapes.filter((x): x is Profile => !!x);
@@ -4060,7 +4060,7 @@ function boxJoint() {
       },
       apply: () => picked.length >= 2 && run(),
     };
-    toolHint = 'Box joint: click the two bodies that overlap or touch · Shift-click more (a whole box) · [Enter] Finalize · [Esc] cancels';
+    toolHint = 'Box joint: click the two bodies that overlap or touch · Shift-click more (a whole box) · [Enter] Finalize · [Esc] Abort';
     return render();
   }
   const pairs = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b, fingerPair(a, b)] as const));
@@ -4188,7 +4188,7 @@ function fingersPanel(body: string, id: string, fresh = false, more: [string, st
       if (ok || !(fresh || history.current !== doc0)) render();
       else undo();
     },
-    `Box joint${more.length ? `, all ${joints.length}` : ''}: how many fingers · or a finger length (exact; the count empties) · the clearance between fingers${more.length ? '' : ' · From point: the fingers count from there'} · [Enter] keeps ${more.length ? 'them' : 'it'} · [Esc] ` + (fresh ? 'leaves nothing' : 'puts it back'),
+    `Box joint${more.length ? `, all ${joints.length}` : ''}: how many fingers · or a finger length (exact; the count empties) · the clearance between fingers${more.length ? '' : ' · From point: the fingers count from there'} · [Enter] keeps ${more.length ? 'them' : 'it'} · [Esc] Abort`,
     more.length ? [] : [fromButton, clearFrom],
   );
   status();
@@ -4469,7 +4469,7 @@ function planeTool() {
   if (edge || face) viewer.dropPicked();
   if (edge) return edgePlane(edge.at, edge.to);
   if (face) return facePlane(face);
-  toolHint = 'Work plane: click a face (on it), a straight edge (along it) or a point (through it and two more) · empty space: the base plane facing you · or select a sketch, or Alt-click a face or edge first · [Esc] cancels';
+  toolHint = 'Work plane: click a face (on it), a straight edge (along it) or a point (through it and two more) · empty space: the base plane facing you · or select a sketch, or Alt-click a face or edge first · [Esc] Abort';
   viewer.aiming = (a) => tips.cursorTip(a ? `${a.what}\nClick: ${planeAim(a.what)}` : null);
   render();
   viewer.pickFace((p) => {
@@ -4585,7 +4585,7 @@ function planePanel(id: string, fresh = false) {
   };
   const now = () => history.current.planes[i];
   const setPlane = (next: Partial<WorkPlane>) => change(setIn(history.current, ['planes', String(i)], { ...now(), ...next }));
-  const hint = "Work plane: its offset (T: a point's distance, type on, e.g. /2 for halfway) · the mode above picks it anew · [Enter] Finalize · [Esc] " + (fresh ? 'leaves nothing' : 'puts it back');
+  const hint = "Work plane: its offset (T: a point's distance, type on, e.g. /2 for halfway) · the mode above picks it anew · [Enter] Finalize · [Esc] Abort";
   // one pick at a time: `take` gets each click (true: picking goes on); the snap a click takes shows while hovering (`lit`: a face or edge lit whole)
   let picking: string | null = null;
   const pick = (what: string, tip: string, take: (p: PickedFace) => boolean, lit = false) => {
@@ -4754,8 +4754,8 @@ function sweepTool() {
       done({ sketch: face.sketch.id, shape: q });
     }, false, 'inside');
   };
-  const askPath = (profile: Part) => pick('Sweep: click the path · the line or shape outline it runs along · [Esc] cancels', (path) => make(path, profile));
-  const askProfile = (path: Part) => pick('Sweep: click the profile · a closed shape (inside or its outline) to sweep along the path · [Esc] cancels', (profile) => make(path, profile));
+  const askPath = (profile: Part) => pick('Sweep: click the path · the line or shape outline it runs along · [Esc] Abort', (path) => make(path, profile));
+  const askProfile = (path: Part) => pick('Sweep: click the profile · a closed shape (inside or its outline) to sweep along the path · [Esc] Abort', (profile) => make(path, profile));
   // selected first, in that order: picked shapes, else each selected sketch's first shape; a line is open (a path)
   const doc = history.current;
   const parts = selected.flatMap((id) => {
@@ -4769,7 +4769,7 @@ function sweepTool() {
   if (open.length === 1 && closed.length === 1) return make(part(open[0]), part(closed[0]));
   if (!open.length && closed.length === 2) return make(part(closed[0]), part(closed[1])); // the first a closed path
   if (parts.length === 1) return open.length ? askProfile(part(open[0])) : askPath(part(closed[0]));
-  pick('Sweep: click the path · the line or shape outline it runs along · [Esc] cancels', askProfile);
+  pick('Sweep: click the path · the line or shape outline it runs along · [Esc] Abort', askProfile);
 }
 
 /**
@@ -4808,7 +4808,7 @@ function loftTool() {
     render();
   };
   const next = () => {
-    toolHint = `Loft: click the shapes in order · closed sketch shapes (inside or the outline), one per sketch (${picked.length} so far) · [Enter] Finalize · [Esc] cancels`;
+    toolHint = `Loft: click the shapes in order · closed sketch shapes (inside or the outline), one per sketch (${picked.length} so far) · [Enter] Finalize · [Esc] Abort`;
     render();
     viewer.pickFace((face) => {
       if (ended) return;
@@ -4836,7 +4836,7 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
   if (selected.length && selectedImages().length === selected.length) return turnImages();
   if (!selected.length) {
     pending = { tool: 'move', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), rotateTool()) };
-    toolHint = 'Rotate: click what to turn · [Esc] cancels';
+    toolHint = 'Rotate: click what to turn · [Esc] Abort';
     return render();
   }
   const doc0 = history.current;
@@ -4969,7 +4969,7 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
     }, true);
   };
   const turnHint = () => {
-    toolHint = `Move around the axis to turn, or type degrees · ${angleKeys()}${point ? ' · click its point again: the next axis' : ''} · click or [Enter] Finalize · [Esc] puts it back`;
+    toolHint = `Move around the axis to turn, or type degrees · ${angleKeys()}${point ? ' · click its point again: the next axis' : ''} · click or [Enter] Finalize · [Esc] Abort`;
     render();
   };
   /** To object: two clicks; their angle around the axis goes into Turn ° (to calculate on). */
@@ -5024,7 +5024,7 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
         else render();
       },
     };
-    toolHint = 'Rotate: click what to turn (a second click drops it) · [Enter] Finalize · [Esc] cancels';
+    toolHint = 'Rotate: click what to turn (a second click drops it) · [Enter] Finalize · [Esc] Abort';
     render();
   };
   const finish = (ok: boolean) => {
@@ -5071,7 +5071,7 @@ function rotateTool(keep?: { pivot: Vector3; dir: Vector3; point: boolean }) {
     ...(frame ? [] : [button('Set bodies', 'Click: Pick again what turns (a second click drops it); the axis stays', setBodies)]),
     copyBox,
     linked,
-    button('✓', 'Keep it (Enter or a click in the view); Esc puts it back', () => finish(true)),
+    button('✓', 'Keep it (Enter or a click in the view); Esc: Abort', () => finish(true)),
   );
   document.body.append(box);
   atTop(box);
@@ -5209,7 +5209,7 @@ function attachTool() {
       else render();
     },
   };
-  toolHint = 'Entangle: click the objects that move as one (a second click drops it) · [Enter] Finalize · [Esc] cancels';
+  toolHint = 'Entangle: click the objects that move as one (a second click drops it) · [Enter] Finalize · [Esc] Abort';
   render();
 }
 
@@ -5236,7 +5236,7 @@ function jointTool() {
   const [parent, ...children] = selected.filter(isObject);
   if (!parent) {
     pending = { tool: 'joint', pick: (id) => (cancelPending(), (selected = [id]), showSelection(), jointTool()) };
-    toolHint = 'Joint: click the object that stays · a body or group · [Esc] cancels';
+    toolHint = 'Joint: click the object that stays · a body or group · [Esc] Abort';
     return render();
   }
   if (!children.length) {
@@ -5255,10 +5255,10 @@ function jointTool() {
         else render();
       },
     };
-    toolHint = 'Joint: click the objects that move (a second click drops it) · [Enter] Finalize · [Esc] cancels';
+    toolHint = 'Joint: click the objects that move (a second click drops it) · [Enter] Finalize · [Esc] Abort';
     return render();
   }
-  toolHint = 'Joint: click its axis · an edge or line, or a circle or round edge (through its centre, square to it) · [Esc] cancels';
+  toolHint = 'Joint: click its axis · an edge or line, or a circle or round edge (through its centre, square to it) · [Esc] Abort';
   render();
   viewer.pickAxis(
     (a) => {
@@ -5520,7 +5520,7 @@ function jointPanel(id: string, fresh: boolean, reach = 50) {
     button('⇄ Invert', 'Turn or move the other way round', () => write({ axis: { ...now().axis, dir: now().axis.dir.map((v) => -v) as [number, number, number] } })),
     button('⇅ Swap', 'Swap: the first moving object stays, the one that stayed moves (the same motion between them)', swap),
     play,
-    button('✓', 'Keep the changes (Enter); Esc drops them', () => finish(true)),
+    button('✓', 'Keep the changes (Enter); Esc: Abort', () => finish(true)),
   );
   choose(now().kind);
   document.body.append(box);
@@ -5574,11 +5574,11 @@ function attachPanel(id: string) {
     e.preventDefault();
     finish(pressed(e, 'confirm'));
   };
-  box.append(pick, panelButton('✓', 'Keep it (Enter); Esc drops the changes', () => finish(true)));
+  box.append(pick, panelButton('✓', 'Keep it (Enter); Esc: Abort', () => finish(true)));
   document.body.append(box);
   atTop(box);
   viewer.showMeasureLine(anchor());
-  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name}, moving as one · its anchor · [Enter] Finalize · [Esc] drops the changes`;
+  toolHint = `${now().name}: what goes along with ${[...history.current.bodies, ...history.current.groups].find((o) => o.id === now().parent)?.name}, moving as one · its anchor · [Enter] Finalize · [Esc] Abort`;
   render();
   addEventListener('keydown', keys, { capture: true });
 }
@@ -5770,7 +5770,7 @@ function pickFor(tool: 'delete' | 'duplicate' | 'hide', act: () => void) {
       act();
     },
   };
-  toolHint = `Click a body or sketch to ${tool} it · [Esc] cancels`;
+  toolHint = `Click a body or sketch to ${tool} it · [Esc] Abort`;
   render();
 }
 
@@ -6074,7 +6074,7 @@ function moveOrigin(id: string, next: Doc, live = false) {
  * turns it, Z out of the face (X as close to the old X as the face allows). Its contents stay where they are.
  */
 function pickOrigin(id: string) {
-  toolHint = 'Origin: click where it goes · a corner, centre or edge: there, unturned · a face: there, Z out of the face · its contents stay · [Esc] cancels';
+  toolHint = 'Origin: click where it goes · a corner, centre or edge: there, unturned · a face: there, Z out of the face · its contents stay · [Esc] Abort';
   render();
   // where a click puts it: at `at`, turned as now, or (`out`: a face's outward normal) Z out of the face, X as near the old X as it allows
   const placedAt = (at: Vector3, out: Vector3 | null) => {
@@ -6130,7 +6130,7 @@ function groupTool() {
       if (selected.length) groupSelection();
     },
   };
-  toolHint = 'Click the objects to group (a second click drops it) · [Enter] Finalize · [Esc] cancels';
+  toolHint = 'Click the objects to group (a second click drops it) · [Enter] Finalize · [Esc] Abort';
   render();
 }
 
@@ -6571,7 +6571,7 @@ function dragFinish(body: string, feature: string, at: Vector3) {
       if (phase === 'done') stopTool(), render();
     },
     {
-      hint: 'Drag up: bigger, down: smaller · past 0 a fillet turns into a chamfer and back · [Shift] coarse · [Ctrl] precise · type a change · release or [Enter]: done · [Esc] puts it back',
+      hint: 'Drag up: bigger, down: smaller · past 0 a fillet turns into a chamfer and back · [Shift] coarse · [Ctrl] precise · type a change · release or [Enter]: done · [Esc] Abort',
       label: (d, typed) => {
         const v = clamped(feature, start + d);
         return `${v >= 0 ? 'Fillet' : 'Chamfer'} ${typed === undefined ? Math.abs(v).toFixed(2) : caret(typed)}`;
@@ -6809,7 +6809,7 @@ function extrude() {
 
 /** Picks a face; a section lies on it, removing the side towards the camera. */
 function newSection() {
-  toolHint = 'Section: click a face · empty space: the base plane facing you · it removes what is in front · [Esc] cancels';
+  toolHint = 'Section: click a face · empty space: the base plane facing you · it removes what is in front · [Esc] Abort';
   sections.picking(true);
   render();
   viewer.pickFace((face) => {
@@ -7634,7 +7634,7 @@ async function exportPanel(kind: 'laser' | 'print') {
         // what is cut now, then the button that changes it
         const state = Object.assign(document.createElement('span'), { className: 'check', textContent: picked ? 'Face picked' : 'Auto face', title: picked ? 'The face picked is cut out' : 'Its biggest flat face is cut out' });
         const faceButton = panelButton('Pick a face', picked ? 'Click: Pick another face of it to cut out' : 'Click: Pick the face of it to cut out (now: its biggest flat one)', () => {
-          toolHint = `Laser: click the face of ${b.name} to cut out · [Esc] keeps it as it was`;
+          toolHint = `Laser: click the face of ${b.name} to cut out · [Esc] Abort`;
           render();
           viewer.pickFace((p) => {
             toolHint = '';
@@ -8233,7 +8233,7 @@ function calibrate(id: string) {
           update();
         },
         (ok) => (ok ? render() : history.current !== doc0 ? undo() : render()),
-        'Calibrate: the real distance between the two points · [Enter] Finalize · [Esc] leaves it as it was',
+        'Calibrate: the real distance between the two points · [Enter] Finalize · [Esc] Abort',
       );
     }, true);
   viewer.aiming = () => {
@@ -8275,7 +8275,7 @@ function moveImages(by: Vec3 = [0, 0, 0]) {
       const by = values.map((t) => length(t));
       return by.every((v) => v !== null) ? { ...im, frame: { ...im.frame, o: im.frame.o.map((v, k) => v + by[k]!) as Vec3 } } : null;
     },
-    'Move the picture: X, Y, Z · [Enter] Finalize · [Esc] puts it back · or drag it in the view',
+    'Move the picture: X, Y, Z · [Enter] Finalize · [Esc] Abort · or drag it in the view',
   );
   if (by.some(Boolean)) panel.inputs[0].dispatchEvent(new Event('input'));
 }
@@ -8294,7 +8294,7 @@ function turnImages() {
       const turned = (v: Vec3) => new Vector3(...v).applyAxisAngle(axis, rad).toArray() as Vec3;
       return { ...im, frame: { ...im.frame, x: turned(im.frame.x), y: turned(im.frame.y) } };
     },
-    `Rotate the picture around its middle: move the pointer, or type · ${angleKeys()} · click or [Enter] Finalize · [Esc] puts it back`,
+    `Rotate the picture around its middle: move the pointer, or type · ${angleKeys()} · click or [Enter] Finalize · [Esc] Abort`,
     () => angles.end(),
   );
   // as Rotate does for bodies: the pointer turns it at once, the same arc and steps
