@@ -76,8 +76,8 @@ function keyPiece(shapes: Shape3D[], anchors: Anchor[]): Piece[] {
 }
 
 /**
- * The laser pieces of `bodies`, numbered and named (their label), kerf allowed for, and a key drawing of them with the
- * numbers on their faces (the last piece); the others (and `around`) in the world, for what a straight cut would push
+ * The laser pieces of `bodies`, named (their label), kerf allowed for; more than one numbered, with a key drawing of
+ * them and the numbers on their faces (the last piece); the others (and `around`) in the world, for what a straight cut would push
  * into. Those that cannot be made go into `failed`, with why.
  */
 function laserPieces(bodies: ExportBody[], others: Pick<ExportBody, 'features' | 'place'>[] = [], failed: string[]) {
@@ -102,7 +102,7 @@ function laserPieces(bodies: ExportBody[], others: Pick<ExportBody, 'features' |
         const { cuts, solid, anchor } = laserPart(features, face, around, parts);
         if (pass) {
           const n = pieces.length + 1;
-          pieces.push({ name: `${n} ${label ?? name}`, cuts: withKerf(cuts, kerf ?? 0) });
+          pieces.push({ name: label ?? name, cuts: withKerf(cuts, kerf ?? 0) });
           anchors.push({ n, at: placed(place, anchor.at), dir: placed(place, anchor.dir, true) });
           solid.delete();
         }
@@ -114,9 +114,10 @@ function laserPieces(bodies: ExportBody[], others: Pick<ExportBody, 'features' |
         for (const s of [...around, ...parts]) s.delete();
       }
     });
-  const key = keyPiece(world.slice(0, bodies.length).filter((s): s is Shape3D => !!s), anchors);
+  // numbered, with a key drawing, when there is more than one
+  const key = pieces.length > 1 ? keyPiece(world.slice(0, bodies.length).filter((s): s is Shape3D => !!s), anchors) : [];
   for (const s of [...world, ...lasered]) s?.delete();
-  return { pieces: [...pieces, ...key] };
+  return { pieces: [...(pieces.length > 1 ? pieces.map((p, i) => ({ ...p, name: `${i + 1} ${p.name}` })) : pieces), ...key] };
 }
 
 /** A placed body's triangles for printing, its points merged where they meet (to 0.01 µm). */
