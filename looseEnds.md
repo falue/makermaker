@@ -46,7 +46,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - One Fingers count for all joints of a batch gives short joints the same number of tiny fingers (Finger length avoids it).
 
 ## Laser export
-- Seen from the face: a round face that turns away from the view part way counts only its seen part for cylinders and spheres; a torus or spline face doing that is left out (where no other face covers it the outline can come out a little small). Blue lines come only where flat faces of the body as modelled meet, not at fillets or chamfers.
+- Seen from the face: a round face that turns away from the view part way counts only its seen part for cylinders and spheres; a torus or spline face doing that is left out (where no other face covers it the outline can come out a little small). Green lines come only where flat faces of the body as modelled meet, not at fillets or chamfers.
 - The sheet is rows of boxes, not nested tightly, and has no size limit (a laser bed's).
 
 ## Shell

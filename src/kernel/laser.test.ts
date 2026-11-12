@@ -45,7 +45,7 @@ describe('laserSvg', () => {
     for (const m of marks) expect(Math.hypot(m.pts[1][0] - m.pts[0][0], m.pts[1][1] - m.pts[0][1])).toBeCloseTo(50, 3);
     expect(marks.map((m) => Math.abs(m.pts[0][0] - x0)).sort((a, b) => a - b).map((d) => +d.toFixed(3))).toEqual([+(tip[0] - inner[0]).toFixed(3), +(tip[0] - crease).toFixed(3)]);
     expect(withKerf(cuts, 1).find((k) => k.mark)).toBe(marks[0]); // a mark is drawn, not cut: no kerf
-    expect(dxfOf(cuts)).toMatch(/\nPOLYLINE\n8\nMARK\n62\n5\n/);
+    expect(dxfOf(cuts)).toMatch(/\nPOLYLINE\n8\nMARK\n62\n3\n/);
     // filleted all round: rounded corners, the same two lines (as modelled); the far end's square corner, standing at 45°,
     // rounded by 1: the round's centre √2 back from it along x, its arc 1 out from there, so √2 - 1 shorter (that round
     // turns away from the view half way: only its half that looks this way counts)

@@ -90,10 +90,10 @@ function svgShape(c: Cut) {
   return `<path d="M${f(c.pts[0][0])} ${f(c.pts[0][1])}${sides.slice(0, -1).join('')}${sides.at(-1)!.startsWith('L') ? '' : sides.at(-1)}Z"/>`;
 }
 
-/** Cuts red and marks blue, each kind in a group of its own (`stroke` mm wide), indented by `pad`. */
+/** Cuts red and marks green, each kind in a group of its own (`stroke` mm wide), indented by `pad`. */
 function svgCuts(cuts: Cut[], stroke: number, pad: string) {
   const group = (colour: string, of: Cut[]) => (of.length ? `\n${pad}<g fill="none" stroke="${colour}" stroke-width="${f(stroke)}">\n${pad}  ${of.map(svgShape).join(`\n${pad}  `)}\n${pad}</g>` : '');
-  return group('#ff0000', cuts.filter((c) => !c.mark)) + group('#0000ff', cuts.filter((c) => c.mark));
+  return group('#ff0000', cuts.filter((c) => !c.mark)) + group('#00ff00', cuts.filter((c) => c.mark));
 }
 
 /** An SVG document `margin` around `box` (min x, min y, max x, max y; mm) holding `body`. */
@@ -102,7 +102,7 @@ const svgFile = ([x0, y0, x1, y1]: number[], margin: number, body: string) => `<
 </svg>
 `;
 
-/** An SVG of the cuts at 1:1 in mm (`margin` around them): red 1 pt lines (`stroke` mm), marks blue. */
+/** An SVG of the cuts at 1:1 in mm (`margin` around them): red 1 pt lines (`stroke` mm), marks green. */
 export const svgOf = (cuts: Cut[], margin = 2, stroke = 25.4 / 72) => svgFile(boxOf(cuts), margin, svgCuts(cuts, stroke, '  '));
 
 /** An SVG of a sheet (see `sheetOf`): each piece a group (named by its id) of its cuts and its name in black. */
@@ -120,13 +120,13 @@ export function sheetSvg(pieces: Placed[], margin = 2, stroke = 25.4 / 72): stri
 
 /**
  * A DXF (R12, mm) of the cuts on layer CUT in red: closed (or open) polylines (arcs as bulges, beziers as arcs within
- * 1 µm) and circles, y up as DXF has it; marks on layer MARK in blue; the labels as text on layer LABEL in black
+ * 1 µm) and circles, y up as DXF has it; marks on layer MARK in green; the labels as text on layer LABEL in black
  * (colour 7: black on white).
  */
 export function dxfOf(cuts: Cut[], labels: Label[] = []): string {
   const out: (string | number)[] = [0, 'SECTION', 2, 'HEADER', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC', 0, 'SECTION', 2, 'ENTITIES'];
   for (const c of cuts) {
-    const [layer, colour] = c.mark ? ['MARK', 5] : ['CUT', 1];
+    const [layer, colour] = c.mark ? ['MARK', 3] : ['CUT', 1];
     if (c.circle) {
       out.push(0, 'CIRCLE', 8, layer, 62, colour, 10, f(c.circle.c[0]), 20, f(-c.circle.c[1]), 30, 0, 40, f(c.circle.r));
       continue;
