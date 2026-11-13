@@ -55,6 +55,7 @@ import { MAC, pressed, role, roleKeyName, type Action, comboText, keyOf, keysOf 
 import { openCommandBox } from './ui/commandBox';
 import { caret, installCompletion } from './ui/complete';
 import { installTooltips } from './ui/tooltip';
+import { ask } from './ui/ask';
 import { drawer } from './ui/drawer';
 import { keepInside } from './ui/inside';
 import { BUILT_IN_PHOTOS } from './ui/photospheres';
@@ -1737,11 +1738,13 @@ function unlinkCopy(id: string) {
  * Breaks a body's links (asked first): its linked copies in its group get all its steps and go, with it, into a new group of its
  * name (in its place in the list); copies elsewhere just get their steps. One undo step.
  */
-function breakLinks(source: string) {
+async function breakLinks(source: string) {
   const doc = history.current;
   const src = doc.bodies.find((b) => b.id === source);
   const count = doc.bodies.filter((b) => b.link === source).length;
-  if (!src || !confirm(`Break the links of "${src.name}"? Its ${count} linked cop${count === 1 ? 'y gets' : 'ies get'} their own steps (editing one no longer edits the others); they go with it into a new group "${src.name}".`)) return;
+  if (!src) return;
+  const text = `Its ${count} linked cop${count === 1 ? 'y gets' : 'ies get'} their own steps (editing one no longer edits the others); they go with it into a new group "${src.name}".`;
+  if ((await ask(`Break the links of "${src.name}"?`, text, ['Cancel', 'Break links'])) !== 1) return;
   const group: Group = { id: newId(), name: src.name, parent: src.group, visible: true, origin: { kind: 'parent' }, ...(src.order !== undefined ? { order: src.order } : {}) };
   const bodies = doc.bodies.map((b) => {
     if (b.id !== source && b.link !== source) return b;
@@ -7667,7 +7670,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   if (!bodies.length) return fail(nothingToExport());
   // many bodies (all a group holds count) take long to unwrap: asked first, then all start switched off
   const many = kind === 'unwrap' && bodies.length >= 8;
-  if (many && !confirm(`Unwrap ${bodies.length} bodies? Each one is unwrapped, this can take a while. OK: proceed, all switched off to pick from`)) return;
+  if (many && (await ask(`Unwrap ${bodies.length} bodies?`, 'Each one is unwrapped, which can take a while. The panel opens with all of them switched off: switch on the ones to unwrap.', ['Cancel', 'Proceed'])) !== 1) return;
   const doc = history.current;
   const on = new Set(many ? [] : bodies.map((b) => b.id));
   const faces = new Map<string, { at: Vec3; n: Vec3 }>();

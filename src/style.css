@@ -3279,6 +3279,16 @@ section > h4 .segmented button {
 }
 
 /* a render's versions: a 2-column gallery, loading more while it scrolls; one shown large */
+/* a question (see ask.ts): its text, then its answers at the right */
+.settings.ask .box {
+  width: min(440px, 94vw);
+}
+.settings.ask .answers {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
 .settings.versions .box {
   width: min(760px, 94vw);
 }
