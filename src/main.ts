@@ -8671,17 +8671,39 @@ function loadFile({ name, bytes, handle }: OpenedFile) {
 /** The top bar's loader while a file is read (or `converted` first) and what it brought is built. */
 async function loading<T>(name: string, task: () => Promise<T> | T, converted = false) {
   const label = `${converted ? 'Converting' : 'Opening'} ${name}`;
+  const drawing = `${label}: drawing it`;
   busy.add(label);
   render();
   await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))); // the bar shows before the work blocks
   try {
     const out = await task();
     await kernel.idle();
+    // built: the view takes it in (meshes, edges) a while longer, the page not answering meanwhile
+    busy.delete(label);
+    busy.add(drawing);
+    render();
+    await settled();
     return out;
   } finally {
     busy.delete(label);
+    busy.delete(drawing);
     render();
   }
+}
+
+/** When the page draws smoothly again: 5 frames in a row under 60 ms apart (30 s at most). */
+function settled() {
+  return new Promise<void>((done) => {
+    const start = performance.now();
+    let [last, calm] = [start, 0];
+    const tick = (t: number) => {
+      calm = t - last < 60 ? calm + 1 : 0;
+      last = t;
+      if (calm >= 5 || t - start > 30000) done();
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
 }
 
 /** Open: a design; a file it imports goes into a new, empty design. */

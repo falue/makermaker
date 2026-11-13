@@ -2236,14 +2236,14 @@ button.primary.wide {
   height: 100%;
   border-radius: 2px;
   background: var(--accent);
-  animation: busy 1.2s ease-in-out infinite;
+  animation: busy 1.2s ease-in-out infinite; /* a transform: it keeps moving while the page is busy */
 }
 @keyframes busy {
   from {
-    left: -40%;
+    transform: translateX(-100%);
   }
   to {
-    left: 100%;
+    transform: translateX(250%);
   }
 }
 
