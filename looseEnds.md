@@ -175,6 +175,11 @@ Answers assumed where a request left a question open.
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
 - Selecting a body in a group turns the view upright to that group's origin (`setFrame` → `tiltUp` in src/viewer/viewer.ts). Imported assemblies keep each subassembly's own frame from the file, and many of those point their Z down or sideways (the part was drawn the other way up and flipped into place; in testdata/Hasi.step: speaker, powerbank, DC-DC converter, DAC with −Z, the Raspberry Pi sideways). Selecting such a body flips the view on its head or onto its side. Turning the view to the group axis nearest to world up, or not turning it at all, were turned down (user, 2026-11-13: seems wrong): still open how a group's frame should meet the view. Align origins (2026-11-13) turns such frames upright on request (offered after an import), nothing moving.
 
+## Not tried in the app yet (2026-11-13)
+- Delete on picked faces of a fillet or chamfer the view does not tell as its parts: the step that made them goes (`stepAt`); only typechecked, a script cannot pick those faces.
+- Open with a file to import: the browser's file picker cannot be driven by the test scripts.
+- Live render view: Save showing with the first picture and saving the canvas so far (the render queue's Save now was tried).
+
 ## Found by hand (2026-11-07 / 08, user-observed, not reproduced)
 - The candle's chamfer itself was not timed (no way to build a document in Node yet); what changed is that its 7 linked copies no longer build it again.
 - The entangle icon shows while moving (move fields, drags, Align), not while turning with Rotate.
