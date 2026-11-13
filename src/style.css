@@ -3418,6 +3418,49 @@ section > h4 .segmented button {
   align-items: center;
   gap: 4px;
 }
+/* the steps as a timeline: a line down their left, a dot at each (the selected one blue); rows plain as the lists' */
+.history > :is(.history-row, .history-card) {
+  position: relative;
+  padding-left: 16px;
+}
+.history > :is(.history-row, .history-card)::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+}
+.history > :is(.history-row, .history-card):nth-child(2)::before {
+  top: 14px; /* from the first dot down */
+}
+.history > :is(.history-row, .history-card):last-child::before {
+  bottom: calc(100% - 14px); /* down to the last dot */
+}
+.history > :is(.history-row, .history-card)::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 10px;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+  background: var(--panel);
+}
+.history > :is(.history-card, .history-row:has(.item.on))::after {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.history-row .item:not(.on) {
+  border-color: transparent;
+  background: none;
+}
+.history-row .item:not(.on):hover {
+  border-color: var(--line);
+}
 .history-row[draggable='true'] {
   cursor: grab;
 }
