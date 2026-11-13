@@ -4132,6 +4132,17 @@ export class Viewer implements ToolView {
     return parts.length && parts.every(Boolean) ? (parts as FinishPick[]) : null;
   }
 
+  /** A point and the outward normal (world) on each picked face (its first triangle's), with its body. */
+  pickedFaceSpots() {
+    return this.pickedFaces.flatMap(({ mesh, faces }) =>
+      faces.map((k) => {
+        const [groups, index, at] = [mesh.userData.faces as Uint32Array, mesh.geometry.index!.array, mesh.geometry.attributes.position];
+        const [a, b, c] = [0, 1, 2].map((j) => new THREE.Vector3().fromBufferAttribute(at, index[groups[k * 2] + j]).applyMatrix4(mesh.matrixWorld));
+        return { body: mesh.userData.bodyId as string, point: a.clone().add(b).add(c).divideScalar(3), n: b.clone().sub(a).cross(c.clone().sub(a)).normalize() };
+      }),
+    );
+  }
+
   private pickFaces(picked: { mesh: THREE.Mesh; faces: number[] }[]) {
     for (const m of this.pickedMarks) this.replaceMark(m, undefined, [], 0);
     this.pickedFaces = picked.filter((p) => p.faces.length);

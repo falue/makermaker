@@ -5816,8 +5816,19 @@ function cancelPending() {
 function remove() {
   if (!selected.length) return pickFor('delete', remove);
   const parts = finishSel ? [finishSel] : pickedPart?.kind === 'face' ? viewer.pickedFinishes() : null;
-  if (pickedPart && !parts) return fail('Only picked faces of fillets and chamfers are deleted (a rounded rectangle\'s corners are its R): Esc lets them go, then Del deletes the body');
   let doc = history.current;
+  if (pickedPart && !parts) {
+    // faces not known as parts of a finish: the fillet or chamfer steps that made them go whole
+    const steps = viewer.pickedFaceSpots().map(stepAt);
+    const finish = (s: { body: string; feature: string } | null) => !!s && doc.bodies[stepsOf(doc, s.body)]?.features.some((f) => f.id === s.feature && f.type === 'finish');
+    if (!steps.length || !steps.every(finish)) return fail('Only faces of fillets and chamfers are deleted: Esc lets the picked faces go, then Del deletes the body');
+    viewer.dropPicked();
+    for (const s of steps) {
+      const k = stepsOf(doc, s!.body);
+      doc = setIn(doc, ['bodies', String(k), 'features'], doc.bodies[k].features.filter((f) => f.id !== s!.feature));
+    }
+    return commit(doc);
+  }
   if (stepSel && !parts) return removeStep(stepSel);
   if (parts) {
     // each part of a finish: its edge is left out (its last picked edge: the finish goes); the whole finish: it goes
