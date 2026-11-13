@@ -657,7 +657,7 @@ function topbar(ctx: UIContext): Node[] {
     tool('print', TIPS.print, ctx.exportPrint),
     tool('laser', TIPS.laser, ctx.exportLaser),
     tool('unwrap', TIPS.unwrap, ctx.exportUnwrap),
-    tool('render', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),
+    tool('snapshot', 'Snapshot: the bodies as a PNG with a transparent background, twice the screen resolution (no grid, sketches or selection); it also lands in the renders, ready to be rendered nicely', ctx.renderImage),
     tool('renderNice', 'Render nice: the renders panel (path traced pictures of saved views)', ctx.renders.toggle, ctx.renders.open),
     tool('material', 'Materials: pick, change and save looks; import and export', () => ctx.openMaterials()),
     tool('theme', 'Light / dark', ctx.toggleTheme),
@@ -708,7 +708,7 @@ function editbar(ctx: UIContext): Node[] {
       tool('mirror', 'Mirror: the selected shapes across a line or edge clicked next: mirrored copies', ctx.mirrorTool),
       tool('offset', 'Offset: the selected shapes get outlines a distance outside (negative: inside; a line moves to its left)', ctx.offsetTool),
       h('hr'),
-      Object.assign(tool('finish', 'Leave the sketch (Esc)', ctx.exitSketch), { className: 'tool ok' }),
+      Object.assign(tool('leaveSketch', 'Leave the sketch (Esc)', ctx.exitSketch), { className: 'tool ok' }),
     ];
   return [
     tool('extrude', 'Extrude (E): what is selected (shapes, a sketch, faces) is picked, Enter pulls it; or click a face or sketch shape (Shift-click: more, then Enter)', ctx.extrude, on('extrude')),
@@ -747,7 +747,7 @@ function editbar(ctx: UIContext): Node[] {
       ...(alignOpen ? [h('div', { className: 'flyout menu align-menu' }, ...alignTools(ctx))] : []),
     ),
     tool('joint', 'Joint (J): a parent that stays (body or group), the objects that move, an axis (an edge, line or circle), hinge or slider with limits', ctx.jointTool),
-    tool('attach', 'Entangle: the selected objects (two or more) move and turn as one, at once; nothing selected: click them, then Enter', ctx.attachTool),
+    tool('entangle', 'Entangle: the selected objects (two or more) move and turn as one, at once; nothing selected: click them, then Enter', ctx.attachTool),
     tool('measure', 'Distance measure (D): click an edge (its length) or two points (how far apart along X / Y / Z, and straight); a click on a value copies it', ctx.measureTool),
   ];
 }
@@ -986,7 +986,7 @@ function left(ctx: UIContext): Node[] {
     const parent = j.parent === id;
     // an attach's icon breaks it, as a linked copy's unlinks
     const title = j.kind === 'attach' ? `${j.name}: moves as one with the others · hover: what goes along · click: undo the entanglement (Undo brings it back) · drag onto another object: it takes this one's place` : `${j.name}: ${parent ? 'stays, the others move' : 'moves'} (${j.kind}) · hover: what moves · click: edit it · drag onto another object: it takes this one's place`;
-    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon(j.kind === 'attach' ? 'attach' : 'joint'), title, onclick: () => (j.kind === 'attach' ? ctx.breakAttach(j.id) : ctx.editJoint(j.id)) });
+    const el = h('button', { className: `icon joint${parent ? ' parent' : ''}`, innerHTML: icon(j.kind === 'attach' ? 'entangle' : 'joint'), title, onclick: () => (j.kind === 'attach' ? ctx.breakAttach(j.id) : ctx.editJoint(j.id)) });
     // hovered: what stays and what moves light in the list (in two colours) and in the view
     const light = (on: boolean) => {
       lightPair(on ? (r) => (r === j.parent ? 'joint-static' : j.children.includes(r) ? 'joint-moving' : null) : null);

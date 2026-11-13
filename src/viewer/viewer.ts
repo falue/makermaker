@@ -4718,7 +4718,7 @@ export class Viewer implements ToolView {
       for (const id of this.withOwned(this.selection)) this.ghostAt(id, this.moving.from);
       this.tags = this.withOwned(this.selection)
         .filter((id) => this.entangled.has(id) && !this.selection.includes(id))
-        .map((id) => ({ id, el: this.el.appendChild(Object.assign(document.createElement('div'), { className: 'entangled-tag', innerHTML: icon('attach'), title: 'Entangled: moves along' })) }));
+        .map((id) => ({ id, el: this.el.appendChild(Object.assign(document.createElement('div'), { className: 'entangled-tag', innerHTML: icon('entangle'), title: 'Entangled: moves along' })) }));
     }
     const m = this.moving;
     if (!m) return;
