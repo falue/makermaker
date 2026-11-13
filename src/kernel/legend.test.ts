@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import init from 'replicad-opencascadejs';
-import { makeBox, setOC } from 'replicad';
+import { makeBox, makeCylinder, setOC } from 'replicad';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { legend, view } from './legend';
 
@@ -21,6 +21,19 @@ describe('legend', () => {
     const ends = (p: number[]) => lines.filter((l) => [l[0], l.at(-1)!].some((q) => Math.hypot(q[0] - at(p)[0], q[1] - at(p)[1]) < 1e-6)).length;
     expect(ends([40, 0, 20])).toBe(3);
     expect(ends([0, 30, 0])).toBe(0);
+  });
+  it('draws where faces meet smoothly, but no seam', () => {
+    // a cylinder seen from above the side: its two rims (the far half of the bottom one hidden) and two outlines, no seam
+    const can = makeCylinder(10, 30);
+    const seen = view(can, unit([1, -1, 1]));
+    can.delete();
+    const straight = seen.lines.filter((l) => l.length === 2);
+    expect(straight).toHaveLength(2);
+    // a box with rounded upright edges: 15 sharp edges and 2 outlines, and the 4 borders of its rounds seen
+    const box = makeBox([0, 0, 0], [40, 30, 20]).fillet(5, (e) => e.inDirection('Z'));
+    const round = view(box, unit([1, -1, 1]));
+    box.delete();
+    expect(round.lines).toHaveLength(21);
   });
   it('puts each number beside the view its face looks toward, a circle and a line to it', () => {
     const box = makeBox([0, 0, 0], [40, 30, 20]);

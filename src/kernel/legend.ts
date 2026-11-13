@@ -18,8 +18,8 @@ const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2
 const cross = (a: number[], b: number[]): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
 /**
- * A view from `eye` (toward the viewer, world z up): its edges where they show (sharp edges and outlines; no seams nor
- * where smooth faces meet), as polylines in its picture plane (x right, y up), with the frame they are in.
+ * A view from `eye` (toward the viewer, world z up): its edges where they show (sharp edges, where faces meet smoothly,
+ * outlines; no seams, where a face meets itself), as polylines in its picture plane (x right, y up), with the frame they are in.
  */
 export function view(shape: Shape3D, eye: V3) {
   const oc = getOC();
@@ -34,7 +34,8 @@ export function view(shape: Shape3D, eye: V3) {
   algo.Hide();
   const shapes = new oc.HLRBRep_HLRToShape(algo);
   const lines: P2[][] = [];
-  for (const part of [shapes.VCompound(), shapes.OutLineVCompound()]) {
+  // sharp edges, smooth ones (tangent: Rg1), outlines; not those smoother still (RgN: seams, a surface split in two)
+  for (const part of [shapes.VCompound(), shapes.Rg1LineVCompound(), shapes.OutLineVCompound()]) {
     if (part.IsNull()) continue;
     for (const edge of cast(part).edges) {
       oc.BRepLib.BuildCurves3d(edge.wrapped);
