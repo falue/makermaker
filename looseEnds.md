@@ -103,7 +103,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Field of view as a setting (user, 2026-11-13; pushed back): the 3D view and renders each their own, a snap tick at today's 35° (about a 38 mm lens on full frame), ideally set as a focal length on a sensor size (a small built-in list of sensors, or a public database such as Lensfun or openMVG's sensor list: a new dependency, to research first).
 
 ## Renders
-- A material's own render look and its glow Reach are not in MaterialX exports or imports; the Python `look` command cannot set the render look.
+- The Python `look` command cannot set a material's own render look.
 - A glowing body's light comes from its middle: a long glowing strip lights like a ball. In renders a glowing body casts no shadow (so its light gets out).
 - "See in live render" sets the view's camera but not its picture size: the live picture has the view's shape, not the render's Aspect.
 - Before its first render, a render's thumbnail is the view cut to its Aspect from the middle: a wider Aspect really shows a little more at the sides.
