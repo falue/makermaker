@@ -491,6 +491,8 @@ export interface Doc {
   renders: RenderShot[];
   /** The light its renders take (none: the default one). */
   renderLight?: RenderLight;
+  /** The laser export's kerf and the Unwrap export's Max stretch (%), as typed in their panels (none: 0 and 5). */
+  cutting?: { kerf?: string; stretch?: string };
   /**
    * Where its renders are saved (this browser remembers the folder): next to the document, in "renderings" next to it,
    * or a picked folder; `name` as shown. None: Downloads.

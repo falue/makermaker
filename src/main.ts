@@ -7640,8 +7640,12 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
   notify(`Exported ${format === 'step' || format === '3mf' || (sheet && files.length === 1) ? `${bodies.length - failed.length} bodies as one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}${meshesLeft()}`, failed.length > 0);
 }
 
-/** The export panels' choices, this session. */
-const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0', stretch: '5', key: true, apart: false };
+/** The export panels' choices, remembered in this browser (kerf and Max stretch: in the design, `Doc.cutting`). */
+const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', key: true, apart: false, ...(JSON.parse(localStorage.getItem('makermaker.export') ?? '{}') as object) };
+/** The design's kerf and Max stretch as typed (see `Doc.cutting`). */
+const sheetValues = () => ({ kerf: '0', stretch: '5', ...history.current.cutting });
+/** A kerf or Max stretch typed: into the design, no undo step of its own. */
+const setSheetValues = (patch: NonNullable<Doc['cutting']>) => history.replace({ ...history.current, cutting: { ...history.current.cutting, ...patch } });
 
 /**
  * Laser, unwrap or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each switched on
@@ -7684,7 +7688,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
         else download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, strToU8(f.text)])))]), `${name}.zip`);
         notify(`Exported ${pieces.length} flat piece${pieces.length === 1 ? '' : 's'} of ${chosen.length} bod${chosen.length === 1 ? 'y' : 'ies'}${key ? ' and a key drawing' : ''} as ${files.length === 1 ? `one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} files in a ZIP`}`);
       });
-    const kerf = length(exportChoice.kerf) ?? 0;
+    const kerf = length(sheetValues().kerf) ?? 0;
     // the ones switched off still stand by them
     void run(() => exportBodies(exportChoice.laser, chosen, (b) => ({ face: faces.get(b.id), kerf }), bodies.filter((b) => !on.has(b.id))));
   };
@@ -7703,7 +7707,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   // each body unwrapped once switched on, again when its side or the stretch changes
   const sides = new Map<string, Side>();
   const limit = () => {
-    const v = parseFloat(exportChoice.stretch);
+    const v = parseFloat(sheetValues().stretch);
     return v > 0 ? v / 100 : null;
   };
   const askedFor = (id: string) => JSON.stringify([sides.get(id) ?? null, limit()]);
@@ -7752,11 +7756,11 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   let kerfTimer = 0;
   const laserAsk = () => {
     const chosen = bodies.filter((b) => on.has(b.id));
-    const key = JSON.stringify([chosen.map((b) => b.id), [...faces], exportChoice.kerf]);
+    const key = JSON.stringify([chosen.map((b) => b.id), [...faces], sheetValues().kerf]);
     if (key === laserKey) return;
     laserKey = key;
     if (!chosen.length) return (lasered = null), showPreview();
-    const kerf = length(exportChoice.kerf) ?? 0;
+    const kerf = length(sheetValues().kerf) ?? 0;
     const off = bodies.filter((b) => !on.has(b.id)).map((b) => ({ features: built.get(b.id)!, place: bodyPlace(b.id) }));
     void kernel.laser(chosen.map((b) => ({ name: b.id, label: b.name, color: b.color, features: built.get(b.id)!, place: bodyPlace(b.id), face: faces.get(b.id), kerf })), off).then((r) => {
       if (key !== laserKey || !box.isConnected) return;
@@ -7823,19 +7827,20 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     return el;
   };
   const draw = () => {
+    localStorage.setItem('makermaker.export', JSON.stringify(exportChoice)); // what was chosen, for next time
     if (kind === 'unwrap') unwrapAsk(); // first: the rows show what is being unwrapped
     const kerf = Object.assign(document.createElement('input'), {
-      value: exportChoice.kerf,
+      value: sheetValues().kerf,
       title: 'Kerf: how wide the beam cuts; the outline moves out by half, holes in, so the part comes out true',
-      oninput: () => ((exportChoice.kerf = kerf.value), clearTimeout(kerfTimer), (kerfTimer = window.setTimeout(laserAsk, 300))),
+      oninput: () => (setSheetValues({ kerf: kerf.value }), clearTimeout(kerfTimer), (kerfTimer = window.setTimeout(laserAsk, 300))),
     });
     Object.assign(kerf.dataset, { complete: '', noMeasure: '' });
     const stretch = Object.assign(document.createElement('input'), {
-      value: exportChoice.stretch,
+      value: sheetValues().stretch,
       className: 'stretch',
       title:
         '# Max stretch\nThe most a face may stretch flat (%). A face stretching more is cut into gores (narrow pieces), at best down to what its mesh allows. Lower: more pieces that lie truer; empty: no gores.\n\nAs a guide:\n- **Paper, card** 1–2 %\n- **Leather, felt** about 5 %\n- **Woven cloth** 5–10 %\n- **Stretchy fabric** (jersey, lycra) 10–20 %',
-      oninput: () => ((exportChoice.stretch = stretch.value), clearTimeout(stretchTimer), (stretchTimer = window.setTimeout(draw, 400))),
+      oninput: () => (setSheetValues({ stretch: stretch.value }), clearTimeout(stretchTimer), (stretchTimer = window.setTimeout(draw, 400))),
     });
     // the key drawing on the sheet or not (remembered)
     const keyToggle = Object.assign(document.createElement('label'), {
