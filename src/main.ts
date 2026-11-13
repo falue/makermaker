@@ -510,6 +510,31 @@ const renderSoon = () => (renderFrame ||= requestAnimationFrame(() => ((renderFr
 
 kernel.setTolerance(settings.meshDetail);
 
+/**
+ * `ownPlaces` from `doc`: a custom group origin moved and turned in its parent's, a body's position and turn in its
+ * group; bad values into `errors`. `still`: the bodies whose position or turn is no number (they stay where they were).
+ */
+function ownPlacesOf(doc: Doc, lookup: ReturnType<typeof paramLookup>, errors = new Map<string, string>()) {
+  ownPlaces.clear();
+  const fine = (v: number) => (Number.isFinite(v) ? v : 0);
+  doc.groups.forEach((g, i) => {
+    if (g.origin.kind !== 'custom') return;
+    const at = `groups.${i}.origin`;
+    const [x, y, z] = resolve(g.origin.position, lookup, `${at}.position`, errors).map(fine);
+    const r = resolve(g.origin.rotation, lookup, `${at}.rotation`, errors);
+    // degrees around the parent's X, then Y, then Z
+    ownPlaces.set(g.id, new Matrix4().compose(new Vector3(x, y, z), turnOf({ rx: fine(r.rx), ry: fine(r.ry), rz: fine(r.rz) }), new Vector3(1, 1, 1)));
+  });
+  const still = new Set<string>();
+  doc.bodies.forEach((p, i) => {
+    const local = resolve(p.position, lookup, `bodies.${i}.position`, errors);
+    const turned = resolve(p.rotation, lookup, `bodies.${i}.rotation`, errors);
+    if (local.every(Number.isFinite) && [turned.rx, turned.ry, turned.rz].every(Number.isFinite)) ownPlaces.set(p.id, new Matrix4().compose(new Vector3(...local), turnOf(turned), new Vector3(1, 1, 1)));
+    else still.add(p.id);
+  });
+  return { still };
+}
+
 /** Resolves expressions, moves bodies, and rebuilds bodies whose features changed and resolved cleanly. */
 function update() {
   const doc = history.current;
@@ -533,26 +558,8 @@ function update() {
     }),
   );
   linkErrors = new Map();
-  // own placements (a custom group origin moved and turned in its parent's, a body's position and turn in its group),
-  // then everything in the world with the joints where they are now
-  ownPlaces.clear();
-  const fine = (v: number) => (Number.isFinite(v) ? v : 0);
-  const deg = (v: number) => (fine(v) * Math.PI) / 180;
-  doc.groups.forEach((g, i) => {
-    if (g.origin.kind !== 'custom') return;
-    const at = `groups.${i}.origin`;
-    const [x, y, z] = resolve(g.origin.position, lookup, `${at}.position`, exprErrors).map(fine);
-    const r = resolve(g.origin.rotation, lookup, `${at}.rotation`, exprErrors);
-    // degrees around the parent's X, then Y, then Z
-    ownPlaces.set(g.id, new Matrix4().compose(new Vector3(x, y, z), new Quaternion().setFromEuler(new Euler(deg(r.rx), deg(r.ry), deg(r.rz), 'ZYX')), new Vector3(1, 1, 1)));
-  });
-  const still = new Set<string>(); // bodies whose position or turn is no number: they stay where they were
-  doc.bodies.forEach((p, i) => {
-    const local = resolve(p.position, lookup, `bodies.${i}.position`, exprErrors);
-    const turned = resolve(p.rotation, lookup, `bodies.${i}.rotation`, exprErrors);
-    if (local.every(Number.isFinite) && [turned.rx, turned.ry, turned.rz].every(Number.isFinite)) ownPlaces.set(p.id, new Matrix4().compose(new Vector3(...local), turnOf(turned), new Vector3(1, 1, 1)));
-    else still.add(p.id);
-  });
+  // own placements, then everything in the world with the joints where they are now
+  const { still } = ownPlacesOf(doc, lookup, exprErrors);
   const { placed, problems } = jointed(doc, ownPlaces, (j) => jointValue(j, lookup));
   jointProblems = problems;
   groupPlaces.clear();
@@ -6143,12 +6150,20 @@ function moveOrigin(id: string, next: Doc, live = false) {
  * turns it, Z out of the face (X as close to the old X as the face allows). Its contents stay where they are.
  */
 function pickOrigin(id: string) {
-  toolHint = 'Origin: click where it goes · a corner, centre or edge: there, unturned · a face: there, Z out of the face · its contents stay · [Esc] Abort';
+  const q = new Quaternion();
+  groupPlace(id).decompose(new Vector3(), q, new Vector3());
+  pickFrame(q, 'Origin: click where it goes · a corner, centre or edge: there, unturned · a face: there, Z out of the face · its contents stay · [Esc] Abort', (m) => m && commit(originTo(history.current, id, m)));
+}
+
+/**
+ * A frame picked in the view, its axes shown where it would go: a corner, centre or point: there, turned as `turn`; a
+ * point on a face: Z out of the face, X as near `turn`'s X as it allows. `done` gets it with what was clicked (null: none).
+ */
+function pickFrame(turn: Quaternion, hint: string, done: (m: Matrix4 | null, what: string) => void) {
+  toolHint = hint;
   render();
-  // where a click puts it: at `at`, turned as now, or (`out`: a face's outward normal) Z out of the face, X as near the old X as it allows
   const placedAt = (at: Vector3, out: Vector3 | null) => {
-    const q = new Quaternion();
-    groupPlace(id).decompose(new Vector3(), q, new Vector3());
+    const q = turn.clone();
     if (out) {
       const z = out.clone().normalize();
       const x = new Vector3(1, 0, 0).applyQuaternion(q).projectOnPlane(z);
@@ -6158,7 +6173,6 @@ function pickOrigin(id: string) {
     }
     return new Matrix4().compose(at, q, new Vector3(1, 1, 1));
   };
-  // its axes show where it would go
   viewer.aiming = (a) => {
     tips.cursorTip(a ? `${a.what}\nClick: the origin` : null);
     viewer.previewOrigin(a ? placedAt(a.at, a.what === 'on face' ? viewer.faceOutHere() : null) : null);
@@ -6171,9 +6185,132 @@ function pickOrigin(id: string) {
     tips.cursorTip(null);
     toolHint = null;
     const at = face?.snap;
-    if (!at) return render();
-    commit(originTo(history.current, id, placedAt(at, face.what === 'on face' ? face.normal.clone().negate() : null))); // its normal points into the face
+    if (!at) return render(), done(null, '');
+    done(placedAt(at, face.what === 'on face' ? face.normal.clone().negate() : null), face.what ?? 'a point'); // its normal points into the face
   }, true);
+}
+
+/**
+ * Group `id`'s frame aligned to `target` (world) along `axes` (0: X, 1: Y, 2: Z): one axis turned the least way that
+ * points it as the target's (the turn around it kept), two or three: the target's turn. `move`: at the target's point,
+ * else at its own.
+ */
+function alignedFrame(id: string, target: Matrix4, axes: number[], move: boolean): Matrix4 {
+  const [at, q, to, tq] = [new Vector3(), new Quaternion(), new Vector3(), new Quaternion()];
+  groupPlace(id).decompose(at, q, new Vector3());
+  target.decompose(to, tq, new Vector3());
+  let turn = tq;
+  if (axes.length === 1) {
+    const unit = (k: number) => new Vector3().setComponent(k, 1);
+    const [from, want] = [unit(axes[0]).applyQuaternion(q), unit(axes[0]).applyQuaternion(tq)];
+    // pointing the other way: half a turn around its next axis
+    const by = from.dot(want) < -0.999999 ? new Quaternion().setFromAxisAngle(unit((axes[0] + 1) % 3).applyQuaternion(q), Math.PI) : new Quaternion().setFromUnitVectors(from, want);
+    turn = by.multiply(q);
+  }
+  return new Matrix4().compose(move ? to : at, turn, new Vector3(1, 1, 1));
+}
+
+/** The groups with an origin of their own among `ids` and all they hold, outer ones first. */
+function ownOrigins(doc: Doc, ids: string[]) {
+  const depth = (id: string) => {
+    let n = 0;
+    for (let g = doc.groups.find((x) => x.id === id), seen = new Set<string>(); g?.parent && !seen.has(g.id); seen.add(g.id), g = doc.groups.find((x) => x.id === g!.parent)) n++;
+    return n;
+  };
+  const all = new Set(ids.filter((id) => doc.groups.some((g) => g.id === id)).flatMap((id) => [...within(doc, id)]));
+  return doc.groups.filter((g) => all.has(g.id) && g.origin.kind === 'custom').sort((a, b) => depth(a.id) - depth(b.id)).map((g) => g.id);
+}
+
+/** `doc` with each group's origin at its frame in `frames` (world), outer groups first, all contents where they are. */
+function alignOrigins(doc: Doc, frames: Map<string, Matrix4>): Doc {
+  for (const [id, frame] of frames) {
+    doc = originTo(doc, id, frame);
+    ownPlacesOf(doc, paramLookup(doc.params)); // what the next one reads (its world place stays; the next update makes all anew)
+  }
+  return doc;
+}
+
+/**
+ * Align origins: the groups with an origin of their own among `ids` (and all they hold) get frames whose X, Y or Z
+ * (the ones switched on) point as the drawing's, or take a frame picked in the view; nothing moves. Their new axes show
+ * in the view meanwhile; ✓ or Enter aligns them (one undo step), Esc or ✕ leaves them. First switched on: Z where
+ * some have it pointing elsewhere (a part drawn another way up), else the axis the most of them have so.
+ */
+function alignOriginsPanel(ids: string[]) {
+  const doc = history.current;
+  const groups = ownOrigins(doc, ids);
+  if (!groups.length) return fail('No group with an origin of its own: nothing to align');
+  const unit = (k: number) => new Vector3().setComponent(k, 1);
+  const off = (id: string, k: number) => {
+    const q = new Quaternion();
+    groupPlace(id).decompose(new Vector3(), q, new Vector3());
+    return unit(k).applyQuaternion(q).dot(unit(k)) < 0.9998;
+  };
+  const counts = [0, 1, 2].map((k) => groups.filter((id) => off(id, k)).length);
+  let axes = [counts[2] ? 2 : counts.reduce((best, n, k) => (n > counts[best] ? k : best), 0)];
+  let picked: { m: Matrix4; what: string } | null = null;
+  const frames = () => {
+    const out = new Map<string, Matrix4>();
+    for (const id of groups) {
+      const m = alignedFrame(id, picked?.m ?? new Matrix4(), axes, !!picked);
+      const was = groupPlace(id).elements;
+      if (m.elements.some((v, k) => Math.abs(v - was[k]) > 1e-6)) out.set(id, m); // already there: left alone
+    }
+    return out;
+  };
+  const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel align-panel' });
+  const end = (ok: boolean) => {
+    const changes = frames();
+    box.remove();
+    removeEventListener('keydown', keys, { capture: true });
+    viewer.previewOrigin(null);
+    toolHint = null;
+    if (ok && changes.size) commit(alignOrigins(history.current, changes));
+    else render();
+  };
+  const keys = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    end(pressed(e, 'confirm'));
+  };
+  const draw = () => {
+    const changes = frames();
+    viewer.previewOrigin([...changes.values()]);
+    const n = changes.size;
+    const toggles = Object.assign(document.createElement('span'), { className: 'segmented' });
+    toggles.append(
+      ...[0, 1, 2].map((k) =>
+        Object.assign(document.createElement('button'), {
+          innerHTML: axisHtml('XYZ'[k]),
+          className: axes.includes(k) ? 'on' : '',
+          title: axes.includes(k) ? `Click: Leave ${'XYZ'[k]} as it is` : `Click: Straighten ${'XYZ'[k]} too${axes.length ? ' (two axes: the whole turn)' : ''}`,
+          onclick: () => ((axes = axes.includes(k) ? axes.filter((x) => x !== k) : [...axes, k].sort()), draw()),
+        }),
+      ),
+    );
+    const target = picked
+      ? [Object.assign(document.createElement('span'), { className: 'check', textContent: `Origin: ${picked.what}` }), panelButton('×', "Click: Back to the drawing's axes, each origin where it is", () => ((picked = null), draw()))]
+      : [panelButton('Set new origin', 'Click: Pick a point (a face: Z out of it); all of them get that origin', () => {
+          pickFrame(new Quaternion(), 'Align origins: click their new origin · a corner, centre or edge: there, unturned · a face: there, Z out of the face · [Esc] Back', (m, what) => {
+            if (m) picked = { m, what };
+            draw();
+          });
+        })];
+    const ok = Object.assign(panelButton('✓', n ? `Click: Align ${n} origin${n === 1 ? '' : 's'}, nothing moves (Enter); Esc: leave them` : 'Nothing to change (Enter or Esc: close)', () => end(true)), { disabled: !n });
+    box.replaceChildren(
+      cell(Object.assign(document.createElement('span'), { textContent: 'Straighten', title: 'The axes that end up pointing as the target\'s; one: turned the least way, the turn around it kept' }), toggles),
+      cell(Object.assign(document.createElement('span'), { textContent: 'To' }), ...(picked ? [] : [Object.assign(document.createElement('span'), { className: 'check', textContent: "Drawing's axes" })]), ...target),
+      ok,
+      closeButton('Close: leave them as they are (Esc)', () => end(false)),
+    );
+    toolHint = `Align origins: ${n} of ${groups.length} group origin${groups.length === 1 ? '' : 's'} change (their new axes show) · the contents stay where they are · [Enter] Align · [Esc] Leave them`;
+    render();
+    atTop(box);
+  };
+  document.body.append(box);
+  addEventListener('keydown', keys, { capture: true });
+  draw();
 }
 
 /** Group tool: ungroups a single selected group, groups the selection (groups too), or (nothing selected) groups the objects clicked next on Enter. */
@@ -7453,6 +7590,7 @@ function render() {
     },
     moveOrigin,
     pickOrigin,
+    alignOrigins: (id) => alignOriginsPanel([id]),
     editJoint: (id) => (history.current.joints.find((j) => j.id === id)?.kind === 'attach' ? attachPanel(id) : jointPanel(id, false)),
     moveJointEnd(id, from, to) {
       const doc = history.current;
@@ -8239,7 +8377,17 @@ function importStep(name: string, data: string, native = false, note = '') {
     for (const id of made.folded) folded.add(id);
     [selected, shapeSel] = [[made.root], []];
     commit({ ...doc, bodies: [...doc.bodies, ...made.bodies], groups: [...doc.groups, ...made.groups], materials: [...doc.materials, ...made.materials] });
-    return notify(`Imported ${name}: ${made.bodies.length} bodies in ${made.groups.length} groups, ${made.materials.length} new materials${note}`);
+    notify(`Imported ${name}: ${made.bodies.length} bodies in ${made.groups.length} groups, ${made.materials.length} new materials${note}`);
+    // once it is built: its groups turned other than the drawing (parts drawn another way up) offered to align
+    void kernel.idle().then(() => {
+      const turned = (id: string) => {
+        const q = new Quaternion();
+        groupPlace(id).decompose(new Vector3(), q, new Vector3());
+        return Math.abs(q.w) < 1 - 1e-9;
+      };
+      if (history.current.groups.some((g) => g.id === made.root) && ownOrigins(history.current, [made.root]).some(turned)) alignOriginsPanel([made.root]);
+    });
+    return;
   }
   const step: Feature = { id: newId(), type: 'step', source: name, data };
   const body = { ...newBody(doc.bodies.length, [step]), name: name.replace(/\.[^.]*$/, '') };
@@ -8719,6 +8867,7 @@ addEventListener('keydown', (e) => {
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
   else if (pressed(e, 'commandBox')) e.repeat || viewer.holdNav(true); // opens when let go (`keyup` below)
   else if (pressed(e, 'newDoc')) newDesign();
+  else if (pressed(e, 'alignOrigins')) alignOriginsPanel(selected.length ? selected : history.current.groups.filter((g) => !g.parent).map((g) => g.id));
   else if (pressed(e, 'terminal')) terminal.toggle();
   else if (pressed(e, 'moreSnaps') || pressed(e, 'fewerSnaps')) notify(`${comboText(keysOf('moreSnaps')[0])} / ${comboText(keysOf('fewerSnaps')[0])} split a line into more or fewer snap points: with a drawing tool, the Distance measure or To object on, put the pointer on the line`);
   else if (pressed(e, 'measureValue')) measureTool();

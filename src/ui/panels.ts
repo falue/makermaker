@@ -175,6 +175,8 @@ export interface UIContext {
   moveOrigin(group: string, next: Doc, live?: boolean): void;
   /** Picks a group's origin in the view (a face: Z out of it), its contents staying where they are. */
   pickOrigin(group: string): void;
+  /** Align origins for the group and those inside it (see main's `alignOriginsPanel`). */
+  alignOrigins(group: string): void;
   /** An attach ends: its objects move on their own. */
   breakAttach(joint: string): void;
   /** A joint's range in words: `0–110°`, `0–35 mm`. */
@@ -1652,12 +1654,13 @@ function groupPanel(ctx: UIContext, i: number): Node[] {
     kind === 'custom' ? ctx.pickOrigin(g.id) : ctx.moveOrigin(g.id, setIn(ctx.doc, ['groups', String(i), 'origin'], { kind })),
   );
   const repick = h('button', { className: 'icon', innerHTML: icon('target'), title: 'Click: pick the origin in the view (a face: Z out of it); the contents stay', onclick: () => ctx.pickOrigin(g.id) });
+  const align = h('button', { textContent: 'Align…', title: "Align origins: turn this group's origin and those inside it to the drawing's axes or a picked origin; nothing moves", onclick: () => ctx.alignOrigins(g.id) });
   const keeping: UIContext = { ...ctx, setValue: (path, value, live) => ctx.moveOrigin(g.id, setIn(ctx.doc, path, value), live) }; // its fields move only the origin
   return [
     h('div', { className: 'head' }, input(`groups.${i}.name`, g.name, (name) => set({ name })), deleteButton('Delete the group with everything in it', ctx.remove)),
     ...materialRows(ctx, [g.id], 'None'),
     h('h3', {}, 'Origin'),
-    h('div', { className: 'row' }, origin, ...(g.origin.kind === 'custom' ? [repick] : [])),
+    h('div', { className: 'row' }, origin, ...(g.origin.kind === 'custom' ? [repick] : []), align),
     ...(g.origin.kind === 'custom'
       ? [
           placing(keeping, `groups.${i}.origin`),
