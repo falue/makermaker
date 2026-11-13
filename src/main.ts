@@ -45,6 +45,7 @@ import { Kernel } from './kernel/client';
 import { canUseFolders, recall, remember } from './io/scriptFolder';
 import { openVersions, type Picture } from './ui/versions';
 import type { ExportBody, ExportFormat, Piece, PrintCheck, Unwrapped } from './kernel/worker';
+import type { Side } from './kernel/unwrap';
 import { commands, COPY_TIP, measureButton, renderUI, scrub, showRenderProgress, showTab, tabOf, toObjectButton, wantsT, type Measure, type ObjectAlign, type Pick, type RenderJob, type ShapeField, type UIContext } from './ui/panels';
 import { sectionControls } from './ui/sections';
 import { explodeTree } from './viewer/explode';
@@ -7668,10 +7669,11 @@ const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | '
 async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   const bodies = exportable();
   if (!bodies.length) return fail(nothingToExport());
-  // many bodies (all a group holds count) take long to unwrap
-  if (kind === 'unwrap' && bodies.length >= 8 && !confirm(`Unwrap ${bodies.length} bodies? Each one is unwrapped, this can take a while. OK: proceed`)) return;
+  // many bodies (all a group holds count) take long to unwrap: asked first, then all start switched off
+  const many = kind === 'unwrap' && bodies.length >= 8;
+  if (many && !confirm(`Unwrap ${bodies.length} bodies? Each one is unwrapped, this can take a while. OK: proceed, all switched off to pick from`)) return;
   const doc = history.current;
-  const on = new Set(bodies.map((b) => b.id));
+  const on = new Set(many ? [] : bodies.map((b) => b.id));
   const faces = new Map<string, { at: Vec3; n: Vec3 }>();
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel export-panel' });
   const close = () => {
@@ -7713,13 +7715,29 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   const checks = new Map<string, PrintCheck>();
   // the bodies unwrapped, filled in when they come; their pieces numbered across the sheet (one alone: not), each named after its body
   const unwraps = new Map<string, Unwrapped>();
+  // a hollow body's side picked in its row (first: the kernel's choice); each body unwrapped once switched on, again when its side changes
+  const sides = new Map<string, Side>();
+  const unwrapAsked = new Map<string, Side | undefined>();
+  const unwrapAsk = () => {
+    const todo = bodies.filter((b) => on.has(b.id) && (!unwrapAsked.has(b.id) || unwrapAsked.get(b.id) !== sides.get(b.id)));
+    if (!todo.length) return;
+    for (const b of todo) unwrapAsked.set(b.id, sides.get(b.id)), unwraps.delete(b.id);
+    void kernel.unwrap(todo.map((b) => ({ name: b.id, features: built.get(b.id)!, side: sides.get(b.id) }))).then((results) => {
+      for (const r of results) {
+        if (unwrapAsked.get(r.name) !== sides.get(r.name)) continue; // asked again since
+        unwraps.set(r.name, r);
+        if (r.side) sides.set(r.name, r.side), unwrapAsked.set(r.name, r.side);
+      }
+      if (box.isConnected) draw();
+    });
+  };
   const unwrappedPieces = (of: Body[]) =>
     of.flatMap((body) => (unwraps.get(body.id)?.pieces ?? []).map((p) => ({ ...p, body }))).map((p, i, all) => ({ ...p, name: all.length > 1 ? `${i + 1} ${p.body.name}` : p.body.name }));
   const unwrappedSheet = (of: Body[]) => sheetOf(unwrappedPieces(of));
   // the key drawing of the ones switched on, with each piece's number on its face: asked once per set (all unwrapped)
   let keyAsked: { key: string; piece: Promise<Piece | null>; done?: Piece | null } = { key: '', piece: Promise.resolve(null) };
   const unwrapKey = (chosen: Body[]) => {
-    const key = JSON.stringify(chosen.map((b) => b.id));
+    const key = JSON.stringify(chosen.map((b) => [b.id, unwraps.get(b.id)?.side]));
     if (key === keyAsked.key || chosen.some((b) => !unwraps.has(b.id))) return keyAsked;
     const at = new Map(chosen.map((b, i) => [b.id, i]));
     const anchors = unwrappedPieces(chosen).map((p, i) => ({ n: i + 1, body: at.get(p.body.id)!, ...p.anchor }));
@@ -7786,8 +7804,10 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
       } else if (kind === 'unwrap') {
         const u = unwraps.get(b.id);
         const n = u?.pieces.length ?? 0;
-        const text = !u ? 'unwrapping …' : u.error ? u.error : `${n} piece${n === 1 ? '' : 's'} · ${u.stretch > 0.0005 ? `stretched up to ${fmt(+(u.stretch * 100).toFixed(1))} %` : 'no stretch'}`;
+        const text = !u ? (on.has(b.id) ? 'unwrapping …' : '') : u.error ? u.error : `${n} piece${n === 1 ? '' : 's'} · ${u.stretch > 0.0005 ? `stretched up to ${fmt(+(u.stretch * 100).toFixed(1))} %` : 'no stretch'}`;
         row.append(Object.assign(document.createElement('span'), { className: u?.error || (u?.stretch ?? 0) > 0.1 ? 'check bad' : 'check', textContent: text, title: 'Flat faces as they are, cylinders and cones rolled out exactly, other faces flattened with a little stretch (orange below)' }));
+        // a hollow body (a closed cavity inside): which of its faces
+        if (u?.hollow) row.append(segmented<Side>([['outside', 'Outside'], ['inside', 'Inside'], ['both', 'Both']], () => sides.get(b.id) ?? 'inside', (v) => sides.set(b.id, v)));
       } else {
         const c = checks.get(b.id);
         const [x, y, z] = (c?.size ?? [0, 0, 0]).map((v) => fmt(+(v / UNITS[doc.units]).toFixed(1)));
@@ -7825,6 +7845,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     if (kind !== 'print') box.insertBefore(preview, foot);
     showPreview();
     if (kind === 'laser') laserAsk();
+    if (kind === 'unwrap') unwrapAsk();
     showNote(); // the hint row back
     atTop(box);
   };
@@ -7836,10 +7857,6 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   if (kind === 'print') {
     const results = await kernel.check(bodies.map((b) => ({ name: b.id, color: b.color, features: built.get(b.id)!, place: bodyPlace(b.id) })));
     for (const r of results) checks.set(r.name, r);
-    if (box.isConnected) draw();
-  }
-  if (kind === 'unwrap') {
-    for (const r of await kernel.unwrap(bodies.map((b) => ({ name: b.id, features: built.get(b.id)! })))) unwraps.set(r.name, r);
     if (box.isConnected) draw();
   }
 }

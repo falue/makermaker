@@ -5,6 +5,7 @@ import type { ClashAsk, ClashResult } from './clash';
 import type { Exact } from './exact';
 import type { MeasureAnswer, MeasureAsk } from './measure';
 import type { Anchor } from './legend';
+import type { Side } from './unwrap';
 import type { BodyResult, ExportBody, ExportFile, ExportFormat, Piece, PrintCheck, Request, Response, Unwrapped } from './worker';
 import { stepsKey } from './key';
 
@@ -124,7 +125,7 @@ export class Kernel {
   }
 
   /** Each body unwrapped into flat nets (see the worker's `unwrap`). */
-  async unwrap(bodies: Pick<ExportBody, 'name' | 'features'>[]): Promise<Unwrapped[]> {
+  async unwrap(bodies: (Pick<ExportBody, 'name' | 'features'> & { side?: Side })[]): Promise<Unwrapped[]> {
     const answer = await this.ask(this.shards[0], { kind: 'unwrap', id: this.nextAsk++, bodies });
     return answer.kind === 'unwrap' ? answer.results : [];
   }

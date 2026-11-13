@@ -49,14 +49,17 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - Open question (user, 2026-11-13): whether the laser export should have the sheet preview at all (built 2026-11-13, like the Unwrap export's). Decide: keep it, or drop it to keep the laser panel small.
 - Seen from the face: a round face that turns away from the view part way counts only its seen part for cylinders and spheres; a torus or spline face doing that is left out (where no other face covers it the outline can come out a little small). Green lines come only where flat faces of the body as modelled meet, not at fillets or chamfers.
 - The sheet is rows of boxes, not nested tightly, and has no size limit (a laser bed's).
+- Wanted later (user, 2026-11-13), here and in the Unwrap export: true arcs in the outlines (not mesh polylines), a seam allowance, glue tabs.
 - Fitting pieces together: only the bodies in the panel's list count, and only flat sides along the cut face's rim; a miter (two sides each lying on the other) cuts both back, leaving a gap at the corner. A piece makes room only for laser parts after their own sides are settled (two passes, not repeated). Every body is built three times for it (export time not measured on big files).
 
 ## Unwrap export
-- The key drawing: with many pieces the numbers stack in tall columns beside the views (the whole sample: 92 of them); a face hidden in its view (behind another body, inside a hollow one) gets a dotted circle and line, still pointing at where it lies; unwrap flattens inside faces of a hollow body too (open: leave them out?); the key is black, as the names: laser software has to skip it like them.
+- The key drawing: with many pieces the numbers stack in tall columns beside the views (the whole sample: 92 of them); a face hidden in its view (behind another body, inside a hollow one) gets a dotted circle and line, still pointing at where it lies; the key is black, as the names: laser software has to skip it like them.
 - A closed face curved both ways (a whole sphere, a fillet ring round a hole) is flattened in one piece: its stretch gets large (a ball: about 250 %, the sample disc's rounded rim 47 %). Not yet: cutting it into gores or along hand drawn seams, nor relaxing lengths after LSCM (ARAP).
-- Outlines are polylines from the mesh (0.05 mm off the true edge at most), not arcs; no seam allowance, no glue flaps, no grain direction.
+- Hollow bodies (a closed cavity: a shell besides the outer one, told apart by size) unwrap their inside first (user's choice), Outside / Inside / Both in their row. A body open like a cup has one shell: its inside always comes along.
+- Outlines are polylines from the mesh (0.05 mm off the true edge at most), not arcs; no seam allowance, no glue flaps, no grain direction. Arcs, seam allowance and glue tabs are wanted later (user, 2026-11-13; also for the laser).
+- 8 or more bodies: asked first, then all rows start switched off; a body is unwrapped once switched on.
 - Faces flattened with stretch join a neighbour only where their shared edge still matches within 0.05 mm + 0.5 % of its length; otherwise they come out as pieces of their own.
-- The overlap check compares every outline segment of the two nets (boxes first): not timed on bodies of hundreds of faces.
+- The overlap check compares every outline segment of the two nets (boxes first). Timed (2026-11-13, Hasi.f3z): the worst body, a Raspberry Pi of 119 pieces, 6.7 s from click to result, building it included (a one-piece body there: 3 s).
 
 ## Shell
 - When OpenCascade's shell fails or is broken (some lofts), the body less its inside `t` in is used (`hollowedByOffset`): only flat open faces open that way, and a wall slanted at an open face keeps a lip there of the thickness times its slope.

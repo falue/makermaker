@@ -47,4 +47,34 @@ describe('unwrap', () => {
     // the mesh's flat triangles lose a little of the round
     expect(Math.abs(u.area / (4 * Math.PI * 225) - 1)).toBeLessThan(0.01);
   });
+  it('unwraps a hollow box (a closed cavity) inside first, its outside or both when asked', () => {
+    const hollow = () => {
+      const [outer, inner] = [makeBox([0, 0, 0], [40, 30, 20]), makeBox([2, 2, 2], [38, 28, 18])];
+      const out = outer.cut(inner);
+      [outer, inner].forEach((s) => s.delete());
+      return out;
+    };
+    const area = (pieces: ReturnType<typeof unwrap>['pieces']) => pieces.flatMap((p) => p.cuts).filter((c) => !c.mark && !c.open).reduce((n, c) => n + Math.abs(loopArea(c.pts)), 0);
+    const sides = (['inside', 'outside', 'both'] as const).map((side) => {
+      const shape = hollow();
+      const u = unwrap(shape, side);
+      shape.delete();
+      return u;
+    });
+    const plain = hollow();
+    const first = unwrap(plain);
+    plain.delete();
+    expect(first.hollow).toBe(true);
+    expect(first.side).toBe('inside');
+    expect(area(first.pieces)).toBeCloseTo(2 * (36 * 26 + 36 * 16 + 26 * 16), 6);
+    expect(area(sides[0].pieces)).toBeCloseTo(area(first.pieces), 6);
+    expect(area(sides[1].pieces)).toBeCloseTo(2 * (40 * 30 + 40 * 20 + 30 * 20), 6);
+    expect(sides[2].pieces).toHaveLength(2);
+    // a solid box is not hollow: all its faces
+    const box = makeBox([0, 0, 0], [10, 10, 10]);
+    const solid = unwrap(box);
+    box.delete();
+    expect([solid.hollow, solid.side, area(solid.pieces)]).toEqual([false, 'outside', 600]);
+  });
 });
+

@@ -1,5 +1,5 @@
-import { getOC, type Shape3D } from 'replicad';
-import type { TopoDS_Edge } from 'replicad-opencascadejs';
+import { cast, getOC, type Face, type Shape3D } from 'replicad';
+import type { TopAbs_ShapeEnum, TopoDS_Edge, TopoDS_Shape } from 'replicad-opencascadejs';
 import type { Cut } from '../io/cutfile';
 import { facingOut, lscm, netLines, nets, stretchOf, type FlatFace, type P2 } from './flatten';
 
@@ -10,6 +10,41 @@ import { facingOut, lscm, netLines, nets, stretchOf, type FlatFace, type P2 } fr
 export type UnwrapPiece = { cuts: Cut[]; faces: { loops: P2[][]; stretch: number }[]; anchor: { at: V3; dir: V3 } };
 
 type V3 = [number, number, number];
+
+/** Which faces of a hollow solid (one with a closed cavity) are unwrapped: its outside, the cavity's walls, or both. */
+export type Side = 'outside' | 'inside' | 'both';
+
+/** The parts of `of` of a kind (solids, shells, faces), as found. */
+function partsOf(of: TopoDS_Shape, kind: TopAbs_ShapeEnum) {
+  const oc = getOC();
+  const out: TopoDS_Shape[] = [];
+  const explorer = new oc.TopExp_Explorer(of, kind, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  for (; explorer.More(); explorer.Next()) out.push(explorer.Current());
+  explorer.delete();
+  return out;
+}
+
+/**
+ * `shape`'s faces on `side` (none given: a hollow one's inside, else all); `hollow`: a solid of it has a cavity (a shell
+ * besides its outer one, the biggest).
+ */
+function facesOn(shape: Shape3D, side?: Side): { faces: Face[]; hollow: boolean; side: Side } {
+  const { TopAbs_SOLID, TopAbs_SHELL, TopAbs_FACE } = getOC().TopAbs_ShapeEnum;
+  const solids = partsOf(shape.wrapped, TopAbs_SOLID).map((solid) =>
+    partsOf(solid, TopAbs_SHELL).map((s) => {
+      const [lo, hi] = cast(s).boundingBox.bounds;
+      return { s, size: Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) };
+    }),
+  );
+  const hollow = solids.some((shells) => shells.length > 1);
+  const on = side ?? (hollow ? 'inside' : 'outside');
+  if (!solids.length) return { faces: shape.faces, hollow, side: on };
+  const faces = solids.flatMap((shells) => {
+    const outer = shells.reduce((a, b) => (b.size > a.size ? b : a));
+    return shells.filter((x) => on === 'both' || (x === outer) === (on === 'outside')).flatMap((x) => partsOf(x.s, TopAbs_FACE).map((f) => cast(f) as Face));
+  });
+  return { faces, hollow, side: on };
+}
 
 /** A face's area, and its biggest triangle's middle and outward normal (unit): a point well inside it. */
 function inside({ pts, tris }: FlatFace) {
@@ -31,10 +66,10 @@ const MESH = { linear: 0.05, angular: 0.2 };
 /**
  * A solid unwrapped into flat nets at 1:1, seen from outside: flat faces as they are, cylinders and cones rolled out
  * exactly (their surface parameters are lengths and angles), other faces by least squares conformal maps (`lscm`),
- * stretched a little; joined along shared edges where they lie flat without overlapping (`nets`). `stretch`: the
- * worst face's (0.05: 5 %).
+ * stretched a little; joined along shared edges where they lie flat without overlapping (`nets`). Of a hollow solid
+ * only the faces on `side` (see `facesOn`). `stretch`: the worst face's (0.05: 5 %); `hollow`: it has a cavity.
  */
-export function unwrap(shape: Shape3D): { pieces: UnwrapPiece[]; stretch: number } {
+export function unwrap(shape: Shape3D, side?: Side): { pieces: UnwrapPiece[]; stretch: number; hollow: boolean; side: Side } {
   const oc = getOC();
   new oc.BRepMesh_IncrementalMesh(shape.wrapped, MESH.linear, false, MESH.angular, false).delete();
   // edges by hash code, told apart by IsSame: their key is shared by the faces on either side
@@ -49,7 +84,8 @@ export function unwrap(shape: Shape3D): { pieces: UnwrapPiece[]; stretch: number
   };
   const faces: FlatFace[] = [];
   const stretch: number[] = [];
-  for (const face of shape.faces) {
+  const { faces: chosen, hollow, side: on } = facesOn(shape, side);
+  for (const face of chosen) {
     const loc = new oc.TopLoc_Location();
     const tri = oc.BRep_Tool.Triangulation(face.wrapped, loc, 0);
     if (!tri || tri.isNull()) {
@@ -133,5 +169,5 @@ export function unwrap(shape: Shape3D): { pieces: UnwrapPiece[]; stretch: number
     const { at, dir } = points[island.faces.reduce((a, b) => (points[b.face].total > points[a.face].total ? b : a)).face];
     return { cuts, faces: regions.map((r) => ({ loops: r.loops, stretch: stretch[r.face] })), anchor: { at, dir } };
   });
-  return { pieces, stretch: Math.max(0, ...stretch) };
+  return { pieces, stretch: Math.max(0, ...stretch), hollow, side: on };
 }

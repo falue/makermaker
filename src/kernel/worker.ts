@@ -8,7 +8,7 @@ import { placed, type Place } from '../doc/frames';
 import { dxfOf, sheetOf, sheetSvg, type Cut, type Label } from '../io/cutfile';
 import { legend, type Anchor } from './legend';
 import { laserPart, withKerf } from './laser';
-import { unwrap, type UnwrapPiece } from './unwrap';
+import { unwrap, type Side, type UnwrapPiece } from './unwrap';
 import { clashes, type ClashAsk, type ClashResult } from './clash';
 import { answer, Solid, type MeasureAnswer, type MeasureAsk } from './measure';
 import { exactSteps, type Exact } from './exact';
@@ -26,7 +26,7 @@ export type ExportFile = { name: string; data: ArrayBuffer };
 export type ExportFormat = 'stl' | '3mf' | 'svg' | 'dxf' | 'step';
 export type ExportBody = { name: string; /** shown on a laser sheet (`name`: for a file) */ label?: string; color: string; features: BuildFeature[]; place: Place; face?: { at: V3; n: V3 }; kerf?: number };
 /** A body unwrapped (see `unwrap`); `error`: why it could not be. */
-export type Unwrapped = { name: string; pieces: UnwrapPiece[]; stretch: number; error?: string };
+export type Unwrapped = { name: string; pieces: UnwrapPiece[]; stretch: number; hollow?: boolean; side?: Side; error?: string };
 export type PrintCheck = { name: string; closed: boolean; manifold: boolean; sound: boolean; size: V3; error?: string };
 type V3 = [number, number, number];
 /** A solid as text, for the bodies `ids` (linked copies share one). */
@@ -36,7 +36,7 @@ export type Request =
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
   | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
   | { kind: 'check'; id: number; bodies: ExportBody[] }
-  | { kind: 'unwrap'; id: number; bodies: Pick<ExportBody, 'name' | 'features'>[] }
+  | { kind: 'unwrap'; id: number; bodies: (Pick<ExportBody, 'name' | 'features'> & { side?: Side })[] }
   | { kind: 'laser'; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
   | { kind: 'legend'; id: number; bodies: Pick<ExportBody, 'features' | 'place'>[]; anchors: (Anchor & { body: number })[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
@@ -283,11 +283,11 @@ async function handle(data: Job) {
   }
   if (data.kind === 'unwrap') {
     for (const b of data.bodies) await loadImports(b.features);
-    const results = data.bodies.map(({ name, features }): Unwrapped => {
+    const results = data.bodies.map(({ name, features, side }): Unwrapped => {
       let shape: Shape3D | undefined;
       try {
         shape = buildBody(features);
-        return { name, ...unwrap(shape) };
+        return { name, ...unwrap(shape, side) };
       } catch (e) {
         return { name, pieces: [], stretch: 0, error: e instanceof Error ? e.message : `OpenCascade error ${e}` };
       } finally {
