@@ -8,7 +8,7 @@ type P2 = [number, number];
 export type Anchor = { n: number; at: V3; dir: V3 };
 
 /** The key drawing's look: its widest (mm), the gap between its views, the numbers' circles and text. */
-const KEY = { width: 160, gap: 20, radius: 3, text: 3.2, margin: 10, dots: 16 };
+const KEY = { width: 160, gap: 20, radius: 3, text: 3.2, margin: 10, dots: 16, dash: 1.2 };
 
 const unit = (v: number[]) => {
   const l = Math.hypot(v[0], v[1], v[2]);
@@ -67,8 +67,9 @@ function sees(query: DistanceQuery, a: Anchor, eye: V3) {
 /**
  * A key drawing: the shapes (as placed in the world) seen from the front right above and from behind left below, hidden
  * edges left out, side by side, at most KEY.width wide; each anchor's number in a circle in the view its face looks
- * toward more: on the face where there is room, else beside the view with a line to the face; its circle dotted where
- * the face does not show there (behind something). Lines and circles as key cuts, the numbers as notes; y down, as the cut writers take them. Null when there is nothing to draw.
+ * toward more: on the face where there is room, else beside the view with a line to the face; circle and line dotted
+ * where the face does not show there (behind something). Lines and circles as key cuts, the numbers as notes; y down,
+ * as the cut writers take them. Null when there is nothing to draw.
  */
 export function legend(shapes: Shape3D[], anchors: Anchor[]): { cuts: Cut[]; notes: Label[] } | null {
   if (!shapes.length) return null;
@@ -125,7 +126,11 @@ export function legend(shapes: Shape3D[], anchors: Anchor[]): { cuts: Cut[]; not
         last = cy;
         const away = Math.hypot(a.p[0] - cx, a.p[1] - cy) || 1;
         const edge: P2 = [cx + ((a.p[0] - cx) / away) * KEY.radius, cy + ((a.p[1] - cy) / away) * KEY.radius];
-        cuts.push({ hole: false, pts: [edge, a.p], curves: [null, null], open: true, key: true });
+        // dotted where the face is hidden: dashes about KEY.dash long, as far apart, an odd count (from circle to face)
+        const d = Math.hypot(a.p[0] - edge[0], a.p[1] - edge[1]);
+        const steps = hidden.has(a.a) ? 2 * Math.round(d / KEY.dash / 2) + 1 : 1;
+        const along = (t: number): P2 => [edge[0] + ((a.p[0] - edge[0]) * t) / steps, edge[1] + ((a.p[1] - edge[1]) * t) / steps];
+        for (let i = 0; i < steps; i += 2) cuts.push({ hole: false, pts: [along(i), along(i + 1)], curves: [null, null], open: true, key: true });
         cuts.push({ hole: false, pts: [], curves: [], circle: { c: a.p, r: 0.5 }, key: true });
         number(a.a, [cx, cy]);
       }

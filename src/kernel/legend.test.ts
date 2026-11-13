@@ -55,7 +55,7 @@ describe('legend', () => {
     expect(tight.cuts.filter((c) => c.circle)).toHaveLength(2);
     expect(tight.cuts.filter((c) => c.open && c.pts.length === 2 && !c.circle).length).toBeGreaterThan(9);
   });
-  it('dots the circle of a number whose face does not show in its view', () => {
+  it('dots the circle and line of a number whose face does not show in its view', () => {
     const outer = makeBox([0, 0, 0], [40, 30, 20]);
     const inner = makeBox([2, 2, 2], [38, 28, 18]);
     const hollow = outer.cut(inner);
@@ -65,9 +65,12 @@ describe('legend', () => {
       { n: 2, at: [20, 15, 2], dir: [0, 0, 1] }, // the floor inside: behind the lid
     ])!;
     hollow.delete();
-    // 1 in a whole circle, 2 in 8 dashes (a line's dot at the face is a small circle)
+    // 1 in a whole circle; 2 dotted, beside the view (the box's lines leave no room on its face): its line in dashes to the dot at the face
     expect(key.cuts.filter((c) => c.circle?.r === 3)).toHaveLength(1);
-    expect(key.cuts.filter((c) => c.open && c.pts.length === 2 && Math.hypot(c.pts[1][0] - c.pts[0][0], c.pts[1][1] - c.pts[0][1]) < 2)).toHaveLength(8);
+    const dot = key.cuts.find((c) => c.circle?.r === 0.5)!.circle!.c;
+    const lines = key.cuts.filter((c) => c.open && c.pts.length === 2);
+    const last = lines.find((c) => Math.hypot(c.pts[1][0] - dot[0], c.pts[1][1] - dot[1]) < 1e-9)!;
+    expect(Math.hypot(last.pts[1][0] - last.pts[0][0], last.pts[1][1] - last.pts[0][1])).toBeLessThan(2);
   });
 });
 
