@@ -7668,6 +7668,8 @@ const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | '
 async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   const bodies = exportable();
   if (!bodies.length) return fail(nothingToExport());
+  // many bodies (all a group holds count) take long to unwrap
+  if (kind === 'unwrap' && bodies.length >= 8 && !confirm(`Unwrap ${bodies.length} bodies? Each one is unwrapped, this can take a while. OK: proceed`)) return;
   const doc = history.current;
   const on = new Set(bodies.map((b) => b.id));
   const faces = new Map<string, { at: Vec3; n: Vec3 }>();
