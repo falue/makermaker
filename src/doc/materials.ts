@@ -16,6 +16,9 @@ export interface Look {
   render?: Look;
 }
 
+/** The strongest glow (`MaterialLook.glowStrength`): 4 times the light of 1 (`glowLight`: 200 ** strength - 1). */
+export const GLOW_MAX = Math.log(4 * 199 + 1) / Math.log(200);
+
 export const DEFAULT_LIGHT: Light = { sunHeight: 53, sunAround: -63, sun: 2, sunColor: '#ffffff', ambient: 2, ambientColor: '#ffffff', followCamera: false, cameraOn: false, cameraLight: 1, standard: false };
 
 /** A document's render light until it sets its own: the 3D view's, no haze. */

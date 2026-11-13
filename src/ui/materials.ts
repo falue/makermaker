@@ -1,4 +1,4 @@
-import { STANDARD_SECTIONS, toLook } from '../doc/materials';
+import { GLOW_MAX, STANDARD_SECTIONS, toLook } from '../doc/materials';
 import type { Light, Material, MaterialLook } from '../doc/types';
 import { MaterialPreview, PREVIEW_SCENE } from '../viewer/preview';
 import { closeButton, deleteButton } from './icons';
@@ -238,8 +238,7 @@ export function openMaterials(host: MaterialsHost, startEditing?: string) {
     const glow = () => {
       const label = make('span');
       const says = (v: number) => (label.textContent = `Glow ${Math.round(v * 100)} %`);
-      // its end lights 4 times as much as 100 % (`glowLight`: 200 ** strength - 1)
-      const el = slider('glowStrength', '', 'How strong it glows: it lights what is around', '', '', Math.log(4 * 199 + 1) / Math.log(200)).querySelector('input')!;
+      const el = slider('glowStrength', '', 'How strong it glows: it lights what is around', '', '', GLOW_MAX).querySelector('input')!;
       el.addEventListener('input', () => says(+el.value));
       says(shown!.glowStrength);
       return make('div', { className: 'row light' }, label, el, colour('glow', 'Colour of the glow'));

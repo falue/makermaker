@@ -3,7 +3,9 @@ import { STANDARD_MATERIALS } from '../doc/materials';
 import { fromMtlx, toMtlx } from './materials';
 
 it('materials come back from their MaterialX file', () => {
-  const list = [...STANDARD_MATERIALS, { ...STANDARD_MATERIALS[0], id: 'x', name: 'Odd "name" & <co>' }];
+  // and one with all a MaterialX file cannot say: a glow past 100 % with a reach, a picture, a look of its own in renders
+  const odd = { ...STANDARD_MATERIALS[0], id: 'x', name: 'Odd "name" & <co>', glow: '#ff8800', glowStrength: 1.2, glowReach: 250, image: 'data:image/png;base64,iVBORw0KGgo=', render: { color: '#102030', bump: 0.3, reflection: 0.5, translucency: 0, glow: '#ffffff', glowStrength: 0, overlay: 'metric' as const } };
+  const list = [...STANDARD_MATERIALS, odd];
   const back = fromMtlx(toMtlx(list));
   const noId = ({ id: _, ...m }: (typeof list)[number]) => m;
   expect(back.map(noId)).toEqual(list.map(noId));

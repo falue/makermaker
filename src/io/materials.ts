@@ -1,8 +1,8 @@
 import { newId } from '../doc/sample';
 import type { Material } from '../doc/types';
-import { plainLook } from '../doc/materials';
+import { GLOW_MAX, plainLook } from '../doc/materials';
 
-/** Materials as a MaterialX file (standard_surface); what it cannot say goes in `makermaker_` attributes. */
+/** Materials as a MaterialX file (standard_surface); what it cannot say (name, bump, glow reach, overlay, picture, render look) goes in `makermaker_` attributes. */
 export function toMtlx(materials: Material[]) {
   const attr = (text: string) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const rgb = (hex: string) => [1, 3, 5].map((i) => +(parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(4)).join(', ');
@@ -10,7 +10,7 @@ export function toMtlx(materials: Material[]) {
     const node = `m${i}_${m.name.replace(/[^A-Za-z0-9]+/g, '_')}`;
     const input = (name: string, type: string, value: string | number) => `    <input name="${name}" type="${type}" value="${value}" />`;
     return [
-      `  <standard_surface name="${node}" type="surfaceshader" makermaker_name="${attr(m.name)}" makermaker_bump="${m.bump}"${m.overlay ? ` makermaker_overlay="${m.overlay}"` : ''}>`,
+      `  <standard_surface name="${node}" type="surfaceshader" makermaker_name="${attr(m.name)}" makermaker_bump="${m.bump}"${m.glowReach ? ` makermaker_glow_reach="${m.glowReach}"` : ''}${m.overlay ? ` makermaker_overlay="${m.overlay}"` : ''}${m.image ? ` makermaker_image="${attr(m.image)}"` : ''}${m.render ? ` makermaker_render="${attr(JSON.stringify(m.render))}"` : ''}>`,
       input('base_color', 'color3', rgb(m.color)),
       input('metalness', 'float', m.reflection),
       input('specular_roughness', 'float', +Math.min(1, m.bump * 2).toFixed(4)),
@@ -42,12 +42,14 @@ export function fromMtlx(text: string): Material[] {
       const [name, value] = ['name', 'value'].map((k) => new RegExp(`\\b${k}="([^"]*)"`).exec(tag)?.[1]);
       return name && value !== undefined ? [[name, value] as const] : [];
     }));
-    const number = (name: string, fallback: number) => {
+    const number = (name: string, fallback: number, max = 1) => {
       const v = parseFloat(inputs.get(name) ?? '');
-      return Number.isNaN(v) ? fallback : Math.min(1, Math.max(0, v));
+      return Number.isNaN(v) ? fallback : Math.min(max, Math.max(0, v));
     };
     const overlay = attribute('makermaker_overlay');
     const bump = parseFloat(attribute('makermaker_bump') ?? '');
+    const reach = parseFloat(attribute('makermaker_glow_reach') ?? '');
+    const [image, render] = [attribute('makermaker_image'), attribute('makermaker_render')];
     return {
       ...plainLook(hex(inputs.get('base_color'), '#cccccc')),
       id: newId(),
@@ -56,8 +58,11 @@ export function fromMtlx(text: string): Material[] {
       reflection: number('metalness', 0),
       translucency: number('transmission', 0),
       glow: hex(inputs.get('emission_color'), '#ffffff'),
-      glowStrength: number('emission', 0),
+      glowStrength: number('emission', 0, GLOW_MAX),
+      ...(reach > 0 ? { glowReach: reach } : {}),
       ...(overlay === 'metric' || overlay === 'imperial' ? { overlay } : {}),
+      ...(image ? { image: unescape(image) } : {}),
+      ...(render ? { render: JSON.parse(unescape(render)) as Material['render'] } : {}),
     } satisfies Material;
   });
 }
