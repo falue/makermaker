@@ -1053,12 +1053,12 @@ export class Viewer implements ToolView {
   private originPreviews: LineSegments2[] = [];
 
   /**
-   * Origin axes at `m` (world frames; 60 px long on screen) while origins are picked or aligned, and faint ones at `was`
-   * (where they are now); null or none: none.
+   * Origin axes at `m` (world frames; 60 px long on screen) while origins are picked or aligned, and faint ones at
+   * `faint`; null or none: none.
    */
-  previewOrigin(m: THREE.Matrix4 | THREE.Matrix4[] | null, was: THREE.Matrix4[] = []) {
-    const list = [...(!m ? [] : Array.isArray(m) ? m : [m]), ...was];
-    const strong = list.length - was.length;
+  previewOrigin(m: THREE.Matrix4 | THREE.Matrix4[] | null, faint: THREE.Matrix4[] = []) {
+    const list = [...(!m ? [] : Array.isArray(m) ? m : [m]), ...faint];
+    const strong = list.length - faint.length;
     for (const o of this.originPreviews.splice(list.length)) o.removeFromParent(), o.geometry.dispose(), (o.material as LineMaterial).dispose();
     list.forEach((frame, i) => {
       const o = (this.originPreviews[i] ??= Object.assign(originLines(30, 3), { matrixAutoUpdate: false }));

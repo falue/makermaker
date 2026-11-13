@@ -6124,9 +6124,9 @@ function alignOriginsPanel(ids: string[]) {
     end(pressed(e, 'confirm'));
   };
   const draw = () => {
-    // the new axes, the ones they had faint beside them
+    // their axes as they point now (a Z pointing down points down), the new ones faint beside them
     const changes = frames();
-    viewer.previewOrigin([...changes.values()], [...changes.keys()].map((id) => groupPlace(id)));
+    viewer.previewOrigin([...changes.keys()].map((id) => groupPlace(id)), [...changes.values()]);
     const n = changes.size;
     const toggles = Object.assign(document.createElement('span'), { className: 'segmented' });
     toggles.append(
@@ -6154,7 +6154,7 @@ function alignOriginsPanel(ids: string[]) {
       ok,
       closeButton('Close: leave them as they are (Esc)', () => end(false)),
     );
-    toolHint = `Align origins: X / Y / Z the axes to straighten, ${picked ? 'to the origin picked' : "as the drawing's"} · ${n} of ${groups.length} group origin${groups.length === 1 ? '' : 's'} change (new axes, the old ones faint) · nothing moves · [Enter] Align · [Esc] Leave them`;
+    toolHint = `Align origins: X / Y / Z the axes to straighten, ${picked ? 'to the origin picked' : "as the drawing's"} · ${n} of ${groups.length} group origin${groups.length === 1 ? '' : 's'} change (their axes now, the new ones faint) · nothing moves · [Enter] Align · [Esc] Leave them`;
     render();
     atTop(box);
   };
