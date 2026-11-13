@@ -4,16 +4,21 @@ import { caretHtml } from './complete';
 
 /**
  * A tooltip's text as HTML, the footer's way: `[Key]` a key and `**words**` stressed (both white), X / Y / Z in their
- * axis' colours; line by line: `# ` its title, `- ` a point of a list, an empty line a gap, others as they are.
+ * axis' colours; line by line: `# ` its title, `- ` a point of a list, an empty line a gap, others as they are. The
+ * first line's lead before ": " (a tool's name, "Move (M): …") white as a title.
  */
 export function tipHtml(text: string) {
   const inline = (t: string) =>
     axisHtml(t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
       .replace(/\[(.+?)\]/g, '<kbd>$1</kbd>')
       .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  const lead = (line: string) => {
+    const m = /^([^:]{1,40}): /.exec(line);
+    return m ? `<b>${inline(m[1])}:</b> ${inline(line.slice(m[0].length))}` : inline(line);
+  };
   return text
     .split('\n')
-    .map((line) => (line.startsWith('# ') ? `<div class="tip-title">${inline(line.slice(2))}</div>` : line.startsWith('- ') ? `<div class="tip-point">${inline(line.slice(2))}</div>` : line ? `<div>${inline(line)}</div>` : '<div class="tip-gap"></div>'))
+    .map((line, i) => (line.startsWith('# ') ? `<div class="tip-title">${inline(line.slice(2))}</div>` : line.startsWith('- ') ? `<div class="tip-point">${inline(line.slice(2))}</div>` : line ? `<div>${i ? inline(line) : lead(line)}</div>` : '<div class="tip-gap"></div>'))
     .join('');
 }
 

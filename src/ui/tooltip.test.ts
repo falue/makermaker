@@ -5,6 +5,7 @@ it('formats a tooltip as the footer: title, lines, points, keys, stressed words,
   expect(tipHtml('# Move\nAlong X: [Tab] next\n\n- **Paper** 1 % <a & b>')).toBe(
     '<div class="tip-title">Move</div><div>Along <span class="axis-x">X</span>: <kbd>Tab</kbd> next</div><div class="tip-gap"></div><div class="tip-point"><b>Paper</b> 1 % &lt;a &amp; b&gt;</div>',
   );
-  // a plain one stays one line
-  expect(tipHtml('Click: Copy')).toBe('<div>Click: Copy</div>');
+  // a tool's name before ": " white, on the first line only
+  expect(tipHtml('Move (M): type distances\nThen: Enter')).toBe('<div><b>Move (M):</b> type distances</div><div>Then: Enter</div>');
+  expect(tipHtml('How strong it glows')).toBe('<div>How strong it glows</div>');
 });
