@@ -6782,8 +6782,17 @@ async function startExtrude(start: { faces?: FaceItem[]; sketch?: string; shapes
 
 /** Sketch mode on a sketch: R / C / P draw flat into it (`kind` starts one); `look` turns the camera to its plane, its shapes in the middle. */
 function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
+  const doc = history.current;
+  // hidden (its eye, a group's, or all sketches'): shown first, then opened
+  if (!viewer.sketches.some((v) => v.id === id) && doc.sketches.some((k) => k.id === id)) {
+    const sketch = doc.sketches.find((k) => k.id === id)!;
+    const groups = new Set<string>();
+    for (let g = sketch.group; g && !groups.has(g); g = doc.groups.find((x) => x.id === g)?.parent ?? null) groups.add(g);
+    hideAll.sketches = false;
+    commit({ ...doc, sketches: doc.sketches.map((k) => (k.id === id ? { ...k, visible: true } : k)), groups: doc.groups.map((g) => (groups.has(g.id) ? { ...g, visible: true } : g)) });
+  }
   const s = viewer.sketches.find((v) => v.id === id);
-  if (!s) return fail('Show the sketch to draw on it');
+  if (!s) return;
   if (sketching !== id) sketchPath = [];
   sketching = id;
   [selected, shapeSel] = [[id], shapeSel];
