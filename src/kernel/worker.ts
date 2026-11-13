@@ -117,7 +117,7 @@ function laserPieces(bodies: ExportBody[], others: Pick<ExportBody, 'features' |
   // numbered, with a key drawing, when there is more than one
   const key = pieces.length > 1 ? keyPiece(world.slice(0, bodies.length).filter((s): s is Shape3D => !!s), anchors) : [];
   for (const s of [...world, ...lasered]) s?.delete();
-  return { pieces: [...(pieces.length > 1 ? pieces.map((p, i) => ({ ...p, name: `${i + 1} ${p.name}` })) : pieces), ...key] };
+  return { pieces: [...(pieces.length > 1 ? pieces.map((p, i) => ({ ...p, name: `${p.name} ${i + 1}` })) : pieces), ...key] };
 }
 
 /** A placed body's triangles for printing, its points merged where they meet (to 0.01 µm). */
@@ -276,7 +276,10 @@ async function handle(data: Job) {
         return [];
       }
     });
-    const anchors = data.anchors.map(({ body, at, dir, ...rest }) => ({ ...rest, at: placed(data.bodies[body].place, at), dir: placed(data.bodies[body].place, dir, true) }));
+    const anchors = data.anchors.map(({ body, at, dir, folds, ...rest }) => {
+      const place = data.bodies[body].place;
+      return { ...rest, at: placed(place, at), dir: placed(place, dir, true), folds: folds?.map((line) => line.map((p) => placed(place, p))) };
+    });
     const piece = keyPiece(shapes, anchors)[0] ?? null;
     for (const s of shapes) s.delete();
     return postMessage({ kind: 'legend', id: data.id, piece } satisfies Response);

@@ -2773,6 +2773,12 @@ input + .set-axis {
   padding-top: 6px;
   border-top: 1px solid var(--line);
 }
+.export-panel .export-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
 .export-panel .export-foot .formats {
   margin-left: auto;
 }

@@ -100,7 +100,7 @@ function svgShape(c: Cut) {
 /** Cuts red, marks green and key lines black, each kind in a group of its own (`stroke` mm wide), indented by `pad`. */
 function svgCuts(cuts: Cut[], stroke: number, pad: string) {
   const group = (colour: string, of: Cut[]) => (of.length ? `\n${pad}<g fill="none" stroke="${colour}" stroke-width="${f(stroke)}">\n${pad}  ${of.map(svgShape).join(`\n${pad}  `)}\n${pad}</g>` : '');
-  return group('#ff0000', cuts.filter((c) => !c.mark && !c.key)) + group('#00ff00', cuts.filter((c) => c.mark)) + group('#000000', cuts.filter((c) => c.key));
+  return group('#ff0000', cuts.filter((c) => !c.mark && !c.key)) + group('#00ff00', cuts.filter((c) => c.mark)) + group('#000000', cuts.filter((c) => c.key && !c.mark));
 }
 
 /** A text in black, `pad` before it. */
@@ -130,13 +130,14 @@ export function sheetSvg(pieces: Placed[], margin = 2, stroke = 25.4 / 72): stri
 
 /**
  * A DXF (R12, mm) of the cuts on layer CUT in red: closed (or open) polylines (arcs as bulges, beziers as arcs within
- * 1 µm) and circles, y up as DXF has it; marks on layer MARK in green, key lines on layer KEY in black; the labels as
+ * 1 µm) and circles, y up as DXF has it; marks on layer MARK in green, key lines on layer KEY in black (its folds green); the labels as
  * text on layer LABEL in black (colour 7: black on white).
  */
 export function dxfOf(cuts: Cut[], labels: Label[] = []): string {
   const out: (string | number)[] = [0, 'SECTION', 2, 'HEADER', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC', 0, 'SECTION', 2, 'ENTITIES'];
   for (const c of cuts) {
-    const [layer, colour] = c.key ? ['KEY', 7] : c.mark ? ['MARK', 3] : ['CUT', 1];
+    // a key's fold: green, on the key's layer
+    const [layer, colour] = c.key ? ['KEY', c.mark ? 3 : 7] : c.mark ? ['MARK', 3] : ['CUT', 1];
     if (c.circle) {
       out.push(0, 'CIRCLE', 8, layer, 62, colour, 10, f(c.circle.c[0]), 20, f(-c.circle.c[1]), 30, 0, 40, f(c.circle.r));
       continue;
@@ -175,7 +176,7 @@ export function previewSvg(pieces: Placed[], faces: { loops: P2[][]; stretch: nu
   const shade = (s: number) => `hsl(24 95% ${Math.round(100 - Math.min(1, s / full) * 38)}%)`;
   const path = (loops: P2[][], [dx, dy]: P2) => loops.map((l) => `M${l.map(([x, y]) => `${f(x + dx)} ${f(y + dy)}`).join('L')}Z`).join('');
   const fills = pieces.flatMap((p) => (faces[p.from] ?? []).map((g) => `<path d="${path(g.loops, p.shift)}" fill="${shade(g.stretch)}" fill-rule="evenodd"/>`));
-  const lines = (kind: 'cut' | 'mark' | 'key') => pieces.flatMap((p) => p.cuts.filter((c) => (c.key ? 'key' : c.mark ? 'mark' : 'cut') === kind).map(svgShape)).join('');
+  const lines = (kind: 'cut' | 'mark' | 'key') => pieces.flatMap((p) => p.cuts.filter((c) => (c.mark ? 'mark' : c.key ? 'key' : 'cut') === kind).map(svgShape)).join('');
   const labels = pieces.flatMap((p) => [p.label, ...p.notes]).map((l) => `<text x="${f(l.at[0])}" y="${f(l.at[1])}" font-size="${f(l.size)}" font-family="sans-serif" fill="#333">${xml(l.text)}</text>`);
   const [x0, y0, x1, y1] = boxOf(pieces.flatMap((p) => p.cuts), pieces.flatMap((p) => [p.label, ...p.notes]));
   const m = Math.max(x1 - x0, y1 - y0) * 0.02;

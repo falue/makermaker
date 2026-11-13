@@ -5,9 +5,10 @@ import { facingOut, gores, lscm, netLines, nets, stretchOf, type FlatFace, type 
 
 /**
  * One net of a body: its outline cut (red) and folds (green marks), y down; each face's loops and stretch, for a
- * preview; `anchor`: a point well inside its biggest face and the way that face looks (body coordinates), for a key.
+ * preview; `anchor`: a point well inside its biggest face, the way that face looks, and its folds as they run on the
+ * body (body coordinates), for a key.
  */
-export type UnwrapPiece = { cuts: Cut[]; faces: { loops: P2[][]; stretch: number }[]; anchor: { at: V3; dir: V3 } };
+export type UnwrapPiece = { cuts: Cut[]; faces: { loops: P2[][]; stretch: number }[]; anchor: { at: V3; dir: V3; folds: V3[][] } };
 
 type V3 = [number, number, number];
 
@@ -180,7 +181,8 @@ export function unwrap(shape: Shape3D, side?: Side, limit: number | null = 0.05)
       ...folds.map((pts): Cut => ({ hole: false, pts, curves: pts.map(() => null), open: true, mark: true })),
     ];
     const { at, dir } = points[island.faces.reduce((a, b) => (points[b.face].total > points[a.face].total ? b : a)).face];
-    return { cuts, faces: regions.map((r) => ({ loops: r.loops, stretch: stretch[r.face] })), anchor: { at, dir } };
+    const creases = island.folds.map(({ a }) => a.nodes.map((n): V3 => [faces[a.face].pts[3 * n], faces[a.face].pts[3 * n + 1], faces[a.face].pts[3 * n + 2]]));
+    return { cuts, faces: regions.map((r) => ({ loops: r.loops, stretch: stretch[r.face] })), anchor: { at, dir, folds: creases } };
   });
   return { pieces, stretch: Math.max(0, ...stretch), hollow, side: on };
 }

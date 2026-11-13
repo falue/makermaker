@@ -72,5 +72,12 @@ describe('legend', () => {
     const last = lines.find((c) => Math.hypot(c.pts[1][0] - dot[0], c.pts[1][1] - dot[1]) < 1e-9)!;
     expect(Math.hypot(last.pts[1][0] - last.pts[0][0], last.pts[1][1] - last.pts[0][1])).toBeLessThan(2);
   });
+  it("draws the lines along a piece's folds green", () => {
+    const box = makeBox([0, 0, 0], [40, 30, 20]);
+    // the fold along the top front edge (seen from the front, above)
+    const key = legend([box], [{ n: 1, at: [20, 15, 20], dir: [0, 0, 1], folds: [[[0, 0, 20], [20, 0, 20], [40, 0, 20]]] }])!;
+    box.delete();
+    expect(key.cuts.filter((c) => c.mark)).toHaveLength(1);
+  });
 });
 

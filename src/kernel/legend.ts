@@ -4,8 +4,8 @@ import type { Cut, Label } from '../io/cutfile';
 type V3 = [number, number, number];
 type P2 = [number, number];
 
-/** Where a piece's number points: a point on its face (world) and the way that face looks; `solid`: never dotted. */
-export type Anchor = { n: number; at: V3; dir: V3; solid?: boolean };
+/** Where a piece's number points: a point on its face (world) and the way that face looks; `solid`: never dotted; `folds`: its fold lines (world), drawn green. */
+export type Anchor = { n: number; at: V3; dir: V3; solid?: boolean; folds?: V3[][] };
 
 /** The key drawing's look: its widest (mm), the gap between its views, the numbers' circles and text. */
 const KEY = { width: 160, gap: 20, radius: 3, text: 3.2, margin: 10, dots: 16, dash: 1.2 };
@@ -68,7 +68,7 @@ function sees(query: DistanceQuery, a: Anchor, eye: V3) {
  * A key drawing: the shapes (as placed in the world) seen from the front right above and from behind left below, hidden
  * edges left out, side by side, at most KEY.width wide; each anchor's number in a circle in the view its face looks
  * toward more: on the face where there is room, else beside the view with a line to the face; circle and line dotted
- * where the face does not show there (behind something; not a `solid` anchor). Lines and circles as key cuts, the numbers as notes; y down,
+ * where the face does not show there (behind something; not a `solid` anchor); lines along an anchor's folds green. Lines and circles as key cuts, the numbers as notes; y down,
  * as the cut writers take them. Null when there is nothing to draw.
  */
 export function legend(shapes: Shape3D[], anchors: Anchor[]): { cuts: Cut[]; notes: Label[] } | null {
@@ -95,7 +95,11 @@ export function legend(shapes: Shape3D[], anchors: Anchor[]): { cuts: Cut[]; not
     const [x0, y0, x1] = boxes[k];
     // picture plane → sheet: scaled, this view's left edge at `left`, y down
     const at = ([u, v]: P2): P2 => [left + KEY.margin + (u - x0) * scale, -(v - y0) * scale];
-    for (const line of lines) cuts.push({ hole: false, pts: line.map(at), curves: line.map(() => null), open: true, key: true });
+    // a line lying along a piece's fold (within the mesh's 0.05 mm): green, as the folds on the sheet
+    const folds = anchors.flatMap((a) => a.folds ?? []).map((line) => line.map((p): P2 => [dot(p, x), dot(p, y)]));
+    const segments = folds.flatMap((f) => f.slice(1).map((q, i) => [f[i], q]));
+    const onFold = (line: P2[]) => line.every((p) => segments.some(([a, b]) => gap(p, a, b) < 0.1));
+    for (const line of lines) cuts.push({ hole: false, pts: line.map(at), curves: line.map(() => null), open: true, key: true, ...(onFold(line) ? { mark: true } : {}) });
     // the numbers whose faces look this way more than the other: on the face where its circle stays clear of lines and
     // other circles, else in a column at the side they are nearer to, a line to the face
     const mine = anchors.filter((a) => dot(a.dir, eyes[k]) >= dot(a.dir, eyes[1 - k]));

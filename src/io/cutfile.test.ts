@@ -47,4 +47,15 @@ describe('sketch drawings', () => {
     expect(svg.match(/<g id=/g)).toHaveLength(2);
     expect(dxfOf(cuts, labels)).toMatch(/\nTEXT\n8\nLABEL\n62\n7\n/);
   });
+  it("draws a key's folds green, on the key's layer", () => {
+    const line = (y: number): Cut => ({ hole: false, pts: [[0, y], [10, y]], curves: [null, null], open: true, key: true });
+    const cuts = [line(0), { ...line(5), mark: true }];
+    const svg = svgOf(cuts);
+    expect(svg.match(/stroke="#00ff00"[^]*?<\/g>/)![0]).toContain('M0 5');
+    expect(svg.match(/stroke="#000000"[^]*?<\/g>/)![0]).not.toContain('M0 5');
+    const dxf = dxfOf(cuts).split('\n');
+    const polylines = dxf.flatMap((v, i) => (v === 'POLYLINE' ? [[dxf[i + 2], dxf[i + 4]]] : []));
+    expect(polylines).toEqual([['KEY', '7'], ['KEY', '3']]);
+  });
 });
+

@@ -7658,7 +7658,7 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
 }
 
 /** The export panels' choices, this session. */
-const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0', stretch: '5' };
+const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0', stretch: '5', key: true };
 
 /**
  * Laser, unwrap or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each switched on
@@ -7691,9 +7691,9 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     if (kind === 'print') return void run(() => exportBodies(exportChoice.print, chosen));
     if (kind === 'unwrap')
       return void run(async () => {
-        // the key drawing too (one piece needs none), waited for if it is still being drawn
+        // the key drawing too (one piece needs none; switched off: none), waited for if it is still being drawn
         const pieces = unwrappedPieces(chosen);
-        const key = pieces.length > 1 ? await unwrapKey(chosen).piece : null;
+        const key = pieces.length > 1 && exportChoice.key ? await unwrapKey(chosen).piece : null;
         const sheet = sheetOf([...pieces, ...(key ? [key] : [])]);
         const format = exportChoice.unwrap;
         const text = format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.flatMap((p) => [p.label, ...p.notes]));
@@ -7738,8 +7738,14 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
       if (box.isConnected) draw();
     });
   };
+  // named "Plate 3" (one alone: no number), its stretch after it where it has some
   const unwrappedPieces = (of: Body[]) =>
-    of.flatMap((body) => (unwraps.get(body.id)?.pieces ?? []).map((p) => ({ ...p, body }))).map((p, i, all) => ({ ...p, name: all.length > 1 ? `${i + 1} ${p.body.name}` : p.body.name }));
+    of
+      .flatMap((body) => (unwraps.get(body.id)?.pieces ?? []).map((p) => ({ ...p, body })))
+      .map((p, i, all) => {
+        const most = Math.max(0, ...p.faces.map((f) => f.stretch));
+        return { ...p, name: `${p.body.name}${all.length > 1 ? ` ${i + 1}` : ''}${most > 0.0005 ? ` · stretch ${fmt(+(most * 100).toFixed(1))} %` : ''}` };
+      });
   const unwrappedSheet = (of: Body[]) => sheetOf(unwrappedPieces(of));
   // the key drawing of the ones switched on, with each piece's number on its face: asked once per set (all unwrapped)
   let keyAsked: { key: string; piece: Promise<Piece | null>; done?: Piece | null } = { key: '', piece: Promise.resolve(null) };
@@ -7780,7 +7786,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     // unwrapped faces are shaded by their stretch; laser pieces have none; the key drawing last, once it is there (one piece needs none)
     const shown = bodies.filter((b) => on.has(b.id));
     const unwrapped = kind === 'unwrap' ? unwrappedPieces(shown) : [];
-    const key = kind === 'unwrap' && unwrapped.length > 1 ? unwrapKey(shown) : null;
+    const key = kind === 'unwrap' && unwrapped.length > 1 && exportChoice.key ? unwrapKey(shown) : null;
     const pieces = kind === 'laser' ? (lasered?.pieces ?? []) : [...unwrapped, ...(key?.done ? [key.done] : [])];
     const sheet = sheetOf(pieces);
     preview.hidden = !sheet.length && !lasered?.failed.length;
@@ -7847,6 +7853,12 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
         'Max stretch: the most a face may stretch flat, in %; a face stretching more is cut into gores (narrow pieces), at best down to what its mesh allows. Lower: more pieces that lie truer. Empty: no gores.\nAs a guide: paper and card 1–2 %, leather and felt about 5 %, woven cloth 5–10 %, stretchy fabric (jersey, lycra) 10–20 %',
       oninput: () => ((exportChoice.stretch = stretch.value), clearTimeout(stretchTimer), (stretchTimer = window.setTimeout(draw, 400))),
     });
+    // the key drawing on the sheet or not (remembered)
+    const keyToggle = Object.assign(document.createElement('label'), {
+      className: 'export-toggle',
+      title: exportChoice.key ? 'Click: Leave the key drawing out' : "Click: Add a key drawing, the bodies seen from two sides with each piece's number on it",
+    });
+    keyToggle.append(Object.assign(document.createElement('input'), { type: 'checkbox', checked: exportChoice.key, onchange: () => ((exportChoice.key = !exportChoice.key), draw()) }), document.createTextNode('Include key visual'));
     const formats =
       kind === 'print' ? segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v)) : segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice[kind], (v) => (exportChoice[kind] = v));
     // its title centred, the close button at the right; "Available objects" over the rows; a footer: Kerf left, the formats and Export right
@@ -7855,7 +7867,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     const foot = Object.assign(document.createElement('div'), { className: 'export-foot' });
     foot.append(
       ...(kind === 'laser' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf)] : []),
-      ...(kind === 'unwrap' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Max stretch', title: stretch.title }), stretch, Object.assign(document.createElement('span'), { textContent: '%' }))] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
+      ...(kind === 'unwrap' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Max stretch', title: stretch.title }), stretch, Object.assign(document.createElement('span'), { textContent: '%' })), keyToggle] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
     const typing = box.querySelector<HTMLInputElement>('input.stretch');
     const caret = typing && typing === document.activeElement ? typing.selectionStart : null;
     box.replaceChildren(head, Object.assign(document.createElement('h4'), { className: 'export-sub', textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);
