@@ -7573,6 +7573,7 @@ function render() {
         else if (job) job.cancel = true;
         render();
       },
+      saveNow: (id) => run(() => saveRenderNow(id)),
       download: downloadRender,
       versions: (id) => run(() => showVersions(id)),
       live(id) {
@@ -8059,6 +8060,19 @@ async function renderDir(create: boolean) {
   if (to.kind === 'picked') return recall<FileSystemDirectoryHandle>(renderKey());
   const folder = await recall<FileSystemDirectoryHandle>(docFolderKey());
   return to.kind === 'beside' || !folder ? folder : folder.getDirectoryHandle('renderings', { create });
+}
+
+/** Render `id`'s picture as far as it got (still rendering), kept as one of its results; the render goes on. */
+async function saveRenderNow(id: string) {
+  const canvas = jobs.get(id)?.canvas;
+  const image = canvas && (await new Promise<Blob | null>((done) => canvas.toBlob(done, 'image/png')));
+  if (!image) return;
+  const preview = await previewOf(image);
+  const doc = history.current;
+  const i = doc.renders.findIndex((r) => r.id === id);
+  if (i >= 0) history.replace(setIn(doc, ['renders', String(i), 'results'], [{ at: new Date().toISOString(), preview, nice: true }, ...doc.renders[i].results].slice(0, 8)));
+  await keepRender(id, image, true);
+  render();
 }
 
 /**

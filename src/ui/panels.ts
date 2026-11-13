@@ -248,6 +248,8 @@ export interface UIContext {
     shoot(): void;
     again(id: string): void;
     cancel(id: string): void;
+    /** A running render's picture as far as it got, kept as a result; it goes on rendering. */
+    saveNow(id: string): void;
     download(id: string): void;
     useView(id: string): void;
     /** Its versions in a gallery. */
@@ -1246,6 +1248,7 @@ function rendersPanel(ctx: UIContext): Node[] {
     const nice = shot.results.some((r) => r.nice);
     const main = [
       busy ? button('Cancel', () => renders.cancel(shot.id)) : Object.assign(button(nice ? 'Render again' : 'Render nice', () => renders.again(shot.id), 'Render this view nicely with the model as it is now (saves itself)'), { className: 'primary' }),
+      ...(job?.state === 'rendering' && job.canvas ? [button('Save now', () => renders.saveNow(shot.id), 'Save current state: the picture as far as it got, into its pictures and saved; it goes on rendering')] : []),
       ...(job?.state === 'done' ? [button('Download', () => renders.download(shot.id), 'Save the picture')] : []),
     ];
     const more = [

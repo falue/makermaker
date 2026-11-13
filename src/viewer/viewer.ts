@@ -5180,9 +5180,13 @@ export class Viewer implements ToolView {
     // 3D view | Live render: path traced, starting again whenever something changes
     const mode = Object.assign(document.createElement('span'), { className: 'segmented' });
     const status = Object.assign(document.createElement('span'), { className: 'read-only' });
-    const save = button('Save', 'Keep this picture: into the renders (once; again: a new version of it) and saved (Downloads or the render folder)', () => {
+    const save = button('Save', 'Save current state: the picture as it is now (still rendering: as far as it got) into the renders (once; again: a new version of it) and saved (Downloads or the render folder)', async () => {
       const l = view.live;
-      if (l?.image && this.liveHost) l.shot = this.liveHost.save(this.viewCamera(view), l.background ?? this.backdropColours(), l.image, l.shot);
+      if (!l || !this.liveHost) return;
+      // done: its picture; still rendering: the canvas it grows on
+      const canvas = l.picture.querySelector('canvas');
+      const image = l.image ?? (canvas && (await new Promise<Blob | null>((done) => canvas.toBlob(done, 'image/png'))));
+      if (image) l.shot = this.liveHost.save(this.viewCamera(view), l.background ?? this.backdropColours(), image, l.shot);
     });
     save.className = 'primary';
     const live = (on: boolean) => {
@@ -5377,6 +5381,7 @@ export class Viewer implements ToolView {
               l.picture.style.background = backdropCss(l.background ?? this.backdropColours());
               l.picture.replaceChildren(first);
               first = null;
+              l.save.hidden = false; // from its first picture on
             }
             if (!bar?.isConnected) l.status.replaceChildren((bar = Object.assign(document.createElement('progress'), { className: 'live-progress', max: 1 })));
             bar.value = done;
