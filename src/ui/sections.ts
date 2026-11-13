@@ -22,7 +22,7 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
     const from = range(0);
     const to = range(1000);
     const slider = Object.assign(document.createElement('span'), { className: 'dual', title: tips[axis][1] });
-    const zero = Object.assign(document.createElement('span'), { className: 'zero' }); // a tick where the handles snap to 0
+    const zero = Object.assign(document.createElement('span'), { className: 'zero' }); // a notch on the track where the handles snap to 0
     slider.append(zero, from, to);
     const button = (text: string, title: string, onclick: () => void) => Object.assign(document.createElement('button'), { className: 'icon', textContent: text, title, onclick });
     let cut: [number, number] = start ? [...start.sections[axis]] : [-Infinity, Infinity];
@@ -47,9 +47,10 @@ export function sectionControls(host: HTMLElement, set: (axis: Axis, from: numbe
       if (moved) {
         const v = moved.valueAsNumber;
         const other = (moved === from ? to : from).valueAsNumber;
-        // near 0 (and not past the other handle) it snaps to 0
+        // within 6 px of 0 (and not past the other handle) it snaps to 0
         const z = value(0);
-        const snap = span[0] < 0 && span[1] > 0 && Math.abs(v - z) <= 8 && (moved === from ? z <= other : z >= other);
+        const reach = (6 * 1000) / Math.max(1, slider.clientWidth - 14);
+        const snap = span[0] < 0 && span[1] > 0 && Math.abs(v - z) <= reach && (moved === from ? z <= other : z >= other);
         cut[moved === from ? 0 : 1] = snap ? 0 : v === 0 ? -Infinity : v === 1000 ? Infinity : span[0] + (v / 1000) * (span[1] - span[0]);
       }
       set(axis, ...cut, show());
