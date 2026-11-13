@@ -90,6 +90,11 @@ describe('move', () => {
     const next = runCommand(doc, 'move', { ids: ['g'], by: [5, 0, 0] }).doc;
     expect(next.bodies.map((b) => b.position[0].e)).toEqual(['6', '6', '1']);
   });
+  it('writes the distance (mm) in each value\'s own unit', () => {
+    const doc = { ...empty(), bodies: [{ id: 'a', group: null, position: [{ e: '1', u: 'in' }, { e: '2', u: 'cm' }, { e: '$h', u: 'mm' }] }] } as unknown as Doc;
+    const next = runCommand(doc, 'move', { ids: ['a'], by: [25.4, 10, 5] }).doc;
+    expect(next.bodies[0].position.map((p) => p.e)).toEqual(['2', '3', '($h)+5']);
+  });
 });
 
 describe('finger joint fingers', () => {

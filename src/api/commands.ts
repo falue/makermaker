@@ -2,6 +2,7 @@ import { assignMaterial, changeLook, findMaterial } from '../doc/materials';
 import { listedAfter, ownersOf } from '../doc/groups';
 import { attach, jointsWithout } from '../doc/joints';
 import { ex, newId, unturned } from '../doc/sample';
+import { UNITS } from '../doc/expr';
 import type { Body, CoatFeature, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
 
 /**
@@ -195,7 +196,11 @@ export const COMMANDS: Record<string, Command> = {
         doc.groups.filter((x) => x.parent === id).forEach((x) => take(x.id));
       };
       (a.ids as string[]).forEach(take);
-      const add = (e: Expr, d: number): Expr => (d ? ex(/^[-+]?[\d.]+$/.test(e.e) ? String(+(Number(e.e) + d).toFixed(6)) : `(${e.e})+${d}`, e.u) : e);
+      // d mm, written in the value's own unit
+      const add = (e: Expr, mm: number): Expr => {
+        const d = +(mm / UNITS[e.u]).toFixed(6);
+        return d ? ex(/^[-+]?[\d.]+$/.test(e.e) ? String(+(Number(e.e) + d).toFixed(6)) : `(${e.e})+${d}`, e.u) : e;
+      };
       const moved = (at: [Expr, Expr, Expr]) => at.map((e, k) => add(e, by[k])) as [Expr, Expr, Expr];
       return {
         doc: {

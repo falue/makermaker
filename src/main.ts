@@ -1214,12 +1214,7 @@ function groupKept(doc: Doc) {
   return kept && new Set([...kept, ...solid]);
 }
 
-/** Writes new positions (mm) as plain numbers in the display unit; untouched axes keep their expressions. */
-function place(moves: { id: string; position: Vec3 }[]) {
-  commit(withPlaces(history.current, moves));
-}
-
-/** The bodies moved to world positions. */
+/** The bodies moved to world positions: written as plain numbers in the display unit; untouched axes keep their expressions. */
 function withPlaces(doc: Doc, moves: { id: string; position: Vec3 }[]) {
   let next = doc;
   for (const { id, position } of moves) {
@@ -1236,12 +1231,29 @@ function withPlaces(doc: Doc, moves: { id: string; position: Vec3 }[]) {
   return next;
 }
 
+/** Moves what is selected by `by` (world mm): bodies, and groups with all they hold (one undo step). */
 function nudge(by: Vec3) {
   if (selectedImages().length) commit({ ...history.current, images: history.current.images.map((im) => (selected.includes(im.id) ? { ...im, frame: { ...im.frame, o: im.frame.o.map((v, k) => v + by[k]) as Vec3 } } : im)) });
-  place(selected.flatMap((id) => {
+  const doc = history.current;
+  const groups = new Set(selected.filter((id) => doc.groups.some((g) => g.id === id)));
+  // what a selected group holds moves with it, not once more on its own
+  const parentOf = (id: string) => doc.bodies.find((b) => b.id === id)?.group ?? doc.groups.find((g) => g.id === id)?.parent ?? null;
+  const inside = (id: string) => {
+    for (let g = parentOf(id), seen = new Set<string>(); g && !seen.has(g); seen.add(g), g = parentOf(g)) if (groups.has(g)) return true;
+    return false;
+  };
+  const free = selected.filter((id) => !inside(id));
+  let next = withPlaces(doc, free.flatMap((id) => {
     const p = positions.get(id);
     return p ? [{ id, position: p.map((v, k) => v + by[k]) as Vec3 }] : [];
   }));
+  // a group by the move command, in its parent's (turned) axes
+  for (const id of free.filter((x) => groups.has(x))) {
+    const turn = new Quaternion();
+    parentPlace(id).decompose(new Vector3(), turn, new Vector3());
+    next = runCommand(next, 'move', { ids: [id], by: new Vector3(...by).applyQuaternion(turn.invert()).toArray() }).doc;
+  }
+  if (next !== doc) commit(next);
 }
 
 /** ⌘A: all bodies with their eye on (tool bodies come with their owners), in sketch mode all shapes of the sketch. */
