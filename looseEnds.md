@@ -169,6 +169,7 @@ Answers assumed where a request left a question open.
 ## Group origins
 - Inside a group's own origin a base plane seen from behind still draws into that plane's sketch (the sketch from behind is a fixed plane, which would not move with the group).
 - A group origin change pins the group's free base-plane sketches as fixed planes: they no longer follow when the group moves later.
+- Selecting a body in a group turns the view upright to that group's origin (`setFrame` → `tiltUp` in src/viewer/viewer.ts). Imported assemblies keep each subassembly's own frame from the file, and many of those point their Z down or sideways (the part was drawn the other way up and flipped into place; in testdata/Hasi.step: speaker, powerbank, DC-DC converter, DAC with −Z, the Raspberry Pi sideways). Selecting such a body flips the view on its head or onto its side. Turning the view to the group axis nearest to world up, or not turning it at all, were turned down (user, 2026-11-13: seems wrong): still open how a group's frame should meet the view.
 
 ## Found by hand (2026-11-07 / 08, user-observed, not reproduced)
 - The candle's chamfer itself was not timed (no way to build a document in Node yet); what changed is that its 7 linked copies no longer build it again.
