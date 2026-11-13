@@ -547,6 +547,8 @@ export class Viewer implements ToolView {
   /** In sketch mode: what lies in front of the sketch's plane (along its normal) cut away, while `sketchCutOn`. */
   private sketchCut: { frame: Frame; plane: THREE.Plane } | null = null;
   private sketchCutOn = true;
+  /** The switch's last setting on a sketch not on a base plane: the next such sketch starts so. */
+  private sketchCutWanted = true;
   /** The view's top left, one under the other: the sketch's breadcrumbs, a drawing tool's mode note, the switches. */
   readonly corner = Object.assign(document.createElement('div'), { className: 'view-corner' });
   /** Switches while they apply: the sketch's cut, a tool's (3D line). */
@@ -1505,9 +1507,9 @@ export class Viewer implements ToolView {
     if (hover?.mesh.parent && !picked.some((f) => f.mesh === hover.mesh && f.index === hover.index)) this.faceMarks.push(this.replaceMark(null, hover.mesh, [hover.index], 0x3b6fd8)!);
   }
 
-  /** The sketch in sketch mode gets a grid on its plane (drawn as the ground grid is: `drawGrid`) and a cut there (null: none). */
-  setSketchGrid(frame: Frame | null) {
-    this.setSketchCut(frame);
+  /** The sketch in sketch mode gets a grid on its plane (drawn as the ground grid is: `drawGrid`) and a cut there (null: none; `onBase`: on a base plane). */
+  setSketchGrid(frame: Frame | null, onBase = false) {
+    this.setSketchCut(frame, onBase);
     this.sketchGrid.visible = !!frame;
     if (frame) Object.assign(this.sketchGrid, { matrixAutoUpdate: false, matrixWorldNeedsUpdate: true }).matrix.makeBasis(new THREE.Vector3(...frame.x), new THREE.Vector3(...frame.y), new THREE.Vector3(...frame.n)).setPosition(new THREE.Vector3(...frame.o));
     this.sketchLook.key = '';
@@ -2272,13 +2274,15 @@ export class Viewer implements ToolView {
 
   /**
    * Sketch mode's cut on the sketch's plane (null: none), `gap` mm in front of it so faces lying in it stay; its switch
-   * shows meanwhile. Only a changed plane cuts anew.
+   * shows meanwhile. Only a changed plane cuts anew. A sketch on a base plane (`onBase`) starts uncut: its cut would hide
+   * all that stands on that plane; others start as the switch was last set on one of them.
    */
-  private setSketchCut(frame: Frame | null, gap = 0.01) {
+  private setSketchCut(frame: Frame | null, onBase = false, gap = 0.01) {
     const box = this.cutBox.querySelector('input')!;
-    box.onchange = () => ((this.sketchCutOn = box.checked), box.blur(), this.applyCustom()); // keys go on to the tool
+    box.onchange = () => ((this.sketchCutOn = box.checked), onBase || (this.sketchCutWanted = box.checked), box.blur(), this.applyCustom()); // keys go on to the tool
     this.cutBox.hidden = !frame;
     if (JSON.stringify(frame) === JSON.stringify(this.sketchCut?.frame ?? null)) return;
+    if (frame) box.checked = this.sketchCutOn = !onBase && this.sketchCutWanted;
     const n = frame && new THREE.Vector3(...frame.n).normalize();
     this.sketchCut = frame && { frame, plane: new THREE.Plane(n!.clone().negate(), n!.dot(new THREE.Vector3(...frame.o)) + gap) };
     this.applyCustom();

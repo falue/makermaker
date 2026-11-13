@@ -185,7 +185,6 @@ Answers assumed where a request left a question open.
 - The entangle icon shows while moving (move fields, drags, Align), not while turning with Rotate.
 - An example script saved in this browser before 2026-11-09 keeps that copy (also a broken one); only later saves store just what differs.
 - Sketch export: from the list's right-click only, not from the 3D view.
-- Sketch mode's section on a ground-plane sketch cuts away every body standing on the ground. Maybe a sketch on a base plane (or seen from the top) should start without the section.
 - Closing a polygon inside sketch mode (Line tool, polygon mode, three corners, click the start) leaves sketch mode; it should stay flat and the tool go on (checklist: "Closed inside sketch mode"). Not reproduced (2026-11-08, headless Chrome, sample sketch "Plate outline": it stayed in the sketch, the tool went on); the exact steps are needed.
 - Negative sizes: H turns positive (the body moved) only for a body's own extrude on a base plane, not linked and not reaching back; from a sketch, a face or linked it still grows the other way and shows −40. Scrubbing (no final step on letting go): L / W stop above 0, H goes on below 0 as before; only typed values flip.
 - Command box (Space): app actions only. Python lines and the API commands with arguments (`box 80 60 40`) are not taken yet; no aliases beyond the names and hints ("split" finds Cut through its hint). Space opens it only from the key; no button shows it (Settings → Hotkeys lists it).

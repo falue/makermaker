@@ -741,7 +741,7 @@ function update() {
   viewer.setSketches(shown, activeSketch(), shapeSel);
   const drawn = shown.find((s) => s.id === sketching);
   if (sketching && !drawn) exitSketch();
-  else viewer.setSketchGrid(drawn?.frame ?? null);
+  else viewer.setSketchGrid(drawn?.frame ?? null, drawn?.placement.kind === 'base');
   viewer.retain(ids);
   // STEP files not read yet: a progress bar until their body comes back
   const stepsOf = (fs: BuildFeature[]): Extract<BuildFeature, { type: 'step' }>[] => fs.flatMap((f) => (f.type === 'step' ? [f] : f.type === 'boolean' ? stepsOf(f.features) : []));
@@ -6803,7 +6803,7 @@ function enterSketch(id: string, kind: ToolKind | null = null, look = false) {
     const box = new Box3().setFromPoints(sketchHull(s).map((p) => new Vector3(...p)));
     viewer.lookAlong(new Vector3(...s.frame.n), box.isEmpty() ? undefined : box.getCenter(new Vector3()), box);
   }
-  viewer.setSketchGrid(s.frame);
+  viewer.setSketchGrid(s.frame, s.placement.kind === 'base');
   showSelection();
   if (kind) startTool(kind);
 }
