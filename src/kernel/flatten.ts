@@ -182,6 +182,106 @@ export function stretchOf(face: Pick<FlatFace, 'pts' | 'tris' | 'flat'>) {
   return worst;
 }
 
+/** The triangles `keep` of a mesh in connected parts (triangles sharing a side), each with its own points. */
+function connected(pts: Float64Array, tris: Uint32Array, keep: number[]): Pick<FlatFace, 'pts' | 'tris'>[] {
+  // joined by the sides they share (union–find over the kept triangles)
+  const up = keep.map((_, i) => i);
+  const root = (i: number): number => (up[i] === i ? i : (up[i] = root(up[i])));
+  const by = new Map<string, number>();
+  keep.forEach((t, i) => {
+    for (let j = 0; j < 3; j++) {
+      const [a, b] = [tris[3 * t + j], tris[3 * t + ((j + 1) % 3)]];
+      const key = a < b ? `${a},${b}` : `${b},${a}`;
+      const other = by.get(key);
+      if (other === undefined) by.set(key, i);
+      else up[root(other)] = root(i);
+    }
+  });
+  const groups = new Map<number, number[]>();
+  keep.forEach((t, i) => groups.set(root(i), [...(groups.get(root(i)) ?? []), t]));
+  return [...groups.values()].map((ts) => {
+    const index = new Map<number, number>();
+    const out: number[] = [];
+    const sub = Uint32Array.from(ts.flatMap((t) => [0, 1, 2].map((j) => {
+      const v = tris[3 * t + j];
+      if (!index.has(v)) index.set(v, out.push(pts[3 * v], pts[3 * v + 1], pts[3 * v + 2]) / 3 - 1);
+      return index.get(v)!;
+    })));
+    return { pts: Float64Array.from(out), tris: sub };
+  });
+}
+
+/**
+ * The band of a mesh where parameter `k` of `uv` (per point) lies between `lo` and `hi`: its triangles cut along those
+ * lines (new points where a side crosses one, shared by the triangles on either side), as a mesh of its own. A corner
+ * where `free` says parameter k means nothing (a pole) spans it from one neighbouring corner's value to the other's,
+ * one point in space.
+ */
+function band(pts: Float64Array, uv: Float64Array, tris: Uint32Array, free: Map<number, number>, k: number, lo: number, hi: number): Pick<FlatFace, 'pts' | 'tris'> {
+  type Point = { key: string; p: number[]; m: number };
+  const out: number[] = [];
+  const index = new Map<string, number>();
+  const id = (q: Point) => index.get(q.key) ?? (index.set(q.key, out.push(...q.p) / 3 - 1), index.get(q.key)!);
+  // a convex polygon's part where `keep` holds, the line at `at` crossed where a side leaves or enters it
+  const clip = (poly: Point[], keep: (m: number) => boolean, at: number) =>
+    poly.flatMap((a, i) => {
+      const b = poly[(i + 1) % poly.length];
+      if (keep(a.m) === keep(b.m)) return keep(a.m) ? [a] : [];
+      const t = (at - a.m) / (b.m - a.m);
+      // at a corner (the line through it, or one point at a pole): that corner, not a second point on it
+      const x = a.key === b.key ? { ...a, m: at } : t < 1e-9 ? a : t > 1 - 1e-9 ? b : { key: `${[a.key, b.key].sort().join('|')}@${at}`, p: a.p.map((v, j) => v + (b.p[j] - v) * t), m: at };
+      return keep(a.m) ? [a, x] : [x];
+    });
+  const sub: number[] = [];
+  for (let t = 0; t < tris.length; t += 3) {
+    const corners = [tris[t], tris[t + 1], tris[t + 2]];
+    if (!local(pts, corners[0], corners[1], corners[2])) continue; // no area (two corners at a pole)
+    const value = (v: number) => uv[2 * v + k];
+    const p = (v: number) => [pts[3 * v], pts[3 * v + 1], pts[3 * v + 2]];
+    let poly: Point[] = corners.flatMap((v, j) => {
+      if (free.get(v) !== k) return [{ key: String(v), p: p(v), m: value(v) }];
+      const key = `pole ${p(v).map((x) => x.toFixed(6))}`;
+      return [corners[(j + 2) % 3], corners[(j + 1) % 3]].map((w) => ({ key, p: p(v), m: value(w) }));
+    });
+    poly = clip(clip(poly, (m) => m >= lo, lo), (m) => m <= hi, hi);
+    // a fan from its first corner (none where two corners are one point)
+    for (let j = 1; j + 1 < poly.length; j++) {
+      const tri = [id(poly[0]), id(poly[j]), id(poly[j + 1])];
+      if (new Set(tri).size === 3) sub.push(...tri);
+    }
+  }
+  return { pts: Float64Array.from(out), tris: Uint32Array.from(sub) };
+}
+
+/**
+ * A face curved both ways cut into gores: bands along one of its surface parameters (`uv`, per point), each flattened
+ * (`lscm`); 2, 4, 8 … up to `most` of them, until each is under `limit` stretch or doubling hardly helps. Of all tried,
+ * the one with the fewest pieces under `limit`, or within a quarter of the least stretch reached. `free`: points where
+ * a parameter (0: u, 1: v) means nothing, by point.
+ */
+export function gores(pts: Float64Array, uv: Float64Array, tris: Uint32Array, free = new Map<number, number>(), limit = 0.05, most = 32) {
+  const tries: { parts: Pick<FlatFace, 'pts' | 'tris' | 'flat'>[]; worst: number }[] = [];
+  for (const k of [0, 1]) {
+    let [lo, hi] = [Infinity, -Infinity];
+    for (let i = k; i < uv.length; i += 2) [lo, hi] = [Math.min(lo, uv[i]), Math.max(hi, uv[i])];
+    if (hi - lo < 1e-12) continue;
+    for (let count = 2; count <= most; count *= 2) {
+      const parts = Array.from({ length: count }, (_, i) => band(pts, uv, tris, free, k, lo + ((hi - lo) * i) / count, lo + ((hi - lo) * (i + 1)) / count))
+        .flatMap((q) => connected(q.pts, q.tris, Array.from({ length: q.tris.length / 3 }, (_, t) => t)))
+        .map((q) => ({ ...q, flat: facingOut(lscm(q.pts, q.tris), q.tris) }));
+      const worst = Math.max(...parts.map(stretchOf));
+      const before = tries.at(-1);
+      tries.push({ parts, worst });
+      // there, or more bands hardly help (the mesh's own error left)
+      if (worst <= limit || (before && count > 2 && worst > before.worst * 0.8)) break;
+    }
+  }
+  // the fewest pieces within the limit, or near the least stretch reached
+  const least = Math.min(...tries.map((t) => t.worst));
+  const fine = tries.filter((t) => t.worst <= Math.max(limit, least * 1.25));
+  return fine.length ? fine.reduce((a, b) => (b.parts.length < a.parts.length ? b : a)).parts : null;
+}
+
 /** A face's outline: its triangles' sides used once, as directed pairs of nodes (counter-clockwise around it, holes clockwise). */
 function rim(tris: Uint32Array): [number, number][] {
   const used = new Map<string, number>();

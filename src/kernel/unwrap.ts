@@ -1,7 +1,7 @@
 import { cast, getOC, type Face, type Shape3D } from 'replicad';
 import type { TopAbs_ShapeEnum, TopoDS_Edge, TopoDS_Shape } from 'replicad-opencascadejs';
 import type { Cut } from '../io/cutfile';
-import { facingOut, lscm, netLines, nets, stretchOf, type FlatFace, type P2 } from './flatten';
+import { facingOut, gores, lscm, netLines, nets, stretchOf, type FlatFace, type P2 } from './flatten';
 
 /**
  * One net of a body: its outline cut (red) and folds (green marks), y down; each face's loops and stretch, for a
@@ -66,7 +66,7 @@ const MESH = { linear: 0.05, angular: 0.2 };
 /**
  * A solid unwrapped into flat nets at 1:1, seen from outside: flat faces as they are, cylinders and cones rolled out
  * exactly (their surface parameters are lengths and angles), other faces by least squares conformal maps (`lscm`),
- * stretched a little; joined along shared edges where they lie flat without overlapping (`nets`). Of a hollow solid
+ * stretched a little (over 5 %: cut into `gores`, pieces of their own); joined along shared edges where they lie flat without overlapping (`nets`). Of a hollow solid
  * only the faces on `side` (see `facesOn`). `stretch`: the worst face's (0.05: 5 %); `hollow`: it has a cavity.
  */
 export function unwrap(shape: Shape3D, side?: Side): { pieces: UnwrapPiece[]; stretch: number; hollow: boolean; side: Side } {
@@ -142,21 +142,34 @@ export function unwrap(shape: Shape3D, side?: Side): { pieces: UnwrapPiece[]; st
       }
     } else flat.set(lscm(pts, tris));
     facingOut(flat, tris);
-    // its edges to other faces (not a seam, where it meets itself, nor a pole), by node along each
+    // its edges to other faces (not a seam, where it meets itself, nor a pole), by node along each; a pole's points: the
+    // parameter that runs along it means nothing there
     const edges: FlatFace['edges'] = [];
+    const free = new Map<number, number>();
     const explorer = new oc.TopExp_Explorer(face.wrapped, oc.TopAbs_ShapeEnum.TopAbs_EDGE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
     for (; explorer.More(); explorer.Next()) {
       const edge = oc.TopoDS.Edge(explorer.Current());
-      if (oc.BRep_Tool.Degenerated(edge) || oc.BRep_Tool.IsClosed(edge, face.wrapped)) continue;
+      if (oc.BRep_Tool.IsClosed(edge, face.wrapped)) continue;
       const poly = oc.BRep_Tool.PolygonOnTriangulation(edge, tri, loc);
       if (!poly || poly.isNull()) continue;
+      if (oc.BRep_Tool.Degenerated(edge)) {
+        const nodes = Array.from({ length: poly.NbNodes() }, (_, i) => poly.Node(i + 1) - 1);
+        const span = (k: number) => Math.max(...nodes.map((v) => uv[2 * v + k])) - Math.min(...nodes.map((v) => uv[2 * v + k]));
+        for (const v of nodes) free.set(v, span(1) > span(0) ? 1 : 0);
+        continue;
+      }
       edges.push({ key: keyOf(edge), nodes: Array.from({ length: poly.NbNodes() }, (_, i) => poly.Node(i + 1) - 1) });
     }
     explorer.delete();
     loc.delete();
     const flatFace = { pts, tris, flat, edges };
-    faces.push(flatFace);
-    stretch.push(kind === 'PLANE' || kind === 'CYLINDRE' || kind === 'CONE' ? 0 : stretchOf(flatFace));
+    const worst = kind === 'PLANE' || kind === 'CYLINDRE' || kind === 'CONE' ? 0 : stretchOf(flatFace);
+    // stretched too much: cut into gores, pieces of their own (they join nothing)
+    const parts = worst > 0.05 && tri.HasUVNodes() ? gores(pts, uv, tris, free) : null;
+    for (const part of parts ?? [flatFace]) {
+      faces.push({ edges: [], ...part });
+      stretch.push(parts ? stretchOf(part) : worst);
+    }
   }
   for (const same of known.values()) for (const e of same) e.delete();
   const points = faces.map(inside);

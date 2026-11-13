@@ -40,10 +40,11 @@ describe('unwrap', () => {
     const slant = Math.hypot(10, 20);
     expect(u.area).toBeCloseTo(Math.PI * (15 + 5) * slant + Math.PI * (225 + 25), -1);
   });
-  it('flattens a sphere with stretch, at its true area', () => {
+  it('cuts a sphere into gores, each under 5 % stretch, at its true area', () => {
     const u = unwrapped(makeSphere(15));
-    expect(u).toMatchObject({ nets: 1, open: 0 });
-    expect(u.stretch).toBeGreaterThan(0.05);
+    expect(u.nets).toBeGreaterThan(1);
+    expect(u.open).toBe(0);
+    expect(u.stretch).toBeLessThanOrEqual(0.05);
     // the mesh's flat triangles lose a little of the round
     expect(Math.abs(u.area / (4 * Math.PI * 225) - 1)).toBeLessThan(0.01);
   });
