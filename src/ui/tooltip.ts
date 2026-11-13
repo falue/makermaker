@@ -1,8 +1,24 @@
 
+import { axisHtml } from './axes';
 import { caretHtml } from './complete';
 
 /**
- * Hover help (from incase): any element with a title or data-tip shows a styled tooltip after `delay` ms; hidden
+ * A tooltip's text as HTML, the footer's way: `[Key]` a key and `**words**` stressed (both white), X / Y / Z in their
+ * axis' colours; line by line: `# ` its title, `- ` a point of a list, an empty line a gap, others as they are.
+ */
+export function tipHtml(text: string) {
+  const inline = (t: string) =>
+    axisHtml(t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+      .replace(/\[(.+?)\]/g, '<kbd>$1</kbd>')
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  return text
+    .split('\n')
+    .map((line) => (line.startsWith('# ') ? `<div class="tip-title">${inline(line.slice(2))}</div>` : line.startsWith('- ') ? `<div class="tip-point">${inline(line.slice(2))}</div>` : line ? `<div>${inline(line)}</div>` : '<div class="tip-gap"></div>'))
+    .join('');
+}
+
+/**
+ * Hover help (from incase): any element with a title or data-tip shows a styled tooltip (see `tipHtml`) after `delay` ms; hidden
  * while a button is held. Titles move into data-tip on first hover, so the browser's own tooltip never shows.
  * `cursorTip` shows a note that follows the pointer at once (e.g. what a key does now).
  */
@@ -53,8 +69,9 @@ export function installTooltips(delay = 500, within?: () => DOMRect, note: (text
       target = over ?? null;
       if (target)
         timer = window.setTimeout(() => {
-          tip.textContent = target!.getAttribute('data-tip');
-          tip.hidden = !tip.textContent;
+          const text = target!.getAttribute('data-tip') ?? '';
+          tip.innerHTML = tipHtml(text);
+          tip.hidden = !text;
           if (!byButton()) place(tip);
         }, delay);
     } else if (!tip.hidden && !byButton()) place(tip);

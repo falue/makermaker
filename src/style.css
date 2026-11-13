@@ -1383,6 +1383,31 @@ input.rename {
   border-color: var(--accent);
   white-space: pre-line;
 }
+/* hover help as the footer's: grey, keys and stressed words white (see tipHtml) */
+.tooltip:not(.follow) {
+  color: var(--muted);
+}
+.tooltip:not(.follow) :is(kbd, b, .tip-title) {
+  font: inherit;
+  color: var(--text);
+}
+.tooltip .tip-title {
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+.tooltip .tip-point {
+  padding-left: 10px;
+  text-indent: -10px;
+}
+.tooltip .tip-point::before {
+  content: '·';
+  display: inline-block;
+  width: 10px;
+  text-indent: 0;
+}
+.tooltip .tip-gap {
+  height: 6px;
+}
 
 .swatch {
   display: inline-block;

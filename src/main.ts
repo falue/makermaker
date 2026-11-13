@@ -7850,7 +7850,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
       value: exportChoice.stretch,
       className: 'stretch',
       title:
-        'Max stretch: the most a face may stretch flat, in %; a face stretching more is cut into gores (narrow pieces), at best down to what its mesh allows. Lower: more pieces that lie truer. Empty: no gores.\nAs a guide: paper and card 1–2 %, leather and felt about 5 %, woven cloth 5–10 %, stretchy fabric (jersey, lycra) 10–20 %',
+        '# Max stretch\nThe most a face may stretch flat (%). A face stretching more is cut into gores (narrow pieces), at best down to what its mesh allows. Lower: more pieces that lie truer; empty: no gores.\n\nAs a guide:\n- **Paper, card** 1–2 %\n- **Leather, felt** about 5 %\n- **Woven cloth** 5–10 %\n- **Stretchy fabric** (jersey, lycra) 10–20 %',
       oninput: () => ((exportChoice.stretch = stretch.value), clearTimeout(stretchTimer), (stretchTimer = window.setTimeout(draw, 400))),
     });
     // the key drawing on the sheet or not (remembered)
