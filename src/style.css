@@ -2736,7 +2736,11 @@ input + .set-axis {
 
 /* the export panels: one row per body, then the options */
 .export-panel {
-  width: 420px; /* not the whole view's width (a small view: its max-width, see atTop) */
+  flex-direction: column; /* one part under the other: as wide as its widest row (a small view: its max-width, see atTop) */
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: max-content;
+  min-width: 420px;
 }
 .export-panel .export-head {
   display: grid;
@@ -2794,6 +2798,27 @@ input + .set-axis {
 }
 .export-row .check.bad {
   color: var(--error);
+}
+
+/* a text that waits: dots come after it one by one, in room kept for three (the text does not move); any element */
+.loading-dots::after {
+  content: '';
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: loading-dots 1.2s infinite;
+}
+@keyframes loading-dots {
+  25% {
+    content: '.';
+  }
+  50% {
+    content: '..';
+  }
+  75%,
+  100% {
+    content: '...';
+  }
 }
 
 /* a right-click's menu on a face, at the pointer */

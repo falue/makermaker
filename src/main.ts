@@ -7747,7 +7747,8 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     const key = JSON.stringify(chosen.map((b) => [b.id, unwraps.get(b.id)?.side]));
     if (key === keyAsked.key || chosen.some((b) => !unwraps.has(b.id))) return keyAsked;
     const at = new Map(chosen.map((b, i) => [b.id, i]));
-    const anchors = unwrappedPieces(chosen).map((p, i) => ({ n: i + 1, body: at.get(p.body.id)!, ...p.anchor }));
+    // a body's inside alone: all its numbers hidden, dotting them tells nothing (Both: dotted ones are the inside's)
+    const anchors = unwrappedPieces(chosen).map((p, i) => ({ n: i + 1, body: at.get(p.body.id)!, ...p.anchor, solid: unwraps.get(p.body.id)?.side === 'inside' }));
     const asked: typeof keyAsked = { key, piece: kernel.legend(chosen.map((b) => ({ features: built.get(b.id)!, place: bodyPlace(b.id) })), anchors) };
     void asked.piece.then((piece) => {
       asked.done = piece;
@@ -7814,8 +7815,8 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
         // over the stretch typed: gores could not get under it
         const most = limit();
         const atBest = most !== null && (u?.stretch ?? 0) > most + 0.0005;
-        const text = !u ? (on.has(b.id) ? 'unwrapping …' : '') : u.error ? u.error : `${n} piece${n === 1 ? '' : 's'} · ${u.stretch > 0.0005 ? `stretched up to ${fmt(+(u.stretch * 100).toFixed(1))} %${atBest ? ' (at best)' : ''}` : 'no stretch'}`;
-        row.append(Object.assign(document.createElement('span'), { className: u?.error || (u?.stretch ?? 0) > (most ?? 0.1) ? 'check bad' : 'check', textContent: text, title: 'Flat faces as they are, cylinders and cones rolled out exactly, other faces flattened with a little stretch (orange below)' }));
+        const text = !u ? (on.has(b.id) ? 'unwrapping' : '') : u.error ? u.error : `${n} piece${n === 1 ? '' : 's'} · ${u.stretch > 0.0005 ? `stretched up to ${fmt(+(u.stretch * 100).toFixed(1))} %${atBest ? ' (at best)' : ''}` : 'no stretch'}`;
+        row.append(Object.assign(document.createElement('span'), { className: `check${u?.error || (u?.stretch ?? 0) > (most ?? 0.1) ? ' bad' : ''}${!u && on.has(b.id) ? ' loading-dots' : ''}`, textContent: text, title: 'Flat faces as they are, cylinders and cones rolled out exactly, other faces flattened with a little stretch (orange below)' }));
         // a hollow body (a closed cavity inside): which of its faces
         if (u?.hollow) row.append(segmented<Side>([['outside', 'Outside'], ['inside', 'Inside'], ['both', 'Both']], () => sides.get(b.id) ?? 'inside', (v) => sides.set(b.id, v)));
       } else {
@@ -7832,6 +7833,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     return el;
   };
   const draw = () => {
+    if (kind === 'unwrap') unwrapAsk(); // first: the rows show what is being unwrapped
     const kerf = Object.assign(document.createElement('input'), {
       value: exportChoice.kerf,
       title: 'Kerf: how wide the beam cuts; the outline moves out by half, holes in, so the part comes out true',
@@ -7842,8 +7844,8 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
       value: exportChoice.stretch,
       className: 'stretch',
       title:
-        'Stretch: the most a face may stretch flat, in %; a face stretching more is cut into gores (narrow pieces), at best down to what its mesh allows. Lower: more pieces that lie truer. Empty: no gores.\nAs a guide: paper and card 1–2 %, leather and felt about 5 %, woven cloth 5–10 %, stretchy fabric (jersey, lycra) 10–20 %',
-      oninput: () => ((exportChoice.stretch = stretch.value), clearTimeout(stretchTimer), (stretchTimer = window.setTimeout(unwrapAsk, 400))),
+        'Max stretch: the most a face may stretch flat, in %; a face stretching more is cut into gores (narrow pieces), at best down to what its mesh allows. Lower: more pieces that lie truer. Empty: no gores.\nAs a guide: paper and card 1–2 %, leather and felt about 5 %, woven cloth 5–10 %, stretchy fabric (jersey, lycra) 10–20 %',
+      oninput: () => ((exportChoice.stretch = stretch.value), clearTimeout(stretchTimer), (stretchTimer = window.setTimeout(draw, 400))),
     });
     const formats =
       kind === 'print' ? segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v)) : segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice[kind], (v) => (exportChoice[kind] = v));
@@ -7853,7 +7855,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     const foot = Object.assign(document.createElement('div'), { className: 'export-foot' });
     foot.append(
       ...(kind === 'laser' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf)] : []),
-      ...(kind === 'unwrap' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Stretch', title: stretch.title }), stretch, Object.assign(document.createElement('span'), { textContent: '%' }))] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
+      ...(kind === 'unwrap' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Max stretch', title: stretch.title }), stretch, Object.assign(document.createElement('span'), { textContent: '%' }))] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
     const typing = box.querySelector<HTMLInputElement>('input.stretch');
     const caret = typing && typing === document.activeElement ? typing.selectionStart : null;
     box.replaceChildren(head, Object.assign(document.createElement('h4'), { className: 'export-sub', textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);
@@ -7866,7 +7868,6 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     if (kind !== 'print') box.insertBefore(preview, foot);
     showPreview();
     if (kind === 'laser') laserAsk();
-    if (kind === 'unwrap') unwrapAsk();
     if (caret !== null) stretch.focus(), stretch.setSelectionRange(caret, caret);
     showNote(); // the hint row back
     atTop(box);

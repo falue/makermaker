@@ -276,7 +276,7 @@ async function handle(data: Job) {
         return [];
       }
     });
-    const anchors = data.anchors.map(({ n, body, at, dir }) => ({ n, at: placed(data.bodies[body].place, at), dir: placed(data.bodies[body].place, dir, true) }));
+    const anchors = data.anchors.map(({ body, at, dir, ...rest }) => ({ ...rest, at: placed(data.bodies[body].place, at), dir: placed(data.bodies[body].place, dir, true) }));
     const piece = keyPiece(shapes, anchors)[0] ?? null;
     for (const s of shapes) s.delete();
     return postMessage({ kind: 'legend', id: data.id, piece } satisfies Response);

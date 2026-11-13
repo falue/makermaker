@@ -4,8 +4,8 @@ import type { Cut, Label } from '../io/cutfile';
 type V3 = [number, number, number];
 type P2 = [number, number];
 
-/** Where a piece's number points: a point on its face (world) and the way that face looks. */
-export type Anchor = { n: number; at: V3; dir: V3 };
+/** Where a piece's number points: a point on its face (world) and the way that face looks; `solid`: never dotted. */
+export type Anchor = { n: number; at: V3; dir: V3; solid?: boolean };
 
 /** The key drawing's look: its widest (mm), the gap between its views, the numbers' circles and text. */
 const KEY = { width: 160, gap: 20, radius: 3, text: 3.2, margin: 10, dots: 16, dash: 1.2 };
@@ -68,7 +68,7 @@ function sees(query: DistanceQuery, a: Anchor, eye: V3) {
  * A key drawing: the shapes (as placed in the world) seen from the front right above and from behind left below, hidden
  * edges left out, side by side, at most KEY.width wide; each anchor's number in a circle in the view its face looks
  * toward more: on the face where there is room, else beside the view with a line to the face; circle and line dotted
- * where the face does not show there (behind something). Lines and circles as key cuts, the numbers as notes; y down,
+ * where the face does not show there (behind something; not a `solid` anchor). Lines and circles as key cuts, the numbers as notes; y down,
  * as the cut writers take them. Null when there is nothing to draw.
  */
 export function legend(shapes: Shape3D[], anchors: Anchor[]): { cuts: Cut[]; notes: Label[] } | null {
@@ -77,7 +77,7 @@ export function legend(shapes: Shape3D[], anchors: Anchor[]): { cuts: Cut[]; not
   const eyes: V3[] = [unit([1, -1, 1]), unit([-1, 1, -1])];
   const views = eyes.map((eye) => view(all, eye));
   const query = new DistanceQuery(all);
-  const hidden = new Set(anchors.filter((a) => !sees(query, a, dot(a.dir, eyes[0]) >= dot(a.dir, eyes[1]) ? eyes[0] : eyes[1])));
+  const hidden = new Set(anchors.filter((a) => !a.solid && !sees(query, a, dot(a.dir, eyes[0]) >= dot(a.dir, eyes[1]) ? eyes[0] : eyes[1])));
   query.delete();
   all.delete();
   // each view's box, then side by side, scaled to fit
