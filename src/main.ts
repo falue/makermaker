@@ -8342,15 +8342,16 @@ function importFile(f: File, at?: { x: number; y: number }) {
   if (!IMPORTS.includes(ext)) return false;
   const ground = { placement: { kind: 'base', axis: 'xy', offset: 0 } as const, frame: { o: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], n: [0, 0, 1] } as Frame, body: null, name: 'the ground', point: null };
   const target = (at && viewer.dropTarget(at.x, at.y)) ?? ground;
-  run(() =>
-    loading(f.name, async () => {
+  run(async () => {
+    await loading(f.name, async () => {
       try {
         await read();
       } catch (err) {
         throw new Error(`${f.name} could not be imported, it may be damaged: ${(err as Error).message}`);
       }
-    }, NATIVE.includes(ext)),
-  );
+    }, NATIVE.includes(ext));
+    if (!PICTURES.includes(ext)) fit(); // built and drawn: the camera onto what came in (it is selected)
+  });
   return true;
 
   async function read() {
