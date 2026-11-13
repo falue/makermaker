@@ -107,8 +107,8 @@ export class Kernel {
    * checks build anew, all in the first worker: STEP files the other workers read, it reads again (once). `around`:
    * bodies a laser cut must stay out of besides `bodies`.
    */
-  async export(format: ExportFormat, bodies: ExportBody[], around: Pick<ExportBody, 'features' | 'place'>[] = []): Promise<{ files: ExportFile[]; failed: string[] }> {
-    const answer = await this.ask(this.shards[0], { kind: 'export', format, id: this.nextAsk++, bodies, around });
+  async export(format: ExportFormat, bodies: ExportBody[], around: Pick<ExportBody, 'features' | 'place'>[] = [], apart = false): Promise<{ files: ExportFile[]; failed: string[] }> {
+    const answer = await this.ask(this.shards[0], { kind: 'export', format, id: this.nextAsk++, bodies, around, apart });
     return answer.kind === 'export' ? answer : { files: [], failed: [] };
   }
 

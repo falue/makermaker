@@ -5,7 +5,7 @@ import { deserializeShape, exportSTEP, getOC, setOC, type Shape3D } from 'replic
 import type { Resolved } from '../doc/resolve';
 import type { Profile } from '../doc/types';
 import { placed, type Place } from '../doc/frames';
-import { dxfOf, sheetOf, sheetSvg, type Cut, type Label } from '../io/cutfile';
+import { cutFiles, type Cut, type Label } from '../io/cutfile';
 import { legend, type Anchor } from './legend';
 import { laserPart, withKerf } from './laser';
 import { unwrap, type Side, type UnwrapPiece } from './unwrap';
@@ -34,7 +34,7 @@ type Shared = { ids: string[]; brep: string };
 export type Request =
   | { kind: 'build'; bodies: { id: string; features: BuildFeature[] }[]; tolerance: number }
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
-  | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
+  | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[]; apart?: boolean }
   | { kind: 'check'; id: number; bodies: ExportBody[] }
   | { kind: 'unwrap'; id: number; bodies: (Pick<ExportBody, 'name' | 'features'> & { side?: Side; limit?: number | null })[] }
   | { kind: 'laser'; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
@@ -333,11 +333,7 @@ async function handle(data: Job) {
     }
     if (data.format === 'svg' || data.format === 'dxf') {
       const { pieces } = laserPieces(data.bodies, data.around, failed);
-      if (pieces.length) {
-        const sheet = sheetOf(pieces);
-        const text = data.format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.flatMap((p) => [p.label, ...p.notes]));
-        files.push({ name: 'sheet', data: new TextEncoder().encode(text).buffer as ArrayBuffer });
-      }
+      for (const f of cutFiles(pieces, data.format, data.apart)) files.push({ name: f.name, data: new TextEncoder().encode(f.text).buffer as ArrayBuffer });
       return postMessage({ kind: 'export', id: data.id, files, failed } satisfies Response, { transfer: files.map((f) => f.data) });
     }
     for (const { name, features, place } of data.bodies) {

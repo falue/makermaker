@@ -1,4 +1,4 @@
-import { zipSync } from 'fflate';
+import { strToU8, zipSync } from 'fflate';
 import { Box3, Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import './style.css';
 import { evalLength, evalQuantity, fmt, inName, isPlain, negated, UNITS } from './doc/expr';
@@ -38,7 +38,7 @@ import type { MeasureAsk, SolidMeasure } from './kernel/measure';
 import type { Exact } from './kernel/exact';
 import { extents, meshBody, objKind, parse3mf, parseGlb, parseObj, parseSkp, parseStl, toBase64, type MeshPart } from './io/mesh';
 import { dxfShapes, svgShapes, type Shape2 } from './io/vector';
-import { dxfOf, previewSvg, sheetOf, sheetSvg, sketchCuts, svgOf } from './io/cutfile';
+import { cutFiles, dxfOf, previewSvg, sheetOf, sketchCuts, svgOf } from './io/cutfile';
 import { coatAsBody, describe as describeCommands, fingersFor, runCommand, shared, type Args } from './api/commands';
 import type { AreaMesh, BuildFeature, CappedEdge, Sweep } from './kernel/build';
 import { Kernel } from './kernel/client';
@@ -7629,18 +7629,19 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
     return n > 1 ? `${base}_${n}` : base;
   };
   const names = bodies.map(nameOf);
-  const { files, failed } = await kernel.export(format, bodies.map((b, i) => ({ name: names[i], label: b.name, color: lookOf(history.current, b).color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })), around.map((b) => ({ features: built.get(b.id)!, place: bodyPlace(b.id) })));
+  const sheet = format === 'svg' || format === 'dxf';
+  const { files, failed } = await kernel.export(format, bodies.map((b, i) => ({ name: names[i], label: b.name, color: lookOf(history.current, b).color, features: built.get(b.id)!, place: bodyPlace(b.id), ...extra(b) })), around.map((b) => ({ features: built.get(b.id)!, place: bodyPlace(b.id) })), sheet && exportChoice.apart);
   const type = { stl: 'model/stl', '3mf': 'model/3mf', step: 'model/step', svg: 'image/svg+xml', dxf: 'image/vnd.dxf' }[format];
-  // laser: one sheet of all, named after the body when it is one
-  if ((format === 'svg' || format === 'dxf') && files.length) download(new Blob([files[0].data], { type }), `${bodies.length === 1 ? names[0] : project()}.${format}`);
+  // laser: one sheet of all (named after the body when it is one), or a file per piece in a ZIP
+  if (sheet && files.length === 1) download(new Blob([files[0].data], { type }), `${bodies.length === 1 ? names[0] : project()}.${format}`);
   else if ((format === 'step' || format === '3mf') && files.length) download(new Blob([files[0].data], { type }), `${project()}.${format}`);
   else if (files.length === 1) download(new Blob([files[0].data], { type }), `${files[0].name}.${format}`);
   else if (files.length) download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, new Uint8Array(f.data)])))]), `${project()}_${format}.zip`);
-  notify(`Exported ${format === 'step' || format === '3mf' || format === 'svg' || format === 'dxf' ? `${bodies.length - failed.length} bodies as one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}${meshesLeft()}`, failed.length > 0);
+  notify(`Exported ${format === 'step' || format === '3mf' || (sheet && files.length === 1) ? `${bodies.length - failed.length} bodies as one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} file${files.length === 1 ? '' : 's'}`}${failed.length ? `; could not make: ${failed.join(', ')}` : ''}${meshesLeft()}`, failed.length > 0);
 }
 
 /** The export panels' choices, this session. */
-const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0', stretch: '5', key: true };
+const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0', stretch: '5', key: true, apart: false };
 
 /**
  * Laser, unwrap or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each switched on
@@ -7676,11 +7677,12 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
         // the key drawing too (one piece needs none; switched off: none), waited for if it is still being drawn
         const pieces = unwrappedPieces(chosen);
         const key = pieces.length > 1 && exportChoice.key ? await unwrapKey(chosen).piece : null;
-        const sheet = sheetOf([...pieces, ...(key ? [key] : [])]);
         const format = exportChoice.unwrap;
-        const text = format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.flatMap((p) => [p.label, ...p.notes]));
-        download(new Blob([text], { type: format === 'svg' ? 'image/svg+xml' : 'image/vnd.dxf' }), `${chosen.length === 1 ? chosen[0].name.replace(/[^\w.-]+/g, '_') || 'body' : project()}_unwrapped.${format}`);
-        notify(`Exported ${pieces.length} flat piece${pieces.length === 1 ? '' : 's'} of ${chosen.length} bod${chosen.length === 1 ? 'y' : 'ies'}${key ? ' and a key drawing' : ''} as one ${format.toUpperCase()} file`);
+        const files = cutFiles([...pieces, ...(key ? [key] : [])], format, exportChoice.apart);
+        const name = `${chosen.length === 1 ? chosen[0].name.replace(/[^\w.-]+/g, '_') || 'body' : project()}_unwrapped`;
+        if (files.length === 1) download(new Blob([files[0].text], { type: format === 'svg' ? 'image/svg+xml' : 'image/vnd.dxf' }), `${name}.${format}`);
+        else download(new Blob([zipSync(Object.fromEntries(files.map((f) => [`${f.name}.${format}`, strToU8(f.text)])))]), `${name}.zip`);
+        notify(`Exported ${pieces.length} flat piece${pieces.length === 1 ? '' : 's'} of ${chosen.length} bod${chosen.length === 1 ? 'y' : 'ies'}${key ? ' and a key drawing' : ''} as ${files.length === 1 ? `one ${format.toUpperCase()} file` : `${files.length} ${format.toUpperCase()} files in a ZIP`}`);
       });
     const kerf = length(exportChoice.kerf) ?? 0;
     // the ones switched off still stand by them
@@ -7841,6 +7843,9 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
       title: exportChoice.key ? 'Click: Leave the key drawing out' : "Click: Add a key drawing, the bodies seen from two sides with each piece's number on it",
     });
     keyToggle.append(Object.assign(document.createElement('input'), { type: 'checkbox', checked: exportChoice.key, onchange: () => ((exportChoice.key = !exportChoice.key), draw()) }), document.createTextNode('Include key visual'));
+    // one sheet, or a file per piece (in a ZIP)
+    const apart = segmented([['one', 'One file'], ['apart', 'One per piece']], () => (exportChoice.apart ? 'apart' : 'one'), (v) => (exportChoice.apart = v === 'apart'));
+    apart.title = 'One file: all pieces on one sheet · One per piece: each piece (and the key) a file of its own, in a ZIP';
     const formats =
       kind === 'print' ? segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v)) : segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice[kind], (v) => (exportChoice[kind] = v));
     // its title centred, the close button at the right; "Available objects" over the rows; a footer: Kerf left, the formats and Export right
@@ -7855,8 +7860,8 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     const kerfLabel = scrubbed(kerf, Object.assign(document.createElement('span'), { textContent: 'Kerf' }), doc.units, 0.01); // tenths of a mm: 0.01 per px
     const stretchLabel = scrubbed(stretch, Object.assign(document.createElement('span'), { textContent: 'Max stretch', title: stretch.title }), 'mm', 0.1); // per cent, 0.1 per px
     foot.append(
-      ...(kind === 'laser' ? [cell(kerfLabel, kerf)] : []),
-      ...(kind === 'unwrap' ? [cell(stretchLabel, stretch, Object.assign(document.createElement('span'), { textContent: '%' })), keyToggle] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
+      ...(kind === 'laser' ? [cell(kerfLabel, kerf), apart] : []),
+      ...(kind === 'unwrap' ? [cell(stretchLabel, stretch, Object.assign(document.createElement('span'), { textContent: '%' })), keyToggle, apart] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
     const typing = box.querySelector<HTMLInputElement>('input.stretch');
     const caret = typing && typing === document.activeElement ? typing.selectionStart : null;
     box.replaceChildren(head, Object.assign(document.createElement('h4'), { className: 'export-sub', textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);

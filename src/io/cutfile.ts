@@ -168,6 +168,23 @@ export function dxfOf(cuts: Cut[], labels: Label[] = []): string {
 
 
 /**
+ * Pieces as SVG or DXF files: all on one sheet (named `sheet`), or (`apart`) each a file of its own, named after it
+ * (up to a " · " note, made unique).
+ */
+export function cutFiles(pieces: { name: string; cuts: Cut[]; notes?: Label[] }[], format: 'svg' | 'dxf', apart = false): { name: string; text: string }[] {
+  const write = (sheet: Placed[]) => (format === 'svg' ? sheetSvg(sheet) : dxfOf(sheet.flatMap((p) => p.cuts), sheet.flatMap((p) => [p.label, ...p.notes])));
+  if (!apart) return pieces.length ? [{ name: 'sheet', text: write(sheetOf(pieces)) }] : [];
+  const taken = new Map<string, number>();
+  return pieces.flatMap((p) => {
+    if (!p.cuts.length) return [];
+    const base = p.name.split(' · ')[0].replace(/[^\w.-]+/g, '_') || 'piece'; // its name, not its notes
+    const n = (taken.get(base) ?? 0) + 1;
+    taken.set(base, n);
+    return [{ name: n > 1 ? `${base}_${n}` : base, text: write(sheetOf([p])) }];
+  });
+}
+
+/**
  * A sheet drawn to look at (not to cut): each piece's faces filled (`faces`, by the pieces given to `sheetOf`: white, more
  * orange the more they stretch, full at `full`: 0.1 is 10 %), its cuts dark red, its folds dashed green, key lines dark grey, its texts;
  * lines one pixel wide at any size.

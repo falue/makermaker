@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dxfOf, sheetOf, sheetSvg, sketchCuts, svgOf, type Cut } from './cutfile';
+import { cutFiles, dxfOf, sheetOf, sheetSvg, sketchCuts, svgOf, type Cut } from './cutfile';
 
 describe('sketch drawings', () => {
   const shapes = [
@@ -56,6 +56,14 @@ describe('sketch drawings', () => {
     const dxf = dxfOf(cuts).split('\n');
     const polylines = dxf.flatMap((v, i) => (v === 'POLYLINE' ? [[dxf[i + 2], dxf[i + 4]]] : []));
     expect(polylines).toEqual([['KEY', '7'], ['KEY', '3']]);
+  });
+  it('writes pieces on one sheet, or each a file of its own, named after it', () => {
+    const square = (x: number): Cut => ({ hole: false, pts: [[x, 0], [x + 10, 0], [x + 10, 10], [x, 10]], curves: [null, null, null, null] });
+    const pieces = [{ name: 'Lid 1', cuts: [square(0)] }, { name: 'Lid 1', cuts: [square(0)] }, { name: 'Key', cuts: [square(0)] }];
+    expect(cutFiles(pieces, 'svg').map((f) => f.name)).toEqual(['sheet']);
+    const apart = cutFiles(pieces, 'dxf', true);
+    expect(apart.map((f) => f.name)).toEqual(['Lid_1', 'Lid_1_2', 'Key']);
+    expect(apart.every((f) => f.text.includes('POLYLINE'))).toBe(true);
   });
 });
 
