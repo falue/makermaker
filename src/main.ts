@@ -8274,6 +8274,11 @@ function measureInto(field: HTMLInputElement) {
     render();
   });
 }
+// a double click in a text field selects all of it (as ⌘A), not a word
+addEventListener('dblclick', (e) => {
+  const field = e.target;
+  if (field instanceof HTMLInputElement && ['text', 'search', 'number', ''].includes(field.getAttribute('type') ?? '')) field.select();
+});
 /** Fields typed in (not only filled by the app), and where the last measured value went in each. */
 const typed = new WeakSet<HTMLInputElement>();
 const measured = new WeakMap<HTMLInputElement, { text: string; from: number; to: number }>();
