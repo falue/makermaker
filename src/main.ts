@@ -8675,9 +8675,13 @@ async function loading<T>(name: string, task: () => Promise<T> | T, converted = 
   }
 }
 
+/** Open: a design; a file it imports goes into a new, empty design. */
 async function openDesign() {
-  const f = await openFile();
-  if (f) await loading(f.name, () => loadFile(f));
+  const f = await openFile(IMPORTS);
+  if (!f) return;
+  if (f.name.toLowerCase().endsWith(EXTENSION)) return loading(f.name, () => loadFile(f));
+  load(emptyDoc(history.current.units), { name: `${f.name.replace(/\.[^.]*$/, '')}${EXTENSION}`, versions: [] });
+  importFile(new File([f.bytes as BlobPart], f.name));
 }
 
 function undo(redo = false) {

@@ -11,10 +11,11 @@ const types = [{ description: 'MAKERMAKER design', accept: { 'application/zip': 
 
 const aborted = (err: unknown) => err instanceof DOMException && err.name === 'AbortError';
 
-export async function openFile(): Promise<OpenedFile | null> {
-  if (!window.showOpenFilePicker) return pickWithInput();
+/** A design picked to open, or (`imports`: their extensions) a file to import into a new one. */
+export async function openFile(imports: string[] = []): Promise<OpenedFile | null> {
+  if (!window.showOpenFilePicker) return pickWithInput([EXTENSION, ...imports]);
   try {
-    const [handle] = await window.showOpenFilePicker({ types });
+    const [handle] = await window.showOpenFilePicker({ types: [...types, ...(imports.length ? [{ description: 'Files to import (into a new design)', accept: { 'application/octet-stream': imports as `.${string}`[] } }] : [])] });
     return readHandle(handle);
   } catch (err) {
     if (aborted(err)) return null;
@@ -51,9 +52,9 @@ export async function saveFile(
   return { name: handle.name, handle };
 }
 
-function pickWithInput(): Promise<OpenedFile | null> {
+function pickWithInput(accept = [EXTENSION]): Promise<OpenedFile | null> {
   return new Promise((done) => {
-    const input = Object.assign(document.createElement('input'), { type: 'file', accept: EXTENSION });
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: accept.join(',') });
     input.onchange = async () => {
       const file = input.files?.[0];
       done(file ? { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) } : null);

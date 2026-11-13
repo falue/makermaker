@@ -596,7 +596,7 @@ function fileMenu(ctx: UIContext) {
   const recent = ctx.recent;
   return [
     menuItem('new', 'New', 'New: a new design', ctx.newDoc),
-    menuItem('open', 'Open…', 'Open (⌘O, or drop a file)', ctx.open),
+    menuItem('open', 'Open…', 'Open (⌘O): a design, or a file to import (STEP, STL, SVG …) into a new design', ctx.open),
     h(
       'div',
       { className: 'menu-sub' },
