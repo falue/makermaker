@@ -7594,7 +7594,7 @@ function render() {
     photos: allPhotos,
     duplicate: () => (shapeSel.length ? duplicateShapes() : selected.length ? duplicate() : pickFor('duplicate', duplicate)),
     remove,
-    newDoc: newDesign,
+    newDoc: () => run(newDesign),
     open: () => run(openDesign),
     save: () => run(save),
     saveAs: () => run(() => save(true)),
@@ -8724,10 +8724,18 @@ function settled() {
   });
 }
 
+/** Whether the design on screen may make way: unchanged since saved, else asked (save it first, discard it, or cancel). */
+async function mayReplace() {
+  if (history.current === file.saved) return true;
+  const answer = await ask('Unsaved changes', `${file.name} has changes that are not saved yet.`, ['Cancel', 'Discard them', 'Save']);
+  if (answer === 2) await save();
+  return answer === 1 || history.current === file.saved; // saved: it may go; the save cancelled: it stays
+}
+
 /** Open: a design; a file it imports goes into a new, empty design. */
 async function openDesign() {
   const f = await openFile(IMPORTS);
-  if (!f) return;
+  if (!f || !(await mayReplace())) return;
   if (f.name.toLowerCase().endsWith(EXTENSION)) return loading(f.name, () => loadFile(f));
   load(emptyDoc(history.current.units), { name: `${f.name.replace(/\.[^.]*$/, '')}${EXTENSION}`, versions: [] });
   importFile(new File([f.bytes as BlobPart], f.name));
@@ -8785,7 +8793,7 @@ addEventListener('keydown', (e) => {
   else if (pressed(e, 'open')) run(openDesign);
   else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
   else if (pressed(e, 'commandBox')) e.repeat || viewer.holdNav(true); // opens when let go (`keyup` below)
-  else if (pressed(e, 'newDoc')) newDesign();
+  else if (pressed(e, 'newDoc')) run(newDesign);
   else if (pressed(e, 'alignOrigins')) alignOriginsPanel(selected.length ? selected : history.current.groups.filter((g) => !g.parent).map((g) => g.id));
   else if (pressed(e, 'terminal')) terminal.toggle();
   else if (pressed(e, 'moreSnaps') || pressed(e, 'fewerSnaps')) notify(`${comboText(keysOf('moreSnaps')[0])} / ${comboText(keysOf('fewerSnaps')[0])} split a line into more or fewer snap points: with a drawing tool, the Distance measure or To object on, put the pointer on the line`);
@@ -8973,6 +8981,7 @@ addEventListener('drop', (e) => {
         else fail(`${f.name}: Python scripts as files need Chrome or Edge.`);
       } else if (importFile(f, at)) continue;
       else if (f.name.toLowerCase().endsWith(EXTENSION)) {
+        if (!(await mayReplace())) continue;
         await loading(f.name, async () => {
           const h = await handle;
           loadFile(h instanceof FileSystemFileHandle ? await readHandle(h) : { name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
@@ -9000,13 +9009,14 @@ addEventListener(
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
 
-function newDesign() {
+async function newDesign() {
+  if (!(await mayReplace())) return;
   load(cubeDoc(history.current.units), { name: `untitled${EXTENSION}`, versions: [] });
 }
 
 /** A design by its handle, permission asked for first if it takes that; not there any more: off the recent files. */
 async function openHandle(h: FileSystemFileHandle) {
-  if ((await h.requestPermission({ mode: 'readwrite' })) !== 'granted') return;
+  if ((await h.requestPermission({ mode: 'readwrite' })) !== 'granted' || !(await mayReplace())) return;
   const f = await readHandle(h).catch(async (err) => {
     if (!(err instanceof DOMException && err.name === 'NotFoundError')) throw err;
     await dropRecent(h);
