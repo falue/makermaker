@@ -619,7 +619,9 @@ export class SketchTool implements Tool {
       const target = this.mode?.kind === 'plane' ? this.planeTarget(e) : this.target(e);
       this.view.markFace(target?.body && !target.sketch ? this.view.hit(e) : undefined);
       this.litPlane(target?.placement.kind === 'work' ? target.placement.plane : null);
-      this.host.hint(target ? this.hoverHint(target) : 'Only top faces of extrusions take sketches · [Esc] stops');
+      // over nothing (no face, no sketch's shape): the hint the tool started with
+      const empty = !this.view.hit(e) && !(this.mode?.kind === 'plane' && this.sketchUnder(e));
+      this.host.hint(!target ? 'Only top faces of extrusions take sketches · [Esc] stops' : this.hoverHint(empty ? undefined : target));
       if (target && !this.spaceAt(e, target)) this.point(e, target); // shows a snap dot
       return this.update();
     }
