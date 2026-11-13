@@ -46,7 +46,6 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - One Fingers count for all joints of a batch gives short joints the same number of tiny fingers (Finger length avoids it).
 
 ## Laser export
-- Open question (user, 2026-11-13): whether the laser export should have the sheet preview at all (built 2026-11-13, like the Unwrap export's). Decide: keep it, or drop it to keep the laser panel small.
 - Seen from the face: a round face that turns away from the view part way counts only its seen part for cylinders and spheres; a torus or spline face doing that is left out (where no other face covers it the outline can come out a little small). Green lines come only where flat faces of the body as modelled meet, not at fillets or chamfers.
 - The sheet is rows of boxes, not nested tightly, and has no size limit (a laser bed's).
 - Wanted later (user, 2026-11-13), here and in the Unwrap export: true arcs in the outlines (not mesh polylines), a seam allowance, glue tabs.
@@ -187,4 +186,4 @@ Answers assumed where a request left a question open.
 - Sketch export: from the list's right-click only, not from the 3D view.
 - Closing a polygon inside sketch mode (Line tool, polygon mode, three corners, click the start) leaves sketch mode; it should stay flat and the tool go on (checklist: "Closed inside sketch mode"). Not reproduced (2026-11-08, headless Chrome, sample sketch "Plate outline": it stayed in the sketch, the tool went on); the exact steps are needed.
 - Negative sizes: H turns positive (the body moved) only for a body's own extrude on a base plane, not linked and not reaching back; from a sketch, a face or linked it still grows the other way and shows −40. Scrubbing (no final step on letting go): L / W stop above 0, H goes on below 0 as before; only typed values flip.
-- Command box (Space): app actions only. Python lines and the API commands with arguments (`box 80 60 40`) are not taken yet; no aliases beyond the names and hints ("split" finds Cut through its hint). Space opens it only from the key; no button shows it (Settings → Hotkeys lists it).
+- Command box (Space): app actions only, by choice (user, 2026-11-13: no Python lines, no API commands with arguments, no button); no aliases beyond the names and hints ("split" finds Cut through its hint). Settings → Hotkeys lists it.
