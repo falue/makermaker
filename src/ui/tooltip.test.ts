@@ -7,5 +7,7 @@ it('formats a tooltip as the footer: title, lines, points, keys, stressed words,
   );
   // a tool's name before ": " white, on the first line only
   expect(tipHtml('Move (M): type distances\nThen: Enter')).toBe('<div><b>Move (M):</b> type distances</div><div>Then: Enter</div>');
-  expect(tipHtml('How strong it glows')).toBe('<div>How strong it glows</div>');
+  // a name alone (one short line) white; a longer line without a name as it is
+  expect(tipHtml('Undo (⌘Z)')).toBe('<div><b>Undo (⌘Z)</b></div>');
+  expect(tipHtml('The most a face may stretch flat, cut into gores past it')).toBe('<div>The most a face may stretch flat, cut into gores past it</div>');
 });

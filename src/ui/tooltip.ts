@@ -5,7 +5,8 @@ import { caretHtml } from './complete';
 /**
  * A tooltip's text as HTML, the footer's way: `[Key]` a key and `**words**` stressed (both white), X / Y / Z in their
  * axis' colours; line by line: `# ` its title, `- ` a point of a list, an empty line a gap, others as they are. The
- * first line's lead before ": " (a tool's name, "Move (M): …") white as a title.
+ * first line's lead before ": " (a tool's name, "Move (M): …") white as a title; a tip of one short line without one
+ * ("Undo (⌘Z)") is a name: white.
  */
 export function tipHtml(text: string) {
   const inline = (t: string) =>
@@ -14,7 +15,8 @@ export function tipHtml(text: string) {
       .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   const lead = (line: string) => {
     const m = /^([^:]{1,40}): /.exec(line);
-    return m ? `<b>${inline(m[1])}:</b> ${inline(line.slice(m[0].length))}` : inline(line);
+    if (m) return `<b>${inline(m[1])}:</b> ${inline(line.slice(m[0].length))}`;
+    return line === text && line.length <= 40 ? `<b>${inline(line)}</b>` : inline(line);
   };
   return text
     .split('\n')

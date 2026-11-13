@@ -581,7 +581,7 @@ const button = (label: string, onclick: () => void, title = '') => h('button', {
 
 /** Tips of what the top bar and the File menu both offer. */
 const TIPS = {
-  import: 'Import (or drop the file where it should go): STEP and native CAD files (Fusion, SolidWorks, CATIA, Inventor, FreeCAD, Rhino, IGES …) become solid bodies with their groups, names, colours and materials, STL, OBJ, 3MF, GLB and SketchUp (SKP) meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate',
+  import: 'Import: or drop the file where it should go. STEP and native CAD files (Fusion, SolidWorks, CATIA, Inventor, FreeCAD, Rhino, IGES …) become solid bodies with their groups, names, colours and materials, STL, OBJ, 3MF, GLB and SketchUp (SKP) meshes, SVG and DXF a sketch 1:1, a picture (PNG, JPG, WebP, GIF) an image to calibrate',
   export: 'Export STEP: one file with the selected bodies (else all shown ones) as named, coloured parts, as placed in the world (for other CAD tools)',
   versions: 'Versions: go back in time: the saved versions of this file, shown with a click, restored if you like',
   print: 'Export for 3D print: the selected bodies (else all shown ones), each checked (closed, manifold, sound, its size), as placed in the world: one STL each (several zipped) or one 3MF',
@@ -681,7 +681,7 @@ function toolbar(ctx: UIContext): Node[] {
   const on = (name: string) => ctx.active === name;
   if (ctx.sketching)
     return [
-      tool('select', 'Select and edit shapes (Esc stops sketching)', ctx.stopTool, !ctx.active),
+      tool('select', 'Select (Esc stops sketching): pick and edit shapes', ctx.stopTool, !ctx.active),
       ...SHAPES.map(([kind, title]) => tool(kind, `${title}: draw into the sketch${MODED.includes(kind) ? MODE_TIP : ''}`, () => ctx.startTool(kind), on(kind))),
       rocket(ctx.cheer),
     ];
@@ -740,7 +740,7 @@ function editbar(ctx: UIContext): Node[] {
     h(
       'div',
       { className: 'flyout-at' },
-      tool('align', 'Align the selected objects by their boxes (bodies, groups as one, whole sketches); 2 or more, distribute 3 or more', () => {
+      tool('align', 'Align: the selected objects by their boxes (bodies, groups as one, whole sketches); 2 or more, distribute 3 or more', () => {
         alignOpen = !alignOpen;
         renderUI(ctx);
       }, alignOpen),
@@ -770,7 +770,9 @@ export function commands(): Command[] {
     if (!b.title || !b.onclick || b.disabled || b.parentElement?.classList.contains('flyout-at') || b.closest('.menu.down')) continue; // a menu's own button: its rows are here (the File menu's: KEYS, the top bar's buttons and recent rows)
     const label = b.querySelector('span')?.textContent;
     const name = label ?? b.title.split(/ \(|:/)[0];
-    const hint = label ? b.title : b.title.slice(name.length).replace(/^\s*(\([^)]*\))?:\s*/, '').trim();
+    // the tooltip after its name ("Join: one body …", "Import…" for "Import: …"), else all of it
+    const base = name.replace(/…$/, '');
+    const hint = (!b.title.startsWith(base) ? b.title : /^[^:]{1,40}: /.test(b.title) ? b.title.replace(/^[^:]{1,40}: /, '') : b.title.slice(base.length)).trim();
     out.set(`${name}\n${hint}`, { name, hint, keys: keys(name), icon: b.querySelector('svg')?.outerHTML, run: () => b.click() });
   }
   const names = new Set([...out.values()].map((c) => c.name));
@@ -813,24 +815,24 @@ function alignTools(ctx: UIContext) {
     const [lo, mid, hi, spread] = icons[a];
     const k = axisHtml(a);
     return [
-      item(`min${a}`, lo, `${k} min`, `Their lowest ${a} onto the lowest of all`),
-      item(`mid${a}`, mid, `${k} middle`, `Their middles onto the middle of all along ${a}`),
-      item(`max${a}`, hi, `${k} max`, `Their highest ${a} onto the highest of all`),
-      item(`spread${a}`, spread, `${k} distribute`, `Equal gaps along ${a}; the outermost stay (3 or more)`),
+      item(`min${a}`, lo, `${k} min`, `${a} min: their lowest ${a} onto the lowest of all`),
+      item(`mid${a}`, mid, `${k} middle`, `${a} middle: their middles onto the middle of all along ${a}`),
+      item(`max${a}`, hi, `${k} max`, `${a} max: their highest ${a} onto the highest of all`),
+      item(`spread${a}`, spread, `${k} distribute`, `${a} distribute: equal gaps along ${a}; the outermost stay (3 or more)`),
     ];
-  }).concat(item('first', 'centerX', 'Middle on first', 'Their middles onto the middle of the first selected'));
+  }).concat(item('first', 'centerX', 'Middle on first', 'Middle on first: their middles onto the middle of the first selected'));
 }
 
 /** The boolean menu's rows (as the align menu's). */
 function booleanMenu(ctx: UIContext) {
   const ops: [BooleanOp, string, string][] = [
-    ['union', 'Join', 'One body from all of them'],
-    ['subtract', 'Cut', 'The others cut the first'],
-    ['intersect', 'Intersect', 'Only where all of them overlap'],
+    ['union', 'Join', 'one body from all of them'],
+    ['subtract', 'Cut', 'the others cut the first'],
+    ['intersect', 'Intersect', 'only where all of them overlap'],
   ];
   return [
-    ...ops.map(([op, label, title]) => menuItem(op, label, title, () => ctx.boolean(op))),
-    menuItem('fingers', 'Finger joint', 'Bodies that overlap or touch cut into interlocking fingers (two, or a whole box: each pair that meets): for gluing sheets together', ctx.fingerJoint),
+    ...ops.map(([op, label, title]) => menuItem(op, label, `${label}: ${title}`, () => ctx.boolean(op))),
+    menuItem('fingers', 'Finger joint', 'Finger joint: bodies that overlap or touch cut into interlocking fingers (two, or a whole box: each pair that meets): for gluing sheets together', ctx.fingerJoint),
   ];
 }
 
