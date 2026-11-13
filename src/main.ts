@@ -7658,7 +7658,7 @@ async function exportBodies(format: ExportFormat, bodies = exportable(), extra: 
 }
 
 /** The export panels' choices, this session. */
-const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0' };
+const exportChoice = { laser: 'svg' as 'svg' | 'dxf', unwrap: 'svg' as 'svg' | 'dxf', print: 'stl' as 'stl' | '3mf', kerf: '0', stretch: '5' };
 
 /**
  * Laser, unwrap or 3D print export: a panel at the top lists the bodies it takes (see `exportable`), each switched on
@@ -7715,18 +7715,25 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
   const checks = new Map<string, PrintCheck>();
   // the bodies unwrapped, filled in when they come; their pieces numbered across the sheet (one alone: not), each named after its body
   const unwraps = new Map<string, Unwrapped>();
-  // a hollow body's side picked in its row (first: the kernel's choice); each body unwrapped once switched on, again when its side changes
+  // a hollow body's side picked in its row (first: the kernel's choice); the stretch typed below (%; none: no gores);
+  // each body unwrapped once switched on, again when its side or the stretch changes
   const sides = new Map<string, Side>();
-  const unwrapAsked = new Map<string, Side | undefined>();
+  const limit = () => {
+    const v = parseFloat(exportChoice.stretch);
+    return v > 0 ? v / 100 : null;
+  };
+  const askedFor = (id: string) => JSON.stringify([sides.get(id) ?? null, limit()]);
+  const unwrapAsked = new Map<string, string>();
+  let stretchTimer = 0;
   const unwrapAsk = () => {
-    const todo = bodies.filter((b) => on.has(b.id) && (!unwrapAsked.has(b.id) || unwrapAsked.get(b.id) !== sides.get(b.id)));
+    const todo = bodies.filter((b) => on.has(b.id) && unwrapAsked.get(b.id) !== askedFor(b.id));
     if (!todo.length) return;
-    for (const b of todo) unwrapAsked.set(b.id, sides.get(b.id)), unwraps.delete(b.id);
-    void kernel.unwrap(todo.map((b) => ({ name: b.id, features: built.get(b.id)!, side: sides.get(b.id) }))).then((results) => {
+    for (const b of todo) unwrapAsked.set(b.id, askedFor(b.id)), unwraps.delete(b.id);
+    void kernel.unwrap(todo.map((b) => ({ name: b.id, features: built.get(b.id)!, side: sides.get(b.id), limit: limit() }))).then((results) => {
       for (const r of results) {
-        if (unwrapAsked.get(r.name) !== sides.get(r.name)) continue; // asked again since
+        if (unwrapAsked.get(r.name) !== askedFor(r.name)) continue; // asked again since
         unwraps.set(r.name, r);
-        if (r.side) sides.set(r.name, r.side), unwrapAsked.set(r.name, r.side);
+        if (r.side) sides.set(r.name, r.side), unwrapAsked.set(r.name, askedFor(r.name));
       }
       if (box.isConnected) draw();
     });
@@ -7776,7 +7783,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     const pieces = kind === 'laser' ? (lasered?.pieces ?? []) : [...unwrapped, ...(key?.done ? [key.done] : [])];
     const sheet = sheetOf(pieces);
     preview.hidden = !sheet.length && !lasered?.failed.length;
-    preview.innerHTML = sheet.length ? previewSvg(sheet, unwrapped.map((p) => p.faces)) : '';
+    preview.innerHTML = sheet.length ? previewSvg(sheet, unwrapped.map((p) => p.faces), limit() ?? 0.1) : '';
     if (kind === 'laser' && lasered?.failed.length) preview.append(Object.assign(document.createElement('p'), { className: 'error', textContent: `Could not make: ${lasered.failed.join(', ')}` }));
   };
   const rows = () =>
@@ -7804,8 +7811,11 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
       } else if (kind === 'unwrap') {
         const u = unwraps.get(b.id);
         const n = u?.pieces.length ?? 0;
-        const text = !u ? (on.has(b.id) ? 'unwrapping …' : '') : u.error ? u.error : `${n} piece${n === 1 ? '' : 's'} · ${u.stretch > 0.0005 ? `stretched up to ${fmt(+(u.stretch * 100).toFixed(1))} %` : 'no stretch'}`;
-        row.append(Object.assign(document.createElement('span'), { className: u?.error || (u?.stretch ?? 0) > 0.1 ? 'check bad' : 'check', textContent: text, title: 'Flat faces as they are, cylinders and cones rolled out exactly, other faces flattened with a little stretch (orange below)' }));
+        // over the stretch typed: gores could not get under it
+        const most = limit();
+        const atBest = most !== null && (u?.stretch ?? 0) > most + 0.0005;
+        const text = !u ? (on.has(b.id) ? 'unwrapping …' : '') : u.error ? u.error : `${n} piece${n === 1 ? '' : 's'} · ${u.stretch > 0.0005 ? `stretched up to ${fmt(+(u.stretch * 100).toFixed(1))} %${atBest ? ' (at best)' : ''}` : 'no stretch'}`;
+        row.append(Object.assign(document.createElement('span'), { className: u?.error || (u?.stretch ?? 0) > (most ?? 0.1) ? 'check bad' : 'check', textContent: text, title: 'Flat faces as they are, cylinders and cones rolled out exactly, other faces flattened with a little stretch (orange below)' }));
         // a hollow body (a closed cavity inside): which of its faces
         if (u?.hollow) row.append(segmented<Side>([['outside', 'Outside'], ['inside', 'Inside'], ['both', 'Both']], () => sides.get(b.id) ?? 'inside', (v) => sides.set(b.id, v)));
       } else {
@@ -7828,13 +7838,24 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
       oninput: () => ((exportChoice.kerf = kerf.value), clearTimeout(kerfTimer), (kerfTimer = window.setTimeout(laserAsk, 300))),
     });
     Object.assign(kerf.dataset, { complete: '', noMeasure: '' });
+    const stretch = Object.assign(document.createElement('input'), {
+      value: exportChoice.stretch,
+      className: 'stretch',
+      title:
+        'Stretch: the most a face may stretch flat, in %; a face stretching more is cut into gores (narrow pieces), at best down to what its mesh allows. Lower: more pieces that lie truer. Empty: no gores.\nAs a guide: paper and card 1–2 %, leather and felt about 5 %, woven cloth 5–10 %, stretchy fabric (jersey, lycra) 10–20 %',
+      oninput: () => ((exportChoice.stretch = stretch.value), clearTimeout(stretchTimer), (stretchTimer = window.setTimeout(unwrapAsk, 400))),
+    });
     const formats =
       kind === 'print' ? segmented([['stl', 'STL'], ['3mf', '3MF']], () => exportChoice.print, (v) => (exportChoice.print = v)) : segmented([['svg', 'SVG'], ['dxf', 'DXF']], () => exportChoice[kind], (v) => (exportChoice[kind] = v));
     // its title centred, the close button at the right; "Available objects" over the rows; a footer: Kerf left, the formats and Export right
     const head = Object.assign(document.createElement('div'), { className: 'export-head' });
     head.append(Object.assign(document.createElement('h3'), { textContent: { laser: 'Laser export', unwrap: 'Unwrap export', print: '3D print export' }[kind] }), closeButton('Close (Esc)', close));
     const foot = Object.assign(document.createElement('div'), { className: 'export-foot' });
-    foot.append(...(kind === 'laser' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf)] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
+    foot.append(
+      ...(kind === 'laser' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf)] : []),
+      ...(kind === 'unwrap' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Stretch', title: stretch.title }), stretch, Object.assign(document.createElement('span'), { textContent: '%' }))] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
+    const typing = box.querySelector<HTMLInputElement>('input.stretch');
+    const caret = typing && typing === document.activeElement ? typing.selectionStart : null;
     box.replaceChildren(head, Object.assign(document.createElement('h4'), { className: 'export-sub', textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);
     // on top: all on or none (some: shown half)
     const every = on.size === bodies.length;
@@ -7846,6 +7867,7 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     showPreview();
     if (kind === 'laser') laserAsk();
     if (kind === 'unwrap') unwrapAsk();
+    if (caret !== null) stretch.focus(), stretch.setSelectionRange(caret, caret);
     showNote(); // the hint row back
     atTop(box);
   };

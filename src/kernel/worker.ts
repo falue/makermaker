@@ -36,7 +36,7 @@ export type Request =
   | { kind: 'areas'; id: number; shapes: Resolved<Profile>[] }
   | { kind: 'export'; format: ExportFormat; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
   | { kind: 'check'; id: number; bodies: ExportBody[] }
-  | { kind: 'unwrap'; id: number; bodies: (Pick<ExportBody, 'name' | 'features'> & { side?: Side })[] }
+  | { kind: 'unwrap'; id: number; bodies: (Pick<ExportBody, 'name' | 'features'> & { side?: Side; limit?: number | null })[] }
   | { kind: 'laser'; id: number; bodies: ExportBody[]; around?: Pick<ExportBody, 'features' | 'place'>[] }
   | { kind: 'legend'; id: number; bodies: Pick<ExportBody, 'features' | 'place'>[]; anchors: (Anchor & { body: number })[] }
   | { kind: 'measure'; id: number; asks: MeasureAsk[] }
@@ -283,11 +283,11 @@ async function handle(data: Job) {
   }
   if (data.kind === 'unwrap') {
     for (const b of data.bodies) await loadImports(b.features);
-    const results = data.bodies.map(({ name, features, side }): Unwrapped => {
+    const results = data.bodies.map(({ name, features, side, limit }): Unwrapped => {
       let shape: Shape3D | undefined;
       try {
         shape = buildBody(features);
-        return { name, ...unwrap(shape, side) };
+        return { name, ...unwrap(shape, side, limit) };
       } catch (e) {
         return { name, pieces: [], stretch: 0, error: e instanceof Error ? e.message : `OpenCascade error ${e}` };
       } finally {

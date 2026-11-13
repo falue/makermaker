@@ -66,10 +66,10 @@ const MESH = { linear: 0.05, angular: 0.2 };
 /**
  * A solid unwrapped into flat nets at 1:1, seen from outside: flat faces as they are, cylinders and cones rolled out
  * exactly (their surface parameters are lengths and angles), other faces by least squares conformal maps (`lscm`),
- * stretched a little (over 5 %: cut into `gores`, pieces of their own); joined along shared edges where they lie flat without overlapping (`nets`). Of a hollow solid
+ * stretched a little (over `limit`: cut into `gores`, pieces of their own; null: never); joined along shared edges where they lie flat without overlapping (`nets`). Of a hollow solid
  * only the faces on `side` (see `facesOn`). `stretch`: the worst face's (0.05: 5 %); `hollow`: it has a cavity.
  */
-export function unwrap(shape: Shape3D, side?: Side): { pieces: UnwrapPiece[]; stretch: number; hollow: boolean; side: Side } {
+export function unwrap(shape: Shape3D, side?: Side, limit: number | null = 0.05): { pieces: UnwrapPiece[]; stretch: number; hollow: boolean; side: Side } {
   const oc = getOC();
   new oc.BRepMesh_IncrementalMesh(shape.wrapped, MESH.linear, false, MESH.angular, false).delete();
   // edges by hash code, told apart by IsSame: their key is shared by the faces on either side
@@ -165,7 +165,7 @@ export function unwrap(shape: Shape3D, side?: Side): { pieces: UnwrapPiece[]; st
     const flatFace = { pts, tris, flat, edges };
     const worst = kind === 'PLANE' || kind === 'CYLINDRE' || kind === 'CONE' ? 0 : stretchOf(flatFace);
     // stretched too much: cut into gores, pieces of their own (they join nothing)
-    const parts = worst > 0.05 && tri.HasUVNodes() ? gores(pts, uv, tris, free) : null;
+    const parts = limit !== null && worst > limit && tri.HasUVNodes() ? gores(pts, uv, tris, free, limit) : null;
     for (const part of parts ?? [flatFace]) {
       faces.push({ edges: [], ...part });
       stretch.push(parts ? stretchOf(part) : worst);

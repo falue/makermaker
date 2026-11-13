@@ -125,7 +125,7 @@ export class Kernel {
   }
 
   /** Each body unwrapped into flat nets (see the worker's `unwrap`). */
-  async unwrap(bodies: (Pick<ExportBody, 'name' | 'features'> & { side?: Side })[]): Promise<Unwrapped[]> {
+  async unwrap(bodies: (Pick<ExportBody, 'name' | 'features'> & { side?: Side; limit?: number | null })[]): Promise<Unwrapped[]> {
     const answer = await this.ask(this.shards[0], { kind: 'unwrap', id: this.nextAsk++, bodies });
     return answer.kind === 'unwrap' ? answer.results : [];
   }

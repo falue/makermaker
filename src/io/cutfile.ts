@@ -168,11 +168,11 @@ export function dxfOf(cuts: Cut[], labels: Label[] = []): string {
 
 /**
  * A sheet drawn to look at (not to cut): each piece's faces filled (`faces`, by the pieces given to `sheetOf`: white, more
- * orange the more they stretch, full at 10 %), its cuts dark red, its folds dashed green, key lines dark grey, its texts;
+ * orange the more they stretch, full at `full`: 0.1 is 10 %), its cuts dark red, its folds dashed green, key lines dark grey, its texts;
  * lines one pixel wide at any size.
  */
-export function previewSvg(pieces: Placed[], faces: { loops: P2[][]; stretch: number }[][]): string {
-  const shade = (s: number) => `hsl(24 95% ${Math.round(100 - Math.min(1, s / 0.1) * 38)}%)`;
+export function previewSvg(pieces: Placed[], faces: { loops: P2[][]; stretch: number }[][], full = 0.1): string {
+  const shade = (s: number) => `hsl(24 95% ${Math.round(100 - Math.min(1, s / full) * 38)}%)`;
   const path = (loops: P2[][], [dx, dy]: P2) => loops.map((l) => `M${l.map(([x, y]) => `${f(x + dx)} ${f(y + dy)}`).join('L')}Z`).join('');
   const fills = pieces.flatMap((p) => (faces[p.from] ?? []).map((g) => `<path d="${path(g.loops, p.shift)}" fill="${shade(g.stretch)}" fill-rule="evenodd"/>`));
   const lines = (kind: 'cut' | 'mark' | 'key') => pieces.flatMap((p) => p.cuts.filter((c) => (c.key ? 'key' : c.mark ? 'mark' : 'cut') === kind).map(svgShape)).join('');
