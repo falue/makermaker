@@ -7836,9 +7836,16 @@ async function exportPanel(kind: 'laser' | 'print' | 'unwrap') {
     const head = Object.assign(document.createElement('div'), { className: 'export-head' });
     head.append(Object.assign(document.createElement('h3'), { textContent: { laser: 'Laser export', unwrap: 'Unwrap export', print: '3D print export' }[kind] }), closeButton('Close (Esc)', close));
     const foot = Object.assign(document.createElement('div'), { className: 'export-foot' });
+    // their labels scrub them sideways, as every value field's
+    const scrubbed = (input: HTMLInputElement, label: HTMLElement, u: Unit, perPx?: number) => {
+      scrub(label, input, () => input.value, u, settings.minStep, (text) => ((input.value = text), input.dispatchEvent(new Event('input'))), () => (input.focus(), input.select()), false, undefined, perPx);
+      return label;
+    };
+    const kerfLabel = scrubbed(kerf, Object.assign(document.createElement('span'), { textContent: 'Kerf' }), doc.units, 0.01); // tenths of a mm: 0.01 per px
+    const stretchLabel = scrubbed(stretch, Object.assign(document.createElement('span'), { textContent: 'Max stretch', title: stretch.title }), 'mm', 0.1); // per cent, 0.1 per px
     foot.append(
-      ...(kind === 'laser' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Kerf' }), kerf)] : []),
-      ...(kind === 'unwrap' ? [cell(Object.assign(document.createElement('span'), { textContent: 'Max stretch', title: stretch.title }), stretch, Object.assign(document.createElement('span'), { textContent: '%' })), keyToggle] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
+      ...(kind === 'laser' ? [cell(kerfLabel, kerf)] : []),
+      ...(kind === 'unwrap' ? [cell(stretchLabel, stretch, Object.assign(document.createElement('span'), { textContent: '%' })), keyToggle] : []), Object.assign(formats, { className: 'segmented formats' }), Object.assign(panelButton('Export', 'Export the ones switched on (Enter)', go), { className: 'primary' }));
     const typing = box.querySelector<HTMLInputElement>('input.stretch');
     const caret = typing && typing === document.activeElement ? typing.selectionStart : null;
     box.replaceChildren(head, Object.assign(document.createElement('h4'), { className: 'export-sub', textContent: 'Available objects' }), Object.assign(document.createElement('div'), { className: 'export-rows' }), foot);
