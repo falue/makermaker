@@ -15,7 +15,6 @@ import { contextMenu, type MenuItem } from './ui/menu';
 import { axisHtml, sizeHtml } from './ui/axes';
 import { jointed, jointsWithout, turning } from './doc/joints';
 import { workFrame } from './doc/workplane';
-import type { Lookup } from './doc/expr';
 import { getIn, paramLookup, resolve, setIn, UNITLESS, type Resolved } from './doc/resolve';
 import { readStep, stepObjects } from './io/step';
 import { NATIVE, nativeToStep } from './io/native';
@@ -27,6 +26,7 @@ import { openMaterials } from './ui/materials';
 import { shotCamera } from './viewer/render';
 import { emptyDoc, ex, newId, sampleDoc, unturned } from './doc/sample';
 import { faceAt, pushed, sideFrame } from './doc/pull';
+import { alignedFrames, jointValue, lengthBy, localPlaces, originTo, ownOrigins, placementOf, toPlace, turnOf } from './doc/origins';
 import { carrierOf, contents, freed, listedAfter, onFaceOf, ownerOf, ownersOf, rank, sourceSketch, tree, unlinkedFrom, whose, within } from './doc/groups';
 import { chainOf, unitAt } from './doc/shapegroups';
 import type { CoatFeature } from './doc/types';
@@ -185,33 +185,8 @@ function measureAt([k, i, ...rest]: string[]): ((p: Vector3) => number) | null {
   return null;
 }
 
-/** Where a joint is now: degrees (hinge) or mm (slider); 0 while its value is no number. */
-function jointValue(j: Joint, lookup: Lookup) {
-  try {
-    return evalLength(j.value, lookup);
-  } catch {
-    return 0;
-  }
-}
-
 /** Whether a joint turns (its values in degrees), not slides. */
 const turns = (j: Joint) => j.kind === 'hinge' || j.kind === 'revolve';
-
-/** A rigid matrix as a turn around an axis, then a move. */
-function toPlace(m: Matrix4): Place {
-  const [offset, q] = [new Vector3(), new Quaternion()];
-  m.decompose(offset, q, new Vector3());
-  if (q.w < 0) q.set(-q.x, -q.y, -q.z, -q.w);
-  const s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
-  const angle = (2 * Math.acos(Math.min(1, q.w)) * 180) / Math.PI;
-  return { axis: s < 1e-9 ? [0, 0, 1] : [q.x / s, q.y / s, q.z / s], angle: s < 1e-9 ? 0 : angle, offset: offset.toArray() };
-}
-
-/** A turn in degrees around X, then Y, then Z (of the parent) as a quaternion. */
-const turnOf = (r: { rx: number; ry: number; rz: number }) => {
-  const rad = (v: number) => (v * Math.PI) / 180;
-  return new Quaternion().setFromEuler(new Euler(rad(r.rx), rad(r.ry), rad(r.rz), 'ZYX'));
-};
 
 /** Where body `id` sits in the world. */
 const bodyPlace = (id: string) => toPlace(bodyPlaces.get(id) ?? new Matrix4());
@@ -510,31 +485,6 @@ const renderSoon = () => (renderFrame ||= requestAnimationFrame(() => ((renderFr
 
 kernel.setTolerance(settings.meshDetail);
 
-/**
- * `ownPlaces` from `doc`: a custom group origin moved and turned in its parent's, a body's position and turn in its
- * group; bad values into `errors`. `still`: the bodies whose position or turn is no number (they stay where they were).
- */
-function ownPlacesOf(doc: Doc, lookup: ReturnType<typeof paramLookup>, errors = new Map<string, string>()) {
-  ownPlaces.clear();
-  const fine = (v: number) => (Number.isFinite(v) ? v : 0);
-  doc.groups.forEach((g, i) => {
-    if (g.origin.kind !== 'custom') return;
-    const at = `groups.${i}.origin`;
-    const [x, y, z] = resolve(g.origin.position, lookup, `${at}.position`, errors).map(fine);
-    const r = resolve(g.origin.rotation, lookup, `${at}.rotation`, errors);
-    // degrees around the parent's X, then Y, then Z
-    ownPlaces.set(g.id, new Matrix4().compose(new Vector3(x, y, z), turnOf({ rx: fine(r.rx), ry: fine(r.ry), rz: fine(r.rz) }), new Vector3(1, 1, 1)));
-  });
-  const still = new Set<string>();
-  doc.bodies.forEach((p, i) => {
-    const local = resolve(p.position, lookup, `bodies.${i}.position`, errors);
-    const turned = resolve(p.rotation, lookup, `bodies.${i}.rotation`, errors);
-    if (local.every(Number.isFinite) && [turned.rx, turned.ry, turned.rz].every(Number.isFinite)) ownPlaces.set(p.id, new Matrix4().compose(new Vector3(...local), turnOf(turned), new Vector3(1, 1, 1)));
-    else still.add(p.id);
-  });
-  return { still };
-}
-
 /** Resolves expressions, moves bodies, and rebuilds bodies whose features changed and resolved cleanly. */
 function update() {
   const doc = history.current;
@@ -559,7 +509,10 @@ function update() {
   );
   linkErrors = new Map();
   // own placements, then everything in the world with the joints where they are now
-  const { still } = ownPlacesOf(doc, lookup, exprErrors);
+  const local = localPlaces(doc, lookup, exprErrors);
+  ownPlaces.clear();
+  local.own.forEach((m, id) => ownPlaces.set(id, m));
+  const { still } = local;
   const { placed, problems } = jointed(doc, ownPlaces, (j) => jointValue(j, lookup));
   jointProblems = problems;
   groupPlaces.clear();
@@ -6055,81 +6008,6 @@ function movedInto(doc: Doc, ids: string[], group: string | null, target: Matrix
   return { ...doc, bodies, sketches, groups, joints };
 }
 
-/** An angle (degrees, as stored) changed by `by`: a plain number stays one, an expression gets `+ by`. */
-function turnedBy(x: Expr, deg: number, by: number): Expr {
-  if (Math.abs(by) < 1e-9) return x;
-  return isPlain(x.e) ? { e: fmt(deg + by), u: x.u } : { e: `${x.e} ${by < 0 ? '-' : '+'} ${fmt(Math.abs(by))}`, u: x.u };
-}
-
-/** A placement matrix as a position (mm) and a turn (degrees around X, then Y, then Z), as bodies and group origins store them. */
-function placementOf(m: Matrix4) {
-  const [at, q] = [new Vector3(), new Quaternion()];
-  m.decompose(at, q, new Vector3());
-  const e = new Euler().setFromQuaternion(q, 'ZYX');
-  const deg = (r: number) => (r * 180) / Math.PI;
-  return { at: at.toArray(), turn: { rx: deg(e.x), ry: deg(e.y), rz: deg(e.z) } };
-}
-
-/**
- * `doc` with group `id`'s origin at `to` (world), its contents staying where they are in the world: its bodies and
- * sub-groups of their own origin re-placed in it (also those of sub-groups counting from it), its joints' axes and
- * anchors with it, its free base-plane sketches pinned where they are (a body's sketch moves with its body). `origin`:
- * what the group stores (else `to` as numbers).
- */
-function originTo(doc: Doc, id: string, to: Matrix4, origin?: Group['origin']): Doc {
-  const lookup = paramLookup(doc.params);
-  const by = to.clone().invert().multiply(groupPlace(id)); // from the old origin's coordinates into the new one's
-  // the groups whose contents count from this origin
-  const same = new Set([id]);
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const g of doc.groups) if (g.origin.kind === 'parent' && g.parent && same.has(g.parent) && !same.has(g.id)) (same.add(g.id), (grew = true));
-  }
-  const moved = <T>(own: string, change: (now: ReturnType<typeof placementOf>, next: ReturnType<typeof placementOf>) => T) => {
-    const m = ownPlaces.get(own);
-    return m ? change(placementOf(m), placementOf(by.clone().multiply(m))) : null;
-  };
-  const bodies = doc.bodies.map((b) => {
-    if (!b.group || !same.has(b.group)) return b;
-    return (
-      moved(b.id, (now, next) => {
-        const local = resolve(b.position, lookup, '', new Map());
-        const turn = resolve(b.rotation, lookup, '', new Map());
-        return {
-          ...b,
-          position: b.position.map((x, k) => plus(x, local[k], next.at[k] - now.at[k])) as Body['position'],
-          rotation: { rx: turnedBy(b.rotation.rx, turn.rx, next.turn.rx - turn.rx), ry: turnedBy(b.rotation.ry, turn.ry, next.turn.ry - turn.ry), rz: turnedBy(b.rotation.rz, turn.rz, next.turn.rz - turn.rz) },
-        };
-      }) ?? b
-    );
-  });
-  const groups = doc.groups.map((g) => {
-    if (g.id === id) {
-      const { at, turn } = placementOf(parentPlace(id).clone().invert().multiply(to));
-      return { ...g, origin: origin ?? { kind: 'custom' as const, position: at.map((v) => len(v)) as [Expr, Expr, Expr], rotation: { rx: ex(fmt(turn.rx)), ry: ex(fmt(turn.ry)), rz: ex(fmt(turn.rz)) } } };
-    }
-    if (g.origin.kind !== 'custom' || !g.parent || !same.has(g.parent)) return g;
-    const o = g.origin;
-    return (
-      moved(g.id, (now, next) => ({
-        ...g,
-        origin: { ...o, position: o.position.map((x, k) => plus(x, now.at[k], next.at[k] - now.at[k])) as [Expr, Expr, Expr], rotation: { rx: turnedBy(o.rotation.rx, now.turn.rx, next.turn.rx - now.turn.rx), ry: turnedBy(o.rotation.ry, now.turn.ry, next.turn.ry - now.turn.ry), rz: turnedBy(o.rotation.rz, now.turn.rz, next.turn.rz - now.turn.rz) } },
-      })) ?? g
-    );
-  });
-  const sketches = doc.sketches.map((sk) => {
-    if (sk.plane.kind !== 'base' || !sk.group || !same.has(sk.group) || carrierOf(doc, sk.id)) return sk;
-    const base = frameOf(resolve(sk.plane, lookup, '', new Map()) as Resolved<SketchPlacement>);
-    if (!base) return sk;
-    const { o, x, y, n } = placeFrame(toPlace(groupPlace(sk.group)), base);
-    return { ...sk, plane: { kind: 'plane' as const, o, x, y, n } };
-  });
-  const joints = doc.joints.map((j) =>
-    same.has(j.parent) ? { ...j, axis: { at: new Vector3(...j.axis.at).applyMatrix4(by).toArray(), dir: new Vector3(...j.axis.dir).transformDirection(by).toArray() } } : j,
-  );
-  return { ...doc, bodies, groups, sketches, joints };
-}
-
 /** A group's origin as typed in `next` (its fields, or Parent's origin), its contents staying where they are in the world; `live`: a scrub's step (replaced, not a new undo step). */
 function moveOrigin(id: string, next: Doc, live = false) {
   const keep = (doc: Doc) => (live ? (history.replace(follow(history.current, doc)), update()) : commit(doc));
@@ -6152,7 +6030,11 @@ function moveOrigin(id: string, next: Doc, live = false) {
 function pickOrigin(id: string) {
   const q = new Quaternion();
   groupPlace(id).decompose(new Vector3(), q, new Vector3());
-  pickFrame(q, 'Origin: click where it goes · a corner, centre or edge: there, unturned · a face: there, Z out of the face · its contents stay · [Esc] Abort', (m) => m && commit(originTo(history.current, id, m)));
+  pickFrame(q, 'Origin: click where it goes · a corner, centre or edge: there, unturned · a face: there, Z out of the face · its contents stay · [Esc] Abort', (m) => {
+    if (!m) return;
+    const { at, turn } = placementOf(m);
+    commit(runCommand(history.current, 'set-origin', { id, at, turn: [turn.rx, turn.ry, turn.rz] }).doc);
+  });
 }
 
 /**
@@ -6191,46 +6073,6 @@ function pickFrame(turn: Quaternion, hint: string, done: (m: Matrix4 | null, wha
 }
 
 /**
- * Group `id`'s frame aligned to `target` (world) along `axes` (0: X, 1: Y, 2: Z): one axis turned the least way that
- * points it as the target's (the turn around it kept), two or three: the target's turn. `move`: at the target's point,
- * else at its own.
- */
-function alignedFrame(id: string, target: Matrix4, axes: number[], move: boolean): Matrix4 {
-  const [at, q, to, tq] = [new Vector3(), new Quaternion(), new Vector3(), new Quaternion()];
-  groupPlace(id).decompose(at, q, new Vector3());
-  target.decompose(to, tq, new Vector3());
-  let turn = tq;
-  if (axes.length === 1) {
-    const unit = (k: number) => new Vector3().setComponent(k, 1);
-    const [from, want] = [unit(axes[0]).applyQuaternion(q), unit(axes[0]).applyQuaternion(tq)];
-    // pointing the other way: half a turn around its next axis
-    const by = from.dot(want) < -0.999999 ? new Quaternion().setFromAxisAngle(unit((axes[0] + 1) % 3).applyQuaternion(q), Math.PI) : new Quaternion().setFromUnitVectors(from, want);
-    turn = by.multiply(q);
-  }
-  return new Matrix4().compose(move ? to : at, turn, new Vector3(1, 1, 1));
-}
-
-/** The groups with an origin of their own among `ids` and all they hold, outer ones first. */
-function ownOrigins(doc: Doc, ids: string[]) {
-  const depth = (id: string) => {
-    let n = 0;
-    for (let g = doc.groups.find((x) => x.id === id), seen = new Set<string>(); g?.parent && !seen.has(g.id); seen.add(g.id), g = doc.groups.find((x) => x.id === g!.parent)) n++;
-    return n;
-  };
-  const all = new Set(ids.filter((id) => doc.groups.some((g) => g.id === id)).flatMap((id) => [...within(doc, id)]));
-  return doc.groups.filter((g) => all.has(g.id) && g.origin.kind === 'custom').sort((a, b) => depth(a.id) - depth(b.id)).map((g) => g.id);
-}
-
-/** `doc` with each group's origin at its frame in `frames` (world), outer groups first, all contents where they are. */
-function alignOrigins(doc: Doc, frames: Map<string, Matrix4>): Doc {
-  for (const [id, frame] of frames) {
-    doc = originTo(doc, id, frame);
-    ownPlacesOf(doc, paramLookup(doc.params)); // what the next one reads (its world place stays; the next update makes all anew)
-  }
-  return doc;
-}
-
-/**
  * Align origins: the groups with an origin of their own among `ids` (and all they hold) get frames whose X, Y or Z
  * (the ones switched on) point as the drawing's, or take a frame picked in the view; nothing moves. Their new axes show
  * in the view meanwhile; ✓ or Enter aligns them (one undo step), Esc or ✕ leaves them. First switched on: Z where
@@ -6249,15 +6091,7 @@ function alignOriginsPanel(ids: string[]) {
   const counts = [0, 1, 2].map((k) => groups.filter((id) => off(id, k)).length);
   let axes = [counts[2] ? 2 : counts.reduce((best, n, k) => (n > counts[best] ? k : best), 0)];
   let picked: { m: Matrix4; what: string } | null = null;
-  const frames = () => {
-    const out = new Map<string, Matrix4>();
-    for (const id of groups) {
-      const m = alignedFrame(id, picked?.m ?? new Matrix4(), axes, !!picked);
-      const was = groupPlace(id).elements;
-      if (m.elements.some((v, k) => Math.abs(v - was[k]) > 1e-6)) out.set(id, m); // already there: left alone
-    }
-    return out;
-  };
+  const frames = () => alignedFrames(history.current, ids, axes, picked?.m);
   const box = Object.assign(document.createElement('div'), { className: 'axis-move cut-panel align-panel' });
   const end = (ok: boolean) => {
     const changes = frames();
@@ -6265,8 +6099,9 @@ function alignOriginsPanel(ids: string[]) {
     removeEventListener('keydown', keys, { capture: true });
     viewer.previewOrigin(null);
     toolHint = null;
-    if (ok && changes.size) commit(alignOrigins(history.current, changes));
-    else render();
+    if (!ok || !changes.size) return render();
+    const to = picked && placementOf(picked.m);
+    commit(runCommand(history.current, 'align-origins', { ids, axes: axes.map((k) => 'xyz'[k]).join(''), ...(to ? { at: to.at, turn: [to.turn.rx, to.turn.ry, to.turn.rz] } : {}) }).doc);
   };
   const keys = (e: KeyboardEvent) => {
     if (e.defaultPrevented || (!pressed(e, 'confirm') && !pressed(e, 'cancel'))) return;
@@ -6275,8 +6110,9 @@ function alignOriginsPanel(ids: string[]) {
     end(pressed(e, 'confirm'));
   };
   const draw = () => {
+    // the new axes, the ones they had faint beside them
     const changes = frames();
-    viewer.previewOrigin([...changes.values()]);
+    viewer.previewOrigin([...changes.values()], [...changes.keys()].map((id) => groupPlace(id)));
     const n = changes.size;
     const toggles = Object.assign(document.createElement('span'), { className: 'segmented' });
     toggles.append(
@@ -6284,7 +6120,7 @@ function alignOriginsPanel(ids: string[]) {
         Object.assign(document.createElement('button'), {
           innerHTML: axisHtml('XYZ'[k]),
           className: axes.includes(k) ? 'on' : '',
-          title: axes.includes(k) ? `Click: Leave ${'XYZ'[k]} as it is` : `Click: Straighten ${'XYZ'[k]} too${axes.length ? ' (two axes: the whole turn)' : ''}`,
+          title: axes.includes(k) ? `Click: Leave ${'XYZ'[k]} as it is` : axes.length ? `Click: Straighten ${'XYZ'[k]} too (two axes: the whole turn)` : `Click: Straighten ${'XYZ'[k]}: point it as the drawing's, turned the least way`,
           onclick: () => ((axes = axes.includes(k) ? axes.filter((x) => x !== k) : [...axes, k].sort()), draw()),
         }),
       ),
@@ -6299,12 +6135,12 @@ function alignOriginsPanel(ids: string[]) {
         })];
     const ok = Object.assign(panelButton('✓', n ? `Click: Align ${n} origin${n === 1 ? '' : 's'}, nothing moves (Enter); Esc: leave them` : 'Nothing to change (Enter or Esc: close)', () => end(true)), { disabled: !n });
     box.replaceChildren(
-      cell(Object.assign(document.createElement('span'), { textContent: 'Straighten', title: 'The axes that end up pointing as the target\'s; one: turned the least way, the turn around it kept' }), toggles),
-      cell(Object.assign(document.createElement('span'), { textContent: 'To' }), ...(picked ? [] : [Object.assign(document.createElement('span'), { className: 'check', textContent: "Drawing's axes" })]), ...target),
+      toggles,
+      ...target,
       ok,
       closeButton('Close: leave them as they are (Esc)', () => end(false)),
     );
-    toolHint = `Align origins: ${n} of ${groups.length} group origin${groups.length === 1 ? '' : 's'} change (their new axes show) · the contents stay where they are · [Enter] Align · [Esc] Leave them`;
+    toolHint = `Align origins: X / Y / Z the axes to straighten, ${picked ? 'to the origin picked' : "as the drawing's"} · ${n} of ${groups.length} group origin${groups.length === 1 ? '' : 's'} change (new axes, the old ones faint) · nothing moves · [Enter] Align · [Esc] Leave them`;
     render();
     atTop(box);
   };
@@ -6635,10 +6471,7 @@ function startTool(kind: ToolKind, button = false) {
 }
 
 /** `x` (`mm` now) changed by `by` mm: a plain number stays one, an expression gets `+ by` (`ply` becomes `ply + 5`). */
-function plus(x: Expr, mm: number, by: number): Expr {
-  if (Math.abs(by) < 1e-9) return x;
-  return isPlain(x.e) ? len(mm + by) : { e: `${x.e} ${by < 0 ? '-' : '+'} ${fmt(Math.abs(by) / UNITS[x.u])}`, u: x.u };
-}
+const plus = (x: Expr, mm: number, by: number) => lengthBy(x, mm, by, history.current.units);
 
 /** A line's or polygon's sides' sizes after it changed from `old` to `next` (mm): as expressions, `+ delta`; an angle no longer right goes. */
 function sizesAfter(shape: Extract<Profile, { pts: unknown }>, old: DrawnProfile, next: DrawnProfile) {

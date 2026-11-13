@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { Vector3 } from 'three';
+import { placesOf } from '../doc/origins';
 import type { Doc } from '../doc/types';
 import { COMMANDS, describe as tools, fingersFor, runCommand, shared } from './commands';
 
@@ -143,4 +145,35 @@ describe('attach', () => {
     expect(() => runCommand(doc, 'attach', { id: a, ids: ['nope'] })).toThrow();
     expect(() => runCommand(doc, 'attach', { id: a, ids: [a] })).toThrow();
   });
+  it('sets and aligns group origins, nested ones too, nothing moving', () => {
+    let { doc, results } = script([
+      ['box', { length: 10, width: 10, height: 10, at: [20, 0, 0] }],
+      ['box', { length: 10, width: 10, height: 10, at: [0, 30, 5] }],
+      ['group', (r) => ({ ids: [r[0]] })],
+      ['group', (r) => ({ ids: [r[1]] })],
+    ]);
+    const [outer, inner] = [results[2] as string, results[3] as string];
+    doc = { ...doc, groups: doc.groups.map((g) => (g.id === inner ? { ...g, parent: outer } : g)) };
+    const world = (d: Doc) => placesOf(d).world;
+    const bodies = (d: Doc) => d.bodies.map((b) => world(d).get(b.id)!.elements.map((v) => +v.toFixed(3) + 0)); // stored values are rounded (µm)
+    const before = bodies(doc);
+    // the outer one upside down, the inner one turned and moved within it
+    doc = runCommand(doc, 'set-origin', { id: outer, at: [5, 5, 5], turn: [180, 0, 0] }).doc;
+    doc = runCommand(doc, 'set-origin', { id: inner, at: [0, 20, 0], turn: [0, 30, 90] }).doc;
+    expect(bodies(doc)).toEqual(before);
+    const z = (d: Doc, id: string) => new Vector3(0, 0, 1).transformDirection(world(d).get(id)!).toArray().map((v) => +v.toFixed(6) + 0);
+    expect(z(doc, outer)).toEqual([0, 0, -1]);
+    // Z straightened: both stand up, at their own points, the bodies where they were
+    const aligned = runCommand(doc, 'align-origins', { ids: [outer], axes: 'z' });
+    expect(aligned.result).toBe(2);
+    expect([z(aligned.doc, outer), z(aligned.doc, inner)]).toEqual([[0, 0, 1], [0, 0, 1]]);
+    expect(new Vector3().setFromMatrixPosition(world(aligned.doc).get(outer)!).toArray().map((v) => +v.toFixed(6))).toEqual([5, 5, 5]);
+    expect(bodies(aligned.doc)).toEqual(before);
+    expect(runCommand(aligned.doc, 'align-origins', { ids: [outer], axes: 'z' }).result).toBe(0);
+    // to a picked origin: all take it
+    const picked = runCommand(doc, 'align-origins', { axes: 'xyz', at: [1, 2, 3] }).doc;
+    expect([outer, inner].map((id) => world(picked).get(id)!.elements.map((v) => +v.toFixed(6) + 0))).toEqual([0, 1].map(() => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1]));
+    expect(bodies(picked)).toEqual(before);
+  });
 });
+

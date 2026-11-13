@@ -1052,13 +1052,19 @@ export class Viewer implements ToolView {
 
   private originPreviews: LineSegments2[] = [];
 
-  /** Origin axes at `m` (world frames; 60 px long on screen) while origins are picked or aligned; null or none: none. */
-  previewOrigin(m: THREE.Matrix4 | THREE.Matrix4[] | null) {
-    const list = !m ? [] : Array.isArray(m) ? m : [m];
+  /**
+   * Origin axes at `m` (world frames; 60 px long on screen) while origins are picked or aligned, and faint ones at `was`
+   * (where they are now); null or none: none.
+   */
+  previewOrigin(m: THREE.Matrix4 | THREE.Matrix4[] | null, was: THREE.Matrix4[] = []) {
+    const list = [...(!m ? [] : Array.isArray(m) ? m : [m]), ...was];
+    const strong = list.length - was.length;
     for (const o of this.originPreviews.splice(list.length)) o.removeFromParent(), o.geometry.dispose(), (o.material as LineMaterial).dispose();
     list.forEach((frame, i) => {
       const o = (this.originPreviews[i] ??= Object.assign(originLines(30, 3), { matrixAutoUpdate: false }));
-      (o.material as LineMaterial).resolution.set(this.el.clientWidth, this.el.clientHeight);
+      const look = o.material as LineMaterial;
+      look.resolution.set(this.el.clientWidth, this.el.clientHeight);
+      [look.opacity, look.linewidth] = i < strong ? [1, 3] : [0.35, 2];
       const k = 60 / this.pixelsPerMm(new THREE.Vector3().setFromMatrixPosition(frame)) / 30;
       o.matrix.copy(frame).scale(new THREE.Vector3(k, k, k));
       o.matrixWorldNeedsUpdate = true;

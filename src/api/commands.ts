@@ -1,6 +1,8 @@
 import { assignMaterial, changeLook, findMaterial } from '../doc/materials';
 import { listedAfter, ownersOf } from '../doc/groups';
 import { attach, jointsWithout } from '../doc/joints';
+import { Matrix4, Vector3 } from 'three';
+import { alignedFrames, alignOrigins, originTo, placesOf, turnOf } from '../doc/origins';
 import { ex, newId, unturned } from '../doc/sample';
 import { UNITS } from '../doc/expr';
 import type { Body, CoatFeature, Curve, Doc, Expr, Feature, Group, MaterialLook, Profile, Sketch, Unit } from '../doc/types';
@@ -63,6 +65,11 @@ export function fingersFor(long: number, thick: number) {
   return Math.max(3, n % 2 ? n : n + 1);
 }
 
+/** Group `id`, checked: it must be there. */
+const groupOf = (doc: Doc, id: unknown) => {
+  if (!doc.groups.some((g) => g.id === id)) throw new Error(`no group "${id}"`);
+  return id as string;
+};
 const bodyOf = (doc: Doc, id: unknown) => {
   const i = doc.bodies.findIndex((b) => b.id === id);
   if (i < 0) throw new Error(`no body "${String(id)}"`);
@@ -209,6 +216,39 @@ export const COMMANDS: Record<string, Command> = {
           groups: doc.groups.map((g) => (groups.has(g.id) && g.origin.kind === 'custom' ? { ...g, origin: { ...g.origin, position: moved(g.origin.position) } } : g)),
         },
       };
+    },
+  },
+  'set-origin': {
+    doc: 'Gives a group a custom origin at a point of the world, its contents staying where they are (their positions re-written in it).',
+    params: [
+      { name: 'id', type: 'id', doc: 'the group' },
+      { name: 'at', type: 'point3', doc: 'the origin, [x, y, z] mm in the world' },
+      { name: 'turn', type: 'point3', doc: 'its turn in the world, degrees around X, then Y, then Z (left out: as it is turned now)', optional: true },
+    ],
+    run: (doc, a) => {
+      const id = groupOf(doc, a.id);
+      const [rx, ry, rz] = xyz(a.turn);
+      const turn = a.turn ? new Matrix4().makeRotationFromQuaternion(turnOf({ rx, ry, rz })) : new Matrix4().extractRotation(placesOf(doc).world.get(id) ?? new Matrix4());
+      return { doc: originTo(doc, id, turn.setPosition(new Vector3(...xyz(a.at)))) };
+    },
+  },
+  'align-origins': {
+    doc: "Turns the origins of groups (and of the groups inside them, those with an origin of their own) so that the axes chosen point as the drawing's, each origin where it is; or (`at`) gives them all that origin. Nothing moves. Returns how many changed.",
+    params: [
+      { name: 'ids', type: 'ids', doc: 'the groups (left out: all groups)', optional: true },
+      { name: 'axes', type: 'string', doc: "the axes to straighten, of x, y and z ('z', 'xy' …): one is turned the least way, the turn around it kept; two or three: the whole turn (left out: 'z')", optional: true },
+      { name: 'at', type: 'point3', doc: 'their new origin, [x, y, z] mm in the world (left out: each keeps its point)', optional: true },
+      { name: 'turn', type: 'point3', doc: "that origin's turn, degrees around X, then Y, then Z (with `at`)", optional: true },
+    ],
+    run: (doc, a) => {
+      const ids = (a.ids as string[] | undefined) ?? doc.groups.filter((g) => !g.parent).map((g) => g.id);
+      ids.forEach((id) => groupOf(doc, id));
+      const axes = [...new Set([...String(a.axes ?? 'z').toLowerCase()].map((c) => 'xyz'.indexOf(c)))].filter((k) => k >= 0).sort();
+      if (!axes.length) throw new Error("align-origins: name the axes to straighten, of x, y and z ('z', 'xy' …)");
+      const t = xyz(a.turn);
+      const target = a.at ? new Matrix4().compose(new Vector3(...xyz(a.at)), turnOf({ rx: t[0], ry: t[1], rz: t[2] }), new Vector3(1, 1, 1)) : undefined;
+      const frames = alignedFrames(doc, ids, axes, target);
+      return { doc: alignOrigins(doc, frames), result: frames.size };
     },
   },
   place: {
