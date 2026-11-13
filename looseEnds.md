@@ -100,6 +100,7 @@ Smaller things left open by finished work. Kept up to date with each change; big
 - The file name in the top bar cannot show the file's full path on hover: browsers give only the name (File System Access), a desktop wrapper could.
 - After the view cube was dragged over the top or bottom, the camera stays upside down until a cube side, a corner or Home: orbiting the view itself meanwhile feels the other way round sideways, and the view's own orbit still stops at the poles.
 - Dragging a body or sketch shapes opens the move fields at the first step; an image's open only on letting go (its fields have no gizmo for the drag to write).
+- Field of view as a setting (user, 2026-11-13; pushed back): the 3D view and renders each their own, a snap tick at today's 35° (about a 38 mm lens on full frame), ideally set as a focal length on a sensor size (a small built-in list of sensors, or a public database such as Lensfun or openMVG's sensor list: a new dependency, to research first).
 
 ## Renders
 - A material's own render look and its glow Reach are not in MaterialX exports or imports; the Python `look` command cannot set the render look.
